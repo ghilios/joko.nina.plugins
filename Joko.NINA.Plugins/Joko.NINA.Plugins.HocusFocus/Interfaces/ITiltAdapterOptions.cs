@@ -80,5 +80,58 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Persisted (independent of AutoFocusOptions.SavePath) so the location is reused; "" = unset.
         // NOTE: whether saving is ON is a transient per-run toggle on the VM, not persisted here.
         string SaveAFRunsPath { get; set; }
+
+        // --- Motorized tilt-adapter device connection ---
+
+        // Serial port name the tilt-adapter device connects over (e.g. "COM3"). "" = unset.
+        string TiltDeviceSerialPortName { get; set; }
+
+        // Safety cap on the magnitude of a single commanded move, in device steps. Guards against
+        // sending an oversized command to the hardware in one shot.
+        int TiltDeviceMaxStepsPerCommand { get; set; }
+
+        // Safety cap on the total cumulative excursion (in device steps) a motor may travel from its
+        // shadow-tracked home position before automation refuses to move it further.
+        int TiltDeviceMaxExcursionSteps { get; set; }
+
+        // Seconds to wait after a commanded move before treating the device as settled (e.g. before
+        // polling position or issuing the next command).
+        double TiltDeviceSettleSeconds { get; set; }
+
+        // [CRITICAL AUTOMATION GATE] The device preset name (see TiltAdapterDevicePreset) the CURRENT
+        // stored calibration is linked to. "" means the calibration is NOT device-linked (e.g. it came
+        // from manual screw entry, ApplyManualCalibration, or a replay), and hands-off device automation
+        // (the wizard's auto-apply and the inspector's Automatic Adjustment button) MUST be blocked: a
+        // pre-existing manual calibration's screw numbering/orientation may not match how the device's
+        // motors are wired, and applying corrections against the wrong mapping would worsen tilt
+        // unattended. Only a completed hands-off (connected-device) calibration run may set this; manual
+        // entry, replay-driven recalculation, and disconnected runs must clear it back to "".
+        string DeviceLinkedCalibrationDeviceName { get; set; }
+
+        // [CRITICAL AUTOMATION GATE] True only when the CURRENT stored calibration's own confidence/quality
+        // result (TiltCalibrationCalculator.ComputeConfidence's IsReliable — signal-to-noise across the
+        // per-step tilt vectors) passed. False for a noise-dominated calibration (SNR below
+        // TiltCalibrationCalculator.MinReliableSignalToNoise), a manual entry (ApplyManualCalibration has no
+        // confidence to evaluate), or any completion where reliability could not be established. Automation
+        // (the inspector's Automatic Adjustment, T14, and any future wizard auto-apply) MUST be blocked
+        // whenever this is false, even when the calibration IS device-linked: a device-linked-but-unreliable
+        // calibration is safe to review but not safe to trust unattended. Written at every calibration-math
+        // completion (RunCalibrationMath and ApplyManualCalibration — the same places that set/clear
+        // DeviceLinkedCalibrationDeviceName above); conservative by default (false) whenever reliability
+        // cannot be established. Internal state marker, not a user setting — it needs NO UI control, exactly
+        // like DeviceLinkedCalibrationDeviceName above (also intentionally absent from the options UI).
+        bool CalibrationIsReliable { get; set; }
+
+        // Opaque serialized per-motor cumulative step counters + a validity flag, tracking each motor's
+        // position relative to its last-known home/reference so absolute travel limits can be enforced
+        // across app restarts. "" = no shadow position recorded yet. The serialization format is defined
+        // and consumed by the device controller; this option only stores/round-trips the raw string.
+        string TiltDeviceShadowPositions { get; set; }
+
+        // Amount the user (or automation) moves each screw/motor during the per-screw calibration steps
+        // (full turns for screws, steps for steppers). -1 = unset, resolved to the selected device
+        // preset's default (TiltAdapterDevicePreset.DefaultCalibrationAmount) — still user-editable
+        // afterward.
+        double CalibrationAppliedAmount { get; set; }
     }
 }

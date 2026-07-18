@@ -857,5 +857,22 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 }
             }
         }
+
+        private double[] simNetAxialMicrons = new double[4];
+
+        // Not persisted (an ephemeral session counter, like the pre-existing manual net) and deliberately NOT
+        // routed through optionsAccessor. Copies defensively on get/set so no caller can mutate the backing
+        // array in place and skip the INPC that both SimulatedTiltAdapterVM instances rely on.
+        public double[] SimNetAxialMicrons {
+            get => (double[])simNetAxialMicrons.Clone();
+            set {
+                var next = new double[4];
+                if (value != null) {
+                    Array.Copy(value, next, Math.Min(value.Length, 4));
+                }
+                simNetAxialMicrons = next;
+                RaisePropertyChanged();
+            }
+        }
     }
 }

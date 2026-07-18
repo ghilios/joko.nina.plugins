@@ -165,6 +165,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double SimScrewRadiusMillimeters { get; set; }       // screw distance from sensor center
         bool ShowSimulatorTiltAdapterPanel { get; set; }
 
+        // Per-sim-screw accumulated position since the last re-zero, in axial µm (index 0..3 = sim screw 1..4).
+        // Shared, in-memory (NOT persisted) state: the manual panel AND automated moves (SimulatedTiltActuator,
+        // driving a connected simulated EAT) accumulate into the SAME counters, so every SimulatedTiltAdapterVM
+        // instance's "Net" strip reflects both. The getter returns a copy and the setter replaces (copy) + INPC,
+        // so callers cannot mutate the backing array in place.
+        double[] SimNetAxialMicrons { get; set; }
+
         void ResetDefaults();
     }
 }

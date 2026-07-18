@@ -67,6 +67,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             lastMeasuredStepperStepSizeMicrons = optionsAccessor.GetValueDouble(nameof(LastMeasuredStepperStepSizeMicrons), -1.0);
             deviceName = optionsAccessor.GetValueString(nameof(DeviceName), TiltAdapterDevicePreset.ManualName);
             saveAFRunsPath = optionsAccessor.GetValueString(nameof(SaveAFRunsPath), string.Empty);
+            tiltDeviceSerialPortName = optionsAccessor.GetValueString(nameof(TiltDeviceSerialPortName), string.Empty);
+            tiltDeviceMaxStepsPerCommand = optionsAccessor.GetValueInt32(nameof(TiltDeviceMaxStepsPerCommand), 200);
+            // The real ASG EAT's absolute step counters rest at ~600 (EEPROM-persisted, not zeroed by the
+            // plugin), and the excursion check is |absolute position| <= max -- so the cap must comfortably
+            // exceed the resting counter plus the working travel, or the first move is rejected. See
+            // docs/asg-eat-serial-protocol-design.md.
+            tiltDeviceMaxExcursionSteps = optionsAccessor.GetValueInt32(nameof(TiltDeviceMaxExcursionSteps), 2000);
+            tiltDeviceSettleSeconds = optionsAccessor.GetValueDouble(nameof(TiltDeviceSettleSeconds), 3.0);
+            deviceLinkedCalibrationDeviceName = optionsAccessor.GetValueString(nameof(DeviceLinkedCalibrationDeviceName), string.Empty);
+            calibrationIsReliable = optionsAccessor.GetValueBoolean(nameof(CalibrationIsReliable), false);
+            tiltDeviceShadowPositions = optionsAccessor.GetValueString(nameof(TiltDeviceShadowPositions), string.Empty);
+            calibrationAppliedAmount = optionsAccessor.GetValueDouble(nameof(CalibrationAppliedAmount), -1.0);
         }
 
         private int screwCount;
@@ -338,6 +350,110 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 if (saveAFRunsPath != newValue) {
                     saveAFRunsPath = newValue;
                     optionsAccessor.SetValueString(nameof(SaveAFRunsPath), saveAFRunsPath);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private string tiltDeviceSerialPortName;
+
+        public string TiltDeviceSerialPortName {
+            get => tiltDeviceSerialPortName;
+            set {
+                if (tiltDeviceSerialPortName != value) {
+                    tiltDeviceSerialPortName = value;
+                    optionsAccessor.SetValueString(nameof(TiltDeviceSerialPortName), tiltDeviceSerialPortName);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int tiltDeviceMaxStepsPerCommand;
+
+        public int TiltDeviceMaxStepsPerCommand {
+            get => tiltDeviceMaxStepsPerCommand;
+            set {
+                if (tiltDeviceMaxStepsPerCommand != value) {
+                    tiltDeviceMaxStepsPerCommand = value;
+                    optionsAccessor.SetValueInt32(nameof(TiltDeviceMaxStepsPerCommand), tiltDeviceMaxStepsPerCommand);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int tiltDeviceMaxExcursionSteps;
+
+        public int TiltDeviceMaxExcursionSteps {
+            get => tiltDeviceMaxExcursionSteps;
+            set {
+                if (tiltDeviceMaxExcursionSteps != value) {
+                    tiltDeviceMaxExcursionSteps = value;
+                    optionsAccessor.SetValueInt32(nameof(TiltDeviceMaxExcursionSteps), tiltDeviceMaxExcursionSteps);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double tiltDeviceSettleSeconds;
+
+        public double TiltDeviceSettleSeconds {
+            get => tiltDeviceSettleSeconds;
+            set {
+                if (tiltDeviceSettleSeconds != value) {
+                    tiltDeviceSettleSeconds = value;
+                    optionsAccessor.SetValueDouble(nameof(TiltDeviceSettleSeconds), tiltDeviceSettleSeconds);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private string deviceLinkedCalibrationDeviceName;
+
+        public string DeviceLinkedCalibrationDeviceName {
+            get => deviceLinkedCalibrationDeviceName;
+            set {
+                if (deviceLinkedCalibrationDeviceName != value) {
+                    deviceLinkedCalibrationDeviceName = value;
+                    optionsAccessor.SetValueString(nameof(DeviceLinkedCalibrationDeviceName), deviceLinkedCalibrationDeviceName);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool calibrationIsReliable;
+
+        public bool CalibrationIsReliable {
+            get => calibrationIsReliable;
+            set {
+                if (calibrationIsReliable != value) {
+                    calibrationIsReliable = value;
+                    optionsAccessor.SetValueBoolean(nameof(CalibrationIsReliable), calibrationIsReliable);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private string tiltDeviceShadowPositions;
+
+        public string TiltDeviceShadowPositions {
+            get => tiltDeviceShadowPositions;
+            set {
+                if (tiltDeviceShadowPositions != value) {
+                    tiltDeviceShadowPositions = value;
+                    optionsAccessor.SetValueString(nameof(TiltDeviceShadowPositions), tiltDeviceShadowPositions);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double calibrationAppliedAmount;
+
+        public double CalibrationAppliedAmount {
+            get => calibrationAppliedAmount;
+            set {
+                if (calibrationAppliedAmount != value) {
+                    calibrationAppliedAmount = value;
+                    optionsAccessor.SetValueDouble(nameof(CalibrationAppliedAmount), calibrationAppliedAmount);
                     RaisePropertyChanged();
                 }
             }

@@ -113,8 +113,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         /// <summary>Passive "expect heavy donuts" warning above this. Extreme states stay legal — Undo is free.</summary>
         private const double ExtremeTiltMicrons = 500.0;
 
-        /// <summary>The persisted bounds of the aberration boxes (Resources/OptionsDataTemplates.xaml).</summary>
-        private const double AberrationBoundMicrons = 10_000.0;
+        /// <summary>The persisted bounds of the aberration boxes (Resources/OptionsDataTemplates.xaml).
+        /// Single-sourced from <see cref="SimulatedTiltInjection.AberrationBoundMicrons"/> so the manual panel and
+        /// the automated actuator clamp to the exact same bound.</summary>
+        private const double AberrationBoundMicrons = SimulatedTiltInjection.AberrationBoundMicrons;
 
         private const double DefaultTurnsPerClick = 0.25;
         private const double DefaultStepsPerClick = 10.0;
@@ -126,7 +128,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
 
         private readonly ICameraSimulatorOptions options;
         private readonly ITiltAdapterOptions realAdapter;
-        private readonly double[] netAxialMicrons = new double[4];
+        // Per-screw net counters live on the shared options (options.SimNetAxialMicrons), NOT in a local field,
+        // so automated moves (SimulatedTiltActuator) and every SimulatedTiltAdapterVM instance stay in lockstep.
 
         private SimulatedTiltAdapter adapter;
         private bool derivingAngles;
@@ -382,15 +385,16 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         /// Per-screw accumulated position since the last re-zero, in axial µm. Stored in µm — not turns — so a
         /// mid-session pitch edit re-scales the display instead of corrupting it.
         /// </summary>
-        public IReadOnlyList<double> NetAxialMicrons => netAxialMicrons.Take(ScrewCount).ToArray();
+        public IReadOnlyList<double> NetAxialMicrons => options.SimNetAxialMicrons.Take(ScrewCount).ToArray();
 
         public string NetPositionText {
             get {
                 var unit = UnitMicrons;
+                var net = options.SimNetAxialMicrons;
                 var sb = new StringBuilder();
                 for (var i = 0; i < ScrewCount; i++) {
                     if (i > 0) sb.Append("  ·  ");
-                    var value = unit > 0 ? netAxialMicrons[i] / unit : 0.0;
+                    var value = unit > 0 ? net[i] / unit : 0.0;
                     sb.Append(CultureInfo.CurrentCulture, $"{i + 1}: {FormatNet(value)}");
                 }
                 return sb.ToString();
@@ -639,9 +643,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             var backfocusBefore = options.BackfocusErrorMicrons;
             var clamped = ApplyDelta(delta);
 
+            var net = options.SimNetAxialMicrons;
             for (var i = 0; i < moves.Length; i++) {
-                netAxialMicrons[i] += moves[i];
+                net[i] += moves[i];
             }
+            options.SimNetAxialMicrons = net;
 
             undoSnapshot = snapshot;
             LastActionText = BuildLastActionText(turn, moves, tiltBefore, backfocusBefore, clamped);
@@ -702,53 +708,13 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         /// raw fitted constant in here is correct only on σ=+1 rigs and silently backwards on the other half —
         /// pinned by SimulatedTiltAdapterVMTests.BackfocusMove_OnOppositeRigs_MovesBackfocusInOppositeDirections.
         /// </summary>
-        private bool ApplyDelta(AberrationDelta delta) {
-            var (halfW, halfH) = SensorHalfDimensionsMicrons();
+        // Delegates to the shared, sign-critical implementation so the manual panel and the automated actuator
+        // fold identically (see SimulatedTiltInjection). Behavior-preserving — the sign/clamp tests are unchanged.
+        private bool ApplyDelta(AberrationDelta delta) =>
+            SimulatedTiltInjection.Fold(options, delta, adapter.PistonDirectionSign);
 
-            // Current gradient from the options' (azimuth, amount) form — the same inversion AberrationSurface uses.
-            var phi = options.TiltAngleDegrees * Math.PI / 180.0;
-            var den = Math.Abs(Math.Cos(phi)) * halfW + Math.Abs(Math.Sin(phi)) * halfH;
-            var g = den > 0 ? options.TiltAmountMicrons / den : 0.0;
-            var gx = g * Math.Cos(phi) + delta.Gx;
-            var gy = g * Math.Sin(phi) + delta.Gy;
-
-            // Back to (azimuth, amount). The amount is a non-negative magnitude by construction — AberrationSurface
-            // rejects a negative one, because direction belongs to the azimuth.
-            var amount = Math.Abs(gx) * halfW + Math.Abs(gy) * halfH;
-            var clamped = amount > AberrationBoundMicrons;
-            options.TiltAmountMicrons = Math.Min(amount, AberrationBoundMicrons);
-            options.TiltAngleDegrees = TiltCalibrationCalculator.NormalizeAngle(Math.Atan2(gy, gx) * 180.0 / Math.PI);
-
-            var pistonMicrons = adapter.PistonDirectionSign * delta.PistonMicrons;
-            if (pistonMicrons != 0.0) {
-                // The sensor moving axially both shifts best focus... Effective, not raw: the raw value is the -1
-                // "unset" sentinel on an uncalibrated Inspector, and the render uses Effective, so converting the
-                // piston with anything else would move best focus somewhere the star field is not defocused about.
-                options.OptimalFocuserPosition += (int)Math.Round(pistonMicrons / options.EffectiveFocuserStepSizeMicrons);
-
-                // ...and violates the optics' backfocus spacing. The curvature responds to the PISTON, not to any
-                // individual screw move, so a corner move (piston 0 by symmetry) correctly leaves it untouched.
-                // The proportionality is fixed by being the exact inverse of the inspector's backfocus row: it asks
-                // for an axial ΔZ0_phys = -CurvatureAt(R) = -K·R² per screw, which must null K exactly, so
-                // ΔK = ΔZ0_phys / R². Equivalently — and this is the independent check that fixes the sign —
-                // ScrewInwardCurvatureSign is DEFINED as the sign of the curvature-effect response to a CW turn,
-                // and a CW turn gives ΔZ0_phys = σ·(+δ), so ΔBackfocusError must carry the sign of σ.
-                var radiusMicrons = options.SimScrewRadiusMillimeters * 1000.0;
-                if (radiusMicrons > 0) {
-                    var backfocus = options.BackfocusErrorMicrons +
-                        pistonMicrons * (halfW * halfW + halfH * halfH) / (radiusMicrons * radiusMicrons);
-                    clamped |= Math.Abs(backfocus) > AberrationBoundMicrons;
-                    options.BackfocusErrorMicrons = Math.Clamp(backfocus, -AberrationBoundMicrons, AberrationBoundMicrons);
-                }
-            }
-
-            return clamped;
-        }
-
-        private (double halfWidth, double halfHeight) SensorHalfDimensionsMicrons() {
-            var sensor = SensorRegistry.Get(options.SensorModel);
-            return (sensor.Width * sensor.PixelSizeMicrons / 2.0, sensor.Height * sensor.PixelSizeMicrons / 2.0);
-        }
+        private (double halfWidth, double halfHeight) SensorHalfDimensionsMicrons() =>
+            SimulatedTiltInjection.SensorHalfDimensionsMicrons(options);
 
         // ---- Feedback --------------------------------------------------------------------------------
 
@@ -836,7 +802,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
 
         private PanelSnapshot Capture() => new PanelSnapshot(
             options.TiltAmountMicrons, options.TiltAngleDegrees, options.BackfocusErrorMicrons,
-            options.OptimalFocuserPosition, (double[])netAxialMicrons.Clone(), LastActionText);
+            options.OptimalFocuserPosition, options.SimNetAxialMicrons, LastActionText);
 
         /// <summary>Single level: misclicks in a rapid loop must be free, but this is not an edit history.</summary>
         private void Undo() {
@@ -846,7 +812,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             options.TiltAngleDegrees = s.TiltAngleDegrees;
             options.BackfocusErrorMicrons = s.BackfocusErrorMicrons;
             options.OptimalFocuserPosition = s.OptimalFocuserPosition;
-            Array.Copy(s.NetAxialMicrons, netAxialMicrons, netAxialMicrons.Length);
+            options.SimNetAxialMicrons = s.NetAxialMicrons;
             undoSnapshot = null;
             LastActionText = s.LastActionText;
             AfterStateChanged();
@@ -854,7 +820,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
 
         /// <summary>Re-bases the counter display only — never the plane. Hence "Re-zero", not "Reset".</summary>
         private void Rezero() {
-            Array.Clear(netAxialMicrons, 0, netAxialMicrons.Length);
+            options.SimNetAxialMicrons = new double[4];
             RaisePropertyChanged(nameof(NetAxialMicrons));
             RaisePropertyChanged(nameof(NetPositionText));
         }
@@ -935,6 +901,13 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             }
 
             switch (e.PropertyName) {
+                case nameof(ICameraSimulatorOptions.SimNetAxialMicrons):
+                    // Shared net counters changed (a manual click on this or the other panel, or an automated
+                    // move via SimulatedTiltActuator) — refresh only the Net strip, not the whole panel.
+                    RaisePropertyChanged(nameof(NetAxialMicrons));
+                    RaisePropertyChanged(nameof(NetPositionText));
+                    break;
+
                 case nameof(ICameraSimulatorOptions.SimScrewCount):
                 case nameof(ICameraSimulatorOptions.SimScrew1AngleDegrees):
                 case nameof(ICameraSimulatorOptions.SimScrewNumberingClockwise):

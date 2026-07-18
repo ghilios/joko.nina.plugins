@@ -21,6 +21,7 @@ using NINA.Core.Model;
 using NINA.Core.Model.Equipment;
 using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
+using NINA.Core.Utility.SerialCommunication;
 using NINA.Core.Utility.WindowService;
 using NINA.Equipment.Equipment;
 using NINA.Equipment.Equipment.MyCamera;
@@ -39,6 +40,9 @@ using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Scottplot;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
@@ -68,6 +72,7 @@ using static NINA.Joko.Plugins.HocusFocus.Inspection.SensorModel;
 using AsyncRelayCommand = CommunityToolkit.Mvvm.Input.AsyncRelayCommand;
 using DrawingColor = System.Drawing.Color;
 using Logger = NINA.Core.Utility.Logger;
+using MyMessageBox = NINA.Core.MyMessageBox.MyMessageBox;
 using RelayCommand = CommunityToolkit.Mvvm.Input.RelayCommand;
 using SPPlot = ScottPlot.Plot;
 using SPVector2 = ScottPlot.Statistics.Vector2;
@@ -98,6 +103,30 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IApplicationDispatcher applicationDispatcher;
         private readonly IProgress<ApplicationStatus> progress;
         private readonly ITiltAdapterOptions tiltAdapterOptions;
+
+        // Shared motorized-device connection singleton (HocusFocusPlugin.TiltDeviceConnectionService in
+        // production, injected in tests; null-tolerant so device-less test rigs stay valid — Automatic
+        // Adjustment then degrades to "not connected"/disabled, mirroring TiltAdapterWizardVM's pattern).
+        private readonly TiltDeviceConnectionService tiltDeviceConnectionService;
+
+        // Yes/No confirmation prompt for the Automatic Adjustment flow (re-run to confirm; revert on
+        // mid-plan failure; revert on post-adjustment worsening). Injectable for tests; production default
+        // shows NINA's message box (ShowYesNoPromptAsync), mirroring TiltAdapterWizardVM's confirmIdleDisconnectAsync.
+        private readonly Func<string, string, Task<bool>> confirmPromptAsync;
+
+        // Shows the tilt-device adjustment approval dialog and returns the user's choice. Injectable so tests
+        // can drive the Automatic Adjustment flow (cancel / approve with a specific plan) WITHOUT opening a
+        // real WPF window — TiltDeviceAdjustmentPrompt.ShowAsync's ShowDialog call requires a live UI
+        // dispatcher that unit tests don't have. Production default delegates to the real dialog
+        // (DefaultShowAdjustmentPromptAsync). Signature mirrors TiltDeviceAdjustmentPrompt.ShowAsync minus the
+        // windowServiceFactory parameter (fixed to this VM's own windowServiceFactory field in the default).
+        private readonly Func<Func<bool, bool, TiltDevicePlanPreview>, bool, string, bool, double, Task<TiltDeviceAdjustmentChoice>> showAdjustmentPromptAsync;
+
+        // The confirming re-run after a successful adjustment. Injectable so tests can verify "re-run
+        // invoked on accept" without exercising the full AutoFocus engine pipeline (AnalyzeAutoFocus requires
+        // a working IAutoFocusEngine/camera/focuser and is exercised on its own elsewhere). Production default
+        // is the real AnalyzeAutoFocus(ct, captureCameraBlock: true).
+        private readonly Func<CancellationToken, Task<bool>> reRunAnalysisAsync;
 
         // WindowServiceFactory is not a MEF export (NINA exposes the concrete type with a default ctor only), so it
         // is instantiated directly here, mirroring HocusFocusPlugin — used to show the modal Review Frames dialog.
@@ -131,7 +160,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector)
             : this(profileService, applicationStatusMediator, imagingMediator, cameraMediator, focuserMediator, filterWheelMediator, telescopeMediator, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.StarAnnotatorOptions, HocusFocusPlugin.InspectorOptions, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.AutoFocusEngineFactory,
-                  imageDataFactory, starDetectionSelector, starAnnotatorSelector, HocusFocusPlugin.ApplicationDispatcher, HocusFocusPlugin.AlglibAPI, HocusFocusPlugin.TiltAdapterOptions) {
+                  imageDataFactory, starDetectionSelector, starAnnotatorSelector, HocusFocusPlugin.ApplicationDispatcher, HocusFocusPlugin.AlglibAPI, HocusFocusPlugin.TiltAdapterOptions, HocusFocusPlugin.TiltDeviceConnectionService) {
         }
 
         public InspectorVM(
@@ -152,7 +181,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
             IApplicationDispatcher applicationDispatcher,
             IAlglibAPI alglibAPI,
-            ITiltAdapterOptions tiltAdapterOptions = null) : base(profileService) {
+            ITiltAdapterOptions tiltAdapterOptions = null,
+            TiltDeviceConnectionService tiltDeviceConnectionService = null,
+            Func<string, string, Task<bool>> confirmPromptAsync = null,
+            Func<Func<bool, bool, TiltDevicePlanPreview>, bool, string, bool, double, Task<TiltDeviceAdjustmentChoice>> showAdjustmentPromptAsync = null,
+            Func<CancellationToken, Task<bool>> reRunAnalysisAsync = null) : base(profileService) {
             this.applicationStatusMediator = applicationStatusMediator;
             this.imagingMediator = imagingMediator;
             this.cameraMediator = cameraMediator;
@@ -211,10 +244,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             };
 
             this.tiltAdapterOptions = tiltAdapterOptions;
+            this.tiltDeviceConnectionService = tiltDeviceConnectionService;
+            this.confirmPromptAsync = confirmPromptAsync ?? ShowYesNoPromptAsync;
+            this.showAdjustmentPromptAsync = showAdjustmentPromptAsync ?? DefaultShowAdjustmentPromptAsync;
+            this.reRunAnalysisAsync = reRunAnalysisAsync ?? (ct => AnalyzeAutoFocus(ct, captureCameraBlock: true));
             TiltGuidance = new TiltAdapterGuidanceVM();
             if (tiltAdapterOptions != null) {
                 tiltAdapterOptions.PropertyChanged += (s, e) => RebuildTiltGuidance();
                 RebuildTiltGuidance();
+            }
+            if (this.tiltDeviceConnectionService != null) {
+                // This VM is a Shared MEF singleton, so this ctor-time subscription intentionally lives for
+                // the whole app run (mirrors TiltAdapterWizardVM's identical subscription).
+                this.tiltDeviceConnectionService.PropertyChanged += TiltDeviceConnectionService_PropertyChanged;
             }
 
             ImageGeometry = (System.Windows.Media.GeometryGroup)dict["InspectorSVG"];
@@ -229,6 +271,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             SlewToZenithWestCommand = new AsyncRelayCommand(() => SlewToZenith(true), canExecute: () => TelescopeInfo.Connected && (slewToZenithTask == null || slewToZenithTask?.Status >= TaskStatus.RanToCompletion));
             CancelSlewToZenithCommand = new RelayCommand(() => slewToZenithCts?.Cancel());
             ReviewFramesCommand = new RelayCommand(ShowFrameReview, canExecute: () => ReviewFramesAvailable);
+            AutomaticAdjustmentCommand = new AsyncRelayCommand(RunAutomaticAdjustmentAsync, CanExecuteAutomaticAdjustmentNow);
         }
 
         private bool AnalysisRunning() {
@@ -638,6 +681,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             UpdateBackfocusMeasurements(result);
             TiltModel.UpdateTiltModel(result, fRatio: profileService.ActiveProfile.TelescopeSettings.FocalRatio, backfocusFocuserPositionDelta: BackfocusFocuserPositionDelta);
             RebuildTiltGuidance();
+            // One-adjustment-per-measurement (design doc user decision #9): every COMPLETED analysis that
+            // reaches this point (wizard calibration steps included) is a fresh measurement. Automatic
+            // Adjustment's canExecute requires this counter to be strictly newer than the generation stamped
+            // on the last EXECUTED plan (see AutomaticAdjustmentCommand's canExecute) — so the button stays
+            // disabled after an adjustment until a brand-new analysis completes, and the same measurement can
+            // never drive two plans. Deliberately NOT incremented from RebuildTiltGuidance's other call sites
+            // (ctor, tiltAdapterOptions.PropertyChanged, ClearAnalyses) — only a genuinely completed analysis
+            // counts as a new measurement.
+            measurementGeneration++;
+            // Marshal the requery to the UI thread (NotifyCanExecuteChanged raises through
+            // CanExecuteChangedEventManager, which requires it). Non-blocking Post, for the same
+            // deadlock-avoidance reason as RebuildTiltGuidance's publish above.
+            applicationDispatcher.PostSynchronizationContext(() => AutomaticAdjustmentCommand?.NotifyCanExecuteChanged());
             AutoFocusCompleted = true;
             return true;
         }
@@ -1724,6 +1780,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         // RelayCommand (not ICommand) so we can call NotifyCanExecuteChanged when the snapshot becomes (un)available.
         public RelayCommand ReviewFramesCommand { get; private set; }
 
+        // AsyncRelayCommand (not ICommand) so we can call NotifyCanExecuteChanged from the tilt device
+        // service's INPC, RebuildTiltGuidance, and the measurement-generation counter. See the "Tilt Adapter
+        // Automatic Adjustment" region below for the full flow.
+        public AsyncRelayCommand AutomaticAdjustmentCommand { get; private set; }
+
         private readonly object fullSensorDetectedStarsLock = new object();
         private readonly List<SensorDetectedStars> FullSensorDetectedStars = new List<SensorDetectedStars>();
 
@@ -2039,8 +2100,28 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     angleUnit: tiltAdapterOptions.AngleDisplayUnit);
             }
 
-            TiltGuidance = guidance;
-            RaisePropertyChanged(nameof(TiltGuidance));
+            // Publish to the UI on the UI thread. RebuildTiltGuidance runs on the UI thread (ctor) but ALSO on
+            // background threads: the analysis task (AnalyzeAutoFocusResult) and — via tiltAdapterOptions
+            // .PropertyChanged (subscribed in the ctor) — the connection service's 'cp' poll thread, because a
+            // poll persists shadow positions back into tiltAdapterOptions. AutomaticAdjustmentCommand
+            // .NotifyCanExecuteChanged() raises through CanExecuteChangedEventManager, which throws off the UI
+            // thread, so this must be marshaled. Use the NON-BLOCKING PostSynchronizationContext (BeginInvoke),
+            // NOT a blocking DispatchSynchronizationContext (Invoke): a blocking Invoke from the poll thread onto
+            // a busy UI thread (e.g. while it lays out the Imaging tab) deadlocks — the same hazard, and the same
+            // fix, as RefreshCommandStates. It still runs inline for UI-thread callers; the requery/publish only
+            // needs to reach the UI eventually, not synchronously.
+            applicationDispatcher.PostSynchronizationContext(() => {
+                TiltGuidance = guidance;
+                RaisePropertyChanged(nameof(TiltGuidance));
+
+                // Numeric guidance availability and the device-linked calibration marker (both read from
+                // tiltAdapterOptions, whose PropertyChanged is what drives every call to this method) both feed
+                // Automatic Adjustment's canExecute gate — re-raise its remediation text/visibility and
+                // canExecute here so they never go stale.
+                RaisePropertyChanged(nameof(AutomaticAdjustmentRemediationVisible));
+                RaisePropertyChanged(nameof(AutomaticAdjustmentRemediationText));
+                AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+            });
         }
 
         private const double PitchMismatchFraction = 0.15;
@@ -2075,21 +2156,22 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (n == 4) angles[3] = tiltAdapterOptions.Screw4AngleDegrees;
             if (angles.Any(double.IsNaN)) return;
 
+            // Per-screw signed targets come from the shared helper (also consumed by the motorized
+            // move planner, T14) so the display and the planner can never diverge. The curvature sign
+            // applies ONLY to the backfocus component within the helper: the tilt component's
+            // direction is already encoded by the stored response-convention screw angle (the same
+            // convention the tilt arrows invert), so multiplying the whole total by the sign would
+            // double-apply the rig direction to the tilt part on sign = -1 rigs.
+            var targets = TiltScrewTargets.ComputePerScrewTargets(
+                model.Gx, model.Gy, model.Kx, model.Ky, model.X0, model.Y0, angles, radiusMicrons, unitMicrons, resolvedSign);
+
             var tiltText = new string[n];
             var backText = new string[n];
             var totalText = new string[n];
             for (int i = 0; i < n; i++) {
-                var corr = TiltScrewGeometry.ScrewCorrectionMicrons(
-                    model.Gx, model.Gy, model.Kx, model.Ky, model.X0, model.Y0, angles[i], radiusMicrons);
-                tiltText[i] = TiltAdapterGuidanceVM.FormatAmount(corr.TiltMicrons / unitMicrons, steps, angleUnit);
-                backText[i] = TiltAdapterGuidanceVM.FormatAmount(resolvedSign * corr.BackfocusMicrons / unitMicrons, steps, angleUnit);
-                // The curvature sign applies ONLY to the backfocus component: the tilt component's
-                // direction is already encoded by the stored response-convention screw angle (the same
-                // convention the tilt arrows invert), so multiplying the whole total by the sign would
-                // double-apply the rig direction to the tilt part on sign = -1 rigs.
-                double totalSigned = TiltScrewGeometry.SignedTotalAdjustment(
-                    corr.TiltMicrons, corr.BackfocusMicrons, unitMicrons, resolvedSign);
-                totalText[i] = TiltAdapterGuidanceVM.FormatAmount(totalSigned, steps, angleUnit);
+                tiltText[i] = TiltAdapterGuidanceVM.FormatAmount(targets[i].TiltSteps, steps, angleUnit);
+                backText[i] = TiltAdapterGuidanceVM.FormatAmount(targets[i].BackfocusSteps, steps, angleUnit);
+                totalText[i] = TiltAdapterGuidanceVM.FormatAmount(targets[i].TotalSteps, steps, angleUnit);
             }
 
             guidance.Screw1TiltAmount = tiltText[0];
@@ -2118,6 +2200,518 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     $"Saved {label} ({unitMicrons:0.###} {units}) differs from the wizard's last measured value " +
                     $"({measured:0.###} {units}). Re-run the Tilt Adapter Wizard or update the saved value.";
             }
+        }
+
+        // ==================================================================================================
+        // Tilt Adapter Automatic Adjustment (T14): computes a move plan from the fitted sensor model, gets
+        // user approval via the modal approval dialog, executes it on the connected device with a revert
+        // journal, then offers to re-run the inspector to confirm. SAFETY-CRITICAL — see the design doc's
+        // "[CRITICAL GATE]" note and user decision #9 (one adjustment per measurement).
+        // ==================================================================================================
+
+        // Measurement-generation counter (design doc user decision #9): incremented once per COMPLETED
+        // analysis (see AnalyzeAutoFocusResult, the only place this is incremented). lastExecutedMeasurementGeneration
+        // is stamped with the generation captured at the start of a plan's execution, but only once execution
+        // has actually STARTED (>= 1 move successfully sent) — a dialog Cancel or an approved empty plan never
+        // touch it, so they don't consume the measurement.
+        private int measurementGeneration;
+        private int lastExecutedMeasurementGeneration;
+
+        // Test seams: AnalyzeAutoFocusResult (the only production incrementer of measurementGeneration)
+        // requires a full AutoFocusResult that is impractical to construct in a unit test, so tests drive
+        // and observe the measurement-generation counters directly here instead of running the whole
+        // analysis pipeline.
+        internal int MeasurementGenerationForTest {
+            get => measurementGeneration;
+            set {
+                measurementGeneration = value;
+                AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+            }
+        }
+
+        internal int LastExecutedMeasurementGenerationForTest => lastExecutedMeasurementGeneration;
+
+        public bool IsTiltDeviceConnected => tiltDeviceConnectionService?.Connected ?? false;
+
+        // Live per-motor stepper positions for the connected motorized adapter, shown in the Tilt Adapter
+        // Guidance section. Device motor order matches the wizard's convention (TR=1, TL=2, BR=3, BL=4); there
+        // is no calibration-run baseline here, so — unlike the wizard — these carry no Δ.
+        public string ScrewPositionTopRightDisplay => TiltDevicePositionDisplay(0);
+
+        public string ScrewPositionTopLeftDisplay => TiltDevicePositionDisplay(1);
+
+        public string ScrewPositionBottomRightDisplay => TiltDevicePositionDisplay(2);
+
+        public string ScrewPositionBottomLeftDisplay => TiltDevicePositionDisplay(3);
+
+        private string TiltDevicePositionDisplay(int deviceMotorIndex) {
+            var svc = tiltDeviceConnectionService;
+            if (svc == null || !svc.PositionsKnown) {
+                return "unknown";
+            }
+            var positions = svc.CurrentPositions;
+            if (positions == null || positions.Count <= deviceMotorIndex) {
+                return "unknown";
+            }
+            return positions[deviceMotorIndex].ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        private void RaiseScrewPositionDisplays() {
+            RaisePropertyChanged(nameof(ScrewPositionTopRightDisplay));
+            RaisePropertyChanged(nameof(ScrewPositionTopLeftDisplay));
+            RaisePropertyChanged(nameof(ScrewPositionBottomRightDisplay));
+            RaisePropertyChanged(nameof(ScrewPositionBottomLeftDisplay));
+        }
+
+        /// <summary>
+        /// [CRITICAL GATE] Visible remediation hint when connected but the calibration is not linked to the
+        /// connected device preset (see <see cref="IsCalibrationDeviceLinked"/>) — OR is linked but did not
+        /// pass its own confidence/quality check (<see cref="ITiltAdapterOptions.CalibrationIsReliable"/>).
+        /// </summary>
+        public bool AutomaticAdjustmentRemediationVisible =>
+            IsTiltDeviceConnected &&
+            (!IsCalibrationDeviceLinked(tiltAdapterOptions) || !(tiltAdapterOptions?.CalibrationIsReliable ?? false));
+
+        public string AutomaticAdjustmentRemediationText =>
+            !IsCalibrationDeviceLinked(tiltAdapterOptions)
+                ? "This calibration is not linked to the connected device. Re-run calibration with the device connected."
+                : "This calibration is low-confidence (it did not pass quality validation). Re-run calibration to enable Automatic Adjustment.";
+
+        /// <summary>
+        /// [CRITICAL GATE] True only when the stored calibration was produced by a completed, connected
+        /// hands-off run against the SAME device preset that is now selected — see the design doc's
+        /// "[CRITICAL GATE]" note. A pre-existing manual/replay calibration could have "screw 1" mapped to a
+        /// different physical corner than the connected device's wiring, which would apply corrections
+        /// rotated 90°/180° and worsen tilt unattended. Connecting to the device always uses
+        /// tiltAdapterOptions.DeviceName as the preset name (TiltAdapterWizardVM.ConnectTiltDeviceAsync), so
+        /// DeviceName IS "the connected preset name" whenever the service reports Connected.
+        /// </summary>
+        internal static bool IsCalibrationDeviceLinked(ITiltAdapterOptions options) {
+            if (options == null) return false;
+            string linked = options.DeviceLinkedCalibrationDeviceName;
+            return !string.IsNullOrEmpty(linked) && linked == options.DeviceName;
+        }
+
+        /// <summary>
+        /// Pure canExecute gate for <see cref="AutomaticAdjustmentCommand"/> — every condition the design doc
+        /// and plan require, expressed as plain values so it's directly unit-testable without the VM. See
+        /// <see cref="CanExecuteAutomaticAdjustmentNow"/> for how the live VM/service state feeds this.
+        ///
+        /// <paramref name="calibrationIsReliable"/> is the second half of the "[CRITICAL GATE]" automation
+        /// gate: <see cref="ITiltAdapterOptions.CalibrationIsReliable"/>, persisted by TiltAdapterWizardVM's
+        /// RunCalibrationMath/ApplyManualCalibration from TiltCalibrationCalculator.ComputeConfidence's
+        /// IsReliable. A calibration can be device-linked (the correct wizard-screw &lt;-&gt; device-corner
+        /// correspondence) yet still be noise-dominated (measurement noise rivaling the screw-move signal) —
+        /// both must hold before automation may run unattended.
+        /// </summary>
+        internal static bool CanExecuteAutomaticAdjustment(
+            bool serviceConnected,
+            bool controllerAvailable,
+            bool deviceLinked,
+            bool calibrationIsReliable,
+            bool hasNumericGuidance,
+            bool isOperationActive,
+            int currentGeneration,
+            int lastExecutedGeneration) {
+            return serviceConnected
+                && controllerAvailable
+                && deviceLinked
+                && calibrationIsReliable
+                && hasNumericGuidance
+                && !isOperationActive
+                && currentGeneration > lastExecutedGeneration;
+        }
+
+        private bool CanExecuteAutomaticAdjustmentNow() {
+            var service = tiltDeviceConnectionService;
+            return CanExecuteAutomaticAdjustment(
+                serviceConnected: service?.Connected ?? false,
+                controllerAvailable: service?.Controller != null,
+                deviceLinked: IsCalibrationDeviceLinked(tiltAdapterOptions),
+                calibrationIsReliable: tiltAdapterOptions?.CalibrationIsReliable ?? false,
+                hasNumericGuidance: TiltGuidance?.HasNumericGuidance ?? false,
+                isOperationActive: service?.IsOperationActive ?? false,
+                currentGeneration: measurementGeneration,
+                lastExecutedGeneration: lastExecutedMeasurementGeneration);
+        }
+
+        /// <summary>Dimensionless tilt magnitude sqrt(Gx² + Gy²) — used for the before/after worsening check.</summary>
+        internal static double TiltMagnitude(SensorParaboloidModel model) =>
+            model == null ? double.NaN : Math.Sqrt(model.Gx * model.Gx + model.Gy * model.Gy);
+
+        // A tiny relative uptick is noise, not a real regression: require BOTH a fractional margin (relative
+        // to the "before" magnitude) and an absolute floor (so a near-zero before-magnitude can't make the
+        // relative test trivially satisfied by noise) before calling it "worse".
+        internal const double TiltWorseningRelativeMargin = 0.15;
+        internal const double TiltWorseningAbsoluteFloor = 1e-4;
+
+        /// <summary>True when <paramref name="afterMagnitude"/> is meaningfully larger than <paramref name="beforeMagnitude"/> — see TiltWorseningRelativeMargin/TiltWorseningAbsoluteFloor.</summary>
+        internal static bool TiltWorsened(double beforeMagnitude, double afterMagnitude) {
+            if (double.IsNaN(beforeMagnitude) || double.IsNaN(afterMagnitude)) return false;
+            if (!(afterMagnitude > beforeMagnitude)) return false;
+            double delta = afterMagnitude - beforeMagnitude;
+            double threshold = Math.Max(TiltWorseningAbsoluteFloor, beforeMagnitude * TiltWorseningRelativeMargin);
+            return delta >= threshold;
+        }
+
+        /// <summary>
+        /// Per-screw signed step/turn targets (TiltScrewTargets.ComputePerScrewTargets's TotalSteps) plus the
+        /// resolved unit size, computed directly from the fitted model + adapter options — the exact same
+        /// inputs FillNumericGuidance formats for display, so the planner's targets can never diverge from
+        /// what the guidance table shows. Throws InvalidOperationException for a not-fully-configured/not-4-screw
+        /// adapter (should be unreachable once CanExecuteAutomaticAdjustment has gated on hasNumericGuidance
+        /// and the only device-linkable presets are 4-screw EAT presets, but this guards defensively rather
+        /// than silently computing against a NaN Screw4AngleDegrees).
+        /// </summary>
+        internal static (double[] sPerScrew, double unitMicrons) BuildPerScrewTargets(SensorParaboloidModel model, ITiltAdapterOptions options) {
+            if (model == null) throw new ArgumentNullException(nameof(model));
+            if (options == null) throw new ArgumentNullException(nameof(options));
+            if (options.ScrewCount != 4) {
+                throw new InvalidOperationException("Automatic Adjustment requires a 4-corner coupled device (screw count must be 4).");
+            }
+
+            bool steps = options.AdjustmentType == TiltAdjustmentType.StepperMotors;
+            double unitMicrons = steps ? options.StepperStepSizeMicrons : options.ThreadPitchMicrons;
+            double radiusMm = options.ScrewRadiusMillimeters;
+            if (unitMicrons <= 0 || radiusMm <= 0) {
+                throw new InvalidOperationException("Adapter hardware (unit size / screw radius) is not configured.");
+            }
+
+            var angles = new[] { options.Screw1AngleDegrees, options.Screw2AngleDegrees, options.Screw3AngleDegrees, options.Screw4AngleDegrees };
+            if (angles.Any(double.IsNaN)) {
+                throw new InvalidOperationException("Screw position angles are not fully calibrated.");
+            }
+
+            // Resolve the sign exactly like FillNumericGuidance does (σ is never persisted as 0 since the
+            // direction-setting feature, but resolve defensively to the assumed default here too) — using
+            // the raw options.ScrewInwardCurvatureSign here instead would let the planner's targets diverge
+            // from the guidance table the user actually approved if the sign were ever 0.
+            int curvatureSign = options.ScrewInwardCurvatureSign;
+            int resolvedSign = curvatureSign == 0 ? TiltScrewGeometry.DefaultScrewInwardCurvatureSign : curvatureSign;
+
+            var targets = TiltScrewTargets.ComputePerScrewTargets(
+                model.Gx, model.Gy, model.Kx, model.Ky, model.X0, model.Y0,
+                angles, radiusMm * 1000.0, unitMicrons, resolvedSign);
+            return (targets.Select(t => t.TotalSteps).ToArray(), unitMicrons);
+        }
+
+        /// <summary>
+        /// Builds one replanner invocation's preview: plans the moves for the given group toggles, then asks
+        /// the controller (via the interface — never a downcast) to order them for minimal peak excursion so
+        /// the approval dialog shows the EXACT execution order (WYSIWYG). A TiltDeviceLimitException from the
+        /// ordering call means either a single move exceeds the per-command cap or every ordering would
+        /// exceed the max excursion — surfaced as a blocking preview (unordered moves shown, matching the
+        /// design doc) rather than propagated, so the dialog can display it instead of crashing. Residuals,
+        /// twist, and the time estimate are unaffected by ordering, so they carry over unchanged from the
+        /// original plan.
+        /// </summary>
+        internal static TiltDevicePlanPreview BuildPlanPreview(
+            IReadOnlyList<double> sPerScrew,
+            bool includeTilt,
+            bool includeBackfocus,
+            double unitMicrons,
+            int maxStepsPerCommand,
+            ITiltMotionController controller) {
+            var plan = TiltMovePlanner.Plan(sPerScrew, includeTilt, includeBackfocus, unitMicrons, maxStepsPerCommand);
+            try {
+                var ordered = controller.OrderForMinimalPeakExcursion(plan.Moves);
+                var orderedPlan = new TiltAdapterMovePlan(ordered, plan.ResidualMicronsPerCorner, plan.TwistResidualSteps, plan.EstimatedSeconds);
+                return new TiltDevicePlanPreview(orderedPlan, hardLimitViolated: false, limitWarning: string.Empty);
+            } catch (TiltDeviceLimitException ex) {
+                return new TiltDevicePlanPreview(plan, hardLimitViolated: true, limitWarning: ex.Message);
+            }
+        }
+
+        private async Task RunAutomaticAdjustmentAsync() {
+            // Defensive re-check: canExecute already gates the UI button, but this makes the
+            // one-adjustment-per-measurement invariant hold even if this method is somehow invoked directly
+            // (e.g. programmatically, or a CanExecute/Execute race) — a second execution off the same
+            // measurement must be impossible, not just discouraged by a disabled button.
+            if (!CanExecuteAutomaticAdjustmentNow()) {
+                Logger.Warning("Automatic Adjustment invoked while its gate conditions were not satisfied; ignoring.");
+                return;
+            }
+
+            var service = tiltDeviceConnectionService;
+            var options = tiltAdapterOptions;
+            var controller = service?.Controller;
+            if (service == null || options == null || controller == null) {
+                return;
+            }
+
+            var model = SensorModel?.DisplayedSensorModel;
+            if (model == null) {
+                Notification.ShowError("No fitted sensor model is available for Automatic Adjustment.");
+                return;
+            }
+
+            // Captured up front: this is the measurement the plan below is computed from. It is only marked
+            // "consumed" (see below) once a move belonging to THIS plan has actually been sent — a later
+            // analysis completing while the dialog is open must not let this capture consume a newer
+            // measurement it was never computed from.
+            int capturedGeneration = measurementGeneration;
+
+            double[] sPerScrew;
+            double unitMicrons;
+            try {
+                (sPerScrew, unitMicrons) = BuildPerScrewTargets(model, options);
+            } catch (Exception ex) {
+                Logger.Error(ex, "Automatic Adjustment: failed to compute per-screw targets");
+                Notification.ShowError($"Could not compute the Automatic Adjustment plan: {ex.Message}");
+                return;
+            }
+
+            double beforeTiltMagnitude = TiltMagnitude(model);
+            int maxStepsPerCommand = options.TiltDeviceMaxStepsPerCommand;
+
+            TiltDevicePlanPreview Replanner(bool includeTilt, bool includeBackfocus) =>
+                BuildPlanPreview(sPerScrew, includeTilt, includeBackfocus, unitMicrons, maxStepsPerCommand, controller);
+
+            var choice = await showAdjustmentPromptAsync(
+                Replanner,
+                options.ScrewInwardCurvatureSignIsMeasured,
+                TiltGuidance?.PitchMismatchWarning ?? string.Empty,
+                !service.PositionsKnown,
+                unitMicrons);
+
+            if (!choice.Proceed) {
+                // Cancel (or window close): no moves may be sent, and — per design doc user decision #9 — the
+                // measurement is NOT consumed. The button stays enabled for another attempt off this same run.
+                return;
+            }
+
+            var moves = choice.FinalPlan?.Moves ?? Array.Empty<TiltAdapterMove>();
+            if (moves.Count == 0) {
+                // Approved but nothing to do (e.g. every residual rounded to 0 steps): a no-op does not
+                // consume the measurement either — nothing physical happened.
+                Notification.ShowInformation("Automatic Adjustment: no moves were needed for the approved groups.");
+                return;
+            }
+
+            using var operationToken = service.TryBeginOperation("Automatic Adjustment");
+            if (operationToken == null) {
+                Notification.ShowWarning("The tilt adapter device is busy with another operation; try Automatic Adjustment again once it finishes.");
+                return;
+            }
+
+            // Re-check after acquiring the lease: the dialog was open (holding no lease) while the user
+            // reviewed it, so the device could have disconnected, or reconnected to a different controller
+            // instance, in the meantime.
+            if (!service.Connected || !ReferenceEquals(service.Controller, controller)) {
+                Notification.ShowError("The tilt adapter device disconnected before Automatic Adjustment could execute; nothing was sent.");
+                return;
+            }
+
+            // Same re-check window, different hazard: closes a TOCTOU where two Automatic Adjustment
+            // invocations both captured this same generation (e.g. two dialogs opened off the same
+            // measurement) before either had executed. TryBeginOperation above serializes the two, but only
+            // by time, not by generation — if the OTHER invocation already ran to completion and stamped
+            // lastExecutedMeasurementGeneration while this one was waiting on the dialog/lease, this
+            // invocation must not go on to send a second, redundant/over-correcting plan against the same
+            // already-consumed measurement.
+            if (lastExecutedMeasurementGeneration >= capturedGeneration) {
+                Logger.Warning("Automatic Adjustment: this measurement was already consumed by a concurrent invocation; ignoring.");
+                return;
+            }
+
+            var journal = new List<TiltAdapterMove>();
+            Exception failure = null;
+            var moveProgress = new Progress<string>(text => this.progress.Report(new ApplicationStatus { Status = $"Automatic Adjustment: {text}" }));
+
+            for (int i = 0; i < moves.Count; i++) {
+                var move = moves[i];
+                this.progress.Report(new ApplicationStatus { Status = $"Automatic Adjustment: move {i + 1} of {moves.Count} — {move.Description}" });
+                try {
+                    await controller.ExecuteMoveAsync(move, moveProgress, CancellationToken.None);
+                    journal.Add(move);
+                } catch (Exception ex) {
+                    failure = ex;
+                    break;
+                }
+            }
+
+            // Consumed once execution has STARTED (>= 1 move sent), regardless of what happens next (success,
+            // failure, or a later revert) — the same measurement can never drive a second plan.
+            if (journal.Count > 0) {
+                lastExecutedMeasurementGeneration = capturedGeneration;
+                AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+            }
+
+            if (failure != null) {
+                Logger.Error(failure, "Automatic Adjustment: move execution failed");
+                await HandleExecutionFailureAsync(controller, journal, failure);
+                return;
+            }
+
+            this.progress.Report(new ApplicationStatus { Status = "Automatic Adjustment: complete" });
+            Notification.ShowInformation($"Automatic Adjustment complete: {journal.Count} move(s) sent.");
+
+            bool confirmRerun = await confirmPromptAsync(
+                "Automatic Adjustment finished sending the approved moves. Re-run the Aberration Inspector to confirm the improvement?",
+                "Confirm Adjustment");
+            if (!confirmRerun) {
+                return;
+            }
+
+            bool analyzed = await reRunAnalysisAsync(CancellationToken.None);
+            if (!analyzed) {
+                Notification.ShowWarning("The confirming Aberration Inspector run did not complete; verify the result manually before adjusting again.");
+                return;
+            }
+
+            var afterModel = SensorModel?.DisplayedSensorModel;
+            double afterTiltMagnitude = TiltMagnitude(afterModel);
+            if (TiltWorsened(beforeTiltMagnitude, afterTiltMagnitude)) {
+                Notification.ShowError(
+                    "Tilt got WORSE after this Automatic Adjustment. This can indicate a stale calibration, a rotated camera/adapter, " +
+                    "or an incorrect curvature-sign setting — investigate before adjusting again.");
+                bool confirmRevert = await confirmPromptAsync(
+                    "Tilt appears WORSE after the moves just applied. Revert them now (send the inverse of each move, in reverse order)?",
+                    "Tilt Worsened — Revert?");
+                if (confirmRevert) {
+                    await RevertJournalAsync(controller, journal, "post-adjustment worsening");
+
+                    // The confirming re-run above incremented measurementGeneration (a new completed
+                    // analysis), but lastExecutedMeasurementGeneration is still stamped with the PRE-revert
+                    // generation this plan was computed from. Left unbumped, the canExecute gate
+                    // (currentGeneration > lastExecutedGeneration) would immediately re-enable the button
+                    // against the STALE, now-reverted DisplayedSensorModel — a second plan computed before
+                    // the user has looked at fresh (post-revert) numbers could over-correct an already-reverted
+                    // device. Consume the confirming measurement so a genuinely NEW analysis is required.
+                    lastExecutedMeasurementGeneration = measurementGeneration;
+                    AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+                }
+            }
+        }
+
+        private async Task HandleExecutionFailureAsync(ITiltMotionController controller, List<TiltAdapterMove> journal, Exception failure) {
+            string failureText = DescribeFailure(failure);
+            if (journal.Count == 0) {
+                if (!FirstMoveFailureMeansDeviceUntouched(failure)) {
+                    // Per EatTiltMotionController's exception taxonomy, anything other than
+                    // TiltDeviceLimitException on the FIRST move (TiltDeviceCommandFailedException, a
+                    // propagated SerialPortClosedException, or something unexpected) means a command WAS
+                    // actually sent to the device before the failure — the outcome is ambiguous (an EEPROM
+                    // move may have executed) and the shadow was deliberately NOT advanced. The journal being
+                    // empty here reflects only that no move was confirmed successful, NOT that nothing
+                    // physical happened.
+                    Logger.Error(failure, "Automatic Adjustment: first move failed after a command may have been sent; device state is ambiguous.");
+                }
+                Notification.ShowError(DescribeFirstMoveFailureNotification(failure, failureText));
+                return;
+            }
+
+            Notification.ShowError($"Automatic Adjustment failed after {journal.Count} of its move(s) were sent: {failureText}");
+            bool confirmRevert = await confirmPromptAsync(
+                $"Automatic Adjustment failed after {journal.Count} move(s) were sent: {failureText}\n\nRevert the applied move(s) now (send the inverse of each, in reverse order)?",
+                "Automatic Adjustment Failed");
+            if (confirmRevert) {
+                await RevertJournalAsync(controller, journal, "mid-plan failure");
+            } else {
+                Notification.ShowWarning("The applied move(s) were left in place. Verify the device's position in the vendor app before adjusting again.");
+            }
+        }
+
+        private async Task RevertJournalAsync(ITiltMotionController controller, List<TiltAdapterMove> journal, string context) {
+            for (int i = journal.Count - 1; i >= 0; i--) {
+                var inverse = EatWizardMapping.InverseMove(journal[i]);
+                try {
+                    this.progress.Report(new ApplicationStatus { Status = $"Automatic Adjustment: reverting move {journal.Count - i} of {journal.Count} — {inverse.Description}" });
+                    await controller.ExecuteMoveAsync(inverse, null, CancellationToken.None);
+                } catch (Exception ex) {
+                    // Revert itself failed partway: the device's tracked position can no longer be trusted.
+                    // There is no interface member to force-invalidate a controller's shadow position, so the
+                    // actionable recovery path is the one the controller already implements: ConnectAsync
+                    // always re-queries the device's absolute positions and overwrites the shadow with ground
+                    // truth on a successful parse. Tell the user to use it.
+                    Logger.Error(ex, $"Automatic Adjustment revert ({context}) failed partway through; device position may be inaccurate.");
+                    Notification.ShowError(
+                        $"Revert failed: {ex.Message}. The device's tracked position may now be inaccurate — " +
+                        "disconnect and reconnect the tilt adapter device to resync its position from the hardware before doing anything else.");
+                    return;
+                }
+            }
+            Notification.ShowWarning($"Automatic Adjustment: {journal.Count} move(s) were reverted ({context}).");
+        }
+
+        private static string DescribeFailure(Exception failure) {
+            switch (failure) {
+                case OperationCanceledException _:
+                    return "the operation was cancelled";
+                case TiltDeviceLimitException limitEx:
+                    return $"a device travel limit was violated ({limitEx.Message})";
+                case TiltDeviceCommandFailedException cmdEx:
+                    return cmdEx.Message;
+                case SerialPortClosedException portEx:
+                    return $"the serial port closed unexpectedly ({portEx.Message})";
+                default:
+                    return failure.Message;
+            }
+        }
+
+        /// <summary>
+        /// True only for <see cref="TiltDeviceLimitException"/> -- per EatTiltMotionController's exception
+        /// taxonomy (see its <c>ExecuteMoveAsync</c> XML doc's "Exception taxonomy" section), this is the ONLY
+        /// exception thrown strictly BEFORE any device I/O, so a limit violation on the very first move
+        /// guarantees the device was never touched. Any other exception (<see cref="TiltDeviceCommandFailedException"/>,
+        /// a propagated <see cref="SerialPortClosedException"/>, or something unexpected) means a command may
+        /// already have been sent, even though the journal is empty (nothing was CONFIRMED successful).
+        /// </summary>
+        internal static bool FirstMoveFailureMeansDeviceUntouched(Exception failure) => failure is TiltDeviceLimitException;
+
+        /// <summary>
+        /// The notification text for a failure on the FIRST move of a plan (empty journal) -- see
+        /// <see cref="FirstMoveFailureMeansDeviceUntouched"/> for which branch applies. Extracted as a pure
+        /// helper (mirrors <see cref="DescribeFailure"/>) specifically so the two outcomes are directly
+        /// unit-testable without a live VM/Notification pipeline (Notification is a no-op in headless tests).
+        /// </summary>
+        internal static string DescribeFirstMoveFailureNotification(Exception failure, string failureText) {
+            if (FirstMoveFailureMeansDeviceUntouched(failure)) {
+                return $"Automatic Adjustment failed before any move was sent: {failureText}. Nothing was sent to the device.";
+            }
+            return $"Automatic Adjustment failed on its first move: {failureText}\n\nA command may have already been sent to the device, so its position is now UNCERTAIN — " +
+                "verify the device's position in the vendor app before doing anything else, or disconnect and reconnect the tilt adapter device to force a fresh resync of its position from the hardware.";
+        }
+
+        // Production Yes/No confirmation: NINA's message box (mirrors TiltAdapterWizardVM.ShowIdleDisconnectPromptAsync).
+        // Default answer is No for every caller of confirmPromptAsync in this file — never proceed with an
+        // irreversible hardware action (re-run, revert) just because a dialog was dismissed.
+        private static Task<bool> ShowYesNoPromptAsync(string message, string title) {
+            var result = MyMessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxResult.No);
+            return Task.FromResult(result == MessageBoxResult.Yes);
+        }
+
+        // Production adjustment-approval dialog: the real modal (TiltDeviceAdjustmentPrompt.ShowAsync), using
+        // this VM's own windowServiceFactory. See showAdjustmentPromptAsync's field doc for why this is
+        // injectable at all (unit tests cannot open a real WPF window).
+        private Task<TiltDeviceAdjustmentChoice> DefaultShowAdjustmentPromptAsync(
+            Func<bool, bool, TiltDevicePlanPreview> replanner,
+            bool screwInwardCurvatureSignIsMeasured,
+            string pitchMismatchWarning,
+            bool positionsUnknown,
+            double unitMicrons) {
+            return TiltDeviceAdjustmentPrompt.ShowAsync(windowServiceFactory, replanner, screwInwardCurvatureSignIsMeasured, pitchMismatchWarning, positionsUnknown, unitMicrons);
+        }
+
+        private void TiltDeviceConnectionService_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
+            // The service raises INPC from its polling/idle timer threads; marshal without blocking them
+            // (mirrors TiltAdapterWizardVM.TiltDeviceConnectionService_PropertyChanged).
+            applicationDispatcher.PostSynchronizationContext(() => {
+                if (e.PropertyName == nameof(TiltDeviceConnectionService.Connected) ||
+                    e.PropertyName == nameof(TiltDeviceConnectionService.Controller)) {
+                    RaisePropertyChanged(nameof(IsTiltDeviceConnected));
+                    RaisePropertyChanged(nameof(AutomaticAdjustmentRemediationVisible));
+                    RaiseScrewPositionDisplays();
+                    AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+                }
+                if (e.PropertyName == nameof(TiltDeviceConnectionService.CurrentPositions) ||
+                    e.PropertyName == nameof(TiltDeviceConnectionService.PositionsKnown)) {
+                    RaiseScrewPositionDisplays();
+                }
+                if (e.PropertyName == nameof(TiltDeviceConnectionService.IsOperationActive)) {
+                    AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+                }
+            });
         }
 
         private TrendlineFitting GetLineFitting(AutoFocusFitting fitting) {
