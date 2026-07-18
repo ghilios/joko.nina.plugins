@@ -138,6 +138,11 @@ conventions, so mistakes are free and the workflow is familiar before real screw
 The panel can also stand in for real screws when the Tilt Adapter Wizard prompts for calibration
 turns, though the inspector guidance loop above is the flow the simulator is built around.
 
+The simulated adapter can also stand in for a **motorized** adapter: select an ASG Electronic EAT
+preset in the wizard and connect to the **Simulator** port to run the hands-off calibration and the
+inspector's Automatic Adjustment against it. See the [Simulator
+port](motorized-tilt-adapter.md#the-simulator-port).
+
 !!! note "Match the simulated adapter to the real settings"
     The inspector computes its guidance from the *real* tilt-adapter settings, while the simulated
     adapter obeys its own geometry. If the two differ, the guidance will not converge in the
