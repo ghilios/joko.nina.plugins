@@ -82,6 +82,15 @@
                     </StackPanel>
                 </Border>
             </Grid>
+            <!--  Mapping made visible (not tooltip-only) so a user watching the physical adapter can tell
+                  which corner should be moving.  -->
+            <TextBlock
+                Margin="0,3,0,0"
+                FontSize="10"
+                FontStyle="Italic"
+                Opacity="0.7"
+                TextWrapping="Wrap"
+                Text="Screw 1 = TR, 2 = TL, 3 = BL, 4 = BR (matches the wizard). Δ is the change since this run started." />
         </StackPanel>
     </DataTemplate>
 
@@ -989,25 +998,13 @@
                                 </Style.Triggers>
                             </Style>
                         </StackPanel.Style>
+                        <!--  Auto Run All (T11): the primary path for a connected motorized adapter, so it is
+                              placed first and bold. It drives every remaining step (device move + measurement +
+                              advance) automatically through Complete, including the final restore-to-baseline
+                              move. Collapsed unless a motorized device is connected — so the manual button order
+                              (Run Measurement, Use Saved AF) is unchanged when it is hidden.  -->
                         <Button
                             Margin="0,0,6,0"
-                            Command="{Binding RunMeasurementCommand}">
-                            <TextBlock
-                                Margin="10,5,10,5"
-                                Foreground="{StaticResource ButtonForegroundBrush}"
-                                Text="Run Measurement" />
-                        </Button>
-                        <Button Command="{Binding UseSavedAFCommand}">
-                            <TextBlock
-                                Margin="10,5,10,5"
-                                Foreground="{StaticResource ButtonForegroundBrush}"
-                                Text="Use Saved AF" />
-                        </Button>
-                        <!--  Auto Run All (T11): only offered when a motorized device is connected — drives
-                              every remaining step (device move + measurement + advance) automatically through
-                              Complete, including the final restore-to-baseline move.  -->
-                        <Button
-                            Margin="6,0,0,0"
                             Command="{Binding AutoRunAllCommand}"
                             ToolTip="Drive every remaining calibration step automatically: the wizard sends each step's device move, runs the measurement, and advances — through Complete's restore-to-baseline move — without further clicks.">
                             <Button.Style>
@@ -1026,10 +1023,59 @@
                             </Button.Style>
                             <TextBlock
                                 Margin="10,5,10,5"
+                                FontWeight="Bold"
                                 Foreground="{StaticResource ButtonForegroundBrush}"
                                 Text="Auto Run All" />
                         </Button>
+                        <!--  Single-step: relabeled "Run This Step" when a motorized device is connected, to
+                              distinguish it from Auto Run All's whole-run automation.  -->
+                        <Button
+                            Margin="0,0,6,0"
+                            Command="{Binding RunMeasurementCommand}">
+                            <TextBlock Margin="10,5,10,5" Foreground="{StaticResource ButtonForegroundBrush}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="Run Measurement" />
+                                        <Style.Triggers>
+                                            <MultiDataTrigger>
+                                                <MultiDataTrigger.Conditions>
+                                                    <Condition Binding="{Binding IsMotorizedDevice}" Value="True" />
+                                                    <Condition Binding="{Binding IsTiltDeviceConnected}" Value="True" />
+                                                </MultiDataTrigger.Conditions>
+                                                <Setter Property="Text" Value="Run This Step" />
+                                            </MultiDataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Button>
+                        <Button Command="{Binding UseSavedAFCommand}">
+                            <TextBlock
+                                Margin="10,5,10,5"
+                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                Text="Use Saved AF" />
+                        </Button>
                     </StackPanel>
+
+                    <!--  Connection status carried into the running view (B.10): a mid-run disconnect otherwise
+                          only surfaces when the next move fails. Shown while connected (with the positions).  -->
+                    <TextBlock
+                        Margin="0,4,0,0"
+                        FontStyle="Italic"
+                        Opacity="0.8"
+                        Text="{Binding TiltDeviceStatusText}"
+                        TextWrapping="Wrap">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsTiltDeviceConnected}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
 
                     <!--  Live motor positions + Δ during the run (d). Panel A's copy is collapsed while
                           running, so the display is repeated here where it updates per move.  -->
@@ -1081,10 +1127,29 @@
                         <Button
                             HorizontalAlignment="Left"
                             Command="{Binding CancelCommand}">
-                            <TextBlock
-                                Margin="10,5,10,5"
-                                Foreground="{StaticResource ButtonForegroundBrush}"
-                                Text="Cancel" />
+                            <!--  During Auto Run All, retitle + explain that cancelling is safe: it finishes the
+                                  in-flight move/measurement (no device abort command) then auto-returns to start.  -->
+                            <Button.Style>
+                                <Style BasedOn="{StaticResource {x:Type Button}}" TargetType="Button">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsAutoRunningAll}" Value="True">
+                                            <Setter Property="ToolTip" Value="Finishes the current move and measurement (the device has no abort command), then automatically returns every motor to its starting position." />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <TextBlock Margin="10,5,10,5" Foreground="{StaticResource ButtonForegroundBrush}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="Cancel" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsAutoRunningAll}" Value="True">
+                                                <Setter Property="Text" Value="Cancel Run" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                         </Button>
                     </StackPanel>
 

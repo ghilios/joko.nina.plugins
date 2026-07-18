@@ -89,9 +89,10 @@ public class TiltDeviceAdjustmentPromptVMTests {
             Assert.That(vm.Moves[1].GroupLabel, Is.EqualTo("Backfocus"));
             Assert.That(vm.HasMoves, Is.True);
             Assert.That(vm.HasNoMoves, Is.False);
-            Assert.That(vm.MoveCountText, Is.EqualTo("2 commands"));
+            Assert.That(vm.MoveCountText, Is.EqualTo("2 moves"));
+            Assert.That(vm.ProceedButtonText, Is.EqualTo("Send 2 moves"));
             Assert.That(vm.EstimatedDurationText, Is.EqualTo("~20 s"));
-            Assert.That(vm.CornerResiduals.Select(r => r.Label), Is.EqualTo(new[] { "Screw 1", "Screw 2", "Screw 3", "Screw 4" }));
+            Assert.That(vm.CornerResiduals.Select(r => r.Label), Is.EqualTo(new[] { "Screw 1 (TR)", "Screw 2 (TL)", "Screw 3 (BL)", "Screw 4 (BR)" }));
             Assert.That(vm.CornerResiduals.Select(r => r.ValueText), Is.EqualTo(new[] { "+0.9 µm", "-0.9 µm", "0.0 µm", "+1.3 µm" }));
             Assert.That(vm.ProceedCommand.CanExecute(null), Is.True);
         });
@@ -127,7 +128,7 @@ public class TiltDeviceAdjustmentPromptVMTests {
             Assert.That(replanner.Calls, Is.EqualTo(new[] { (true, true), (false, true) }));
             Assert.That(vm.Moves, Has.Count.EqualTo(1));
             Assert.That(vm.Moves[0].WireCommand, Is.EqualTo("bf,12"));
-            Assert.That(vm.MoveCountText, Is.EqualTo("1 command"));
+            Assert.That(vm.MoveCountText, Is.EqualTo("1 move"));
             Assert.That(vm.EstimatedDurationText, Is.EqualTo("~10 s"));
             Assert.That(vm.CornerResiduals.Select(r => r.ValueText), Is.EqualTo(new[] { "+2.0 µm", "-2.0 µm", "+2.0 µm", "-2.0 µm" }));
             Assert.That(raised, Does.Contain(nameof(vm.ApplyTilt)));
@@ -381,7 +382,8 @@ public class TiltDeviceAdjustmentPromptVMTests {
         Assert.Multiple(() => {
             Assert.That(vm.HasMoves, Is.False);
             Assert.That(vm.HasNoMoves, Is.True);
-            Assert.That(vm.MoveCountText, Is.EqualTo("No commands"));
+            Assert.That(vm.MoveCountText, Is.EqualTo("No moves"));
+            Assert.That(vm.ProceedButtonText, Is.EqualTo("Proceed"));
             Assert.That(vm.EstimatedDurationText, Is.EqualTo("0 s"));
         });
     }
@@ -451,6 +453,75 @@ public class TiltDeviceAdjustmentPromptVMTests {
         var move = new TiltAdapterMove(TiltMoveAxis.Backfocus, 150, TiltMoveGroup.Backfocus, "x");
         Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(move),
             Is.EqualTo("All four screws +150 steps together — changes backfocus (sensor spacing), not tilt."));
+    }
+
+    [Test]
+    public void ProceedDisabledReason_ExplainsBothGroupsOff_ButNotWhenEnabledOrHardLimited() {
+        var replanner = new RecordingReplanner {
+            Produce = (_, _) => new TiltDevicePlanPreview(
+                MakePlan(moves: new[] { Move(TiltMoveAxis.DiagonalA, 10, TiltMoveGroup.Tilt) }), false, null),
+        };
+        var vm = BuildVM(replanner);
+
+        // Enabled: no reason shown.
+        Assert.That(vm.ProceedDisabledReason, Is.Empty);
+        Assert.That(vm.ProceedDisabledReasonVisible, Is.False);
+
+        // Both groups off: explain why Proceed is disabled.
+        vm.ApplyTilt = false;
+        vm.ApplyBackfocus = false;
+        Assert.Multiple(() => {
+            Assert.That(vm.ProceedCommand.CanExecute(null), Is.False);
+            Assert.That(vm.ProceedDisabledReason, Is.EqualTo("Select at least one correction to apply."));
+            Assert.That(vm.ProceedDisabledReasonVisible, Is.True);
+        });
+    }
+
+    [Test]
+    public void ProceedDisabledReason_EmptyWhenHardLimited_RedPanelExplainsInstead() {
+        var replanner = new RecordingReplanner {
+            Produce = (_, _) => new TiltDevicePlanPreview(
+                MakePlan(moves: new[] { Move(TiltMoveAxis.DiagonalA, 500, TiltMoveGroup.Tilt) }),
+                hardLimitViolated: true, limitWarning: "Too far."),
+        };
+        var vm = BuildVM(replanner);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ProceedCommand.CanExecute(null), Is.False);
+            Assert.That(vm.ProceedDisabledReason, Is.Empty, "the red hard-limit panel already explains this");
+            Assert.That(vm.ProceedDisabledReasonVisible, Is.False);
+        });
+    }
+
+    [Test]
+    public void MoveRow_AssumedDirection_FlagsOnlyBackfocusRow_WhenSignUnmeasured() {
+        var replanner = new RecordingReplanner {
+            Produce = (_, _) => new TiltDevicePlanPreview(
+                MakePlan(moves: new[] {
+                    Move(TiltMoveAxis.DiagonalA, 10, TiltMoveGroup.Tilt),
+                    Move(TiltMoveAxis.Backfocus, 8, TiltMoveGroup.Backfocus),
+                }), false, null),
+        };
+
+        var unmeasured = BuildVM(replanner, signMeasured: false);
+        Assert.Multiple(() => {
+            Assert.That(unmeasured.Moves[0].AssumedDirection, Is.False, "tilt rows are never direction-assumed");
+            Assert.That(unmeasured.Moves[1].AssumedDirection, Is.True, "the backfocus row carries the assumed-direction tag");
+        });
+
+        var measured = BuildVM(replanner, signMeasured: true);
+        Assert.That(measured.Moves[1].AssumedDirection, Is.False, "measured sign ⇒ no assumed-direction tag");
+    }
+
+    [Test]
+    public void CornerResiduals_AppendPhysicalCornerToEachScrew() {
+        var replanner = new RecordingReplanner {
+            Produce = (_, _) => new TiltDevicePlanPreview(
+                MakePlan(residualMicrons: new[] { 0.0, 0.0, 0.0, 0.0 }), false, null),
+        };
+        var vm = BuildVM(replanner);
+        Assert.That(vm.CornerResiduals.Select(r => r.Label),
+            Is.EqualTo(new[] { "Screw 1 (TR)", "Screw 2 (TL)", "Screw 3 (BL)", "Screw 4 (BR)" }));
     }
 
     [Test]

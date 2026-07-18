@@ -1442,6 +1442,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     hasDefaultedMeasureCurvatureOnConnect = true;
                     if (!tiltAdapterOptions.MeasureCurvatureDuringCalibration && !userExplicitlyDisabledMeasureCurvatureThisSession) {
                         tiltAdapterOptions.MeasureCurvatureDuringCalibration = true;
+                        // Surface the silent 4→6-step change so the extra "all screws" steps aren't confusing.
+                        Notification.ShowInformation("Enabled direction measurement (6-step calibration) for the connected device — " +
+                            "recommended for hands-off runs. You can turn it off under the measurement settings.");
                     }
                 }
                 RaisePropertyChanged(nameof(TiltDeviceStatusText));
@@ -1816,7 +1819,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     return; // StartAsync already surfaced why (validation failure or device busy).
                 }
             } else if (!currentRunIsDeviceDriven) {
-                Notification.ShowWarning("Restart the wizard (Abort Wizard, then Start) while the tilt adapter device is connected to use Auto Run All.");
+                Notification.ShowWarning("Restart the wizard (Abort Wizard, then Calibrate) while the tilt adapter device is connected to use Auto Run All.");
                 return;
             }
 

@@ -53,13 +53,20 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
     /// </summary>
     public sealed class TiltDeviceAdjustmentMoveRow {
 
-        public TiltDeviceAdjustmentMoveRow(string wireCommand, string semanticText, string moveKindLabel, string description, TiltMoveGroup group) {
+        public TiltDeviceAdjustmentMoveRow(string wireCommand, string semanticText, string moveKindLabel, string description, TiltMoveGroup group, bool assumedDirection = false) {
             WireCommand = wireCommand ?? string.Empty;
             SemanticText = semanticText ?? string.Empty;
             MoveKindLabel = moveKindLabel ?? string.Empty;
             Description = description ?? string.Empty;
             Group = group;
+            AssumedDirection = assumedDirection;
         }
+
+        /// <summary>
+        /// True when this row's move could physically go the wrong way because the backfocus direction was
+        /// never measured — the anchor for the "(assumed direction)" warning, shown inline on the row.
+        /// </summary>
+        public bool AssumedDirection { get; }
 
         /// <summary>The exact wire command string, e.g. <c>tr,150</c> or <c>bf,-20</c>.</summary>
         public string WireCommand { get; }
@@ -174,11 +181,35 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
 
         public bool HasNoMoves => Moves.Count == 0;
 
-        /// <summary>"No commands" / "1 command" / "N commands" for the footer summary.</summary>
+        /// <summary>"No moves" / "1 move" / "N moves" for the footer summary.</summary>
         public string MoveCountText =>
-            Moves.Count == 0 ? "No commands"
-            : Moves.Count == 1 ? "1 command"
-            : string.Format(CultureInfo.InvariantCulture, "{0} commands", Moves.Count);
+            Moves.Count == 0 ? "No moves"
+            : Moves.Count == 1 ? "1 move"
+            : string.Format(CultureInfo.InvariantCulture, "{0} moves", Moves.Count);
+
+        /// <summary>Dynamic Proceed-button label: "Send N moves" when there is something to send, else "Proceed".</summary>
+        public string ProceedButtonText =>
+            Moves.Count == 0 ? "Proceed"
+            : Moves.Count == 1 ? "Send 1 move"
+            : string.Format(CultureInfo.InvariantCulture, "Send {0} moves", Moves.Count);
+
+        /// <summary>
+        /// Explains why Proceed is disabled, for the case not already covered by a red panel (both groups off).
+        /// Empty when Proceed is enabled, or when the hard-limit panel is already carrying the explanation.
+        /// </summary>
+        public string ProceedDisabledReason {
+            get {
+                if (Preview != null && Preview.HardLimitViolated) {
+                    return string.Empty; // the blocking red panel already explains this.
+                }
+                if (!applyTilt && !applyBackfocus) {
+                    return "Select at least one correction to apply.";
+                }
+                return string.Empty;
+            }
+        }
+
+        public bool ProceedDisabledReasonVisible => !string.IsNullOrEmpty(ProceedDisabledReason);
 
         /// <summary>Labeled per-corner residual cells (Screw 1..4, µm).</summary>
         public IReadOnlyList<TiltDeviceCornerResidualRow> CornerResiduals { get; private set; }
@@ -208,8 +239,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
 
         public string TwistWarningText => string.Format(
             CultureInfo.InvariantCulture,
-            "This measurement includes a twist component of {0:+0.0;-0.0} steps that NO rigid-plane tilt adapter can correct. " +
-            "It is not part of any command below and will remain as residual tilt after the moves.",
+            "This measurement includes a twist component of {0:+0.0;-0.0} steps that no rigid-plane tilt adapter can correct " +
+            "(the sensor is warped, not merely tilted). It is not part of any move below and remains as residual tilt afterwards.",
             Preview.Plan.TwistResidualSteps);
 
         /// <summary>
@@ -243,7 +274,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
             Preview = preview;
             Moves = preview.Plan.Moves
                 .Select(m => new TiltDeviceAdjustmentMoveRow(
-                    EatCommands.Format(m), BuildSemanticText(m), BuildMoveKindLabel(m.Axis), m.Description, m.Group))
+                    EatCommands.Format(m), BuildSemanticText(m), BuildMoveKindLabel(m.Axis), m.Description, m.Group,
+                    assumedDirection: !screwInwardCurvatureSignIsMeasured && m.Group == TiltMoveGroup.Backfocus))
                 .ToArray();
             CornerResiduals = BuildCornerResiduals(preview.Plan.ResidualMicronsPerCorner);
 
@@ -252,6 +284,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
             RaisePropertyChanged(nameof(HasMoves));
             RaisePropertyChanged(nameof(HasNoMoves));
             RaisePropertyChanged(nameof(MoveCountText));
+            RaisePropertyChanged(nameof(ProceedButtonText));
+            RaisePropertyChanged(nameof(ProceedDisabledReason));
+            RaisePropertyChanged(nameof(ProceedDisabledReasonVisible));
             RaisePropertyChanged(nameof(CornerResiduals));
             RaisePropertyChanged(nameof(EstimatedDurationText));
             RaisePropertyChanged(nameof(HardLimitViolated));
@@ -355,12 +390,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
             return string.Format(CultureInfo.InvariantCulture, "Screws {0} & {1}", head, screws[screws.Count - 1]);
         }
 
+        // Wizard screw index (1..4) → physical corner, per the device-connected calibration convention the
+        // wizard's motor-position grid also uses (screw 1 = TR, 2 = TL, 3 = BL, 4 = BR). This dialog only ever
+        // runs against a connected device, so the mapping is fixed.
+        private static readonly string[] ScrewCornerLabels = { "TR", "TL", "BL", "BR" };
+
         private static IReadOnlyList<TiltDeviceCornerResidualRow> BuildCornerResiduals(IReadOnlyList<double> residualMicrons) {
             var rows = new TiltDeviceCornerResidualRow[residualMicrons.Count];
             for (int i = 0; i < residualMicrons.Count; ++i) {
-                rows[i] = new TiltDeviceCornerResidualRow(
-                    string.Format(CultureInfo.InvariantCulture, "Screw {0}", i + 1),
-                    FormatResidualMicrons(residualMicrons[i]));
+                string label = i < ScrewCornerLabels.Length
+                    ? string.Format(CultureInfo.InvariantCulture, "Screw {0} ({1})", i + 1, ScrewCornerLabels[i])
+                    : string.Format(CultureInfo.InvariantCulture, "Screw {0}", i + 1);
+                rows[i] = new TiltDeviceCornerResidualRow(label, FormatResidualMicrons(residualMicrons[i]));
             }
             return rows;
         }
