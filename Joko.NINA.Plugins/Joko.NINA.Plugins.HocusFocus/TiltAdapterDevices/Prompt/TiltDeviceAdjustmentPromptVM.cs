@@ -117,6 +117,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
         private readonly Func<bool, bool, TiltDevicePlanPreview> replanner;
         private readonly bool screwInwardCurvatureSignIsMeasured;
         private readonly bool positionsUnknown;
+        private readonly double unitMicrons;
         private readonly RelayCommand proceedCommand;
 
         private bool applyTilt = true;
@@ -128,10 +129,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
             Func<bool, bool, TiltDevicePlanPreview> replanner,
             bool screwInwardCurvatureSignIsMeasured,
             string pitchMismatchWarning,
-            bool positionsUnknown) {
+            bool positionsUnknown,
+            double unitMicrons = 0.0) {
             this.replanner = replanner ?? throw new ArgumentNullException(nameof(replanner));
             this.screwInwardCurvatureSignIsMeasured = screwInwardCurvatureSignIsMeasured;
             this.positionsUnknown = positionsUnknown;
+            this.unitMicrons = unitMicrons;
             PitchMismatchWarning = pitchMismatchWarning ?? string.Empty;
 
             proceedCommand = new RelayCommand(Proceed, CanProceed);
@@ -237,11 +240,20 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
         /// <summary>Visible when the plan carries a twist component of at least one whole step.</summary>
         public bool TwistWarningVisible => Math.Abs(Preview.Plan.TwistResidualSteps) >= 1.0;
 
-        public string TwistWarningText => string.Format(
-            CultureInfo.InvariantCulture,
-            "This measurement includes a twist component of {0:+0.0;-0.0} steps that no rigid-plane tilt adapter can correct " +
-            "(the sensor is warped, not merely tilted). It is not part of any move below and remains as residual tilt afterwards.",
-            Preview.Plan.TwistResidualSteps);
+        public string TwistWarningText {
+            get {
+                double steps = Preview.Plan.TwistResidualSteps;
+                // Translate to µm when the step size is known, so the twist is on the same scale as the residual
+                // table above (which is in µm) instead of a bare step count the user must interpret.
+                string microns = unitMicrons > 0
+                    ? string.Format(CultureInfo.InvariantCulture, " (about {0:0.0} µm across the sensor)", Math.Abs(steps * unitMicrons))
+                    : string.Empty;
+                return string.Format(CultureInfo.InvariantCulture,
+                    "This measurement includes a twist component of {0:+0.0;-0.0} steps{1} that no rigid-plane tilt adapter can correct " +
+                    "(the sensor is warped, not merely tilted). It is not part of any move below and remains as residual tilt afterwards.",
+                    steps, microns);
+            }
+        }
 
         /// <summary>
         /// Visible when the backfocus direction has never been measured by the wizard AND the current plan
@@ -347,8 +359,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
 
             if (move.Axis == TiltMoveAxis.Backfocus) {
                 string signed = move.Steps.ToString("+0;-0;0", CultureInfo.InvariantCulture);
-                return string.Format(CultureInfo.InvariantCulture,
-                    "All four screws {0} steps together — changes backfocus (sensor spacing), not tilt.", signed);
+                return string.Format(CultureInfo.InvariantCulture, "All four screws {0} steps together", signed);
             }
 
             var perCorner = move.PerCornerSteps;
@@ -366,8 +377,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
                 }
             }
 
-            string kind = (move.Axis == TiltMoveAxis.DiagonalA || move.Axis == TiltMoveAxis.DiagonalB)
-                ? "Corner move" : "Side move";
+            // The move kind ("Corner"/"Side") is already shown in the row's badge, so it is not repeated here.
             var parts = new List<string>(2);
             if (positives.Count > 0) {
                 parts.Add(string.Format(CultureInfo.InvariantCulture, "{0} +{1}", FormatScrews(positives), magnitude));
@@ -375,7 +385,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
             if (negatives.Count > 0) {
                 parts.Add(string.Format(CultureInfo.InvariantCulture, "{0} -{1}", FormatScrews(negatives), magnitude));
             }
-            return string.Format(CultureInfo.InvariantCulture, "{0} — {1} steps", kind, string.Join(", ", parts));
+            return string.Format(CultureInfo.InvariantCulture, "{0} steps", string.Join(", ", parts));
         }
 
         /// <summary>"Screw 1" / "Screws 1 &amp; 2" / "Screws 1, 2 &amp; 3" for a list of wizard screw numbers.</summary>

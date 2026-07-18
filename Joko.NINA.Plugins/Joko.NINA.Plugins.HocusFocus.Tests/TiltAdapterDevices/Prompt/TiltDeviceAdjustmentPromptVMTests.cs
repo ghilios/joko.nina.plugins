@@ -54,8 +54,9 @@ public class TiltDeviceAdjustmentPromptVMTests {
         RecordingReplanner replanner,
         bool signMeasured = true,
         string pitchMismatchWarning = null,
-        bool positionsUnknown = false) =>
-        new TiltDeviceAdjustmentPromptVM(replanner.Replan, signMeasured, pitchMismatchWarning, positionsUnknown);
+        bool positionsUnknown = false,
+        double unitMicrons = 0.0) =>
+        new TiltDeviceAdjustmentPromptVM(replanner.Replan, signMeasured, pitchMismatchWarning, positionsUnknown, unitMicrons);
 
     [Test]
     public void Ctor_NullReplanner_Throws() {
@@ -320,6 +321,28 @@ public class TiltDeviceAdjustmentPromptVMTests {
         }
     }
 
+    [Test]
+    public void TwistWarning_TranslatesStepsToMicrons_WhenUnitKnown() {
+        var replanner = new RecordingReplanner {
+            Produce = (_, _) => new TiltDevicePlanPreview(MakePlan(twistResidualSteps: 3.0), false, null),
+        };
+        // 3 steps × 1.8 µm/step = 5.4 µm across the sensor.
+        var vm = BuildVM(replanner, unitMicrons: 1.8);
+        Assert.Multiple(() => {
+            Assert.That(vm.TwistWarningText, Does.Contain("+3.0 steps"));
+            Assert.That(vm.TwistWarningText, Does.Contain("5.4 µm"));
+        });
+    }
+
+    [Test]
+    public void TwistWarning_OmitsMicrons_WhenUnitUnknown() {
+        var replanner = new RecordingReplanner {
+            Produce = (_, _) => new TiltDevicePlanPreview(MakePlan(twistResidualSteps: 3.0), false, null),
+        };
+        var vm = BuildVM(replanner, unitMicrons: 0.0);
+        Assert.That(vm.TwistWarningText, Does.Not.Contain("µm"));
+    }
+
     [TestCase(false, true, true)]
     [TestCase(false, false, false)]
     [TestCase(true, true, false)]
@@ -419,9 +442,10 @@ public class TiltDeviceAdjustmentPromptVMTests {
 
     [Test]
     public void BuildSemanticText_CornerMove_ListsBothDiagonalScrewsWithSigns() {
+        // The move kind ("Corner") is in the row badge, so the text does not repeat it.
         var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 142, TiltMoveGroup.Tilt, "x");
         Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(move),
-            Is.EqualTo("Corner move — Screw 1 +142, Screw 3 -142 steps"));
+            Is.EqualTo("Screw 1 +142, Screw 3 -142 steps"));
     }
 
     [Test]
@@ -429,7 +453,7 @@ public class TiltDeviceAdjustmentPromptVMTests {
         // DiagonalA,-142 => PerCornerSteps (-142,0,+142,0): screw 3 positive, screw 1 negative.
         var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, -142, TiltMoveGroup.Tilt, "x");
         Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(move),
-            Is.EqualTo("Corner move — Screw 3 +142, Screw 1 -142 steps"));
+            Is.EqualTo("Screw 3 +142, Screw 1 -142 steps"));
     }
 
     [Test]
@@ -437,7 +461,7 @@ public class TiltDeviceAdjustmentPromptVMTests {
         // EdgeVertical,+20 => (+1,+1,-1,-1): screws 1 & 2 together, 3 & 4 together the other way.
         var move = new TiltAdapterMove(TiltMoveAxis.EdgeVertical, 20, TiltMoveGroup.Tilt, "x");
         Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(move),
-            Is.EqualTo("Side move — Screws 1 & 2 +20, Screws 3 & 4 -20 steps"));
+            Is.EqualTo("Screws 1 & 2 +20, Screws 3 & 4 -20 steps"));
     }
 
     [Test]
@@ -445,14 +469,14 @@ public class TiltDeviceAdjustmentPromptVMTests {
         // EdgeHorizontal,+20 => (+1,-1,-1,+1): screws 1 & 4 together, 2 & 3 the other way.
         var move = new TiltAdapterMove(TiltMoveAxis.EdgeHorizontal, 20, TiltMoveGroup.Tilt, "x");
         Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(move),
-            Is.EqualTo("Side move — Screws 1 & 4 +20, Screws 2 & 3 -20 steps"));
+            Is.EqualTo("Screws 1 & 4 +20, Screws 2 & 3 -20 steps"));
     }
 
     [Test]
     public void BuildSemanticText_Backfocus_SaysAllFourTogether() {
         var move = new TiltAdapterMove(TiltMoveAxis.Backfocus, 150, TiltMoveGroup.Backfocus, "x");
         Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(move),
-            Is.EqualTo("All four screws +150 steps together — changes backfocus (sensor spacing), not tilt."));
+            Is.EqualTo("All four screws +150 steps together"));
     }
 
     [Test]
@@ -534,7 +558,7 @@ public class TiltDeviceAdjustmentPromptVMTests {
 
         Assert.Multiple(() => {
             Assert.That(vm.Moves[0].MoveKindLabel, Is.EqualTo("Corner"));
-            Assert.That(vm.Moves[0].SemanticText, Is.EqualTo("Corner move — Screw 2 +30, Screw 4 -30 steps"));
+            Assert.That(vm.Moves[0].SemanticText, Is.EqualTo("Screw 2 +30, Screw 4 -30 steps"));
             // The exact wire command is still available (demoted to an auditability chip in the UI).
             Assert.That(vm.Moves[0].WireCommand, Is.EqualTo("tl,30"));
         });

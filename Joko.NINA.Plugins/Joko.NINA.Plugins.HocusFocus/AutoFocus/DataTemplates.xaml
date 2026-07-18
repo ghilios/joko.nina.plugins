@@ -1192,6 +1192,19 @@
                         </MultiBinding>
                     </FrameworkElement.Tag>
                 </FrameworkElement>
+                <!--  Chart-only gate: like ShowSensorModel, but ALSO false while a sweep is running, so the
+                      Focus Chart shows the 5-curve (Center + 4-corner) view live DURING a sweep and collapses
+                      to the single AF-points curve only after the sweep completes (when the sensor model is
+                      shown). Only the Focus Chart's series/annotations/legend bind to this; every other
+                      sensor-model gate stays on ShowSensorModel.  -->
+                <FrameworkElement x:Name="ShowSingleAfCurve">
+                    <FrameworkElement.Tag>
+                        <MultiBinding Converter="{StaticResource BooleanAndConverter}">
+                            <Binding ElementName="ShowSensorModel" Mode="OneWay" Path="Tag" />
+                            <Binding Converter="{StaticResource HF_InverseBooleanConverter}" Mode="OneWay" Path="IsAnalysisRunning" />
+                        </MultiBinding>
+                    </FrameworkElement.Tag>
+                </FrameworkElement>
                 <FrameworkElement x:Name="ShowLoadedSensorModel">
                     <FrameworkElement.Tag>
                         <MultiBinding Converter="{StaticResource BooleanAndConverter}">
@@ -2292,7 +2305,7 @@
                                     <oxy:ScatterErrorSeries.Visibility>
                                         <Binding
                                             Converter="{StaticResource BooleanToVisibilityCollapsedConverter}"
-                                            ElementName="ShowSensorModel"
+                                            ElementName="ShowSingleAfCurve"
                                             Mode="OneWay"
                                             Path="Tag" />
                                     </oxy:ScatterErrorSeries.Visibility>
@@ -2314,7 +2327,7 @@
                                     <oxy:ScatterErrorSeries.Visibility>
                                         <Binding
                                             Converter="{StaticResource InverseBooleanToVisibilityCollapsedConverter}"
-                                            ElementName="ShowSensorModel"
+                                            ElementName="ShowSingleAfCurve"
                                             Mode="OneWay"
                                             Path="Tag" />
                                     </oxy:ScatterErrorSeries.Visibility>
@@ -2335,7 +2348,7 @@
                                     <oxy:ScatterErrorSeries.Visibility>
                                         <Binding
                                             Converter="{StaticResource InverseBooleanToVisibilityCollapsedConverter}"
-                                            ElementName="ShowSensorModel"
+                                            ElementName="ShowSingleAfCurve"
                                             Mode="OneWay"
                                             Path="Tag" />
                                     </oxy:ScatterErrorSeries.Visibility>
@@ -2356,7 +2369,7 @@
                                     <oxy:ScatterErrorSeries.Visibility>
                                         <Binding
                                             Converter="{StaticResource InverseBooleanToVisibilityCollapsedConverter}"
-                                            ElementName="ShowSensorModel"
+                                            ElementName="ShowSingleAfCurve"
                                             Mode="OneWay"
                                             Path="Tag" />
                                     </oxy:ScatterErrorSeries.Visibility>
@@ -2377,7 +2390,7 @@
                                     <oxy:ScatterErrorSeries.Visibility>
                                         <Binding
                                             Converter="{StaticResource InverseBooleanToVisibilityCollapsedConverter}"
-                                            ElementName="ShowSensorModel"
+                                            ElementName="ShowSingleAfCurve"
                                             Mode="OneWay"
                                             Path="Tag" />
                                     </oxy:ScatterErrorSeries.Visibility>
@@ -2398,7 +2411,7 @@
                                     <oxy:ScatterErrorSeries.Visibility>
                                         <Binding
                                             Converter="{StaticResource InverseBooleanToVisibilityCollapsedConverter}"
-                                            ElementName="ShowSensorModel"
+                                            ElementName="ShowSingleAfCurve"
                                             Mode="OneWay"
                                             Path="Tag" />
                                     </oxy:ScatterErrorSeries.Visibility>
@@ -2419,7 +2432,7 @@
                                             </Binding>
                                             <Binding Path="RegionCurveFittings[0]" />
                                             <Binding
-                                                ElementName="ShowSensorModel"
+                                                ElementName="ShowSingleAfCurve"
                                                 Mode="OneWay"
                                                 Path="Tag" />
                                         </MultiBinding>
@@ -2451,7 +2464,7 @@
                                             <Binding Path="RegionCurveFittings[1]" />
                                             <Binding
                                                 Converter="{StaticResource HF_InverseBooleanConverter}"
-                                                ElementName="ShowSensorModel"
+                                                ElementName="ShowSingleAfCurve"
                                                 Mode="OneWay"
                                                 Path="Tag" />
                                         </MultiBinding>
@@ -2482,7 +2495,7 @@
                                             <Binding Path="RegionCurveFittings[2]" />
                                             <Binding
                                                 Converter="{StaticResource HF_InverseBooleanConverter}"
-                                                ElementName="ShowSensorModel"
+                                                ElementName="ShowSingleAfCurve"
                                                 Mode="OneWay"
                                                 Path="Tag" />
                                         </MultiBinding>
@@ -2513,7 +2526,7 @@
                                             <Binding Path="RegionCurveFittings[3]" />
                                             <Binding
                                                 Converter="{StaticResource HF_InverseBooleanConverter}"
-                                                ElementName="ShowSensorModel"
+                                                ElementName="ShowSingleAfCurve"
                                                 Mode="OneWay"
                                                 Path="Tag" />
                                         </MultiBinding>
@@ -2544,7 +2557,7 @@
                                             <Binding Path="RegionCurveFittings[4]" />
                                             <Binding
                                                 Converter="{StaticResource HF_InverseBooleanConverter}"
-                                                ElementName="ShowSensorModel"
+                                                ElementName="ShowSingleAfCurve"
                                                 Mode="OneWay"
                                                 Path="Tag" />
                                         </MultiBinding>
@@ -2575,7 +2588,7 @@
                                             <Binding Path="RegionCurveFittings[5]" />
                                             <Binding
                                                 Converter="{StaticResource HF_InverseBooleanConverter}"
-                                                ElementName="ShowSensorModel"
+                                                ElementName="ShowSingleAfCurve"
                                                 Mode="OneWay"
                                                 Path="Tag" />
                                         </MultiBinding>
@@ -2608,7 +2621,7 @@
                                             </Binding>
                                             <Binding Converter="{StaticResource HF_IsNotNegativeToBooleanConverter}" Path="RegionFinalFocusPoints[0].X" />
                                             <Binding
-                                                ElementName="ShowSensorModel"
+                                                ElementName="ShowSingleAfCurve"
                                                 Mode="OneWay"
                                                 Path="Tag" />
                                         </MultiBinding>
@@ -2632,7 +2645,7 @@
                                             <Binding Converter="{StaticResource HF_IsNotNegativeToBooleanConverter}" Path="RegionFinalFocusPoints[1].X" />
                                             <Binding
                                                 Converter="{StaticResource HF_InverseBooleanConverter}"
-                                                ElementName="ShowSensorModel"
+                                                ElementName="ShowSingleAfCurve"
                                                 Mode="OneWay"
                                                 Path="Tag" />
                                         </MultiBinding>
@@ -2658,7 +2671,7 @@
                                             <Binding Converter="{StaticResource HF_IsNotNegativeToBooleanConverter}" Path="RegionFinalFocusPoints[2].X" />
                                             <Binding
                                                 Converter="{StaticResource HF_InverseBooleanConverter}"
-                                                ElementName="ShowSensorModel"
+                                                ElementName="ShowSingleAfCurve"
                                                 Mode="OneWay"
                                                 Path="Tag" />
                                         </MultiBinding>
@@ -2684,7 +2697,7 @@
                                             <Binding Converter="{StaticResource HF_IsNotNegativeToBooleanConverter}" Path="RegionFinalFocusPoints[3].X" />
                                             <Binding
                                                 Converter="{StaticResource HF_InverseBooleanConverter}"
-                                                ElementName="ShowSensorModel"
+                                                ElementName="ShowSingleAfCurve"
                                                 Mode="OneWay"
                                                 Path="Tag" />
                                         </MultiBinding>
@@ -2710,7 +2723,7 @@
                                             <Binding Converter="{StaticResource HF_IsNotNegativeToBooleanConverter}" Path="RegionFinalFocusPoints[4].X" />
                                             <Binding
                                                 Converter="{StaticResource HF_InverseBooleanConverter}"
-                                                ElementName="ShowSensorModel"
+                                                ElementName="ShowSingleAfCurve"
                                                 Mode="OneWay"
                                                 Path="Tag" />
                                         </MultiBinding>
@@ -2736,7 +2749,7 @@
                                             <Binding Converter="{StaticResource HF_IsNotNegativeToBooleanConverter}" Path="RegionFinalFocusPoints[5].X" />
                                             <Binding
                                                 Converter="{StaticResource HF_InverseBooleanConverter}"
-                                                ElementName="ShowSensorModel"
+                                                ElementName="ShowSingleAfCurve"
                                                 Mode="OneWay"
                                                 Path="Tag" />
                                         </MultiBinding>
@@ -2766,27 +2779,27 @@
                             BorderThickness="1"
                             IsHitTestVisible="False">
                             <StackPanel Orientation="Vertical">
-                                <StackPanel Margin="0,1" Orientation="Horizontal" Visibility="{Binding ElementName=ShowSensorModel, Path=Tag, Mode=OneWay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                <StackPanel Margin="0,1" Orientation="Horizontal" Visibility="{Binding ElementName=ShowSingleAfCurve, Path=Tag, Mode=OneWay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                                     <Rectangle Width="12" Height="12" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{StaticResource PrimaryBrush}" />
                                     <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource PrimaryBrush}" Text="AF Points" />
                                 </StackPanel>
-                                <StackPanel Margin="0,1" Orientation="Horizontal" Visibility="{Binding ElementName=ShowSensorModel, Path=Tag, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
+                                <StackPanel Margin="0,1" Orientation="Horizontal" Visibility="{Binding ElementName=ShowSingleAfCurve, Path=Tag, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
                                     <Rectangle Width="12" Height="12" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{StaticResource PrimaryBrush}" />
                                     <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource PrimaryBrush}" Text="Center" />
                                 </StackPanel>
-                                <StackPanel Margin="0,1" Orientation="Horizontal" Visibility="{Binding ElementName=ShowSensorModel, Path=Tag, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
+                                <StackPanel Margin="0,1" Orientation="Horizontal" Visibility="{Binding ElementName=ShowSingleAfCurve, Path=Tag, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
                                     <Rectangle Width="12" Height="12" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{StaticResource TopLeftBrush}" />
                                     <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource PrimaryBrush}" Text="Top Left" />
                                 </StackPanel>
-                                <StackPanel Margin="0,1" Orientation="Horizontal" Visibility="{Binding ElementName=ShowSensorModel, Path=Tag, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
+                                <StackPanel Margin="0,1" Orientation="Horizontal" Visibility="{Binding ElementName=ShowSingleAfCurve, Path=Tag, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
                                     <Rectangle Width="12" Height="12" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{StaticResource TopRightBrush}" />
                                     <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource PrimaryBrush}" Text="Top Right" />
                                 </StackPanel>
-                                <StackPanel Margin="0,1" Orientation="Horizontal" Visibility="{Binding ElementName=ShowSensorModel, Path=Tag, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
+                                <StackPanel Margin="0,1" Orientation="Horizontal" Visibility="{Binding ElementName=ShowSingleAfCurve, Path=Tag, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
                                     <Rectangle Width="12" Height="12" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{StaticResource BottomLeftBrush}" />
                                     <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource PrimaryBrush}" Text="Bottom Left" />
                                 </StackPanel>
-                                <StackPanel Margin="0,1" Orientation="Horizontal" Visibility="{Binding ElementName=ShowSensorModel, Path=Tag, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
+                                <StackPanel Margin="0,1" Orientation="Horizontal" Visibility="{Binding ElementName=ShowSingleAfCurve, Path=Tag, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
                                     <Rectangle Width="12" Height="12" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{StaticResource BottomRightBrush}" />
                                     <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource PrimaryBrush}" Text="Bottom Right" />
                                 </StackPanel>
@@ -3089,6 +3102,56 @@
                             <StackPanel
                                 Margin="5,8,5,0"
                                 Visibility="{Binding IsTiltDeviceConnected, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                <!--  Current per-motor stepper positions for the connected motorized adapter. 2×2
+                                      layout matches the physical corners; device motor numbering TR=1, TL=2, BR=3,
+                                      BL=4; wizard screw numbers per the device-connected calibration convention.  -->
+                                <TextBlock Margin="0,0,0,2" FontWeight="Bold" Text="Motor positions (steps)" />
+                                <Grid Margin="0,0,0,8" HorizontalAlignment="Left" MinWidth="260">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <!--  TL = device motor 2, wizard screw 2  -->
+                                    <Border Grid.Row="0" Grid.Column="0" Margin="0,0,2,2" Padding="6,3"
+                                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                                        <StackPanel>
+                                            <TextBlock FontWeight="Bold" Text="TL · Motor 2" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 2" />
+                                            <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopLeftDisplay}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <!--  TR = device motor 1, wizard screw 1  -->
+                                    <Border Grid.Row="0" Grid.Column="1" Margin="2,0,0,2" Padding="6,3"
+                                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                                        <StackPanel>
+                                            <TextBlock FontWeight="Bold" Text="TR · Motor 1" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 1" />
+                                            <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopRightDisplay}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <!--  BL = device motor 4, wizard screw 3  -->
+                                    <Border Grid.Row="1" Grid.Column="0" Margin="0,2,2,0" Padding="6,3"
+                                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                                        <StackPanel>
+                                            <TextBlock FontWeight="Bold" Text="BL · Motor 4" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 3" />
+                                            <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomLeftDisplay}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <!--  BR = device motor 3, wizard screw 4  -->
+                                    <Border Grid.Row="1" Grid.Column="1" Margin="2,2,0,0" Padding="6,3"
+                                        BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                                        <StackPanel>
+                                            <TextBlock FontWeight="Bold" Text="BR · Motor 3" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 4" />
+                                            <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomRightDisplay}" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
                                 <Button
                                     Height="25"
                                     HorizontalAlignment="Left"

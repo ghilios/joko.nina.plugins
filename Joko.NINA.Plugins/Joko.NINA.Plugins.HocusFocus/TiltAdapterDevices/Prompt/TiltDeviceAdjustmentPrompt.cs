@@ -38,17 +38,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
         /// </param>
         /// <param name="pitchMismatchWarning">Optional saved-vs-measured step-size mismatch advisory (null/empty ⇒ hidden).</param>
         /// <param name="positionsUnknown">True when device positions are unknown, degrading excursion enforcement.</param>
+        /// <param name="unitMicrons">Microns represented by one motor step, used to express the twist warning in µm.</param>
         public static async Task<TiltDeviceAdjustmentChoice> ShowAsync(
             IWindowServiceFactory windowServiceFactory,
             Func<bool, bool, TiltDevicePlanPreview> replanner,
             bool screwInwardCurvatureSignIsMeasured,
             string pitchMismatchWarning,
-            bool positionsUnknown) {
+            bool positionsUnknown,
+            double unitMicrons) {
             if (windowServiceFactory == null) {
                 throw new ArgumentNullException(nameof(windowServiceFactory));
             }
 
-            var vm = new TiltDeviceAdjustmentPromptVM(replanner, screwInwardCurvatureSignIsMeasured, pitchMismatchWarning, positionsUnknown);
+            var vm = new TiltDeviceAdjustmentPromptVM(replanner, screwInwardCurvatureSignIsMeasured, pitchMismatchWarning, positionsUnknown, unitMicrons);
             var windowService = windowServiceFactory.Create();
 
             // A button (or the X) raises RequestClose; close the host window, which fires OnClosed below.

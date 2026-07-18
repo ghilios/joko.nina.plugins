@@ -492,7 +492,7 @@ public class InspectorVMAutomaticAdjustmentTests {
         }
 
         private Task<TiltDeviceAdjustmentChoice> ShowPromptAsync(
-            Func<bool, bool, TiltDevicePlanPreview> replanner, bool screwInwardCurvatureSignIsMeasured, string pitchMismatchWarning, bool positionsUnknown) {
+            Func<bool, bool, TiltDevicePlanPreview> replanner, bool screwInwardCurvatureSignIsMeasured, string pitchMismatchWarning, bool positionsUnknown, double unitMicrons) {
             ShowPromptCallCount++;
             return Task.FromResult(NextChoice);
         }

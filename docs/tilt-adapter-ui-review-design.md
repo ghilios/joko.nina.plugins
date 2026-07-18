@@ -140,6 +140,17 @@ Both the four explicit requests and every additional Fable suggestion have been 
   (direction-measurement default notification), B.8 (visible screw↔corner mapping), B.9 (verb alignment →
   "Calibrate"), B.10 (connection status in the running panel). — commit `da9d65a`.
 
-**Deferred (deliberately not done):** the twist warning's steps→µm translation (A.5) — it would require plumbing
-`unitMicrons` through the prompt VM ctor and the InspectorVM adjustment seam/tests; the wording was improved but
-kept in steps. Pull this in if wanted.
+**Twist warning steps→µm (A.5):** now implemented — `unitMicrons` is plumbed through
+`TiltDeviceAdjustmentPrompt.ShowAsync` → the prompt VM ctor → the InspectorVM adjustment seam, so the twist
+warning reads "…N steps (about X µm across the sensor)…".
+
+## Follow-up feedback (beyond the Fable review)
+
+A later round of direct feedback, also implemented on this branch:
+- Current stepper positions now shown in the inspector's **Tilt Adapter Guidance** section when a motorized
+  adapter is connected (2×2 corner grid, no Δ — the inspector has no calibration-run baseline).
+- "Review motor commands": "Apply:" → "Apply"; move rows drop the redundant "Corner move"/"Side move" prefix
+  (the badge already says it); the backfocus row is trimmed to "All four screws +N steps together".
+- The Focus Chart now shows the **5-curve (Center + 4 corners) view live during a sweep** even when the sensor
+  model is enabled — via a chart-only `ShowSingleAfCurve` gate (`ShowSensorModel.Tag AND NOT IsAnalysisRunning`)
+  that leaves every other sensor-model gate untouched.

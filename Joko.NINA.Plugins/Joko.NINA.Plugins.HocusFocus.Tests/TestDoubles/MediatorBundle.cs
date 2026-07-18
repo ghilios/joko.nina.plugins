@@ -72,7 +72,7 @@ internal sealed class MediatorBundle {
     public InspectorVM BuildInspectorVM(
         TiltDeviceConnectionService tiltDeviceConnectionService = null,
         Func<string, string, Task<bool>> confirmPromptAsync = null,
-        Func<Func<bool, bool, TiltDevicePlanPreview>, bool, string, bool, Task<TiltDeviceAdjustmentChoice>> showAdjustmentPromptAsync = null,
+        Func<Func<bool, bool, TiltDevicePlanPreview>, bool, string, bool, double, Task<TiltDeviceAdjustmentChoice>> showAdjustmentPromptAsync = null,
         Func<CancellationToken, Task<bool>> reRunAnalysisAsync = null) {
         return new InspectorVM(
             profileService: ProfileService,

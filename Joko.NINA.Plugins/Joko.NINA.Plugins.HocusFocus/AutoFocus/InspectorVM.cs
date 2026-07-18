@@ -120,7 +120,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         // dispatcher that unit tests don't have. Production default delegates to the real dialog
         // (DefaultShowAdjustmentPromptAsync). Signature mirrors TiltDeviceAdjustmentPrompt.ShowAsync minus the
         // windowServiceFactory parameter (fixed to this VM's own windowServiceFactory field in the default).
-        private readonly Func<Func<bool, bool, TiltDevicePlanPreview>, bool, string, bool, Task<TiltDeviceAdjustmentChoice>> showAdjustmentPromptAsync;
+        private readonly Func<Func<bool, bool, TiltDevicePlanPreview>, bool, string, bool, double, Task<TiltDeviceAdjustmentChoice>> showAdjustmentPromptAsync;
 
         // The confirming re-run after a successful adjustment. Injectable so tests can verify "re-run
         // invoked on accept" without exercising the full AutoFocus engine pipeline (AnalyzeAutoFocus requires
@@ -184,7 +184,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             ITiltAdapterOptions tiltAdapterOptions = null,
             TiltDeviceConnectionService tiltDeviceConnectionService = null,
             Func<string, string, Task<bool>> confirmPromptAsync = null,
-            Func<Func<bool, bool, TiltDevicePlanPreview>, bool, string, bool, Task<TiltDeviceAdjustmentChoice>> showAdjustmentPromptAsync = null,
+            Func<Func<bool, bool, TiltDevicePlanPreview>, bool, string, bool, double, Task<TiltDeviceAdjustmentChoice>> showAdjustmentPromptAsync = null,
             Func<CancellationToken, Task<bool>> reRunAnalysisAsync = null) : base(profileService) {
             this.applicationStatusMediator = applicationStatusMediator;
             this.imagingMediator = imagingMediator;
@@ -2233,6 +2233,36 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public bool IsTiltDeviceConnected => tiltDeviceConnectionService?.Connected ?? false;
 
+        // Live per-motor stepper positions for the connected motorized adapter, shown in the Tilt Adapter
+        // Guidance section. Device motor order matches the wizard's convention (TR=1, TL=2, BR=3, BL=4); there
+        // is no calibration-run baseline here, so — unlike the wizard — these carry no Δ.
+        public string ScrewPositionTopRightDisplay => TiltDevicePositionDisplay(0);
+
+        public string ScrewPositionTopLeftDisplay => TiltDevicePositionDisplay(1);
+
+        public string ScrewPositionBottomRightDisplay => TiltDevicePositionDisplay(2);
+
+        public string ScrewPositionBottomLeftDisplay => TiltDevicePositionDisplay(3);
+
+        private string TiltDevicePositionDisplay(int deviceMotorIndex) {
+            var svc = tiltDeviceConnectionService;
+            if (svc == null || !svc.PositionsKnown) {
+                return "unknown";
+            }
+            var positions = svc.CurrentPositions;
+            if (positions == null || positions.Count <= deviceMotorIndex) {
+                return "unknown";
+            }
+            return positions[deviceMotorIndex].ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        private void RaiseScrewPositionDisplays() {
+            RaisePropertyChanged(nameof(ScrewPositionTopRightDisplay));
+            RaisePropertyChanged(nameof(ScrewPositionTopLeftDisplay));
+            RaisePropertyChanged(nameof(ScrewPositionBottomRightDisplay));
+            RaisePropertyChanged(nameof(ScrewPositionBottomLeftDisplay));
+        }
+
         /// <summary>
         /// [CRITICAL GATE] Visible remediation hint when connected but the calibration is not linked to the
         /// connected device preset (see <see cref="IsCalibrationDeviceLinked"/>) — OR is linked but did not
@@ -2441,7 +2471,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 Replanner,
                 options.ScrewInwardCurvatureSignIsMeasured,
                 TiltGuidance?.PitchMismatchWarning ?? string.Empty,
-                !service.PositionsKnown);
+                !service.PositionsKnown,
+                unitMicrons);
 
             if (!choice.Proceed) {
                 // Cancel (or window close): no moves may be sent, and — per design doc user decision #9 — the
@@ -2657,8 +2688,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             Func<bool, bool, TiltDevicePlanPreview> replanner,
             bool screwInwardCurvatureSignIsMeasured,
             string pitchMismatchWarning,
-            bool positionsUnknown) {
-            return TiltDeviceAdjustmentPrompt.ShowAsync(windowServiceFactory, replanner, screwInwardCurvatureSignIsMeasured, pitchMismatchWarning, positionsUnknown);
+            bool positionsUnknown,
+            double unitMicrons) {
+            return TiltDeviceAdjustmentPrompt.ShowAsync(windowServiceFactory, replanner, screwInwardCurvatureSignIsMeasured, pitchMismatchWarning, positionsUnknown, unitMicrons);
         }
 
         private void TiltDeviceConnectionService_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
@@ -2669,7 +2701,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     e.PropertyName == nameof(TiltDeviceConnectionService.Controller)) {
                     RaisePropertyChanged(nameof(IsTiltDeviceConnected));
                     RaisePropertyChanged(nameof(AutomaticAdjustmentRemediationVisible));
+                    RaiseScrewPositionDisplays();
                     AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+                }
+                if (e.PropertyName == nameof(TiltDeviceConnectionService.CurrentPositions) ||
+                    e.PropertyName == nameof(TiltDeviceConnectionService.PositionsKnown)) {
+                    RaiseScrewPositionDisplays();
                 }
                 if (e.PropertyName == nameof(TiltDeviceConnectionService.IsOperationActive)) {
                     AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
