@@ -42,7 +42,7 @@ public class TiltAdapterOptionsTests {
             Assert.That(options.CalibrationIsManual, Is.False);
             Assert.That(options.TiltDeviceSerialPortName, Is.EqualTo(""));
             Assert.That(options.TiltDeviceMaxStepsPerCommand, Is.EqualTo(200));
-            Assert.That(options.TiltDeviceMaxExcursionSteps, Is.EqualTo(500));
+            Assert.That(options.TiltDeviceMaxExcursionSteps, Is.EqualTo(2000));
             Assert.That(options.TiltDeviceSettleSeconds, Is.EqualTo(3.0));
             Assert.That(options.DeviceLinkedCalibrationDeviceName, Is.EqualTo(""));
             Assert.That(options.CalibrationIsReliable, Is.False);
