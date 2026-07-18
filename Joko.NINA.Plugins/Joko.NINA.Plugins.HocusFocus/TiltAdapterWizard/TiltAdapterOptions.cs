@@ -70,10 +70,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             tiltDeviceSerialPortName = optionsAccessor.GetValueString(nameof(TiltDeviceSerialPortName), string.Empty);
             tiltDeviceMaxStepsPerCommand = optionsAccessor.GetValueInt32(nameof(TiltDeviceMaxStepsPerCommand), 200);
             // The EAT's step counters are absolute and EEPROM-persisted (never zeroed by the plugin), so they
-            // carry over between sessions and can sit anywhere -- positive or negative -- depending on prior
-            // adjustments. The excursion check is |absolute position| <= max, so the cap must comfortably
-            // exceed wherever the motors already are plus the working travel, or the first move is rejected.
-            // See docs/asg-eat-serial-protocol-design.md.
+            // carry over between sessions and sit wherever prior adjustments left them. Automation confines
+            // them to [0, max]: travel below 0 is disallowed outright, so this is the UPPER bound only and
+            // must comfortably exceed wherever the motors already are plus the working travel. Since a tilt
+            // correction is differential, one near zero gets an automatic upward backfocus bias first, which
+            // consumes headroom under this cap. See docs/asg-eat-serial-protocol-design.md.
             tiltDeviceMaxExcursionSteps = optionsAccessor.GetValueInt32(nameof(TiltDeviceMaxExcursionSteps), 2000);
             tiltDeviceSettleSeconds = optionsAccessor.GetValueDouble(nameof(TiltDeviceSettleSeconds), 3.0);
             deviceLinkedCalibrationDeviceName = optionsAccessor.GetValueString(nameof(DeviceLinkedCalibrationDeviceName), string.Empty);

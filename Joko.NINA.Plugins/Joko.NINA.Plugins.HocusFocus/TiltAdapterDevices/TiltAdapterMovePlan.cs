@@ -32,11 +32,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
             IReadOnlyList<TiltAdapterMove> moves,
             IReadOnlyList<double> residualMicronsPerCorner,
             double twistResidualSteps,
-            double estimatedSeconds) {
+            double estimatedSeconds,
+            int biasSteps = 0) {
             Moves = new ReadOnlyCollection<TiltAdapterMove>((moves ?? Array.Empty<TiltAdapterMove>()).ToArray());
             ResidualMicronsPerCorner = new ReadOnlyCollection<double>((residualMicronsPerCorner ?? Array.Empty<double>()).ToArray());
             TwistResidualSteps = twistResidualSteps;
             EstimatedSeconds = estimatedSeconds;
+            BiasSteps = biasSteps;
         }
 
         /// <summary>The ordered, minimal set of device moves to send (≤ 3 before per-move cap splitting).</summary>
@@ -53,5 +55,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
 
         /// <summary>Estimated wall-clock execution time for <see cref="Moves"/>, in seconds.</summary>
         public double EstimatedSeconds { get; }
+
+        /// <summary>
+        /// Steps of upward backfocus bias prepended to <see cref="Moves"/> so no motor is driven below 0
+        /// (0 ⇒ none was needed). A tilt correction is differential — one corner up, the opposite corner
+        /// down — so near zero it has to be lifted to fit in the [0, max excursion] travel window. This is
+        /// a genuine piston: it shifts backfocus by <c>BiasSteps</c> × step size, which is why it is
+        /// reported separately and included in <see cref="ResidualMicronsPerCorner"/> rather than hidden.
+        /// </summary>
+        public int BiasSteps { get; }
     }
 }

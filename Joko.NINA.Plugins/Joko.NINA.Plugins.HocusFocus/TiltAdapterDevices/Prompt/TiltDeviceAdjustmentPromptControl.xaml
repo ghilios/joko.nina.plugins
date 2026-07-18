@@ -340,6 +340,12 @@
                     <TextBlock Margin="0,3,0,0" Style="{StaticResource WarningText}" Text="{Binding PitchMismatchWarning}" />
                 </StackPanel>
             </Border>
+            <Border Style="{StaticResource WarningPanel}" Visibility="{Binding BiasWarningVisible, Converter={StaticResource BoolToVis}}">
+                <StackPanel>
+                    <TextBlock FontWeight="Bold" Style="{StaticResource WarningText}" Text="Backfocus bias added" />
+                    <TextBlock Margin="0,3,0,0" Style="{StaticResource WarningText}" Text="{Binding BiasWarningText}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
         </StackPanel>
 
         <!--  Footer: scale of the action (count + duration) sits beside the buttons so it is part of the

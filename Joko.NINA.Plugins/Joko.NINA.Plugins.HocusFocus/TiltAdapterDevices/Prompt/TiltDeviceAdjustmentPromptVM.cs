@@ -267,6 +267,28 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
             "screw inward-curvature direction. If the assumption is wrong, the backfocus command will move the wrong way. " +
             "Re-run the wizard with curvature measurement enabled, or uncheck Backfocus.";
 
+        /// <summary>
+        /// Visible when the plan had to be lifted to keep every motor at or above 0. This is not a
+        /// formatting detail: the bias is a piston that moves backfocus for real, so the user has to see it
+        /// before approving, not discover it afterwards in the residual table.
+        /// </summary>
+        public bool BiasWarningVisible => Preview.Plan.BiasSteps > 0;
+
+        public string BiasWarningText {
+            get {
+                int steps = Preview.Plan.BiasSteps;
+                string microns = unitMicrons > 0
+                    ? string.Format(CultureInfo.InvariantCulture, " ({0:0.0} µm)", steps * unitMicrons)
+                    : string.Empty;
+                return string.Format(CultureInfo.InvariantCulture,
+                    "A backfocus bias of +{0} steps{1} was added ahead of the correction. Travel below 0 is not allowed, and a tilt " +
+                    "correction moves one corner down, so the motors must be lifted first to make room. This moves all four screws " +
+                    "together, so it changes backfocus by that amount — it is included in the residual below. To avoid the bias, " +
+                    "raise the motors further from zero (or re-zero the counters in the vendor app) before adjusting.",
+                    steps, microns);
+            }
+        }
+
         /// <summary>Pitch-mismatch advisory passed in by the caller (empty ⇒ hidden).</summary>
         public string PitchMismatchWarning { get; }
 

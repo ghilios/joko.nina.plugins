@@ -268,16 +268,19 @@ public class EatTiltMotionControllerTests {
         // moveA alone is within the excursion cap; moveA THEN moveB would push a shared motor beyond it.
         // moveB's own validation (using the shadow AFTER moveA already succeeded) must catch this.
         var transport = NewTransport();
-        WithCpResponse(transport, 0, 0, 0, 0);
-        var options = NewOptions(maxStepsPerCommand: 200, maxExcursionSteps: 50);
+        // Baseline 50 with a ceiling of 100: moveA fits under both bounds, and the pair breaches the ceiling.
+        // (A zero baseline cannot express this any more -- moveA's own -40 corner would be refused by the floor
+        // before the intermediate-state ceiling check this test is about ever came into play.)
+        WithCpResponse(transport, 50, 50, 50, 50);
+        var options = NewOptions(maxStepsPerCommand: 200, maxExcursionSteps: 100);
         var controller = new EatTiltMotionController(transport, options);
         await controller.ConnectAsync("COM5", CancellationToken.None);
 
-        var moveA = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 40, TiltMoveGroup.Tilt, "A"); // TR=+40, BL=-40 (within 50)
+        var moveA = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 40, TiltMoveGroup.Tilt, "A"); // TR=90, BL=10 (inside [0,100])
         await controller.ExecuteMoveAsync(moveA, null, CancellationToken.None);
         transport.ClearReceivedCalls();
 
-        var moveB = new TiltAdapterMove(TiltMoveAxis.Backfocus, 20, TiltMoveGroup.Backfocus, "B"); // would push TR to 60, BL to -20
+        var moveB = new TiltAdapterMove(TiltMoveAxis.Backfocus, 20, TiltMoveGroup.Backfocus, "B"); // would push TR to 110 (> 100)
 
         Assert.ThrowsAsync<TiltDeviceLimitException>(async () => await controller.ExecuteMoveAsync(moveB, null, CancellationToken.None));
         await transport.DidNotReceive().SendAsync(Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
@@ -412,7 +415,9 @@ public class EatTiltMotionControllerTests {
     [Test]
     public async Task ExecuteMoveAsync_DiagonalAMove_UpdatesShadowAtTRAndBL_NotTLOrBR() {
         var transport = NewTransport();
-        WithCpResponse(transport, 0, 0, 0, 0);
+        // Nonzero baseline: a diagonal move is differential (one corner up, the opposite down), and travel
+        // below 0 is refused, so this permutation check needs headroom underneath to exercise the move at all.
+        WithCpResponse(transport, 100, 100, 100, 100);
         var options = NewOptions();
         var controller = new EatTiltMotionController(transport, options);
         await controller.ConnectAsync("COM5", CancellationToken.None);
@@ -424,14 +429,15 @@ public class EatTiltMotionControllerTests {
         var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 45, TiltMoveGroup.Tilt, "diagonal A");
         await controller.ExecuteMoveAsync(move, null, CancellationToken.None);
 
-        var expected = EatTiltMotionController.SerializeShadowPositions(true, new[] { 45, 0, 0, -45 });
+        var expected = EatTiltMotionController.SerializeShadowPositions(true, new[] { 145, 100, 100, 55 });
         Assert.That(options.TiltDeviceShadowPositions, Is.EqualTo(expected));
     }
 
     [Test]
     public async Task ExecuteMoveAsync_DiagonalBMove_UpdatesShadowAtTLAndBR_NotTROrBL() {
         var transport = NewTransport();
-        WithCpResponse(transport, 0, 0, 0, 0);
+        // Nonzero baseline for the same reason as the DiagonalA case above.
+        WithCpResponse(transport, 100, 100, 100, 100);
         var options = NewOptions();
         var controller = new EatTiltMotionController(transport, options);
         await controller.ConnectAsync("COM5", CancellationToken.None);
@@ -441,7 +447,7 @@ public class EatTiltMotionControllerTests {
         var move = new TiltAdapterMove(TiltMoveAxis.DiagonalB, 30, TiltMoveGroup.Tilt, "diagonal B");
         await controller.ExecuteMoveAsync(move, null, CancellationToken.None);
 
-        var expected = EatTiltMotionController.SerializeShadowPositions(true, new[] { 0, 30, -30, 0 });
+        var expected = EatTiltMotionController.SerializeShadowPositions(true, new[] { 100, 130, 70, 100 });
         Assert.That(options.TiltDeviceShadowPositions, Is.EqualTo(expected));
     }
 
@@ -575,13 +581,15 @@ public class EatTiltMotionControllerTests {
     [Test]
     public async Task OrderForMinimalPeakExcursion_PicksOrderingWithSmallestPeak() {
         var transport = NewTransport();
-        WithCpResponse(transport, 0, 0, 0, 0);
-        var options = NewOptions(maxStepsPerCommand: 100, maxExcursionSteps: 50);
+        // Baseline 60 keeps BOTH orderings clear of the floor (A-first dips to 5, B-first to 15), so the
+        // choice below is driven purely by peak excursion -- what this test is about -- with no bias in play.
+        WithCpResponse(transport, 60, 60, 60, 60);
+        var options = NewOptions(maxStepsPerCommand: 100, maxExcursionSteps: 110);
         var controller = new EatTiltMotionController(transport, options);
         await controller.ConnectAsync("COM5", CancellationToken.None);
 
-        // moveA alone spikes TR to 55 (> 50). moveB alone is small. Applying B THEN A never spikes past 45;
-        // applying A THEN B spikes to 55 first. The final combined state (45) is identical either way.
+        // moveA alone spikes TR to 115 (> 110). moveB alone is small. Applying B THEN A never spikes past 105;
+        // applying A THEN B spikes to 115 first. The final combined state (105) is identical either way.
         var moveA = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 55, TiltMoveGroup.Tilt, "A");
         var moveB = new TiltAdapterMove(TiltMoveAxis.DiagonalA, -10, TiltMoveGroup.Tilt, "B");
 
@@ -618,6 +626,115 @@ public class EatTiltMotionControllerTests {
         var move = new TiltAdapterMove(TiltMoveAxis.Backfocus, 51, TiltMoveGroup.Backfocus, "too big");
 
         Assert.Throws<TiltDeviceLimitException>(() => controller.OrderForMinimalPeakExcursion(new[] { move }));
+    }
+
+    // --- Travel window [0, maxExcursion]: the floor and the automatic upward bias --------------------------
+
+    [Test]
+    public async Task ExecuteMoveAsync_WouldDriveMotorBelowZero_ThrowsBeforeSending_ShadowUnchanged() {
+        var transport = NewTransport();
+        WithCpResponse(transport, 30, 30, 30, 30);
+        var options = NewOptions(maxStepsPerCommand: 200, maxExcursionSteps: 1000);
+        var controller = new EatTiltMotionController(transport, options);
+        await controller.ConnectAsync("COM5", CancellationToken.None);
+        var shadowBefore = options.TiltDeviceShadowPositions;
+        transport.ClearReceivedCalls();
+
+        // Well inside the ceiling, but BL would land at -10. The floor, not the cap, must stop this.
+        var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 40, TiltMoveGroup.Tilt, "drives BL negative");
+
+        var ex = Assert.ThrowsAsync<TiltDeviceLimitException>(
+            async () => await controller.ExecuteMoveAsync(move, null, CancellationToken.None));
+        Assert.That(ex.Message, Does.Contain("below 0"));
+        await transport.DidNotReceive().SendAsync(Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
+        Assert.That(options.TiltDeviceShadowPositions, Is.EqualTo(shadowBefore));
+    }
+
+    [Test]
+    public async Task ExecuteMoveAsync_LandsExactlyAtZero_IsAllowed() {
+        var transport = NewTransport();
+        WithCpResponse(transport, 40, 40, 40, 40);
+        var controller = new EatTiltMotionController(transport, NewOptions(maxStepsPerCommand: 200, maxExcursionSteps: 1000));
+        await controller.ConnectAsync("COM5", CancellationToken.None);
+
+        // BL lands on exactly 0 -- the floor is inclusive, so this is legal.
+        var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 40, TiltMoveGroup.Tilt, "BL to exactly zero");
+
+        Assert.DoesNotThrowAsync(async () => await controller.ExecuteMoveAsync(move, null, CancellationToken.None));
+    }
+
+    [Test]
+    public async Task OrderForMinimalPeakExcursion_PlanWouldGoBelowZero_PrependsExactBackfocusBias() {
+        var transport = NewTransport();
+        WithCpResponse(transport, 0, 0, 0, 0);
+        var options = NewOptions(maxStepsPerCommand: 200, maxExcursionSteps: 1000);
+        var controller = new EatTiltMotionController(transport, options);
+        await controller.ConnectAsync("COM5", CancellationToken.None);
+
+        // From zeroed counters a diagonal correction drives BL to -25, so the sequence must be lifted by
+        // exactly 25 -- no more (bias is a real backfocus change, so overshooting it is a defect, not slack).
+        var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 25, TiltMoveGroup.Tilt, "tilt");
+
+        var order = controller.OrderForMinimalPeakExcursion(new[] { move });
+
+        Assert.That(order, Has.Count.EqualTo(2));
+        Assert.That(order[0].Axis, Is.EqualTo(TiltMoveAxis.Backfocus));
+        Assert.That(order[0].Steps, Is.EqualTo(25));
+        Assert.That(order[0].Description, Does.Contain("bias"));
+        Assert.That(order[1], Is.SameAs(move));
+
+        // The whole returned sequence must actually execute -- the bias is only correct if it makes the
+        // controller's own per-move floor check pass for every move that follows it.
+        foreach (var m in order) {
+            await controller.ExecuteMoveAsync(m, null, CancellationToken.None);
+        }
+    }
+
+    [Test]
+    public async Task OrderForMinimalPeakExcursion_PlanStaysAboveZero_AddsNoBias() {
+        var transport = NewTransport();
+        WithCpResponse(transport, 500, 500, 500, 500);
+        var controller = new EatTiltMotionController(transport, NewOptions(maxStepsPerCommand: 200, maxExcursionSteps: 1000));
+        await controller.ConnectAsync("COM5", CancellationToken.None);
+
+        var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 25, TiltMoveGroup.Tilt, "tilt");
+
+        var order = controller.OrderForMinimalPeakExcursion(new[] { move });
+
+        Assert.That(order, Is.EqualTo(new[] { move }), "ample headroom below zero means no bias is warranted");
+    }
+
+    [Test]
+    public async Task OrderForMinimalPeakExcursion_BiasExceedsPerCommandCap_IsSplit() {
+        var transport = NewTransport();
+        WithCpResponse(transport, 0, 0, 0, 0);
+        var controller = new EatTiltMotionController(transport, NewOptions(maxStepsPerCommand: 60, maxExcursionSteps: 1000));
+        await controller.ConnectAsync("COM5", CancellationToken.None);
+
+        // Needs a 50-step lift... but the move itself is 50, and the cap is 60, so the bias fits in one part.
+        // Use a larger correction to force the bias itself past the cap: BL would reach -150.
+        var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 60, TiltMoveGroup.Tilt, "tilt");
+        var order = controller.OrderForMinimalPeakExcursion(new[] { move });
+
+        var biasMoves = order.Take(order.Count - 1).ToArray();
+        Assert.That(biasMoves.Sum(m => m.Steps), Is.EqualTo(60), "the split parts must sum to the exact lift needed");
+        Assert.That(biasMoves.All(m => Math.Abs(m.Steps) <= 60), Is.True, "no bias part may exceed the per-command cap");
+        Assert.That(order[order.Count - 1], Is.SameAs(move));
+    }
+
+    [Test]
+    public async Task OrderForMinimalPeakExcursion_BiasWouldBreachCeiling_Throws() {
+        var transport = NewTransport();
+        WithCpResponse(transport, 0, 0, 0, 0);
+        var controller = new EatTiltMotionController(transport, NewOptions(maxStepsPerCommand: 200, maxExcursionSteps: 60));
+        await controller.ConnectAsync("COM5", CancellationToken.None);
+
+        // The correction alone fits under 60, and the 50-step lift alone fits too -- but lifted, the high
+        // corner reaches 100. The ceiling has to be checked AFTER the bias is added, not before.
+        var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 50, TiltMoveGroup.Tilt, "tilt");
+
+        var ex = Assert.Throws<TiltDeviceLimitException>(() => controller.OrderForMinimalPeakExcursion(new[] { move }));
+        Assert.That(ex.Message, Does.Contain("bias"));
     }
 
     [Test]

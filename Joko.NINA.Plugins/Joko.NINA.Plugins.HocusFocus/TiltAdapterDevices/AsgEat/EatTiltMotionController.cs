@@ -253,20 +253,29 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
                     $"Move '{move.Description}' ({move.Axis}, {FormatSigned(move.Steps)} steps) exceeds the configured max steps per command ({maxStepsPerCommand}). Nothing was sent.");
             }
 
-            // 2) Excursion -- BEFORE any device I/O. Predicted = current shadow (already reflecting every
+            // 2) Travel window -- BEFORE any device I/O. Predicted = current shadow (already reflecting every
             // prior successfully-executed move) + this move's effect, permuted from WIZARD screw-index
             // order into DEVICE motor order. Because the shadow is updated after every successful move
             // (step 3 below), a caller executing a multi-move plan sequentially via repeated
             // ExecuteMoveAsync calls gets INTERMEDIATE-state validation for free -- there is no separate
-            // plan-level excursion check beyond this per-call one.
+            // plan-level check beyond this per-call one.
+            //
+            // The window is [0, maxExcursion] -- NOT symmetric. Travel below zero is disallowed outright,
+            // so a plan whose tilt component would carry a motor negative must be biased upward first;
+            // OrderForMinimalPeakExcursion prepends exactly that bias. This check is the backstop, so it
+            // stays strict even for callers that bypass the planner.
             var deviceDelta = PermuteWizardToDeviceMotorOrder(move.PerCornerSteps);
             int maxExcursion = options.TiltDeviceMaxExcursionSteps;
             var predicted = new int[4];
             for (int i = 0; i < 4; ++i) {
                 predicted[i] = shadowPositions[i] + RoundToInt(deviceDelta[i]);
-                if (Math.Abs(predicted[i]) > maxExcursion) {
-                    string degradedNote = shadowValid ? string.Empty :
-                        " Absolute positions are unknown this session (excursion is enforced against the last known/persisted estimate, which may be stale) -- see AbsolutePositionsKnown.";
+                string degradedNote = shadowValid ? string.Empty :
+                    " Absolute positions are unknown this session (the travel window is enforced against the last known/persisted estimate, which may be stale) -- see AbsolutePositionsKnown.";
+                if (predicted[i] < 0) {
+                    throw new TiltDeviceLimitException(
+                        $"Move '{move.Description}' would move motor {i + 1} ({DeviceMotorLabels[i]}) to {predicted[i]} steps; travel below 0 is not allowed. Raise the motors away from zero (a positive backfocus move, or re-zero the counters in the vendor app) before applying a correction that drives this corner down.{degradedNote} Nothing was sent.");
+                }
+                if (predicted[i] > maxExcursion) {
                     throw new TiltDeviceLimitException(
                         $"Move '{move.Description}' would move motor {i + 1} ({DeviceMotorLabels[i]}) to {predicted[i]} steps, exceeding the configured max excursion ({maxExcursion}).{degradedNote} Nothing was sent.");
                 }
@@ -364,40 +373,79 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
             }
 
             int maxExcursion = options.TiltDeviceMaxExcursionSteps;
+
+            // Pick the ordering needing the SMALLEST upward bias first, and only then the smallest peak.
+            // Bias is a piston move -- it shifts backfocus for real -- so spending it is worse than
+            // running closer to the ceiling, and the cheapest ordering is the one that dips least.
             IReadOnlyList<TiltAdapterMove> bestOrder = null;
+            int bestBias = int.MaxValue;
             int bestPeak = int.MaxValue;
             foreach (var candidate in GeneratePermutations(moves)) {
-                int peak = PeakExcursion(candidate);
-                if (peak < bestPeak) {
+                var (peak, trough) = RangeOf(candidate);
+                int bias = Math.Max(0, -trough);
+                if (bias < bestBias || (bias == bestBias && peak < bestPeak)) {
+                    bestBias = bias;
                     bestPeak = peak;
                     bestOrder = candidate;
                 }
             }
 
-            if (bestOrder == null || bestPeak > maxExcursion) {
-                string degradedNote = shadowValid ? string.Empty :
-                    " Absolute positions are unknown this session (excursion is enforced against the last known/persisted estimate, which may be stale) -- see AbsolutePositionsKnown.";
+            string degradedNote = shadowValid ? string.Empty :
+                " Absolute positions are unknown this session (the travel window is enforced against the last known/persisted estimate, which may be stale) -- see AbsolutePositionsKnown.";
+
+            // The bias lifts every motor, so it raises the ceiling pressure by exactly its own size --
+            // check the ceiling AFTER adding it, never before.
+            if (bestOrder == null || bestPeak + bestBias > maxExcursion) {
                 throw new TiltDeviceLimitException(
-                    $"No ordering of the given {moves.Count} move(s) keeps every intermediate/final per-motor position within the configured max excursion ({maxExcursion} steps); the best achievable peak is {bestPeak} steps.{degradedNote} Nothing was sent.");
+                    $"No ordering of the given {moves.Count} move(s) keeps every intermediate/final per-motor position within the travel window [0, {maxExcursion}] steps; the best achievable ordering peaks at {bestPeak + bestBias} steps (including the {bestBias}-step bias needed to keep every motor at or above 0).{degradedNote} Nothing was sent.");
+            }
+
+            if (bestBias > 0) {
+                // Tilt moves are differential (one corner up, the opposite corner down), so a correction
+                // applied near zero would drive a motor negative. Lift all four first by the exact shortfall.
+                // Split to respect the per-command cap; the bias parts run before every planned move.
+                var withBias = new List<TiltAdapterMove>(bestOrder.Count + 1);
+                var parts = TiltMovePlanner.SplitStepsForCap(bestBias, maxStepsPerCommand);
+                for (int i = 0; i < parts.Count; ++i) {
+                    string partNote = parts.Count > 1
+                        ? $" (part {i + 1} of {parts.Count})"
+                        : string.Empty;
+                    withBias.Add(new TiltAdapterMove(
+                        TiltMoveAxis.Backfocus, parts[i], TiltMoveGroup.Backfocus,
+                        $"Backfocus bias: {FormatSigned(parts[i])} steps{partNote} — raises all four motors so the correction below stays at or above 0"));
+                }
+                withBias.AddRange(bestOrder);
+                Logger.Info($"Tilt plan needs a {bestBias}-step upward bias to keep every motor at or above 0; prepended {parts.Count} backfocus move(s).");
+                return withBias;
             }
 
             return bestOrder;
         }
 
-        private int PeakExcursion(IReadOnlyList<TiltAdapterMove> order) {
+        /// <summary>
+        /// Highest and lowest per-motor position reached anywhere in <paramref name="order"/>, counting the
+        /// starting state and every intermediate state. Signed, not absolute: the travel window is
+        /// [0, maxExcursion], so the trough is what decides whether an upward bias is needed and the peak is
+        /// what decides whether the ceiling is breached. Collapsing these into one |value| would hide a dip
+        /// below zero behind a comfortable-looking magnitude.
+        /// </summary>
+        private (int peak, int trough) RangeOf(IReadOnlyList<TiltAdapterMove> order) {
             var running = (int[])shadowPositions.Clone();
-            int peak = 0;
+            int peak = int.MinValue;
+            int trough = int.MaxValue;
             for (int i = 0; i < 4; ++i) {
-                peak = Math.Max(peak, Math.Abs(running[i]));
+                peak = Math.Max(peak, running[i]);
+                trough = Math.Min(trough, running[i]);
             }
             foreach (var move in order) {
                 var delta = PermuteWizardToDeviceMotorOrder(move.PerCornerSteps);
                 for (int i = 0; i < 4; ++i) {
                     running[i] += RoundToInt(delta[i]);
-                    peak = Math.Max(peak, Math.Abs(running[i]));
+                    peak = Math.Max(peak, running[i]);
+                    trough = Math.Min(trough, running[i]);
                 }
             }
-            return peak;
+            return (peak, trough);
         }
 
         // Simple recursive permutation generator -- fine for the <= 3-move plans this feature ever
