@@ -41,10 +41,21 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
     /// automated moves live without this class ever touching a VM. The counters are guarded by a lock.</para>
     /// </summary>
     public sealed class SimulatedTiltActuator : ISimulatedTiltActuator {
+
+        /// <summary>
+        /// Steps each simulated motor homes at. Mid-travel rather than 0 so the wizard's first diagonal move
+        /// (which drives one corner down) has downward headroom: the motion controller refuses any move that
+        /// would take a motor below 0, and the default max excursion is 2000 steps, so 1000 centers the usable
+        /// window — the same state as a real EAT whose counters were zeroed mid-range in the vendor app.
+        /// </summary>
+        public const int InitialPositionSteps = 1000;
+
         private readonly ICameraSimulatorOptions options;
         private readonly IApplicationDispatcher dispatcher;
         private readonly object gate = new object();
-        private readonly int[] positions = new int[4]; // DEVICE motor order (TR, TL, BR, BL).
+
+        // DEVICE motor order (TR, TL, BR, BL).
+        private readonly int[] positions = { InitialPositionSteps, InitialPositionSteps, InitialPositionSteps, InitialPositionSteps };
 
         public SimulatedTiltActuator(ICameraSimulatorOptions options, IApplicationDispatcher dispatcher) {
             this.options = options ?? throw new ArgumentNullException(nameof(options));

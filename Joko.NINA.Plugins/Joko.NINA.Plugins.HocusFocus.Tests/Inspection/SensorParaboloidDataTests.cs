@@ -41,6 +41,29 @@ public class SensorParaboloidDataPointTests {
             Assert.That(s, Does.Contain("RSquared="));
         });
     }
+
+    [Test]
+    public void RegularizeStdDev_TinyFormalError_IsRaisedToTheQuadratureFloor() {
+        // A formal best-focus standard error far below the star-to-star error floor must not be allowed
+        // to monopolize the 1/σ² weighting of the paraboloid fit.
+        var regularized = SensorParaboloidDataPoint.RegularizeStdDev(0.008);
+        Assert.That(regularized, Is.EqualTo(Math.Sqrt(0.008 * 0.008 + 2.0 * 2.0)).Within(1e-12));
+    }
+
+    [Test]
+    public void RegularizeStdDev_LargeError_PassesThroughNearlyUnchanged() {
+        var regularized = SensorParaboloidDataPoint.RegularizeStdDev(10.0);
+        Assert.Multiple(() => {
+            Assert.That(regularized, Is.EqualTo(Math.Sqrt(100.0 + 4.0)).Within(1e-12));
+            Assert.That(regularized / 10.0, Is.LessThan(1.02), "large honest σ must keep its relative weight");
+        });
+    }
+
+    [Test]
+    public void RegularizeStdDev_IsMonotonic() {
+        Assert.That(SensorParaboloidDataPoint.RegularizeStdDev(1.0),
+            Is.LessThan(SensorParaboloidDataPoint.RegularizeStdDev(1.5)));
+    }
 }
 
 [TestFixture]

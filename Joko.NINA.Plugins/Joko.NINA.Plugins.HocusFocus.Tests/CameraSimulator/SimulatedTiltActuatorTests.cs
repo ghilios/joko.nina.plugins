@@ -34,6 +34,7 @@ public class SimulatedTiltActuatorTests {
 
     private const double StepMicrons = 1.8;
     private const double RadiusMillimeters = 55.0;
+    private const int Home = SimulatedTiltActuator.InitialPositionSteps;
 
     private static CameraSimulatorOptions BuildOptions() {
         var profileService = Substitute.For<IProfileService>();
@@ -63,9 +64,12 @@ public class SimulatedTiltActuatorTests {
     }
 
     [Test]
-    public void GetPerMotorPositions_StartsAtZero() {
+    public void GetPerMotorPositions_StartsMidTravel() {
+        // A fresh simulator homes its motors mid-travel (not at 0) so the wizard's first diagonal move —
+        // which drives one corner down — has downward headroom under the controller's travel-below-0 floor.
         var actuator = NewActuator(ConfiguredEat(), out _);
-        Assert.That(actuator.GetPerMotorPositions(), Is.EqualTo(new[] { 0, 0, 0, 0 }));
+        Assert.That(actuator.GetPerMotorPositions(), Is.EqualTo(new[] { Home, Home, Home, Home }));
+        Assert.That(Home, Is.EqualTo(1000), "mid-travel of the 2000-step default max excursion");
     }
 
     [Test]
@@ -75,11 +79,11 @@ public class SimulatedTiltActuatorTests {
         // Wizard-order diagonal-A move "tr,5": PerCornerSteps = (+5, 0, -5, 0). Device order (TR,TL,BR,BL) is the
         // permutation [w0, w1, w3, w2] = [5, 0, 0, -5].
         actuator.ApplyWizardScrewSteps(new[] { 5.0, 0.0, -5.0, 0.0 });
-        Assert.That(actuator.GetPerMotorPositions(), Is.EqualTo(new[] { 5, 0, 0, -5 }));
+        Assert.That(actuator.GetPerMotorPositions(), Is.EqualTo(new[] { Home + 5, Home, Home, Home - 5 }));
 
         // Backfocus "bf,3": (+3,+3,+3,+3) -> device [3,3,3,3], accumulating onto the previous state.
         actuator.ApplyWizardScrewSteps(new[] { 3.0, 3.0, 3.0, 3.0 });
-        Assert.That(actuator.GetPerMotorPositions(), Is.EqualTo(new[] { 8, 3, 3, -2 }));
+        Assert.That(actuator.GetPerMotorPositions(), Is.EqualTo(new[] { Home + 8, Home + 3, Home + 3, Home - 2 }));
     }
 
     [Test]
@@ -124,7 +128,7 @@ public class SimulatedTiltActuatorTests {
         actuator.ApplyWizardScrewSteps(new[] { -50.0, 0.0, 50.0, 0.0 }); // exact inverse
 
         Assert.Multiple(() => {
-            Assert.That(actuator.GetPerMotorPositions(), Is.EqualTo(new[] { 0, 0, 0, 0 }), "counters must return to baseline");
+            Assert.That(actuator.GetPerMotorPositions(), Is.EqualTo(new[] { Home, Home, Home, Home }), "counters must return to baseline");
             Assert.That(options.TiltAmountMicrons, Is.EqualTo(0.0).Within(1e-6), "injected tilt must return to baseline");
             Assert.That(options.BackfocusErrorMicrons, Is.EqualTo(0.0).Within(1e-6), "injected backfocus must return to baseline");
         });
@@ -139,7 +143,7 @@ public class SimulatedTiltActuatorTests {
         actuator.ApplyWizardScrewSteps(new[] { 50.0, 0.0, -50.0, 0.0 });
 
         Assert.Multiple(() => {
-            Assert.That(actuator.GetPerMotorPositions(), Is.EqualTo(new[] { 50, 0, 0, -50 }), "counters advance even when geometry can't render");
+            Assert.That(actuator.GetPerMotorPositions(), Is.EqualTo(new[] { Home + 50, Home, Home, Home - 50 }), "counters advance even when geometry can't render");
             Assert.That(options.TiltAmountMicrons, Is.EqualTo(0.0).Within(1e-9), "no optical effect when the plane can't be built");
         });
     }

@@ -35,12 +35,46 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         public double[,] Differences { get; private set; }
     }
 
+    /// <summary>
+    /// Pure observation of one outer iteration of <see cref="NonLinearLeastSquaresSolver{S,T,U}.SolveWinsorizedResiduals"/>,
+    /// collected only when <c>WinsorizedDiagnosticsEnabled</c> is set. Median/MAD/bounds are in WEIGHTED residual units
+    /// ((estimated − observed)/σ), with the clip bounds centered on the residual median.
+    /// </summary>
+    public sealed class WinsorizedIterationDiagnostics {
+        public int Iteration { get; init; }
+
+        /// <summary>Parameter vector produced by this iteration's LM solve (canonical <c>ToArray</c> order).</summary>
+        public double[] Parameters { get; init; }
+
+        public double GoodnessOfFit { get; init; }
+        public double ResidualMedian { get; init; }
+        public double ResidualMAD { get; init; }
+        public double LowerBound { get; init; }
+        public double UpperBound { get; init; }
+
+        /// <summary>Snapshot of the per-point enabled flags AFTER this iteration's outlier disabling.</summary>
+        public bool[] EnabledAfter { get; init; }
+    }
+
     public class NonLinearLeastSquaresSolver<S, T, U>
         where S : NonLinearLeastSquaresSolverBase<T, U>
         where T : INonLinearLeastSquaresDataPoint
         where U : class, INonLinearLeastSquaresParameters, new() {
         public bool OptGuardEnabled { get; set; } = false;
         public int SolutionIterations { get; private set; } = 0;
+
+        /// <summary>
+        /// Opt-in (default false): collect per-outer-iteration diagnostics during
+        /// <see cref="SolveWinsorizedResiduals"/>. Purely observational — enabling it does not
+        /// change the fit in any way.
+        /// </summary>
+        public bool WinsorizedDiagnosticsEnabled { get; set; } = false;
+
+        /// <summary>
+        /// The diagnostics collected by the most recent <see cref="SolveWinsorizedResiduals"/> call.
+        /// Null unless <see cref="WinsorizedDiagnosticsEnabled"/> was set when the solve started.
+        /// </summary>
+        public List<WinsorizedIterationDiagnostics> WinsorizedDiagnostics { get; private set; }
 
         private CancellationToken solverCancellationToken;
 
@@ -55,6 +89,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         public int InputEnabledCount {
             get => inputEnabled.Count(i => i);
         }
+
+        /// <summary>
+        /// Diagnostics-only snapshot of the per-point enabled flags after the most recent solve
+        /// (a copy, never the live array). Null before any solve.
+        /// </summary>
+        public bool[] GetInputEnabledSnapshot() => (bool[])inputEnabled?.Clone();
 
         public S Solver { get; private set; }
 
@@ -74,21 +114,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             double winsorizationSigma = 2.5d,
             int maxIterationsLS = 0,
             double toleranceLS = 1E-8,
+            double maxRemovalFraction = 0.10d,
             CancellationToken ct = default(CancellationToken),
             IProgress<ApplicationStatus> progress = null) {
             maxWinsorizedIterations = maxWinsorizedIterations > 0 ? Math.Min(maxWinsorizedIterations, 10) : 10;
             var initialGuess = new double[solver.NumParameters];
             InitializeWeights(solver);
+            WinsorizedDiagnostics = WinsorizedDiagnosticsEnabled ? new List<WinsorizedIterationDiagnostics>() : null;
 
             var winsorizedIterations = 0;
-            var initialGuessSolution = new U();
-            initialGuessSolution.FromArray(initialGuess);
-            U lastSolution = initialGuessSolution;
-
+            U lastSolution = null;
             solver.SetInitialGuess(initialGuess);
-            int disabledCount = int.MaxValue;
             SolutionIterations = 0;
-            var gofBefore = this.GoodnessOfFit(solver, lastSolution);
+            // Hard backstop against runaway trimming: outlier rejection exists to drop a few gross outliers.
+            // If more than this fraction of the data looks like outliers, the model is wrong — stop pruning
+            // rather than prune the data into agreeing with the model.
+            var removalBudget = (int)Math.Floor(this.weights.Length * maxRemovalFraction);
+            int disabledCount = int.MaxValue;
             ApplicationStatus status = new ApplicationStatus() {
                 Status = "Solving",
                 MaxProgress = maxWinsorizedIterations,
@@ -101,15 +143,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 progress?.Report(status);
                 var nextSolution = SolveWithInitialGuess(solver, initialGuess, maxIterationsLS, toleranceLS, ct);
                 var iterationSolutionArray = nextSolution.ToArray();
+                lastSolution = nextSolution;
+                var gofAfter = WinsorizedDiagnosticsEnabled ? this.GoodnessOfFit(solver, nextSolution) : double.NaN;
 
-                var gofAfter = this.GoodnessOfFit(solver, nextSolution);
-                if (gofBefore >= gofAfter) {
-                    Logger.Warning("Non-linear iteration did not improve model quality. Returning the solution from the previous iteration");
-                    return lastSolution;
-                }
-
-                gofBefore = gofAfter;
-                var residuals = new List<(int, double)>();
+                // Judge outliers on WEIGHTED residuals ((estimated − observed)/σ) about their MEDIAN. The LM
+                // solve minimizes weighted residuals, so an unweighted cut measures a different quantity than
+                // the fit optimizes, and a zero-centered cut turns any skew in the residual distribution into
+                // one-sided pruning: each pass then refits toward the survivors and manufactures new
+                // "outliers" on the same side — a runaway that can trim a large, spatially coherent fraction
+                // of genuine data while the goodness-of-fit (recomputed on the shrinking set) only improves.
+                var residuals = new List<(int Index, double Weighted)>();
                 for (int i = 0; i < this.weights.Length; ++i) {
                     if (!inputEnabled[i]) {
                         continue;
@@ -117,25 +160,41 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
 
                     var observedValue = solver.Outputs[i];
                     var estimatedValue = solver.Value(iterationSolutionArray, solver.Inputs[i]);
-                    var residual = estimatedValue - observedValue;
-                    residuals.Add((i, residual));
+                    residuals.Add((i, (estimatedValue - observedValue) * this.weights[i]));
                 }
 
-                var (median, mad) = residuals.Select(p => p.Item2).MedianMAD();
-                var upperBound = mad * winsorizationSigma;
-                var lowerBound = -mad * winsorizationSigma;
+                var (median, mad) = residuals.Select(p => p.Weighted).MedianMAD();
+                var upperBound = median + mad * winsorizationSigma;
+                var lowerBound = median - mad * winsorizationSigma;
                 disabledCount = 0;
-                for (int i = 0; i < residuals.Count; ++i) {
-                    var residual = residuals[i].Item2;
-                    if (residual > upperBound || residual < lowerBound) {
-                        var residualIdx = residuals[i].Item1;
-                        inputEnabled[residualIdx] = false;
+                if (mad > 0.0) {
+                    // Worst-first so the removal budget is spent on the most deviant points.
+                    foreach (var (index, weighted) in residuals
+                        .Where(p => p.Weighted > upperBound || p.Weighted < lowerBound)
+                        .OrderByDescending(p => Math.Abs(p.Weighted - median))) {
+                        if (removalBudget <= 0) {
+                            break;
+                        }
+                        inputEnabled[index] = false;
+                        --removalBudget;
                         ++disabledCount;
                     }
                 }
 
+                if (WinsorizedDiagnosticsEnabled) {
+                    WinsorizedDiagnostics.Add(new WinsorizedIterationDiagnostics {
+                        Iteration = winsorizedIterations,
+                        Parameters = (double[])iterationSolutionArray.Clone(),
+                        GoodnessOfFit = gofAfter,
+                        ResidualMedian = median,
+                        ResidualMAD = mad,
+                        LowerBound = lowerBound,
+                        UpperBound = upperBound,
+                        EnabledAfter = (bool[])inputEnabled.Clone()
+                    });
+                }
+
                 solver.SetInitialGuess(initialGuess);
-                lastSolution = nextSolution;
             }
             SolutionIterations = winsorizedIterations;
             return lastSolution;

@@ -130,7 +130,7 @@ public class SimulatedEatTransportTests {
     private static ITiltAdapterOptions BuildTiltOptions() {
         var options = Substitute.For<ITiltAdapterOptions>();
         options.TiltDeviceMaxStepsPerCommand.Returns(200);
-        options.TiltDeviceMaxExcursionSteps.Returns(500);
+        options.TiltDeviceMaxExcursionSteps.Returns(2000); // the shipped default for absolute counters
         options.TiltDeviceSettleSeconds.Returns(0.0);
         return options;
     }
@@ -147,21 +147,18 @@ public class SimulatedEatTransportTests {
 
         var tiltBefore = simOptions.TiltAmountMicrons;
 
-        // The simulated actuator starts every motor at 0, and travel below 0 is refused, so a differential
-        // tilt move needs headroom underneath first -- exactly the lift the planner adds automatically on the
-        // real device. Doing it explicitly here keeps this test about the transport/actuator round trip.
-        await controller.ExecuteMoveAsync(
-            new TiltAdapterMove(TiltMoveAxis.Backfocus, 50, TiltMoveGroup.Backfocus, "bf,50"), null, CancellationToken.None);
-
+        // The simulated actuator homes mid-travel, so a differential tilt move from a fresh simulator has the
+        // downward headroom the travel-below-0 floor demands — the exact move the wizard opens with, refused
+        // when the motors homed at 0.
         var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 50, TiltMoveGroup.Tilt, "tr,50");
         await controller.ExecuteMoveAsync(move, null, CancellationToken.None);
 
         var positions = await controller.QueryPositionsAsync(CancellationToken.None);
 
         Assert.Multiple(() => {
-            // Backfocus +50 -> [50, 50, 50, 50]; DiagonalA +50 then adds [+50, 0, 0, -50] in device order
-            // (TR, TL, BR, BL), landing on [100, 50, 50, 0] with nothing below zero.
-            Assert.That(positions.PerMotorSteps, Is.EqualTo(new[] { 100, 50, 50, 0 }));
+            // DiagonalA +50 adds [+50, 0, 0, -50] in device order (TR, TL, BR, BL) on top of the mid-travel home.
+            const int home = SimulatedTiltActuator.InitialPositionSteps;
+            Assert.That(positions.PerMotorSteps, Is.EqualTo(new[] { home + 50, home, home, home - 50 }));
             Assert.That(simOptions.TiltAmountMicrons, Is.Not.EqualTo(tiltBefore), "the move must fold into the simulator's injected tilt");
         });
     }

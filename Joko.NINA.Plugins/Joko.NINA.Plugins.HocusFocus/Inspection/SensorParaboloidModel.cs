@@ -39,6 +39,25 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         /// </summary>
         public double FocuserPositionStdDev { get; private set; }
 
+        /// <summary>
+        /// Quadrature floor (µm) applied by <see cref="RegularizeStdDev"/>. The per-star hyperbolic fit's
+        /// formal <c>MinimumStdError</c> can be orders of magnitude smaller than the real star-to-star
+        /// best-focus error floor (observed: formal σ down to 0.008 µm against a ~2.5 µm truth-residual
+        /// floor), which lets a handful of stars monopolize the 1/σ² weighting — an effective sample size
+        /// of ~2 out of ~4000 stars, biased surface fits, and runaway outlier trimming. The exact value is
+        /// not critical (results are insensitive over 1–3 µm); it only has to dominate implausibly small
+        /// formal errors while leaving genuinely uncertain stars down-weighted.
+        /// </summary>
+        public const double StdDevFloorMicrons = 2.0;
+
+        /// <summary>
+        /// Regularizes a star's best-focus standard error for 1/σ² weighting by adding
+        /// <see cref="StdDevFloorMicrons"/> in quadrature. See the constant for why.
+        /// </summary>
+        public static double RegularizeStdDev(double stdDevMicrons) {
+            return Math.Sqrt(stdDevMicrons * stdDevMicrons + StdDevFloorMicrons * StdDevFloorMicrons);
+        }
+
         public double[] ToInput() {
             return new double[] { X, Y };
         }

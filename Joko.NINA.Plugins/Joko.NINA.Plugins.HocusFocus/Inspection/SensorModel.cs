@@ -27,6 +27,8 @@ using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -195,6 +197,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 fixedSensorCenter: inspectorOptions.FixedSensorCenter,
                 astigmatic: inspectorOptions.AstigmaticCurvatureEnabled);
             var nlSolver = new NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel>(this.alglibAPI);
+            nlSolver.WinsorizedDiagnosticsEnabled = DiagnosticsActive;
 
             // Single solve: the signed curvature coefficient K can cross zero, so one fit covers both
             // curvature signs (the old code solved once forcing positive curvature and once forcing
@@ -205,7 +208,63 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             solution.EvaluateFit(nlSolver, sensorModelSolver);
             Logger.Info($"Solved surface model: {solution}. RMS = {solution.RMSErrorMicrons:0.0000}, GoD: {solution.GoodnessOfFit:0.0000}, ReducedChiSq: {solution.ReducedChiSquared:0.0000}, Stars: {solution.StarsInModel}");
 
+            if (DiagnosticsActive) {
+                WriteParaboloidDiagnosticsCsvs(dataPoints, sensorModelSolver, nlSolver, solution);
+            }
+
             return solution;
+        }
+
+        /// <summary>
+        /// Diagnostics-only (see <see cref="DiagnosticsDirectory"/>): dumps the paraboloid solve's data points
+        /// ("&lt;label&gt;_points.csv", in solver order) and the winsorized outer-iteration trajectory
+        /// ("&lt;label&gt;_iterations.csv"). Read-only over the finished solve — never affects the fit.
+        /// </summary>
+        private static void WriteParaboloidDiagnosticsCsvs(
+            List<SensorParaboloidDataPoint> dataPoints,
+            SensorParaboloidSolver sensorModelSolver,
+            NonLinearLeastSquaresSolver<SensorParaboloidSolver, SensorParaboloidDataPoint, SensorParaboloidModel> nlSolver,
+            SensorParaboloidModel solution) {
+            try {
+                Directory.CreateDirectory(DiagnosticsDirectory);
+                var ci = CultureInfo.InvariantCulture;
+                var iterations = nlSolver.WinsorizedDiagnostics ?? new List<WinsorizedIterationDiagnostics>();
+
+                var iterationsPath = Path.Combine(DiagnosticsDirectory, $"{DiagnosticsLabel}_iterations.csv");
+                using (var writer = new StreamWriter(iterationsPath, append: false)) {
+                    writer.WriteLine("iteration,enabledCountAfter,Z0,Gx,Gy,K,GoF,residMedian,residMAD,lowerBound,upperBound");
+                    foreach (var it in iterations) {
+                        var model = new SensorParaboloidModel();
+                        model.FromArray(it.Parameters);
+                        writer.WriteLine(string.Format(ci, "{0},{1},{2:R},{3:R},{4:R},{5:R},{6:R},{7:R},{8:R},{9:R},{10:R}",
+                            it.Iteration, it.EnabledAfter.Count(e => e), model.Z0, model.Gx, model.Gy, model.K,
+                            it.GoodnessOfFit, it.ResidualMedian, it.ResidualMAD, it.LowerBound, it.UpperBound));
+                    }
+                }
+
+                var finalParameters = solution.ToArray();
+                var enabledFinal = nlSolver.GetInputEnabledSnapshot();
+                var pointsPath = Path.Combine(DiagnosticsDirectory, $"{DiagnosticsLabel}_points.csv");
+                using (var writer = new StreamWriter(pointsPath, append: false)) {
+                    writer.WriteLine("pointIndex,x_um,y_um,z_um,sigma_um,finalPredicted,finalResidual,enabledFinal,disabledAtIteration");
+                    for (int i = 0; i < dataPoints.Count; ++i) {
+                        var predicted = sensorModelSolver.Value(finalParameters, sensorModelSolver.Inputs[i]);
+                        var observed = sensorModelSolver.Outputs[i];
+                        var disabledAtIteration = -1;
+                        foreach (var it in iterations) {
+                            if (!it.EnabledAfter[i]) {
+                                disabledAtIteration = it.Iteration;
+                                break;
+                            }
+                        }
+                        writer.WriteLine(string.Format(ci, "{0},{1:R},{2:R},{3:R},{4:R},{5:R},{6:R},{7},{8}",
+                            i, dataPoints[i].X, dataPoints[i].Y, observed, sensorModelSolver.OutputStdDevs[i],
+                            predicted, predicted - observed, enabledFinal != null && enabledFinal[i] ? 1 : 0, disabledAtIteration));
+                    }
+                }
+            } catch (Exception e) {
+                Logger.Error(e, $"Failed writing sensor-model paraboloid diagnostics CSVs: {e.Message}");
+            }
         }
 
         private List<SensorParaboloidDataPoint> ToInterpolatedGrid(
@@ -359,6 +418,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         /// registration+fit core to run headless without a dispatcher.
         /// </summary>
         public Action<string> RegistrationReportSink { get; set; }
+
+        /// <summary>
+        /// Opt-in diagnostics seam (modeled on <see cref="RegistrationReportSink"/>, but static so headless
+        /// harnesses can enable it without plumbing): when BOTH <see cref="DiagnosticsDirectory"/> and
+        /// <see cref="DiagnosticsLabel"/> are set, <c>FitImages</c> writes "&lt;label&gt;_stars.csv" (one row per
+        /// registered star) and <c>FitParaboloidModel</c> writes "&lt;label&gt;_points.csv" +
+        /// "&lt;label&gt;_iterations.csv" describing the winsorized paraboloid solve. Purely observational —
+        /// the fit results are bit-identical whether or not the seam is set. Off (null) by default.
+        /// </summary>
+        internal static string DiagnosticsDirectory { get; set; }
+
+        internal static string DiagnosticsLabel { get; set; }
+
+        private static bool DiagnosticsActive => !string.IsNullOrEmpty(DiagnosticsDirectory) && !string.IsNullOrEmpty(DiagnosticsLabel);
 
         private void Report(string message) {
             if (RegistrationReportSink != null) {
@@ -786,12 +859,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
             // Resolve missing σ to the median of the available ones (or 1.0 if none could be estimated), so a
             // star whose best-focus standard error is unknown is weighted like a typical star rather than
-            // dominating the fit.
+            // dominating the fit. All σ then get the quadrature floor (see SensorParaboloidDataPoint.StdDevFloorMicrons):
+            // the formal per-star standard errors can be small enough that a handful of stars would otherwise
+            // hold nearly all of the surface fit's weight.
             var availableStdDevs = pendingPoints.Where(p => !double.IsNaN(p.StdDevMicrons)).Select(p => p.StdDevMicrons).ToList();
             var fallbackStdDevMicrons = availableStdDevs.Count > 0 ? availableStdDevs.MedianMAD().Item1 : 1.0;
             foreach (var p in pendingPoints) {
-                var stdDev = double.IsNaN(p.StdDevMicrons) ? fallbackStdDevMicrons : p.StdDevMicrons;
+                var stdDev = SensorParaboloidDataPoint.RegularizeStdDev(double.IsNaN(p.StdDevMicrons) ? fallbackStdDevMicrons : p.StdDevMicrons);
                 sensorModelDataPoints.Add(new SensorParaboloidDataPoint(p.X, p.Y, p.FocuserMicrons, p.RSquared, stdDev));
+            }
+
+            if (DiagnosticsActive) {
+                WriteStarsDiagnosticsCsv(registeredStars, pointPerStar, discardedFlags, rejectedCounts, imageSize, pixelSize, fallbackStdDevMicrons, minStarCountForFitting);
             }
 
             stopwatch.RecordEntry("fitcurves");
@@ -806,6 +885,58 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 return new RegistrationAndFitResult(ToInterpolatedGrid(sensorModelDataPoints, imageSize), registeredStars);
             } else {
                 return new RegistrationAndFitResult(sensorModelDataPoints, registeredStars);
+            }
+        }
+
+        /// <summary>
+        /// Diagnostics-only (see <see cref="DiagnosticsDirectory"/>): dumps one row per registered star
+        /// ("&lt;label&gt;_stars.csv") describing its per-star sweep fit and how it entered (or why it missed)
+        /// the paraboloid data-point list. Read-only over FitImages' finished bookkeeping — never affects the fit.
+        /// </summary>
+        private static void WriteStarsDiagnosticsCsv(
+            RegisteredStar[] registeredStars,
+            (double X, double Y, double FocuserMicrons, double RSquared, double StdDevMicrons)?[] pointPerStar,
+            bool[] discardedFlags,
+            int[] rejectedCounts,
+            System.Drawing.Size imageSize,
+            double pixelSize,
+            double fallbackStdDevMicrons,
+            int minStarCountForFitting) {
+            try {
+                Directory.CreateDirectory(DiagnosticsDirectory);
+                var ci = CultureInfo.InvariantCulture;
+                var path = Path.Combine(DiagnosticsDirectory, $"{DiagnosticsLabel}_stars.csv");
+                using var writer = new StreamWriter(path, append: false);
+                writer.WriteLine("starIndex,refX_px,refY_px,x_um,y_um,matchedFrames,status,fitModel,r2,bestFocus_um,sigma_raw_um,sigma_used_um,rejectedPointCount");
+                for (int i = 0; i < registeredStars.Length; ++i) {
+                    var registeredStar = registeredStars[i];
+                    // Same center-relative micron mapping FitImages uses to build the paraboloid data point.
+                    var xMicrons = (registeredStar.RegistrationX - (imageSize.Width / 2.0)) * pixelSize;
+                    var yMicrons = (registeredStar.RegistrationY - (imageSize.Height / 2.0)) * pixelSize;
+                    string status;
+                    if (pointPerStar[i].HasValue) {
+                        status = "accepted";
+                    } else if (discardedFlags[i]) {
+                        status = "discarded";
+                    } else if (registeredStar.MatchedStars.Count < minStarCountForFitting) {
+                        status = "lt5";
+                    } else {
+                        status = "error";
+                    }
+                    var fitModel = registeredStar.Fitting?.GetType().Name ?? "";
+                    var r2 = pointPerStar[i]?.RSquared ?? double.NaN;
+                    var bestFocusMicrons = pointPerStar[i]?.FocuserMicrons ?? double.NaN;
+                    var sigmaRawMicrons = pointPerStar[i]?.StdDevMicrons ?? double.NaN;
+                    var sigmaUsedMicrons = pointPerStar[i].HasValue
+                        ? SensorParaboloidDataPoint.RegularizeStdDev(double.IsNaN(sigmaRawMicrons) ? fallbackStdDevMicrons : sigmaRawMicrons)
+                        : double.NaN;
+                    writer.WriteLine(string.Format(ci, "{0},{1:R},{2:R},{3:R},{4:R},{5},{6},{7},{8:R},{9:R},{10:R},{11:R},{12}",
+                        i, registeredStar.RegistrationX, registeredStar.RegistrationY, xMicrons, yMicrons,
+                        registeredStar.MatchedStars.Count, status, fitModel, r2, bestFocusMicrons,
+                        sigmaRawMicrons, sigmaUsedMicrons, rejectedCounts[i]));
+                }
+            } catch (Exception e) {
+                Logger.Error(e, $"Failed writing sensor-model stars diagnostics CSV: {e.Message}");
             }
         }
 
