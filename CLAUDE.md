@@ -104,4 +104,4 @@ public class MathUtilityTests {
 }
 ```
 
-The test project links shared source files directly (e.g., `MathUtility.cs`) rather than referencing the plugin assembly.
+The test project references the plugin via `ProjectReference` (plus `InternalsVisibleTo("Joko.NINA.Plugins.HocusFocus.Tests")` in the plugin's `AssemblyInfo.cs`); only a few TestApp helpers are source-linked.
