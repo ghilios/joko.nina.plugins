@@ -1430,7 +1430,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             CancellationToken token,
             IProgress<ApplicationStatus> progress,
             bool forRerun = false) {
-            var autofocusFilter = forRerun ? imagingFilter : await SetAutofocusFilter(imagingFilter, token, progress);
+            var autofocusFilter = forRerun ? imagingFilter : await SetAutofocusFilter(options, imagingFilter, token, progress);
             return new AutoFocusState(
                 options,
                 autofocusFilter,
@@ -1824,6 +1824,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
             }
             return true;
+        }
+
+        // Options-aware wrapper used by InitializeState: honors UseExactImagingFilter by moving the wheel to
+        // exactly the requested imaging filter (no designated-AF-filter substitution). A ChangeFilter failure
+        // propagates so the caller's existing error handling surfaces it — an explicit target filter must never
+        // silently fall back to a different filter. Internal for direct unit testing (InternalsVisibleTo).
+        internal async Task<FilterInfo> SetAutofocusFilter(AutoFocusEngineOptions options, FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
+            if (options.UseExactImagingFilter && imagingFilter != null) {
+                await filterWheelMediator.ChangeFilter(imagingFilter, token, progress);
+                return imagingFilter;
+            }
+            return await SetAutofocusFilter(imagingFilter, token, progress);
         }
 
         public async Task<FilterInfo> SetAutofocusFilter(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
