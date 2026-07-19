@@ -19,6 +19,8 @@ using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter;
+using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Core.Utility;
 using NINA.Core.Utility.WindowService;
 using NINA.Plugin;
@@ -120,6 +122,21 @@ namespace NINA.Joko.Plugins.HocusFocus {
                 // Inspector's MicronsPerFocuserStep, not a copy. Constructed above, which this relies on — both for
                 // the non-null argument here and for ProfileChanged ordering (see MigrateLegacyFocuserStepSize).
                 CameraSimulatorOptions = new CameraSimulatorOptions(profileService, InspectorOptions);
+            }
+            if (PerFilterStarDetection == null) {
+                // Constructed after the options singletons: ProfileChanged handlers run in subscription order,
+                // so the store (and the binder below) re-read a new profile only after StarDetectionOptions has
+                // re-read the legacy keys.
+                PerFilterStarDetection = new PerFilterStarDetectionStore(
+                    profileService,
+                    () => StarDetectionSettingsSnapshot.FromOptions(StarDetectionOptions));
+            }
+            if (PerFilterStarDetectionEditBinder == null) {
+                PerFilterStarDetectionEditBinder = new PerFilterEditBinder(
+                    PerFilterStarDetection,
+                    StarDetectionOptions,
+                    profileService,
+                    () => filterWheelMediator.GetInfo()?.SelectedFilter?.Name);
             }
             // Must follow CameraSimulatorOptions: the VM reads it and subscribes to its PropertyChanged.
             SimTiltAdapterVM = new SimulatedTiltAdapterVM(CameraSimulatorOptions);
@@ -293,6 +310,10 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public static TiltAdapterOptions TiltAdapterOptions { get; private set; }
 
         public static CameraSimulatorOptions CameraSimulatorOptions { get; private set; }
+
+        public static PerFilterStarDetectionStore PerFilterStarDetection { get; private set; }
+
+        public static PerFilterEditBinder PerFilterStarDetectionEditBinder { get; private set; }
 
         /// <summary>
         /// Backs the simulated tilt adapter's configuration on the Camera Simulator options page, whose DataContext
