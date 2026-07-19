@@ -1863,6 +1863,107 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             });
         }
 
+        // Once an automated run takes its cancel/failure exit it is NOT resumable: RecoverAppliedMovesAsync has
+        // undone this run's device moves (so the readings already in stepReadings no longer describe where the
+        // device physically is) and the exclusive operation lease has been released. Re-entering AutoRunAllAsync
+        // skips StartAsync -- IsWizardRunning is still true -- so it would resume at the stale CurrentStep,
+        // re-send moves computed from a rolled-back position, and run unleased. Same for the failure panel's
+        // "Run AutoFocus again". Both must be disabled until the user starts a fresh run.
+        [Test]
+        public void AutoRunAll_AfterCancelAndRecovery_CannotBeResumed() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            StubSuccessfulMoves(controller);
+            Connect(vm);
+            options.MeasureCurvatureDuringCalibration.Returns(false);
+
+            vm.MeasurementStepOverrideForTest = (step, ct) => {
+                vm.SeedStepReading(step, 0.1, 0.0, 1000.0);
+                if (step == WizardStep.Screw1) {
+                    vm.CancelCommand.Execute(null);
+                }
+                return Task.FromResult(true);
+            };
+
+            ((AsyncRelayCommand)vm.AutoRunAllCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            Assert.Multiple(() => {
+                // Precondition: this is exactly the state the existing cancel/recovery test leaves behind.
+                Assert.That(vm.IsComplete, Is.False);
+                Assert.That(vm.IsWizardRunning, Is.True, "the wizard panel stays up so the user can read what happened");
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.ReBaseline2), "the stale step a resume would restart from");
+
+                Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.False,
+                    "resuming would re-send moves computed from a position the rollback already undid");
+                Assert.That(vm.RetryMeasurementCommand.CanExecute(null), Is.False,
+                    "re-measuring the stale step is invalid for the same reason");
+                Assert.That(vm.StatusText, Does.Contain("cannot be resumed"),
+                    "the user must be told to start over rather than left with two dead buttons");
+            });
+        }
+
+        [Test]
+        public void AutoRunAll_AfterMidRunFailureAndRecovery_CannotBeResumed() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            StubSuccessfulMoves(controller);
+            Connect(vm);
+            options.MeasureCurvatureDuringCalibration.Returns(false);
+            // RetryMeasurementCommand also gates on AreDevicesConnected, so connect the imaging devices --
+            // otherwise the retry assertion below would pass vacuously and prove nothing about the latch.
+            vm.UpdateDeviceInfo(new CameraInfo { Connected = true });
+            vm.UpdateDeviceInfo(new FocuserInfo { Connected = true });
+
+            // Screw1's measurement fails outright -- MeasureStep sets HasMeasurementFailureChoice, and
+            // AutoRunAllAsync rolls the run's applied moves back before returning.
+            vm.MeasurementStepOverrideForTest = (step, ct) => {
+                if (step == WizardStep.Screw1) {
+                    return Task.FromResult(false);
+                }
+                vm.SeedStepReading(step, 0.1, 0.0, 1000.0);
+                return Task.FromResult(true);
+            };
+
+            ((AsyncRelayCommand)vm.AutoRunAllCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasMeasurementFailureChoice, Is.True, "precondition: the failure panel is showing");
+                Assert.That(vm.IsWizardRunning, Is.True, "the failure panel lives inside the run panel; it must stay visible");
+                Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.False);
+                Assert.That(vm.RetryMeasurementCommand.CanExecute(null), Is.False);
+                Assert.That(vm.MeasurementFailureText, Does.Contain("cannot be resumed"),
+                    "the failure panel must explain why its own retry button is dead");
+            });
+        }
+
+        // The latch is per-run: starting a fresh run must clear it, or the wizard would be permanently bricked
+        // for automated use after the first cancellation.
+        [Test]
+        public void AutoRunAll_AfterCancelAndRecovery_AFreshStartClearsTheLatch() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            StubSuccessfulMoves(controller);
+            Connect(vm);
+            options.MeasureCurvatureDuringCalibration.Returns(false);
+            vm.MeasurementStepOverrideForTest = (step, ct) => {
+                vm.SeedStepReading(step, 0.1, 0.0, 1000.0);
+                if (step == WizardStep.Screw1) {
+                    vm.CancelCommand.Execute(null);
+                }
+                return Task.FromResult(true);
+            };
+            ((AsyncRelayCommand)vm.AutoRunAllCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+            Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.False, "precondition: latched");
+
+            vm.RestartCommand.Execute(null);
+            vm.StartCommand.Execute(null);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.True);
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Baseline));
+            });
+        }
+
         [Test]
         public void Disconnected_FourStepFlow_NeverTouchesController_AndClearsDeviceLinkedMarker() {
             // BuildMotorized gives a motorized preset + a real controller mock, but the device is NEVER
