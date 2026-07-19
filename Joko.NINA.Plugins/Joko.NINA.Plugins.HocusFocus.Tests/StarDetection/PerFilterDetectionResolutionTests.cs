@@ -14,6 +14,9 @@ using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.ViewModel;
 using NSubstitute;
 using NUnit.Framework;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Media;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
@@ -136,6 +139,25 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             Assert.Multiple(() => {
                 Assert.That(actual.NoiseClippingMultiplier, Is.EqualTo(9.25));
                 store.DidNotReceive().GetOrSeedSnapshot(Arg.Any<string>());
+            });
+        }
+
+        [Test]
+        public async Task FeatureOn_EmptyFilterName_InterfaceDetectSoftFailsWithEmptyResult() {
+            var (detection, store) = Build(new StarDetectionSettingsSnapshot());
+            store.Enabled.Returns(true);
+            var p = new StarDetectionParams { IsAutoFocus = false };
+
+            // The NINA-facing entry point must NEVER throw into the imaging pipeline: it returns a valid
+            // zero-star result. (Notification.ShowWarning is a headless no-op under test — NINA's manager is
+            // null without Application.Current — so the observable contract here is the returned result.)
+            var result = await detection.Detect(MakeImage(""), PixelFormats.Gray16, p, progress: null, token: CancellationToken.None);
+
+            Assert.Multiple(() => {
+                Assert.That(result, Is.InstanceOf<HocusFocusStarDetectionResult>());
+                Assert.That(result.DetectedStars, Is.EqualTo(0));
+                Assert.That(result.StarList, Is.Empty);
+                Assert.That(result.Params, Is.SameAs(p));
             });
         }
     }

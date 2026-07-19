@@ -265,19 +265,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var selectedAutoFocusBehavior = profileService.ActiveProfile.ApplicationSettings.SelectedPluggableBehaviors.Where(k => k.Key == typeof(IAutoFocusVMFactory).FullName).ToList();
             var ninaStockAutoFocus = selectedAutoFocusBehavior.Count == 0 || selectedAutoFocusBehavior.First().Value == "NINA";
             var isNinaAutoFocus = ninaStockAutoFocus && p.IsAutoFocus;
-            // Resolve the effective options ONCE for this detection. UseAutoFocusCrop and ModelPSF are both
-            // per-filter-scoped (StarDetectionSettingsSnapshot captures them and Scrub leaves them alone), so
-            // reading them off the live singleton here would let the global value win over the filter's snapshot
-            // while every other knob came from the snapshot.
-            var effectiveOptions = ResolveEffectiveOptions(image);
-            if (!effectiveOptions.UseAutoFocusCrop && !isNinaAutoFocus) {
-                p.UseROI = false;
+            // UseAutoFocusCrop and ModelPSF are per-filter-scoped, so they must come from the SAME resolved
+            // options object as every other knob in this detection (Task 7 review fix). Resolving here also
+            // moves the indeterminate-filter throw inside the try below.
+            IStarDetectionOptions effectiveOptions;
+            StarDetectorParams detectorParams;
+            try {
+                effectiveOptions = ResolveEffectiveOptions(image);
+                if (!effectiveOptions.UseAutoFocusCrop && !isNinaAutoFocus) {
+                    p.UseROI = false;
+                }
+                var starDetectionRegion = StarDetectionRegion.FromStarDetectionParams(p);
+                detectorParams = BuildStarDetectorParams(effectiveOptions, image, starDetectionRegion, p.IsAutoFocus);
+            } catch (PerFilterSettingsUnavailableException e) {
+                // Soft-fail: never throw into NINA's imaging pipeline. Warn on EVERY occurrence (no one-shot
+                // latch) so a misconfigured session cannot silently zero out all of its detections.
+                Logger.Warning(e.Message);
+                Notification.ShowWarning(e.Message);
+                return new HocusFocusStarDetectionResult() {
+                    StarList = new List<DetectedStar>(),
+                    DetectedStars = 0,
+                    Params = p
+                };
             }
-
-            var starDetectionRegion = StarDetectionRegion.FromStarDetectionParams(p);
-            var detectorParams = BuildStarDetectorParams(effectiveOptions, image, starDetectionRegion, p.IsAutoFocus);
-            // BuildStarDetectorParams forces ModelPSF off for auto-focus (speed); lift that for a Review-Frames run so
-            // the per-star PSF properties are populated, honoring the effective PSF setting + fit type.
+            // BuildStarDetectorParams forces ModelPSF off for auto-focus (speed); lift that for a Review-Frames run
+            // so the per-star PSF properties are populated, honoring the effective PSF setting + fit type.
             if (modelPSFForAutoFocus) {
                 detectorParams.ModelPSF = effectiveOptions.ModelPSF;
             }
