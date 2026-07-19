@@ -241,7 +241,8 @@ namespace TestApp {
                 Console.WriteLine($"Paraboloid (per-star) tilt for {run.Step} ...");
                 var mean = byStep[run.Step].Gradient.MeanFocuserPosition;
                 var ps = await MeasureTiltViaParaboloidAsync(run, detector, detectionParams, metadata.FocuserStepSizeMicrons,
-                    metadata.PixelSizeMicrons, mean, profileService, inspectorOptions, afOptions, alglibAPI, debayer).ConfigureAwait(false);
+                    metadata.PixelSizeMicrons, mean, profileService, inspectorOptions, afOptions, alglibAPI, debayer,
+                    diagDir: Path.Combine(outDir, "diag")).ConfigureAwait(false);
                 paraboloidSteps.Add(ps);
                 Console.WriteLine(ps.Fitted
                     ? $"    A={F(ps.Gradient.A)}, B={F(ps.Gradient.B)}, stars={ps.StarsInModel}, R²={F(ps.RSquared)}"
@@ -592,10 +593,17 @@ namespace TestApp {
         private static async Task<ParaboloidStepResult> MeasureTiltViaParaboloidAsync(
             RunStep run, StarDetector detector, StarDetectorParams baseParams, double focuserStepMicrons,
             double pixelSizeMicrons, double fourCornerMean, ProfileService profileService,
-            InspectorOptions inspectorOptions, AutoFocusOptions afOptions, IAlglibAPI alglibAPI, bool debayer) {
+            InspectorOptions inspectorOptions, AutoFocusOptions afOptions, IAlglibAPI alglibAPI, bool debayer,
+            string diagDir = null) {
 
             var mats = await LoadRunMatsAsync(run, profileService, debayer).ConfigureAwait(false);
             try {
+                // Opt-in observation-only diagnostics: per-star/point/iteration CSV dumps of this step's
+                // sensor-model fit, named after the step (e.g. Screw1_points.csv). Cleared in the finally below.
+                if (!string.IsNullOrEmpty(diagDir)) {
+                    SensorModel.DiagnosticsDirectory = diagDir;
+                    SensorModel.DiagnosticsLabel = run.Step;
+                }
                 var imageSize = new DrawingSize(mats[0].Mat.Width, mats[0].Mat.Height);
                 var sensorFrames = new List<SensorDetectedStars>(mats.Count);
                 baseParams.Region = StarDetectionRegion.Full;
@@ -659,6 +667,8 @@ namespace TestApp {
                     return new ParaboloidStepResult { Step = run.Step, Fitted = false, Status = ex.Message };
                 }
             } finally {
+                SensorModel.DiagnosticsDirectory = null;
+                SensorModel.DiagnosticsLabel = null;
                 foreach (var (_, _, mat) in mats) {
                     mat?.Dispose();
                 }

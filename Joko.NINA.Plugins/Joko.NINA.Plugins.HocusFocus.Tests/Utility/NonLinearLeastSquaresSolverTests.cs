@@ -9,10 +9,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
     internal class LinearDataPoint : INonLinearLeastSquaresDataPoint {
         public double X { get; set; }
         public double Y { get; set; }
+        public double Sigma { get; set; } = 1.0;
 
         public double[] ToInput() => new double[] { X };
 
         public double ToOutput() => Y;
+
+        public double ToOutputStdDev() => Sigma;
     }
 
     internal class LinearParameters : INonLinearLeastSquaresParameters {
@@ -159,6 +162,106 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
             var result = nlls.Solve(solver, tolerance: 1e-10);
 
             Assert.That(nlls.ParameterCovariance(solver, result), Is.Null);
+        }
+
+        [Test]
+        public void SolveWinsorizedResiduals_SkewedContamination_MedianCenteredClipRecoversTruth() {
+            // A one-sided contaminant cluster offsets the seed fit, so the residual distribution has a
+            // nonzero median. The clip must be centered on that median (in weighted units): a zero-centered
+            // cut prunes the good bulk one-sidedly and walks the fit away from the data.
+            const double trueA = 5.0;
+            const double trueB = 2.0;
+            var pts = new List<LinearDataPoint>();
+            for (int i = 0; i < 44; ++i) {
+                var noise = (i % 2 == 0) ? 0.3 : -0.3;
+                pts.Add(new LinearDataPoint { X = i, Y = trueA + trueB * i + noise });
+            }
+            foreach (var x in new[] { 10.5, 15.5, 25.5, 30.5 }) {
+                pts.Add(new LinearDataPoint { X = x, Y = trueA + trueB * x + 60.0 });
+            }
+
+            var solver = new LinearSolver(pts);
+            var nlls = new NonLinearLeastSquaresSolver<LinearSolver, LinearDataPoint, LinearParameters>(alglibAPI) {
+                WinsorizedDiagnosticsEnabled = true
+            };
+
+            var result = nlls.SolveWinsorizedResiduals(solver);
+
+            var firstIteration = nlls.WinsorizedDiagnostics.First();
+            Assert.Multiple(() => {
+                Assert.That(result.A, Is.EqualTo(trueA).Within(0.2));
+                Assert.That(result.B, Is.EqualTo(trueB).Within(0.02));
+                Assert.That(nlls.InputEnabledCount, Is.EqualTo(44), "only the 4 contaminants should be pruned");
+                Assert.That(firstIteration.UpperBound - firstIteration.ResidualMedian,
+                    Is.EqualTo(2.5 * firstIteration.ResidualMAD).Within(1e-9), "clip must be centered on the residual median");
+                Assert.That(firstIteration.ResidualMedian - firstIteration.LowerBound,
+                    Is.EqualTo(2.5 * firstIteration.ResidualMAD).Within(1e-9), "clip must be centered on the residual median");
+            });
+        }
+
+        [Test]
+        public void SolveWinsorizedResiduals_HonestLargeSigmaPoints_AreNotPruned() {
+            // Points with honestly-large σ and errors consistent with it (~1σ) are not outliers; a point
+            // with small σ and a ~20σ error is. Judged on unweighted residuals both look alike, so the clip
+            // must operate on weighted residuals (r/σ).
+            const double trueA = 5.0;
+            const double trueB = 2.0;
+            var pts = new List<LinearDataPoint>();
+            for (int i = 0; i < 30; ++i) {
+                var noise = (i % 2 == 0) ? 0.4 : -0.4;
+                pts.Add(new LinearDataPoint { X = i, Y = trueA + trueB * i + noise, Sigma = 0.5 });
+            }
+            for (int i = 30; i < 42; ++i) {
+                var noise = (i % 2 == 0) ? 9.0 : -12.0;
+                pts.Add(new LinearDataPoint { X = i, Y = trueA + trueB * i + noise, Sigma = 10.0 });
+            }
+            pts.Add(new LinearDataPoint { X = 21.3, Y = trueA + trueB * 21.3 + 10.0, Sigma = 0.5 });
+
+            var solver = new LinearSolver(pts);
+            var nlls = new NonLinearLeastSquaresSolver<LinearSolver, LinearDataPoint, LinearParameters>(alglibAPI);
+
+            var result = nlls.SolveWinsorizedResiduals(solver);
+
+            Assert.Multiple(() => {
+                Assert.That(nlls.InputEnabledCount, Is.EqualTo(42), "only the 20σ contaminant should be pruned");
+                Assert.That(result.A, Is.EqualTo(trueA).Within(0.4));
+                Assert.That(result.B, Is.EqualTo(trueB).Within(0.04));
+            });
+        }
+
+        [Test]
+        public void SolveWinsorizedResiduals_RemovalBudget_CapsTotalPruning() {
+            // 10 of 50 points are contaminated. The default 10% removal budget must stop pruning at 5 points
+            // (worst-first) and still terminate; raising the budget allows the full cluster to be removed.
+            const double trueA = 5.0;
+            const double trueB = 2.0;
+            List<LinearDataPoint> MakePoints() {
+                var pts = new List<LinearDataPoint>();
+                for (int i = 0; i < 40; ++i) {
+                    var noise = (i % 2 == 0) ? 0.3 : -0.3;
+                    pts.Add(new LinearDataPoint { X = i, Y = trueA + trueB * i + noise });
+                }
+                for (int i = 0; i < 10; ++i) {
+                    var x = 5.5 + 3.0 * i;
+                    pts.Add(new LinearDataPoint { X = x, Y = trueA + trueB * x + 60.0 });
+                }
+                return pts;
+            }
+
+            var nlls = new NonLinearLeastSquaresSolver<LinearSolver, LinearDataPoint, LinearParameters>(alglibAPI);
+            nlls.SolveWinsorizedResiduals(new LinearSolver(MakePoints()));
+            var cappedEnabled = nlls.InputEnabledCount;
+            var cappedIterations = nlls.SolutionIterations;
+
+            var uncapped = nlls.SolveWinsorizedResiduals(new LinearSolver(MakePoints()), maxRemovalFraction: 0.25);
+
+            Assert.Multiple(() => {
+                Assert.That(cappedEnabled, Is.EqualTo(45), "default 10% budget must cap removals at 5 of 50");
+                Assert.That(cappedIterations, Is.LessThanOrEqualTo(10), "budget exhaustion must still terminate");
+                Assert.That(nlls.InputEnabledCount, Is.EqualTo(40), "raised budget must remove the full cluster");
+                Assert.That(uncapped.A, Is.EqualTo(trueA).Within(0.2));
+                Assert.That(uncapped.B, Is.EqualTo(trueB).Within(0.02));
+            });
         }
 
         [Test]
