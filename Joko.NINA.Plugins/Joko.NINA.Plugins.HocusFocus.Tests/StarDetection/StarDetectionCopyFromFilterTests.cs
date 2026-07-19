@@ -1,3 +1,4 @@
+using NINA.Joko.Plugins.HocusFocus;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
@@ -100,6 +101,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
             Assert.That(confirmCalled, Is.False);
             store.DidNotReceive().GetOrSeedSnapshot(Arg.Any<string>());
+        }
+
+        [Test]
+        public void PerFilterBindingSurface_IdenticalOnBothHosts() {
+            // The shared HocusFocus_StarDetection_Options template binds these DataContext-relative paths. Both
+            // hosts — the plugin options page (DataContext = HocusFocusPlugin) and the Imaging dockable
+            // (DataContext = StarDetectionOptionsVM) — must expose identically-named instance properties for the
+            // same XAML to resolve on either.
+            var bindingRoots = new[] { "PerFilterStore", "PerFilterEditBinder", "CopyStarDetectionFromFilterCommand" };
+            Assert.Multiple(() => {
+                foreach (var name in bindingRoots) {
+                    Assert.That(typeof(HocusFocusPlugin).GetProperty(name), Is.Not.Null, $"HocusFocusPlugin.{name}");
+                    Assert.That(typeof(StarDetectionOptionsVM).GetProperty(name), Is.Not.Null, $"StarDetectionOptionsVM.{name}");
+                }
+            });
         }
     }
 }

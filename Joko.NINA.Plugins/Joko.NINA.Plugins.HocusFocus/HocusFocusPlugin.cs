@@ -197,6 +197,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
             LaunchStarDetectionOptimizer = OptimizeStarDetection;
             ExportStarDetectionSettingsCommand = new RelayCommand(() => StarDetectionSettingsIO.Export(StarDetectionOptions));
             ImportStarDetectionSettingsCommand = new AsyncRelayCommand(() => StarDetectionSettingsIO.ImportAsync(StarDetectionOptions, windowServiceFactory));
+            CopyStarDetectionFromFilterCommand = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand<string>(CopyStarDetectionFromFilter);
+            LaunchCopyStarDetectionFromFilter = CopyStarDetectionFromFilter;
         }
 
         /// <summary>
@@ -251,6 +253,10 @@ namespace NINA.Joko.Plugins.HocusFocus {
             // standard way NINA plugins show a modal dialog (the VM is presented in a ContentPresenter and its visual
             // is resolved by the implicit DataType DataTemplate for StarDetectionOptimizerWizardVM).
             windowService.ShowDialog(vm, "Optimize Star Detection", ResizeMode.CanResize, WindowStyle.SingleBorderWindow);
+        }
+
+        private Task CopyStarDetectionFromFilter(string sourceFilterName) {
+            return StarDetectionSettingsIO.CopyFromFilterAsync(sourceFilterName, PerFilterStarDetection, StarDetectionOptions, windowServiceFactory);
         }
 
         private void ChooseIntermediatePathDiag() {
@@ -345,6 +351,21 @@ namespace NINA.Joko.Plugins.HocusFocus {
         /// </summary>
         public static Action LaunchStarDetectionOptimizer { get; private set; }
 
+        /// <summary>
+        /// Shared launcher for the per-filter "Copy Settings From" flow, mirroring
+        /// <see cref="LaunchStarDetectionOptimizer"/>: set by the plugin constructor so the Imaging-pane
+        /// StarDetectionOptionsVM can run the same copy dialog without re-wiring its dependencies. May be null
+        /// when no plugin instance has been constructed (e.g. unit tests).
+        /// </summary>
+        public static Func<string, Task> LaunchCopyStarDetectionFromFilter { get; private set; }
+
+        // Instance wrappers over the per-filter statics: the shared HocusFocus_StarDetection_Options template
+        // binds DataContext-relative paths (PerFilterStore.* / PerFilterEditBinder.*), and a WPF Binding Path
+        // cannot resolve static properties, so both hosts expose the same instance property names.
+        public IPerFilterStarDetectionStore PerFilterStore => PerFilterStarDetection;
+
+        public PerFilterEditBinder PerFilterEditBinder => PerFilterStarDetectionEditBinder;
+
         public ICommand ResetStarDetectionDefaultsCommand { get; private set; }
 
         public ICommand ResetStarAnnotatorDefaultsCommand { get; private set; }
@@ -364,5 +385,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public ICommand ExportStarDetectionSettingsCommand { get; private set; }
 
         public ICommand ImportStarDetectionSettingsCommand { get; private set; }
+
+        public ICommand CopyStarDetectionFromFilterCommand { get; private set; }
     }
 }
