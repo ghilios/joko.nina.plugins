@@ -102,7 +102,8 @@ internal sealed class MediatorBundle {
             tiltDeviceConnectionService: tiltDeviceConnectionService,
             confirmPromptAsync: confirmPromptAsync,
             showAdjustmentPromptAsync: showAdjustmentPromptAsync,
-            reRunAnalysisAsync: reRunAnalysisAsync);
+            reRunAnalysisAsync: reRunAnalysisAsync,
+            perFilterStarDetectionStore: PerFilterStarDetectionStore);
     }
 
     public HocusFocusVM BuildHocusFocusVM() {

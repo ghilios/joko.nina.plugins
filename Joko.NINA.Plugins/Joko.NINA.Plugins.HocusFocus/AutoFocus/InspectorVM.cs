@@ -103,6 +103,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IApplicationDispatcher applicationDispatcher;
         private readonly IProgress<ApplicationStatus> progress;
         private readonly ITiltAdapterOptions tiltAdapterOptions;
+        private readonly IPerFilterStarDetectionStore perFilterStarDetectionStore;
 
         // Shared motorized-device connection singleton (HocusFocusPlugin.TiltDeviceConnectionService in
         // production, injected in tests; null-tolerant so device-less test rigs stay valid — Automatic
@@ -160,7 +161,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector)
             : this(profileService, applicationStatusMediator, imagingMediator, cameraMediator, focuserMediator, filterWheelMediator, telescopeMediator, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.StarAnnotatorOptions, HocusFocusPlugin.InspectorOptions, HocusFocusPlugin.AutoFocusOptions, HocusFocusPlugin.AutoFocusEngineFactory,
-                  imageDataFactory, starDetectionSelector, starAnnotatorSelector, HocusFocusPlugin.ApplicationDispatcher, HocusFocusPlugin.AlglibAPI, HocusFocusPlugin.TiltAdapterOptions, HocusFocusPlugin.TiltDeviceConnectionService) {
+                  imageDataFactory, starDetectionSelector, starAnnotatorSelector, HocusFocusPlugin.ApplicationDispatcher, HocusFocusPlugin.AlglibAPI, HocusFocusPlugin.TiltAdapterOptions, HocusFocusPlugin.TiltDeviceConnectionService, perFilterStarDetectionStore: HocusFocusPlugin.PerFilterStarDetection) {
         }
 
         public InspectorVM(
@@ -185,7 +186,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             TiltDeviceConnectionService tiltDeviceConnectionService = null,
             Func<string, string, Task<bool>> confirmPromptAsync = null,
             Func<Func<bool, bool, TiltDevicePlanPreview>, bool, string, bool, double, Task<TiltDeviceAdjustmentChoice>> showAdjustmentPromptAsync = null,
-            Func<CancellationToken, Task<bool>> reRunAnalysisAsync = null) : base(profileService) {
+            Func<CancellationToken, Task<bool>> reRunAnalysisAsync = null,
+            IPerFilterStarDetectionStore perFilterStarDetectionStore = null) : base(profileService) {
             this.applicationStatusMediator = applicationStatusMediator;
             this.imagingMediator = imagingMediator;
             this.cameraMediator = cameraMediator;
@@ -201,6 +203,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.starDetectionSelector = starDetectionSelector;
             this.starAnnotatorSelector = starAnnotatorSelector;
             this.applicationDispatcher = applicationDispatcher;
+            this.perFilterStarDetectionStore = perFilterStarDetectionStore;
             this.progress = ProgressFactory.Create(applicationStatusMediator, "Aberration Inspector");
 
             this.cameraMediator.RegisterConsumer(this);
@@ -457,6 +460,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var localAnalyzeTask = analyzeTask;
             if (localAnalyzeTask != null && !localAnalyzeTask.IsCompleted) {
                 Notification.ShowError("Analysis still in progress");
+                return false;
+            }
+            // Per-filter star detection keys settings off the capture-time filter name; without a
+            // connected wheel every exposure would soft-fail, so refuse the run up front.
+            if (perFilterStarDetectionStore?.Enabled == true && filterWheelMediator.GetInfo()?.Connected != true) {
+                Notification.ShowError("Per-filter star detection requires a connected filter wheel");
                 return false;
             }
 
@@ -1131,6 +1140,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var localAnalyzeTask = analyzeTask;
             if (analyzeTask != null && !analyzeTask.IsCompleted) {
                 Notification.ShowError("Analysis still in progress");
+                return false;
+            }
+            if (perFilterStarDetectionStore?.Enabled == true && filterWheelMediator.GetInfo()?.Connected != true) {
+                Notification.ShowError("Per-filter star detection requires a connected filter wheel");
                 return false;
             }
 
