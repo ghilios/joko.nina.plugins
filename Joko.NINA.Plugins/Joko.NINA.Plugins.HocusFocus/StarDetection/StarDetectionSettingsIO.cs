@@ -12,7 +12,9 @@
 
 using NINA.Core.Utility.Notification;
 using NINA.Core.Utility.WindowService;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
@@ -103,6 +105,50 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             } catch (Exception ex) {
                 Logger.Error(ex, "Failed to import star detection settings");
                 Notification.ShowError($"Failed to import star detection settings: {ex.Message}");
+            }
+        }
+
+        /// <summary>Copies another filter's star-detection settings onto the current edit buffer (per-filter mode).
+        /// Reuses the import diff-preview dialog; a cancelled dialog or an identical source is a no-op. The edit
+        /// binder's mirror persists the applied values to the edited filter's stored set.</summary>
+        public static Task CopyFromFilterAsync(
+                string sourceFilterName,
+                IPerFilterStarDetectionStore store,
+                StarDetectionOptions options,
+                IWindowServiceFactory windowServiceFactory) {
+            return CopyFromFilterAsync(sourceFilterName, store, options,
+                (rows, summary) => ImportStarDetectionPreview.ShowAsync(windowServiceFactory, new ImportStarDetectionPreviewVM(rows, summary)));
+        }
+
+        /// <summary>Delegate-injected core of the copy-from-filter flow (unit-test seam — no WPF dialog).
+        /// <paramref name="confirmDiff"/> receives the diff rows plus a provenance line and returns the decision.</summary>
+        internal static async Task CopyFromFilterAsync(
+                string sourceFilterName,
+                IPerFilterStarDetectionStore store,
+                StarDetectionOptions options,
+                Func<IReadOnlyList<StarDetectionSettingDiffRow>, string, Task<bool>> confirmDiff) {
+            if (string.IsNullOrEmpty(sourceFilterName) || store == null || options == null) {
+                return;
+            }
+            try {
+                var snapshot = store.GetOrSeedSnapshot(sourceFilterName);
+                var diff = StarDetectionSettingsDiff.BuildDiff(options, snapshot);
+                if (diff.Count == 0) {
+                    Notification.ShowInformation($"'{sourceFilterName}' settings match the current settings; nothing to change.");
+                    return;
+                }
+
+                var apply = await confirmDiff(diff, $"Copied from filter '{sourceFilterName}'");
+                if (!apply) {
+                    return;
+                }
+
+                options.ApplyImportedSnapshot(snapshot);
+                Logger.Info($"Copied star detection settings from filter '{sourceFilterName}' ({diff.Count} setting(s) changed)");
+                Notification.ShowInformation($"Copied star detection settings from '{sourceFilterName}'");
+            } catch (Exception ex) {
+                Logger.Error(ex, $"Failed to copy star detection settings from filter '{sourceFilterName}'");
+                Notification.ShowError($"Failed to copy star detection settings: {ex.Message}");
             }
         }
 
