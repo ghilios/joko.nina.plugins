@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -570,6 +570,20 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
+        // True while ReplayAsync is re-analyzing a saved run. Exposed (INPC) for the same reason as
+        // IsAutoRunningAll below: the step copy must drop its "turn the screws / click Run Measurement"
+        // imperatives, since a replay touches no hardware and those buttons are collapsed for its duration.
+        public bool IsReplaying {
+            get => isReplaying;
+            private set {
+                if (isReplaying != value) {
+                    isReplaying = value;
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(StepInstructions));
+                }
+            }
+        }
+
         // T11: true while Auto Run All is driving the calibration hands-off. Exposed (INPC) so the step copy
         // can drop its "click Run Measurement" imperatives — those buttons are hidden during an automated run.
         public bool IsAutoRunningAll {
@@ -830,9 +844,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // "turn screw" wording. Disconnected: EXACTLY the prior expression, unchanged (mandatory regression —
         // IsTiltDeviceConnected is false whenever the service is null or not connected).
         public string StepInstructions =>
-            (IsTiltDeviceConnected && IsMotorizedDevice)
-                ? DeviceStepInstructionsText(currentStep, (int)Math.Round(CalibrationAppliedAmount), IsAutoRunningAll)
-                : StepInstructionsText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, CalibrationAppliedAmount);
+            IsReplaying
+                ? ReplayStepInstructionsText(currentStep)
+                : (IsTiltDeviceConnected && IsMotorizedDevice)
+                    ? DeviceStepInstructionsText(currentStep, (int)Math.Round(CalibrationAppliedAmount), IsAutoRunningAll)
+                    : StepInstructionsText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, CalibrationAppliedAmount);
+
+        // Replay wording: a replay re-analyzes already-captured frames, so every imperative in the live copy
+        // ("turn ALL screws CLOCKWISE", "click Run Measurement") is wrong — nothing is captured, no hardware
+        // moves, and the measurement buttons are collapsed by the IsMeasuring trigger for the whole replay.
+        internal static string ReplayStepInstructionsText(WizardStep step) =>
+            $"Replaying — re-analyzing the saved frames for {StepTitleText(step)}. No action needed: nothing is " +
+            "captured and the tilt adapter is not moved during a replay.";
 
         // Automated-status wording for a connected, device-driven run: describes what the wizard will send
         // (Move.Description) rather than what the user must do by hand. Baseline has no move (measurement
@@ -2414,7 +2437,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             measureCts?.Cancel();
             IsWizardRunning = false;
             IsMeasuring = false;
-            isReplaying = false;
+            IsReplaying = false;
             IsAutoRunningAll = false;
             // Abandoning a device-driven run releases the exclusive lease so other automation (a future run,
             // the inspector's Automatic Adjustment) isn't blocked. Deliberately does NOT attempt to drive the
@@ -2871,7 +2894,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             measureCts = new CancellationTokenSource();
             var token = measureCts.Token;
 
-            isReplaying = true;
+            IsReplaying = true;
             IsWizardRunning = true;
             IsMeasuring = true;
             stepReadings.Clear();
@@ -2903,7 +2926,15 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             try {
                 foreach (var step in replaySteps) {
                     token.ThrowIfCancellationRequested();
-                    StatusText = $"Replaying {step}...";
+                    // Mirror the live path's step advance (NextStep -> CurrentStep). The wizard header is entirely
+                    // derived from currentStep -- StepProgressDisplay ("Step N of M"), StepTitle and StepInstructions
+                    // are re-raised ONLY by this setter -- and Panel B is on screen for the whole replay, so without
+                    // this the header stays frozen on the pre-replay step (every step reading "Step 1 of 6" under a
+                    // "Baseline Measurement" heading). Assigned through the property, not the field, for that reason.
+                    // Safe mid-replay despite the setter's NotifyCommandsCanExecuteChanged: IsMeasuring is true for
+                    // the whole run, which is what actually gates every measurement command's canExecute.
+                    CurrentStep = step;
+                    StatusText = $"Replaying {StepTitleText(step)}...";
                     // Capture-time modes ("use captured in memory" and "update profile") replay each step with its own
                     // detached capture-time star-detection snapshot as an override, so the live profile is untouched
                     // during the replay. "Use current settings" passes null and uses the current profile.
@@ -2924,14 +2955,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         }
                     }
                     if (!ok) {
-                        StatusText = $"Replay failed at {step}.";
-                        Notification.ShowError($"Replay failed at step '{step}'. The saved frames could not be analyzed.{profileNotChangedNote}");
+                        StatusText = $"Replay failed at {StepTitleText(step)}.";
+                        Notification.ShowError($"Replay failed at step '{StepTitleText(step)}'. The saved frames could not be analyzed.{profileNotChangedNote}");
                         return;
                     }
                     var m = CalibrationTiltPlane;
                     if (m == null) {
-                        StatusText = $"Replay produced no tilt model at {step}.";
-                        Notification.ShowError($"Replay produced no sensor-curve-model tilt at step '{step}'. The per-star paraboloid could not be fit.{profileNotChangedNote}");
+                        StatusText = $"Replay produced no tilt model at {StepTitleText(step)}.";
+                        Notification.ShowError($"Replay produced no sensor-curve-model tilt at step '{StepTitleText(step)}'. The per-star paraboloid could not be fit.{profileNotChangedNote}");
                         return;
                     }
                     var reading = new StepReading {
@@ -3002,7 +3033,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 // The live profile is only persisted on a successful "update profile to capture-time" replay (above), so
                 // a cancelled/failed replay leaves it untouched — nothing to restore. The in-memory per-step override
                 // never touches the profile either.
-                isReplaying = false;
+                IsReplaying = false;
                 IsMeasuring = false;
                 inspector.SensorModelFocuserSizeOverrideMicrons = prevFocuserOverride;
                 inspector.SensorModelFRatioOverride = prevFRatioOverride;

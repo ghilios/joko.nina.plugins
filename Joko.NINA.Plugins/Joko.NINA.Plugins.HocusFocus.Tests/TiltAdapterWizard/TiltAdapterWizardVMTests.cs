@@ -655,6 +655,30 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             Assert.That(vm6.StepProgressDisplay, Is.EqualTo("Step 1 of 6"));
         }
 
+        // Companion to the replay counter test: the LIVE path's counter must advance too. The check above only
+        // ever asserted the Baseline value, so a regression in NextStep's advance (or in the array it indexes)
+        // would have gone unnoticed. Drives the step advance directly -- the live measurement itself needs a
+        // real inspector, but NextStep is the single point every live path funnels through to change the step.
+        [Test]
+        public void StepProgressDisplay_AdvancesThroughTheLiveRun() {
+            var (vm, _, _, _) = Build();
+            vm.StartCommand.Execute(null);
+
+            var progress = new List<string> { vm.StepProgressDisplay };
+            for (int i = 0; i < 3; i++) {
+                vm.NextStep();
+                progress.Add(vm.StepProgressDisplay);
+            }
+
+            Assert.Multiple(() => {
+                Assert.That(progress, Is.EqualTo(new[] { "Step 1 of 4", "Step 2 of 4", "Step 3 of 4", "Step 4 of 4" }));
+                // One more advance lands on Complete, whose panel carries its own header instead of a counter.
+                vm.NextStep();
+                Assert.That(vm.IsComplete, Is.True);
+                Assert.That(vm.StepProgressDisplay, Is.Empty);
+            });
+        }
+
         [Test]
         public void BuildSweepSummary_CountsSweepsAndImages() {
             // 4 steps × 2 averaged measurements = 8 sweeps; profile: 4 offset steps, 1 frame, amp 2 => 17 images/run.
@@ -2066,6 +2090,78 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         // headless. Proves ReplayAsync's own RunCalibrationMath call site (deviceDriven: false, always) actually clears a
         // PRE-EXISTING device-linked marker, not just that RunCalibrationMath does so in isolation (already covered by
         // RunCalibrationForTest_NotDeviceDriven_ClearsDeviceLinkedMarker above).
+        // A replay must drive CurrentStep exactly like a live run does, so the wizard header ("Step N of M", the
+        // step title, and the instruction paragraph -- all derived from currentStep and re-raised only by the
+        // CurrentStep setter) tracks the step actually being re-analyzed. Regression: the replay loop used to
+        // leave currentStep pinned at Baseline for the whole run, so every step read "Step 1 of 6" under a
+        // "Baseline Measurement" header telling the user to click a button that is collapsed during a replay.
+        [Test]
+        public void ReplayAsync_AdvancesStepHeaderThroughEveryReplayedStep() {
+            var (vm, _, _, _) = Build(screwCount: 3,
+                configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(true));
+
+            string runRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hf-tilt-replay-test-" + Guid.NewGuid().ToString("N"));
+            // The 6-step shape (curvature steps saved), which is where the reported "Step 1 of 6" was seen.
+            var stepFolders = new[] { "01_Baseline", "02_AllInward", "03_ReBaseline1", "04_Screw1", "05_ReBaseline2", "06_Screw2" };
+            var steps = new[] { WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1, WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2 };
+            System.IO.Directory.CreateDirectory(runRoot);
+            try {
+                foreach (var stepFolder in stepFolders) {
+                    System.IO.Directory.CreateDirectory(System.IO.Path.Combine(runRoot, stepFolder));
+                }
+                var metadata = new TiltCalibrationMetadata {
+                    NumberOfScrews = 3,
+                    PixelSizeMicrons = 3.76,
+                    FocuserStepSizeMicrons = 3.6,
+                    ScrewRadiusMillimeters = 44,
+                    CalibrationAppliedAmount = 1.0,
+                    RunStepMapping = steps.Select((s, i) => new TiltRunStepMapping { Step = s.ToString(), Folder = stepFolders[i] }).ToList()
+                };
+                System.IO.File.WriteAllText(System.IO.Path.Combine(runRoot, "metadata.json"), metadata.Serialize());
+
+                var tiltPlane = new TiltPlaneModel(new System.Drawing.Size(6248, 4176), fRatio: 7,
+                    a: 0.1, b: 0.05, c: 0, mean: 7000, focuserStepSizeMicrons: 3.6,
+                    centerPosition: 7000, topLeftPosition: 7000, topRightPosition: 7000,
+                    bottomLeftPosition: 7000, bottomRightPosition: 7000);
+                vm.CalibrationTiltPlaneOverrideForTest = tiltPlane;
+                vm.SelectReplayFolderForTest = _ => runRoot;
+                vm.SelectReplaySettingsForTest = _ => Task.FromResult(ReplaySettingsChoice.UseCurrentSettings);
+
+                // The per-step seam doubles as the observer: it runs while the VM is mid-step, so it sees exactly
+                // what the wizard panel would be showing at that moment.
+                var observed = new List<(WizardStep step, string progress, string title, string status, string instructions)>();
+                vm.ReplayStepOverrideForTest = (step, ct) => {
+                    observed.Add((step, vm.StepProgressDisplay, vm.StepTitle, vm.StatusText, vm.StepInstructions));
+                    return Task.FromResult(true);
+                };
+
+                ((AsyncRelayCommand)vm.ReplayCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+                Assert.Multiple(() => {
+                    Assert.That(vm.IsComplete, Is.True, "precondition: the replay actually ran to completion");
+                    Assert.That(observed.Select(o => o.step), Is.EqualTo(steps), "every saved step is replayed, in order");
+                    Assert.That(observed.Select(o => o.progress), Is.EqualTo(new[] {
+                        "Step 1 of 6", "Step 2 of 6", "Step 3 of 6", "Step 4 of 6", "Step 5 of 6", "Step 6 of 6" }));
+                    // The title must track the step too -- same root cause, separately visible to the user.
+                    Assert.That(observed.Select(o => o.title),
+                        Is.EqualTo(steps.Select(TiltAdapterWizardVM.StepTitleText)));
+                    // Status text uses the human step title, not the raw enum name.
+                    Assert.That(observed.Select(o => o.status),
+                        Is.EqualTo(steps.Select(s => $"Replaying {TiltAdapterWizardVM.StepTitleText(s)}...")));
+                    // A replay re-analyzes saved frames: the instruction paragraph must not tell the user to turn
+                    // screws or click a button that is collapsed for the whole replay.
+                    Assert.That(observed.Select(o => o.instructions),
+                        Is.EqualTo(steps.Select(TiltAdapterWizardVM.ReplayStepInstructionsText)));
+                    Assert.That(observed.Select(o => o.instructions),
+                        Has.None.Contains("Run Measurement").And.None.Contains("CLOCKWISE"));
+                    // The replay flag is transient: it must be cleared once the replay finishes.
+                    Assert.That(vm.IsReplaying, Is.False);
+                });
+            } finally {
+                System.IO.Directory.Delete(runRoot, recursive: true);
+            }
+        }
+
         [Test]
         public void ReplayAsync_ClearsAPreExistingDeviceLinkedMarker() {
             var (vm, options, _, _) = Build(screwCount: 3);
