@@ -655,6 +655,30 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             Assert.That(vm6.StepProgressDisplay, Is.EqualTo("Step 1 of 6"));
         }
 
+        // Companion to the replay counter test: the LIVE path's counter must advance too. The check above only
+        // ever asserted the Baseline value, so a regression in NextStep's advance (or in the array it indexes)
+        // would have gone unnoticed. Drives the step advance directly -- the live measurement itself needs a
+        // real inspector, but NextStep is the single point every live path funnels through to change the step.
+        [Test]
+        public void StepProgressDisplay_AdvancesThroughTheLiveRun() {
+            var (vm, _, _, _) = Build();
+            vm.StartCommand.Execute(null);
+
+            var progress = new List<string> { vm.StepProgressDisplay };
+            for (int i = 0; i < 3; i++) {
+                vm.NextStep();
+                progress.Add(vm.StepProgressDisplay);
+            }
+
+            Assert.Multiple(() => {
+                Assert.That(progress, Is.EqualTo(new[] { "Step 1 of 4", "Step 2 of 4", "Step 3 of 4", "Step 4 of 4" }));
+                // One more advance lands on Complete, whose panel carries its own header instead of a counter.
+                vm.NextStep();
+                Assert.That(vm.IsComplete, Is.True);
+                Assert.That(vm.StepProgressDisplay, Is.Empty);
+            });
+        }
+
         [Test]
         public void BuildSweepSummary_CountsSweepsAndImages() {
             // 4 steps × 2 averaged measurements = 8 sweeps; profile: 4 offset steps, 1 frame, amp 2 => 17 images/run.
@@ -1839,6 +1863,183 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             });
         }
 
+        // Once an automated run takes its cancel/failure exit it is NOT resumable: RecoverAppliedMovesAsync has
+        // undone this run's device moves (so the readings already in stepReadings no longer describe where the
+        // device physically is) and the exclusive operation lease has been released. Re-entering AutoRunAllAsync
+        // skips StartAsync -- IsWizardRunning is still true -- so it would resume at the stale CurrentStep,
+        // re-send moves computed from a rolled-back position, and run unleased. Same for the failure panel's
+        // "Run AutoFocus again". Both must be disabled until the user starts a fresh run.
+        [Test]
+        public void AutoRunAll_AfterCancelAndRecovery_CannotBeResumed() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            StubSuccessfulMoves(controller);
+            Connect(vm);
+            options.MeasureCurvatureDuringCalibration.Returns(false);
+            // Every command below also gates on AreDevicesConnected / IsOnMeasurementStep; connect the imaging
+            // devices so each assertion fails for the latch's absence rather than passing vacuously.
+            vm.UpdateDeviceInfo(new CameraInfo { Connected = true });
+            vm.UpdateDeviceInfo(new FocuserInfo { Connected = true });
+
+            vm.MeasurementStepOverrideForTest = (step, ct) => {
+                vm.SeedStepReading(step, 0.1, 0.0, 1000.0);
+                if (step == WizardStep.Screw1) {
+                    vm.CancelCommand.Execute(null);
+                }
+                return Task.FromResult(true);
+            };
+
+            ((AsyncRelayCommand)vm.AutoRunAllCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            Assert.Multiple(() => {
+                // Precondition: this is exactly the state the existing cancel/recovery test leaves behind.
+                Assert.That(vm.IsComplete, Is.False);
+                Assert.That(vm.IsWizardRunning, Is.True, "the wizard panel stays up so the user can read what happened");
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.ReBaseline2), "the stale step a resume would restart from");
+
+                Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.False,
+                    "resuming would re-send moves computed from a position the rollback already undid");
+                Assert.That(vm.RetryMeasurementCommand.CanExecute(null), Is.False,
+                    "re-measuring the stale step is invalid for the same reason");
+                // EVERY way back into the measurement loop must be closed, not just the two obvious buttons:
+                // these two live in the same Panel B row and call the same handlers.
+                Assert.That(vm.RunMeasurementCommand.CanExecute(null), Is.False,
+                    "\"Run This Step\" calls the same RunMeasurementAsync as the retry button");
+                Assert.That(vm.UseSavedAFCommand.CanExecute(null), Is.False,
+                    "\"Use Saved AF\" reaches the same Complete from the same stale readings");
+                Assert.That(vm.StatusText, Does.Contain("cannot be resumed"),
+                    "the user must be told to start over rather than left with dead buttons");
+            });
+        }
+
+        // The latch must NOT fire when nothing was actually rolled back. A measurement that fails on Baseline
+        // has had no device move applied yet (Baseline has none), so RecoverAppliedMovesAsync undoes nothing and
+        // the run's readings still describe where the device physically is -- retrying is legitimate, and
+        // latching there would regress a working flow into "Abort Wizard and start over".
+        [Test]
+        public void AutoRunAll_BaselineMeasurementFailure_WithNoMovesApplied_StaysRetryable() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            StubSuccessfulMoves(controller);
+            Connect(vm);
+            options.MeasureCurvatureDuringCalibration.Returns(false);
+            vm.UpdateDeviceInfo(new CameraInfo { Connected = true });
+            vm.UpdateDeviceInfo(new FocuserInfo { Connected = true });
+
+            vm.MeasurementStepOverrideForTest = (step, ct) => Task.FromResult(false); // fails on Baseline
+
+            ((AsyncRelayCommand)vm.AutoRunAllCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            Assert.Multiple(() => {
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Baseline), "precondition: failed before advancing");
+                Assert.That(vm.HasMeasurementFailureChoice, Is.True, "precondition: the failure panel is showing");
+                controller.DidNotReceive().ExecuteMoveAsync(Arg.Any<TiltAdapterMove>(), Arg.Any<IProgress<string>>(), Arg.Any<CancellationToken>());
+                Assert.That(vm.RetryMeasurementCommand.CanExecute(null), Is.True,
+                    "nothing was rolled back, so re-running AutoFocus for Baseline is still valid");
+                Assert.That(vm.MeasurementFailureText, Does.Not.Contain("cannot be resumed"));
+            });
+        }
+
+        // Cancelling before any move has been applied must not claim the device was moved back -- nothing moved.
+        [Test]
+        public void AutoRunAll_CancelBeforeAnyMoveApplied_DoesNotClaimTheDeviceWasReturned() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            StubSuccessfulMoves(controller);
+            Connect(vm);
+            options.MeasureCurvatureDuringCalibration.Returns(false);
+
+            // Cancel during Baseline's measurement: Baseline applies no device move, so the loop notices the
+            // cancellation with appliedDeviceMovesThisRun still empty.
+            vm.MeasurementStepOverrideForTest = (step, ct) => {
+                vm.SeedStepReading(step, 0.1, 0.0, 1000.0);
+                if (step == WizardStep.Baseline) {
+                    vm.CancelCommand.Execute(null);
+                }
+                return Task.FromResult(true);
+            };
+
+            ((AsyncRelayCommand)vm.AutoRunAllCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            Assert.Multiple(() => {
+                controller.DidNotReceive().ExecuteMoveAsync(Arg.Any<TiltAdapterMove>(), Arg.Any<IProgress<string>>(), Arg.Any<CancellationToken>());
+                Assert.That(vm.StatusText, Does.Contain("cancelled"));
+                Assert.That(vm.StatusText, Does.Not.Contain("returned to its original position"),
+                    "no move was ever sent, so there was nothing to return");
+            });
+        }
+
+        [Test]
+        public void AutoRunAll_AfterMidRunFailureAndRecovery_CannotBeResumed() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            StubSuccessfulMoves(controller);
+            Connect(vm);
+            options.MeasureCurvatureDuringCalibration.Returns(false);
+            // RetryMeasurementCommand also gates on AreDevicesConnected, so connect the imaging devices --
+            // otherwise the retry assertion below would pass vacuously and prove nothing about the latch.
+            vm.UpdateDeviceInfo(new CameraInfo { Connected = true });
+            vm.UpdateDeviceInfo(new FocuserInfo { Connected = true });
+
+            // Screw1's measurement fails outright -- MeasureStep sets HasMeasurementFailureChoice, and
+            // AutoRunAllAsync rolls the run's applied moves back before returning.
+            vm.MeasurementStepOverrideForTest = (step, ct) => {
+                if (step == WizardStep.Screw1) {
+                    return Task.FromResult(false);
+                }
+                vm.SeedStepReading(step, 0.1, 0.0, 1000.0);
+                return Task.FromResult(true);
+            };
+
+            ((AsyncRelayCommand)vm.AutoRunAllCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasMeasurementFailureChoice, Is.True, "precondition: the failure panel is showing");
+                Assert.That(vm.IsWizardRunning, Is.True, "the failure panel lives inside the run panel; it must stay visible");
+                Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.False);
+                Assert.That(vm.RetryMeasurementCommand.CanExecute(null), Is.False);
+                Assert.That(vm.MeasurementFailureText, Does.Contain("cannot be resumed"),
+                    "the failure panel must explain why its own retry button is dead");
+            });
+        }
+
+        // The latch is per-run: starting a fresh run must clear it, or the wizard would be permanently bricked
+        // for automated use after the first cancellation.
+        [Test]
+        public void AutoRunAll_AfterCancelAndRecovery_AFreshStartClearsTheLatch() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            StubSuccessfulMoves(controller);
+            Connect(vm);
+            options.MeasureCurvatureDuringCalibration.Returns(false);
+            vm.MeasurementStepOverrideForTest = (step, ct) => {
+                vm.SeedStepReading(step, 0.1, 0.0, 1000.0);
+                if (step == WizardStep.Screw1) {
+                    vm.CancelCommand.Execute(null);
+                }
+                return Task.FromResult(true);
+            };
+            ((AsyncRelayCommand)vm.AutoRunAllCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+            Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.False, "precondition: latched");
+
+            // StartAsync must clear the latch on its own. Restart also clears it, so going through Restart first
+            // would let this test pass even if StartAsync's clear were deleted -- assert after each separately.
+            vm.RestartCommand.Execute(null);
+            Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.True, "Restart clears the latch");
+
+            // Re-latch, then prove StartAsync clears it without Restart's help. StartCommand requires the wizard
+            // to be idle, which Restart above already ensured; re-latching directly keeps the two clears independent.
+            vm.SetDeviceRunAbandonedForTest(true);
+            Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.False, "precondition: latched again");
+
+            vm.StartCommand.Execute(null);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.True, "StartAsync clears the latch");
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Baseline));
+            });
+        }
+
         [Test]
         public void Disconnected_FourStepFlow_NeverTouchesController_AndClearsDeviceLinkedMarker() {
             // BuildMotorized gives a motorized preset + a real controller mock, but the device is NEVER
@@ -2066,6 +2267,78 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         // headless. Proves ReplayAsync's own RunCalibrationMath call site (deviceDriven: false, always) actually clears a
         // PRE-EXISTING device-linked marker, not just that RunCalibrationMath does so in isolation (already covered by
         // RunCalibrationForTest_NotDeviceDriven_ClearsDeviceLinkedMarker above).
+        // A replay must drive CurrentStep exactly like a live run does, so the wizard header ("Step N of M", the
+        // step title, and the instruction paragraph -- all derived from currentStep and re-raised only by the
+        // CurrentStep setter) tracks the step actually being re-analyzed. Regression: the replay loop used to
+        // leave currentStep pinned at Baseline for the whole run, so every step read "Step 1 of 6" under a
+        // "Baseline Measurement" header telling the user to click a button that is collapsed during a replay.
+        [Test]
+        public void ReplayAsync_AdvancesStepHeaderThroughEveryReplayedStep() {
+            var (vm, _, _, _) = Build(screwCount: 3,
+                configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(true));
+
+            string runRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hf-tilt-replay-test-" + Guid.NewGuid().ToString("N"));
+            // The 6-step shape (curvature steps saved), which is where the reported "Step 1 of 6" was seen.
+            var stepFolders = new[] { "01_Baseline", "02_AllInward", "03_ReBaseline1", "04_Screw1", "05_ReBaseline2", "06_Screw2" };
+            var steps = new[] { WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1, WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2 };
+            System.IO.Directory.CreateDirectory(runRoot);
+            try {
+                foreach (var stepFolder in stepFolders) {
+                    System.IO.Directory.CreateDirectory(System.IO.Path.Combine(runRoot, stepFolder));
+                }
+                var metadata = new TiltCalibrationMetadata {
+                    NumberOfScrews = 3,
+                    PixelSizeMicrons = 3.76,
+                    FocuserStepSizeMicrons = 3.6,
+                    ScrewRadiusMillimeters = 44,
+                    CalibrationAppliedAmount = 1.0,
+                    RunStepMapping = steps.Select((s, i) => new TiltRunStepMapping { Step = s.ToString(), Folder = stepFolders[i] }).ToList()
+                };
+                System.IO.File.WriteAllText(System.IO.Path.Combine(runRoot, "metadata.json"), metadata.Serialize());
+
+                var tiltPlane = new TiltPlaneModel(new System.Drawing.Size(6248, 4176), fRatio: 7,
+                    a: 0.1, b: 0.05, c: 0, mean: 7000, focuserStepSizeMicrons: 3.6,
+                    centerPosition: 7000, topLeftPosition: 7000, topRightPosition: 7000,
+                    bottomLeftPosition: 7000, bottomRightPosition: 7000);
+                vm.CalibrationTiltPlaneOverrideForTest = tiltPlane;
+                vm.SelectReplayFolderForTest = _ => runRoot;
+                vm.SelectReplaySettingsForTest = _ => Task.FromResult(ReplaySettingsChoice.UseCurrentSettings);
+
+                // The per-step seam doubles as the observer: it runs while the VM is mid-step, so it sees exactly
+                // what the wizard panel would be showing at that moment.
+                var observed = new List<(WizardStep step, string progress, string title, string status, string instructions)>();
+                vm.ReplayStepOverrideForTest = (step, ct) => {
+                    observed.Add((step, vm.StepProgressDisplay, vm.StepTitle, vm.StatusText, vm.StepInstructions));
+                    return Task.FromResult(true);
+                };
+
+                ((AsyncRelayCommand)vm.ReplayCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+                Assert.Multiple(() => {
+                    Assert.That(vm.IsComplete, Is.True, "precondition: the replay actually ran to completion");
+                    Assert.That(observed.Select(o => o.step), Is.EqualTo(steps), "every saved step is replayed, in order");
+                    Assert.That(observed.Select(o => o.progress), Is.EqualTo(new[] {
+                        "Step 1 of 6", "Step 2 of 6", "Step 3 of 6", "Step 4 of 6", "Step 5 of 6", "Step 6 of 6" }));
+                    // The title must track the step too -- same root cause, separately visible to the user.
+                    Assert.That(observed.Select(o => o.title),
+                        Is.EqualTo(steps.Select(TiltAdapterWizardVM.StepTitleText)));
+                    // Status text uses the human step title, not the raw enum name.
+                    Assert.That(observed.Select(o => o.status),
+                        Is.EqualTo(steps.Select(s => $"Replaying {TiltAdapterWizardVM.StepTitleText(s)}...")));
+                    // A replay re-analyzes saved frames: the instruction paragraph must not tell the user to turn
+                    // screws or click a button that is collapsed for the whole replay.
+                    Assert.That(observed.Select(o => o.instructions),
+                        Is.EqualTo(steps.Select(TiltAdapterWizardVM.ReplayStepInstructionsText)));
+                    Assert.That(observed.Select(o => o.instructions),
+                        Has.None.Contains("Run Measurement").And.None.Contains("CLOCKWISE"));
+                    // The replay flag is transient: it must be cleared once the replay finishes.
+                    Assert.That(vm.IsReplaying, Is.False);
+                });
+            } finally {
+                System.IO.Directory.Delete(runRoot, recursive: true);
+            }
+        }
+
         [Test]
         public void ReplayAsync_ClearsAPreExistingDeviceLinkedMarker() {
             var (vm, options, _, _) = Build(screwCount: 3);
