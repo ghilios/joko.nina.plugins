@@ -142,7 +142,15 @@ This run executed on the pre-`a8a72d2` build (run 14:14, commit 15:13). At HEAD,
 < 0 (`EatTiltMotionController.cs:274-276`), and the wizard's diagonal moves drive one motor to −150 from
 all-zero counters. The auto-bias planner exists only in the InspectorVM correction path, not the wizard's
 direct `ExecuteMoveAsync` path — so the next wizard run on HEAD will fail at the Screw1 step unless the motors
-are pre-raised.
+are pre-raised. (Confirmed in practice: a subsequent simulated calibration was refused at Screw1 with exactly
+this message.)
+
+**Simulator-side fix (implemented):** `SimulatedTiltActuator` now homes every motor at
+`InitialPositionSteps = 1000` — mid-travel of the 2000-step default max excursion — instead of 0, matching a
+real EAT whose counters were zeroed mid-range in the vendor app. A fresh simulated wizard run now has the
+downward headroom its diagonal moves need. On real hardware from all-zero counters the wizard still refuses
+(with the actionable raise-the-motors message); pre-biasing the wizard sequence itself remains a possible
+future enhancement for real rigs.
 
 ### F5 — Simulator convention wrinkle (not causal): injected azimuth is 90° rotated from the screw convention
 
