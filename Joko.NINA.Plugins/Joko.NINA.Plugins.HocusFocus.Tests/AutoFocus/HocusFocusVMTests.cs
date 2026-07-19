@@ -5,6 +5,7 @@ using NINA.Equipment.Interfaces.Mediator;
 using NINA.Image.ImageAnalysis;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
@@ -162,6 +163,38 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
         public void CancelLoadSavedAutoFocusRunCommand_DoesNotThrowWhenIdle() {
             var vm = Build();
             Assert.DoesNotThrow(() => vm.CancelLoadSavedAutoFocusRunCommand.Execute(null));
+        }
+
+        [Test]
+        public async Task StartAutoFocus_PerFilterEnabledAndWheelDisconnected_RefusesWithoutStartingEngine() {
+            var bundle = new MediatorBundle().WithFilterWheelConnected(false).WithPerFilterStarDetectionEnabled();
+            var vm = bundle.BuildHocusFocusVM();
+
+            var report = await vm.StartAutoFocus(imagingFilter: null, token: CancellationToken.None, progress: null);
+
+            Assert.That(report, Is.Null);
+            bundle.AutoFocusEngineFactory.DidNotReceive().Create();
+            Assert.That(vm.AutoFocusInProgress, Is.False);
+        }
+
+        [Test]
+        public async Task StartAutoFocus_PerFilterEnabledAndWheelConnected_ProceedsToEngine() {
+            var bundle = new MediatorBundle().WithFilterWheelConnected(true).WithPerFilterStarDetectionEnabled();
+            var vm = bundle.BuildHocusFocusVM();
+
+            await vm.StartAutoFocus(imagingFilter: null, token: CancellationToken.None, progress: null);
+
+            bundle.AutoFocusEngineFactory.Received(1).Create();
+        }
+
+        [Test]
+        public async Task StartAutoFocus_PerFilterDisabled_WheelDisconnected_ProceedsToEngine() {
+            var bundle = new MediatorBundle().WithFilterWheelConnected(false);
+            var vm = bundle.BuildHocusFocusVM();
+
+            await vm.StartAutoFocus(imagingFilter: null, token: CancellationToken.None, progress: null);
+
+            bundle.AutoFocusEngineFactory.Received(1).Create();
         }
 
         private static int CountChanges(INotifyPropertyChanged source, string propertyName, System.Action act) {

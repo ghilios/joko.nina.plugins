@@ -37,6 +37,7 @@ internal sealed class MediatorBundle {
     public IInspectorOptions InspectorOptions { get; } = Substitute.For<IInspectorOptions>();
     public IAutoFocusOptions AutoFocusOptions { get; } = Substitute.For<IAutoFocusOptions>();
     public ITiltAdapterOptions TiltAdapterOptions { get; } = Substitute.For<ITiltAdapterOptions>();
+    public IPerFilterStarDetectionStore PerFilterStarDetectionStore { get; } = Substitute.For<IPerFilterStarDetectionStore>();
 
     public IAutoFocusEngineFactory AutoFocusEngineFactory { get; } = Substitute.For<IAutoFocusEngineFactory>();
     public IPluggableBehaviorSelector<IStarDetection> StarDetectionSelector { get; } = Substitute.For<IPluggableBehaviorSelector<IStarDetection>>();
@@ -66,6 +67,11 @@ internal sealed class MediatorBundle {
 
     public MediatorBundle WithGuiderConnected(bool connected = true) {
         GuiderMediator.GetInfo().Returns(new GuiderInfo { Connected = connected });
+        return this;
+    }
+
+    public MediatorBundle WithPerFilterStarDetectionEnabled(bool enabled = true) {
+        PerFilterStarDetectionStore.Enabled.Returns(enabled);
         return this;
     }
 
@@ -110,6 +116,7 @@ internal sealed class MediatorBundle {
             applicationStatusMediator: ApplicationStatusMediator,
             starDetectionSelector: StarDetectionSelector,
             alglibAPI: AlglibAPI,
-            applicationDispatcher: ApplicationDispatcher);
+            applicationDispatcher: ApplicationDispatcher,
+            perFilterStore: PerFilterStarDetectionStore);
     }
 }

@@ -73,6 +73,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IProgress<ApplicationStatus> progress;
         private readonly IPluggableBehaviorSelector<IStarDetection> starDetectionSelector;
         private readonly IApplicationDispatcher applicationDispatcher;
+        private readonly IPerFilterStarDetectionStore perFilterStore;
 
         // WindowServiceFactory is not a MEF export (NINA exposes the concrete type), so it is instantiated directly,
         // mirroring InspectorVM / HocusFocusPlugin.
@@ -113,7 +114,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IApplicationStatusMediator applicationStatusMediator,
             IPluggableBehaviorSelector<IStarDetection> starDetectionSelector,
             IAlglibAPI alglibAPI,
-            IApplicationDispatcher applicationDispatcher
+            IApplicationDispatcher applicationDispatcher,
+            IPerFilterStarDetectionStore perFilterStore = null
         ) : base(profileService) {
             this.focuserMediator = focuserMediator;
             this.autoFocusEngineFactory = autoFocusEngineFactory;
@@ -123,6 +125,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             this.autoFocusOptions = autoFocusOptions;
             this.alglibAPI = alglibAPI;
             this.applicationDispatcher = applicationDispatcher;
+            this.perFilterStore = perFilterStore;
 
             FocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             PlotFinalFocusPointWithError = new AsyncObservableCollection<ScatterErrorPoint>();
@@ -558,6 +561,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             try {
                 if (AutoFocusInProgress) {
                     Notification.ShowError("Another AutoFocus is already in progress");
+                    return null;
+                }
+                // Per-filter star detection keys settings off the capture-time filter name; without a
+                // connected wheel every exposure would soft-fail, so refuse the run up front.
+                if (perFilterStore?.Enabled == true && filterWheelMediator.GetInfo()?.Connected != true) {
+                    Notification.ShowError("Per-filter star detection requires a connected filter wheel");
                     return null;
                 }
                 // Link the caller's token so this run is independently cancelable (window-close cancel). Created before
