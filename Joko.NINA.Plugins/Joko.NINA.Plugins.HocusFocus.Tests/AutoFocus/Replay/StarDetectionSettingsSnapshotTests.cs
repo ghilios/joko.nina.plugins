@@ -1,6 +1,7 @@
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Profile.Interfaces;
 using NSubstitute;
@@ -81,6 +82,71 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
                 // the detect site from detectorParams, not the live options).
                 Assert.That(fromSnapshot.MeasurementAverage, Is.EqualTo(MeasurementAverageEnum.MeanOutliers));
                 Assert.That(fromSnapshot.MeasurementAverage, Is.EqualTo(fromOptions.MeasurementAverage));
+            });
+        }
+
+        [Test]
+        public void Clone_DeepCopiesIncludingOptimizedSettings() {
+            var source = new StarDetectionSettingsSnapshot {
+                UseAdvanced = true,
+                BrightnessSensitivity = 7.5,
+                StructureLayers = 6,
+                IntermediateSavePath = @"C:\hf\debug",
+                OptimizedSettings = new OptimizedStarDetectionSettings { BrightnessSensitivity = 3.3, StructureLayers = 7 }
+            };
+
+            var clone = source.Clone();
+            // Mutate the source after cloning; the clone must be fully detached (incl. the nested DTO).
+            source.BrightnessSensitivity = 99.0;
+            source.OptimizedSettings.StructureLayers = 42;
+
+            Assert.Multiple(() => {
+                Assert.That(clone, Is.Not.SameAs(source));
+                Assert.That(clone.UseAdvanced, Is.True);
+                Assert.That(clone.BrightnessSensitivity, Is.EqualTo(7.5));
+                Assert.That(clone.StructureLayers, Is.EqualTo(6));
+                Assert.That(clone.IntermediateSavePath, Is.EqualTo(@"C:\hf\debug"));
+                Assert.That(clone.OptimizedSettings, Is.Not.SameAs(source.OptimizedSettings));
+                Assert.That(clone.OptimizedSettings.BrightnessSensitivity, Is.EqualTo(3.3));
+                Assert.That(clone.OptimizedSettings.StructureLayers, Is.EqualTo(7));
+            });
+        }
+
+        [Test]
+        public void Clone_NullOptimizedSettings_StaysNull() {
+            var clone = new StarDetectionSettingsSnapshot().Clone();
+            Assert.That(clone.OptimizedSettings, Is.Null);
+        }
+
+        [Test]
+        public void CopyMachineLocalFrom_CopiesOnlyMachineLocalFields() {
+            var target = new StarDetectionSettingsSnapshot {
+                BrightnessSensitivity = 7.5,
+                MinHFR = 1.05,
+                DebugMode = false,
+                IntermediateSavePath = "",
+                SaveIntermediateImages = false,
+                PSFParallelPartitionSize = 100
+            };
+            var source = new StarDetectionSettingsSnapshot {
+                BrightnessSensitivity = 99.0,
+                MinHFR = 9.9,
+                DebugMode = true,
+                IntermediateSavePath = @"C:\hf\debug",
+                SaveIntermediateImages = true,
+                PSFParallelPartitionSize = 250
+            };
+
+            target.CopyMachineLocalFrom(source);
+
+            Assert.Multiple(() => {
+                Assert.That(target.DebugMode, Is.True);
+                Assert.That(target.IntermediateSavePath, Is.EqualTo(@"C:\hf\debug"));
+                Assert.That(target.SaveIntermediateImages, Is.True);
+                Assert.That(target.PSFParallelPartitionSize, Is.EqualTo(250));
+                // Detection knobs must be untouched.
+                Assert.That(target.BrightnessSensitivity, Is.EqualTo(7.5));
+                Assert.That(target.MinHFR, Is.EqualTo(1.05));
             });
         }
     }

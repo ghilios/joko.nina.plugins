@@ -102,6 +102,24 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
 
         public void ApplyOptimizedSettings(OptimizedStarDetectionSettings settings) => OptimizedSettings = settings?.Clone();
 
+        /// <summary>Deep-copies the snapshot (memberwise plus a defensive copy of the nested optimized-settings
+        /// DTO) so callers can hand out or mutate copies without aliasing the stored instance.</summary>
+        public StarDetectionSettingsSnapshot Clone() {
+            var clone = (StarDetectionSettingsSnapshot)MemberwiseClone();
+            clone.OptimizedSettings = OptimizedSettings?.Clone();
+            return clone;
+        }
+
+        /// <summary>Overlays the machine-local settings (global by scope decision — debug, intermediate saves,
+        /// and CPU parallelism) from a live options source onto this snapshot, so a per-filter snapshot about to
+        /// drive detection uses this machine's local configuration.</summary>
+        public void CopyMachineLocalFrom(IStarDetectionOptions source) {
+            DebugMode = source.DebugMode;
+            IntermediateSavePath = source.IntermediateSavePath;
+            SaveIntermediateImages = source.SaveIntermediateImages;
+            PSFParallelPartitionSize = source.PSFParallelPartitionSize;
+        }
+
         /// <summary>Captures the fully-resolved effective configuration of a live options object into a flat,
         /// profile-detached snapshot, including the real mode flags and the optimized-settings snapshot so the
         /// capture-time mode can be restored.</summary>
