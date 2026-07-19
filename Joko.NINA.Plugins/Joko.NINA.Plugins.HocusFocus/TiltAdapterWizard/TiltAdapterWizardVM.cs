@@ -303,8 +303,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             StepMeasurementSummary.CollectionChanged += OnSummaryCollectionChanged;
 
             StartCommand = new AsyncRelayCommand(StartAsync, () => !IsWizardRunning);
-            RunMeasurementCommand = new AsyncRelayCommand(RunMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring && AreDevicesConnected);
-            UseSavedAFCommand = new AsyncRelayCommand(RunSavedMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring);
+            // deviceRunAbandoned gates EVERY re-entry into the measurement loop, not just Auto Run All: these two
+            // buttons sit in the same Panel B row, stay visible in exactly the post-rollback state, and reach the
+            // same handlers (RunMeasurementCommand shares RunMeasurementAsync with RetryMeasurementCommand below).
+            // Leaving either open would let one click resume a run whose device moves had just been undone.
+            RunMeasurementCommand = new AsyncRelayCommand(RunMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring && AreDevicesConnected && !deviceRunAbandoned);
+            UseSavedAFCommand = new AsyncRelayCommand(RunSavedMeasurementAsync, () => IsOnMeasurementStep && !IsMeasuring && !deviceRunAbandoned);
             CancelCommand = new RelayCommand(CancelMeasurement, () => IsMeasuring);
             RestartCommand = new RelayCommand(Restart);
             UseMeasuredHardwareCommand = new RelayCommand(UseMeasuredHardware, () => HasMeasuredHardware);
@@ -1754,14 +1758,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // Auto Run All cancellation/failure recovery: walks every device move successfully applied during the
         // current run, in reverse, sending each one's inverse — returning the device to baseline. Best-effort;
         // stops and surfaces a warning if a recovery move itself fails (device position becomes uncertain).
-        private async Task RecoverAppliedMovesAsync() {
+        // Returns what actually happened, which the caller needs in order to decide whether the run is still
+        // resumable: anyRolledBack is true once at least one inverse move has been sent (the device no longer
+        // matches this run's readings), recoveryFailed is true if a recovery move threw (position uncertain).
+        // A run that had applied nothing yields (false, false) and is untouched.
+        private async Task<(bool anyRolledBack, bool recoveryFailed)> RecoverAppliedMovesAsync() {
             var controller = tiltDeviceConnectionService?.Controller;
             var moves = appliedDeviceMovesThisRun.ToArray();
             appliedDeviceMovesThisRun.Clear();
             deviceMoveAppliedForStep = null;
             if (controller == null || moves.Length == 0) {
-                return;
+                return (false, false);
             }
+            bool anyRolledBack = false;
             try {
                 for (int i = moves.Length - 1; i >= 0; i--) {
                     var inverse = EatWizardMapping.InverseMove(moves[i]);
@@ -1771,37 +1780,56 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     try {
                         progress.Report(new ApplicationStatus { Status = $"Tilt Adapter Wizard: recovering — {inverse.Description}" });
                         await controller.ExecuteMoveAsync(inverse, moveProgress, CancellationToken.None).ConfigureAwait(true);
+                        anyRolledBack = true;
                     } catch (Exception ex) {
                         Logger.Error(ex, "Failed to fully recover tilt adapter device position after an automated-run cancellation/failure.");
                         MeasurementFailureText = $"Recovery failed while returning the device to its original position: {ex.Message}. Verify screw/motor positions before continuing.";
                         HasMeasurementFailureChoice = true;
-                        return;
+                        return (anyRolledBack, true);
                     }
                 }
             } finally {
                 // Clear the transient "recovering — …" bottom-left status so it doesn't linger after recovery.
                 progress.Report(new ApplicationStatus { Status = string.Empty });
             }
+            return (anyRolledBack, false);
         }
 
         // The single cancel/failure exit for an automated run: roll this run's device moves back, release the
-        // exclusive lease, and latch the run as unresumable (see deviceRunAbandoned). Every caller previously
-        // did the first two by hand and none did the third, which left "Auto Run All" and the failure panel's
-        // "Run AutoFocus again" live on a run whose device state had just been undone underneath them.
-        private async Task AbandonDeviceRunAsync() {
-            await RecoverAppliedMovesAsync();
+        // exclusive lease, and — when the rollback actually changed the device — latch the run as unresumable
+        // (see deviceRunAbandoned). Every caller previously did the first two by hand and none did the third,
+        // which left the measurement buttons live on a run whose device state had been undone underneath them.
+        private async Task AbandonDeviceRunAsync(bool cancelled) {
+            var (anyRolledBack, recoveryFailed) = await RecoverAppliedMovesAsync();
             ReleaseTiltDeviceOperationToken();
+
+            if (cancelled) {
+                StatusText = anyRolledBack
+                    ? "Auto Run All cancelled; the tilt adapter was returned to its original position."
+                    : "Auto Run All cancelled.";
+            }
+
+            // Only a run whose moves were actually undone — or whose rollback failed, leaving the position
+            // uncertain — is unresumable: its stored readings no longer describe where the device is. A run
+            // that had applied nothing (e.g. an AutoFocus failure on Baseline, which has no move) is physically
+            // untouched, so leave it retryable exactly as it was before this latch existed.
+            if (!anyRolledBack && !recoveryFailed) {
+                return;
+            }
             deviceRunAbandoned = true;
+
+            string reason = recoveryFailed
+                ? "This calibration run cannot be resumed: the tilt adapter could not be fully returned to its original position."
+                : "This calibration run cannot be resumed because the tilt adapter was returned to its original position.";
+            string cannotResume = $"{reason} Click Abort Wizard, then Calibrate, to start a new run.";
             // Say so wherever the user is already looking: the failure panel when there is one (it owns the
             // retry button this just disabled), otherwise the status line used by the cancel path.
-            const string CannotResume = "This calibration run cannot be resumed because the tilt adapter was returned to its " +
-                "original position. Click Abort Wizard, then Calibrate, to start a new run.";
             if (HasMeasurementFailureChoice) {
                 MeasurementFailureText = string.IsNullOrEmpty(MeasurementFailureText)
-                    ? CannotResume
-                    : $"{MeasurementFailureText} {CannotResume}";
+                    ? cannotResume
+                    : $"{MeasurementFailureText} {cannotResume}";
             } else {
-                StatusText = string.IsNullOrEmpty(StatusText) ? CannotResume : $"{StatusText} {CannotResume}";
+                StatusText = string.IsNullOrEmpty(StatusText) ? cannotResume : $"{StatusText} {cannotResume}";
             }
         }
 
@@ -1886,8 +1914,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             try {
                 while (CurrentStep != WizardStep.Complete) {
                     if (token.IsCancellationRequested) {
-                        StatusText = "Auto Run All cancelled; device returned to its original position.";
-                        await AbandonDeviceRunAsync();
+                        await AbandonDeviceRunAsync(cancelled: true);
                         return;
                     }
                     var stepBefore = CurrentStep;
@@ -1895,8 +1922,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     if (HasMeasurementFailureChoice) {
                         if (CurrentStep != WizardStep.Complete) {
                             // A move or measurement failed before the run finished — undo everything applied so far,
-                            // which also latches the run as unresumable.
-                            await AbandonDeviceRunAsync();
+                            // which also latches the run as unresumable if that rollback moved the device.
+                            await AbandonDeviceRunAsync(cancelled: false);
                         } else {
                             // Only Complete's own restore move failed: the calibration itself already succeeded, so
                             // there is nothing to abandon (and MeasureStep already released the lease at Complete).
@@ -1911,8 +1938,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     }
                 }
             } catch (OperationCanceledException) {
-                StatusText = "Auto Run All cancelled; device returned to its original position.";
-                await AbandonDeviceRunAsync();
+                await AbandonDeviceRunAsync(cancelled: true);
             } finally {
                 IsMeasuring = false;
                 IsAutoRunningAll = false;
@@ -2788,6 +2814,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             stepReadings[step] = new StepReading { A = a, B = b, Mean = mean };
         }
 
+        // Test seam: set the abandoned-run latch directly, so a test can prove StartAsync clears it WITHOUT
+        // going through Restart first (Restart clears it too, which would otherwise mask a missing clear).
+        internal void SetDeviceRunAbandonedForTest(bool value) {
+            deviceRunAbandoned = value;
+            NotifyCommandsCanExecuteChanged();
+        }
+
         // Test seam: run the calibration math over the seeded step readings (mirrors NextStep -> Complete). The
         // optional overrides supply the sensor geometry a live run reads from the inspector/profile + the paraboloid
         // tilt-plane model (all of which the seed path bypasses), so RunCalibrationMath's hardware-recovery + pitch
@@ -2988,15 +3021,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                             inspector.ForceSensorCurveModelGeneration = prevForce;
                         }
                     }
+                    // Failure messages keep the raw WizardStep name: it matches the saved step folder on disk
+                    // (StepFolderName -> "03_ReBaseline1" / "05_ReBaseline2"), whereas StepTitleText maps BOTH
+                    // re-baseline steps to "Return to Baseline". The toast outlives the panel (a failed replay
+                    // collapses it), so it is the only thing telling the user which folder to look at.
                     if (!ok) {
-                        StatusText = $"Replay failed at {StepTitleText(step)}.";
-                        Notification.ShowError($"Replay failed at step '{StepTitleText(step)}'. The saved frames could not be analyzed.{profileNotChangedNote}");
+                        StatusText = $"Replay failed at {step}.";
+                        Notification.ShowError($"Replay failed at step '{step}'. The saved frames could not be analyzed.{profileNotChangedNote}");
                         return;
                     }
                     var m = CalibrationTiltPlane;
                     if (m == null) {
-                        StatusText = $"Replay produced no tilt model at {StepTitleText(step)}.";
-                        Notification.ShowError($"Replay produced no sensor-curve-model tilt at step '{StepTitleText(step)}'. The per-star paraboloid could not be fit.{profileNotChangedNote}");
+                        StatusText = $"Replay produced no tilt model at {step}.";
+                        Notification.ShowError($"Replay produced no sensor-curve-model tilt at step '{step}'. The per-star paraboloid could not be fit.{profileNotChangedNote}");
                         return;
                     }
                     var reading = new StepReading {

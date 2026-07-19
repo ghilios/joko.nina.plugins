@@ -1876,6 +1876,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             StubSuccessfulMoves(controller);
             Connect(vm);
             options.MeasureCurvatureDuringCalibration.Returns(false);
+            // Every command below also gates on AreDevicesConnected / IsOnMeasurementStep; connect the imaging
+            // devices so each assertion fails for the latch's absence rather than passing vacuously.
+            vm.UpdateDeviceInfo(new CameraInfo { Connected = true });
+            vm.UpdateDeviceInfo(new FocuserInfo { Connected = true });
 
             vm.MeasurementStepOverrideForTest = (step, ct) => {
                 vm.SeedStepReading(step, 0.1, 0.0, 1000.0);
@@ -1897,8 +1901,71 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                     "resuming would re-send moves computed from a position the rollback already undid");
                 Assert.That(vm.RetryMeasurementCommand.CanExecute(null), Is.False,
                     "re-measuring the stale step is invalid for the same reason");
+                // EVERY way back into the measurement loop must be closed, not just the two obvious buttons:
+                // these two live in the same Panel B row and call the same handlers.
+                Assert.That(vm.RunMeasurementCommand.CanExecute(null), Is.False,
+                    "\"Run This Step\" calls the same RunMeasurementAsync as the retry button");
+                Assert.That(vm.UseSavedAFCommand.CanExecute(null), Is.False,
+                    "\"Use Saved AF\" reaches the same Complete from the same stale readings");
                 Assert.That(vm.StatusText, Does.Contain("cannot be resumed"),
-                    "the user must be told to start over rather than left with two dead buttons");
+                    "the user must be told to start over rather than left with dead buttons");
+            });
+        }
+
+        // The latch must NOT fire when nothing was actually rolled back. A measurement that fails on Baseline
+        // has had no device move applied yet (Baseline has none), so RecoverAppliedMovesAsync undoes nothing and
+        // the run's readings still describe where the device physically is -- retrying is legitimate, and
+        // latching there would regress a working flow into "Abort Wizard and start over".
+        [Test]
+        public void AutoRunAll_BaselineMeasurementFailure_WithNoMovesApplied_StaysRetryable() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            StubSuccessfulMoves(controller);
+            Connect(vm);
+            options.MeasureCurvatureDuringCalibration.Returns(false);
+            vm.UpdateDeviceInfo(new CameraInfo { Connected = true });
+            vm.UpdateDeviceInfo(new FocuserInfo { Connected = true });
+
+            vm.MeasurementStepOverrideForTest = (step, ct) => Task.FromResult(false); // fails on Baseline
+
+            ((AsyncRelayCommand)vm.AutoRunAllCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            Assert.Multiple(() => {
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Baseline), "precondition: failed before advancing");
+                Assert.That(vm.HasMeasurementFailureChoice, Is.True, "precondition: the failure panel is showing");
+                controller.DidNotReceive().ExecuteMoveAsync(Arg.Any<TiltAdapterMove>(), Arg.Any<IProgress<string>>(), Arg.Any<CancellationToken>());
+                Assert.That(vm.RetryMeasurementCommand.CanExecute(null), Is.True,
+                    "nothing was rolled back, so re-running AutoFocus for Baseline is still valid");
+                Assert.That(vm.MeasurementFailureText, Does.Not.Contain("cannot be resumed"));
+            });
+        }
+
+        // Cancelling before any move has been applied must not claim the device was moved back -- nothing moved.
+        [Test]
+        public void AutoRunAll_CancelBeforeAnyMoveApplied_DoesNotClaimTheDeviceWasReturned() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            StubSuccessfulMoves(controller);
+            Connect(vm);
+            options.MeasureCurvatureDuringCalibration.Returns(false);
+
+            // Cancel during Baseline's measurement: Baseline applies no device move, so the loop notices the
+            // cancellation with appliedDeviceMovesThisRun still empty.
+            vm.MeasurementStepOverrideForTest = (step, ct) => {
+                vm.SeedStepReading(step, 0.1, 0.0, 1000.0);
+                if (step == WizardStep.Baseline) {
+                    vm.CancelCommand.Execute(null);
+                }
+                return Task.FromResult(true);
+            };
+
+            ((AsyncRelayCommand)vm.AutoRunAllCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            Assert.Multiple(() => {
+                controller.DidNotReceive().ExecuteMoveAsync(Arg.Any<TiltAdapterMove>(), Arg.Any<IProgress<string>>(), Arg.Any<CancellationToken>());
+                Assert.That(vm.StatusText, Does.Contain("cancelled"));
+                Assert.That(vm.StatusText, Does.Not.Contain("returned to its original position"),
+                    "no move was ever sent, so there was nothing to return");
             });
         }
 
@@ -1955,11 +2022,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             ((AsyncRelayCommand)vm.AutoRunAllCommand).ExecuteAsync(null).GetAwaiter().GetResult();
             Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.False, "precondition: latched");
 
+            // StartAsync must clear the latch on its own. Restart also clears it, so going through Restart first
+            // would let this test pass even if StartAsync's clear were deleted -- assert after each separately.
             vm.RestartCommand.Execute(null);
+            Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.True, "Restart clears the latch");
+
+            // Re-latch, then prove StartAsync clears it without Restart's help. StartCommand requires the wizard
+            // to be idle, which Restart above already ensured; re-latching directly keeps the two clears independent.
+            vm.SetDeviceRunAbandonedForTest(true);
+            Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.False, "precondition: latched again");
+
             vm.StartCommand.Execute(null);
 
             Assert.Multiple(() => {
-                Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.True);
+                Assert.That(vm.AutoRunAllCommand.CanExecute(null), Is.True, "StartAsync clears the latch");
                 Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Baseline));
             });
         }
