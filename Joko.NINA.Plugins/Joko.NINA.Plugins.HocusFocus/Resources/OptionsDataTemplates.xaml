@@ -506,6 +506,9 @@
     <TextBlock x:Key="OptimizeStarDetection_Tooltip" Text="Opens the Star Detection Optimization Wizard, which tunes star detection against a saved auto-focus run and (optionally) applies the result as your Simple-Mode settings" />
     <TextBlock x:Key="ExportStarDetectionSettings_Tooltip" Text="Saves the current Star Detection parameters to a .json file so they can be moved to another machine (e.g. tune on a fast computer, import on the imaging computer). Only star-detection settings are exported — not autofocus, inspector, or tilt. The machine-local intermediate-image path is not included." />
     <TextBlock x:Key="ImportStarDetectionSettings_Tooltip" Text="Loads Star Detection parameters from a .json file exported on another machine. A confirmation dialog shows exactly which settings will change before they replace the current ones on this profile. The intermediate-image path, Debug Mode, and PSF Parallel Size stay local to this machine." />
+    <TextBlock x:Key="PerFilterStarDetectionEnabled_Tooltip" Text="Gives every filter in the active profile its own complete set of star detection settings. When enabled, detection uses the settings of the filter each image was captured with, and every control below edits the selected filter's set. Requires a filter wheel; images without a known filter soft-fail detection with a warning. When disabled, the single global settings apply exactly as before." />
+    <TextBlock x:Key="EditedFilterName_Tooltip" Text="Which filter's star detection settings are being edited. Every control below reads and writes the selected filter's set. Only shown while per-filter star detection is enabled." />
+    <TextBlock x:Key="CopyStarDetectionFromFilter_Tooltip" Text="Copies another filter's star detection settings onto the filter currently being edited. A confirmation dialog shows exactly which settings will change before anything is applied." />
     <TextBlock x:Key="UseOptimizedSettings_Tooltip" Text="When enabled, the optimized star-detection settings produced by the optimization wizard drive detection instead of the Noise Level / Pixel Scale / Focus Range presets. Only available in Simple Mode after the wizard has produced and applied a result" />
     <TextBlock x:Key="ModelPSF_Tooltip" Text="Whether to fit PSF models to detected stars. This is required for FWHM and Eccentricity" />
     <TextBlock x:Key="PSFFitType_Tooltip" Text="What type of PSF model to fit. Moffat 0.4 more closely resembles real stars and is the default used by PixInsight" />
@@ -942,6 +945,95 @@
                         Text="Optimize Star Detection"
                         TextWrapping="Wrap" />
                 </Button>
+            </Grid>
+            <!--  Per-filter star detection: master toggle (always visible) + the editing-filter selector and
+                  copy-from row (shown only while the feature is on, via the RowDefinition-style pattern). A
+                  separate grid ABOVE the settings grid, sharing its label/value size groups so columns align.
+                  Binding paths (PerFilterStore.*, PerFilterEditBinder.*, CopyStarDetectionFromFilterCommand)
+                  resolve on BOTH hosts: HocusFocusPlugin (plugin options page) and StarDetectionOptionsVM
+                  (Imaging dockable) expose identically-named instance properties.  -->
+            <Grid Margin="5,0,5,5" HorizontalAlignment="Left">
+                <Grid.Resources>
+                    <Style x:Key="ShowOnPerFilterEnabled" TargetType="{x:Type RowDefinition}">
+                        <Setter Property="Height" Value="0" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding PerFilterStore.Enabled}" Value="True">
+                                <Setter Property="Height" Value="Auto" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Resources>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol0" />
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol1" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition Style="{StaticResource ShowOnPerFilterEnabled}" />
+                    <RowDefinition Style="{StaticResource ShowOnPerFilterEnabled}" />
+                </Grid.RowDefinitions>
+                <TextBlock
+                    Grid.Row="0"
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="Per-Filter Star Detection"
+                    ToolTip="{StaticResource PerFilterStarDetectionEnabled_Tooltip}" />
+                <CheckBox
+                    Grid.Row="0"
+                    Grid.Column="1"
+                    MinWidth="80"
+                    Margin="5,5,0,0"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    IsChecked="{Binding PerFilterStore.Enabled}"
+                    ToolTip="{StaticResource PerFilterStarDetectionEnabled_Tooltip}" />
+                <TextBlock
+                    Grid.Row="1"
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="Editing Filter"
+                    ToolTip="{StaticResource EditedFilterName_Tooltip}" />
+                <ComboBox
+                    Name="PART_EditedFilterList"
+                    Grid.Row="1"
+                    Grid.Column="1"
+                    MinWidth="80"
+                    Margin="5,5,0,0"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    ItemsSource="{Binding PerFilterEditBinder.AvailableFilterNames}"
+                    SelectedItem="{Binding PerFilterEditBinder.EditedFilterName}"
+                    ToolTip="{StaticResource EditedFilterName_Tooltip}" />
+                <TextBlock
+                    Grid.Row="2"
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="Copy Settings From"
+                    ToolTip="{StaticResource CopyStarDetectionFromFilter_Tooltip}" />
+                <StackPanel
+                    Grid.Row="2"
+                    Grid.Column="1"
+                    Orientation="Horizontal">
+                    <ComboBox
+                        Name="PART_CopySourceFilterList"
+                        MinWidth="80"
+                        Margin="5,5,0,0"
+                        VerticalAlignment="Center"
+                        ItemsSource="{Binding PerFilterEditBinder.AvailableFilterNames}"
+                        ToolTip="{StaticResource CopyStarDetectionFromFilter_Tooltip}" />
+                    <Button
+                        Margin="8,5,0,0"
+                        VerticalAlignment="Center"
+                        Command="{Binding CopyStarDetectionFromFilterCommand}"
+                        CommandParameter="{Binding SelectedItem, ElementName=PART_CopySourceFilterList}"
+                        ToolTip="{StaticResource CopyStarDetectionFromFilter_Tooltip}">
+                        <TextBlock
+                            Margin="10,5,10,5"
+                            Foreground="{StaticResource ButtonForegroundBrush}"
+                            Text="Copy"
+                            TextWrapping="Wrap" />
+                    </Button>
+                </StackPanel>
             </Grid>
         <Grid
             Margin="5"
