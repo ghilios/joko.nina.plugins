@@ -12,6 +12,7 @@
 
 using CommunityToolkit.Mvvm.Input;
 using NINA.Core.Model;
+using NINA.Core.Model.Equipment;
 using NINA.Core.MyMessageBox;
 using NINA.Core.Utility;
 using NINA.Equipment.Interfaces.Mediator;
@@ -313,6 +314,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private readonly Func<string> currentFilterName;
         private readonly Func<int?> currentGain;
 
+        // Per-filter star detection collaborators (delegates, so the VM stays store/mediator-free and testable).
+        // perFilterEnabled gates the target-filter picker and per-filter routing; the rest resolve profile
+        // filters and the per-filter settings store. Defaults keep the feature off for existing callers/tests.
+        private readonly Func<bool> perFilterEnabled;
+        private readonly Func<bool> isFilterWheelConnected;
+        private readonly Func<IReadOnlyList<string>> getFilterNames;
+        private readonly Func<string> getCurrentFilterName;
+        private readonly Func<string, FilterInfo> resolveFilterByName;
+        private readonly Func<string, IStarDetectionOptions> getFilterDetectionOptions;
+        private readonly Action<string, OptimizedStarDetectionSettings> applyOptimizedToFilter;
+
         // Snapshotted at the end of a successful run (BEFORE loadedRuns is disposed): the Mat-free per-frame
         // descriptors for every loaded run, the labels dir each run's labels persist to, and the in-memory label
         // models the review edits. These survive disposal so the Review step can detect from disk afterward.
@@ -417,7 +429,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             IAutoFocusOptions autoFocusOptions = null,
             Func<bool> confirmRoughFocus = null,
             Func<string> currentFilterName = null,
-            Func<int?> currentGain = null) {
+            Func<int?> currentGain = null,
+            Func<bool> perFilterEnabled = null,
+            Func<bool> isFilterWheelConnected = null,
+            Func<IReadOnlyList<string>> getFilterNames = null,
+            Func<string> getCurrentFilterName = null,
+            Func<string, FilterInfo> resolveFilterByName = null,
+            Func<string, IStarDetectionOptions> getFilterDetectionOptions = null,
+            Action<string, OptimizedStarDetectionSettings> applyOptimizedToFilter = null) {
             this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             this.starDetectionOptions = starDetectionOptions ?? throw new ArgumentNullException(nameof(starDetectionOptions));
             this.loader = loader ?? throw new ArgumentNullException(nameof(loader));
@@ -435,6 +454,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             this.confirmRoughFocus = confirmRoughFocus ?? (() => true);
             this.currentFilterName = currentFilterName;
             this.currentGain = currentGain;
+            this.perFilterEnabled = perFilterEnabled ?? (() => false);
+            this.isFilterWheelConnected = isFilterWheelConnected ?? (() => true);
+            this.getFilterNames = getFilterNames ?? (() => Array.Empty<string>());
+            this.getCurrentFilterName = getCurrentFilterName;
+            this.resolveFilterByName = resolveFilterByName;
+            this.getFilterDetectionOptions = getFilterDetectionOptions;
+            this.applyOptimizedToFilter = applyOptimizedToFilter;
+            if (this.perFilterEnabled()) {
+                // Default the target to the currently-loaded wheel filter, else the first profile filter.
+                var current = this.getCurrentFilterName?.Invoke();
+                targetFilterName = !string.IsNullOrEmpty(current) ? current : this.getFilterNames().FirstOrDefault();
+            }
 
             sourcePaths = new ObservableCollection<string> { null };
             applyRecommendedStepSize = true;
@@ -615,6 +646,29 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// visibility to this.</summary>
         public bool IsLive => SourceMode == SourceMode.Live;
 
+        private string targetFilterName;
+
+        /// <summary>The ONE filter this run captures on, seeds its baseline from, and (on Accept) writes its
+        /// result to. Only meaningful while per-filter star detection is enabled. Session-only, not persisted.</summary>
+        public string TargetFilterName {
+            get => targetFilterName;
+            set {
+                if (targetFilterName != value) {
+                    targetFilterName = value;
+                    RaisePropertyChanged();
+                    // The sweep readouts (filter/gain) reflect the target filter while per-filter is on.
+                    RaiseSweepReadoutsChanged();
+                }
+            }
+        }
+
+        /// <summary>True while per-filter star detection is enabled: shows the target-filter picker (both
+        /// modes) and routes baseline/capture/Accept through the target filter's settings set.</summary>
+        public bool IsPerFilterEnabled => perFilterEnabled();
+
+        /// <summary>The active profile's filter names, for the target-filter picker.</summary>
+        public IReadOnlyList<string> AvailableFilterNames => getFilterNames();
+
         #region Live sweep (fixed-sweep capture)
 
         private double liveExposureSeconds;
@@ -667,6 +721,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// designate one with an explicit gain, otherwise the connected camera's current gain.</summary>
         public string SweepGain {
             get {
+                if (IsPerFilterEnabled && !string.IsNullOrEmpty(TargetFilterName)) {
+                    var filter = resolveFilterByName?.Invoke(TargetFilterName);
+                    if (filter != null && filter.AutoFocusGain > -1) {
+                        return filter.AutoFocusGain.ToString();
+                    }
+                }
                 var gain = currentGain?.Invoke();
                 return gain.HasValue ? gain.Value.ToString() : "Unavailable";
             }
@@ -676,6 +736,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// otherwise the currently loaded filter.</summary>
         public string SweepFilterName {
             get {
+                if (IsPerFilterEnabled && !string.IsNullOrEmpty(TargetFilterName)) {
+                    return TargetFilterName;
+                }
                 var name = currentFilterName?.Invoke();
                 return string.IsNullOrEmpty(name) ? "Unavailable" : name;
             }
@@ -1522,6 +1585,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// mistake). Sets <see cref="ErrorMessage"/> and returns false on failure.
         /// </summary>
         private bool ValidateSourceBeforeStart() {
+            if (IsPerFilterEnabled && string.IsNullOrWhiteSpace(TargetFilterName)) {
+                ErrorMessage = "Select a target filter.";
+                return false;
+            }
             if (SourceMode == SourceMode.Live) {
                 if (!isCameraConnected()) {
                     ErrorMessage = "Connect a camera before running a live auto-focus optimization.";
@@ -1529,6 +1596,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
                 if (!isFocuserConnected()) {
                     ErrorMessage = "Connect a focuser before running a live auto-focus optimization.";
+                    return false;
+                }
+                if (IsPerFilterEnabled && !isFilterWheelConnected()) {
+                    ErrorMessage = "Connect a filter wheel before running a live optimization.";
                     return false;
                 }
                 // Belt to CanStart's suspenders (and the engine's own guard): never start a sweep with nowhere to save.
