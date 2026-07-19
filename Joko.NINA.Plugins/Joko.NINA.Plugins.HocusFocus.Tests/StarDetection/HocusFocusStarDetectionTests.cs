@@ -25,7 +25,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 profileService: profileService,
                 focuserMediator: focuserMediator,
                 starDetectionOptions: Substitute.For<IStarDetectionOptions>(),
-                alglibAPI: new AlglibAPI());
+                alglibAPI: new AlglibAPI(),
+                perFilterStore: Substitute.For<IPerFilterStarDetectionStore>());
         }
 
         [Test]

@@ -2573,14 +2573,18 @@ git add Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/HocusFocusPlugin.cs && GI
               var selectedAutoFocusBehavior = profileService.ActiveProfile.ApplicationSettings.SelectedPluggableBehaviors.Where(k => k.Key == typeof(IAutoFocusVMFactory).FullName).ToList();
               var ninaStockAutoFocus = selectedAutoFocusBehavior.Count == 0 || selectedAutoFocusBehavior.First().Value == "NINA";
               var isNinaAutoFocus = ninaStockAutoFocus && p.IsAutoFocus;
-              if (!starDetectionOptions.UseAutoFocusCrop && !isNinaAutoFocus) {
-                  p.UseROI = false;
-              }
-
-              var starDetectionRegion = StarDetectionRegion.FromStarDetectionParams(p);
+              // UseAutoFocusCrop and ModelPSF are per-filter-scoped, so they must come from the SAME resolved
+              // options object as every other knob in this detection (Task 7 review fix). Resolving here also
+              // moves the indeterminate-filter throw inside the try below.
+              IStarDetectionOptions effectiveOptions;
               StarDetectorParams detectorParams;
               try {
-                  detectorParams = GetStarDetectorParams(image, starDetectionRegion, p.IsAutoFocus);
+                  effectiveOptions = ResolveEffectiveOptions(image);
+                  if (!effectiveOptions.UseAutoFocusCrop && !isNinaAutoFocus) {
+                      p.UseROI = false;
+                  }
+                  var starDetectionRegion = StarDetectionRegion.FromStarDetectionParams(p);
+                  detectorParams = BuildStarDetectorParams(effectiveOptions, image, starDetectionRegion, p.IsAutoFocus);
               } catch (PerFilterSettingsUnavailableException e) {
                   // Soft-fail: never throw into NINA's imaging pipeline. Warn on EVERY occurrence (no one-shot
                   // latch) so a misconfigured session cannot silently zero out all of its detections.
@@ -2592,10 +2596,10 @@ git add Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/HocusFocusPlugin.cs && GI
                       Params = p
                   };
               }
-              // GetStarDetectorParams forces ModelPSF off for auto-focus (speed); lift that for a Review-Frames run so the
-              // per-star PSF properties are populated, honoring the star-detection options' PSF setting + fit type.
+              // BuildStarDetectorParams forces ModelPSF off for auto-focus (speed); lift that for a Review-Frames run
+              // so the per-star PSF properties are populated, honoring the effective PSF setting + fit type.
               if (modelPSFForAutoFocus) {
-                  detectorParams.ModelPSF = starDetectionOptions.ModelPSF;
+                  detectorParams.ModelPSF = effectiveOptions.ModelPSF;
               }
               var hocusFocusParams = ToHocusFocusParams(p);
 

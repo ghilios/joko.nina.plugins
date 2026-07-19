@@ -216,7 +216,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
                     profileService,
                     focuserMediator,
                     StarDetectionOptions,
-                    AlglibAPI);
+                    AlglibAPI,
+                    PerFilterStarDetection);
 
             var vm = new StarDetectionOptimizerWizardVM(
                 profileService,
