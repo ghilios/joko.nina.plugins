@@ -111,6 +111,21 @@ these auto-focus settings to my profile when I click Accept** checkbox covers it
 the sweep exposure as your auto-focus exposure time, so you focus with the exposure you optimized
 against.
 
+## Optimizing one filter
+
+With [per-filter star detection](../settings/index.md#per-filter-star-detection) enabled, the start page adds a
+**Target filter** dropdown for both sources, defaulting to the filter currently in the wheel. The whole run is about
+that one filter: the baseline and the **"Start from my current settings"** seed come from its settings set, the filter
+and gain readouts on the start page show the target filter (not the profile's designated autofocus filter), and
+**Accept** writes the winning settings into the target filter's set. The Star Detector options switch to the filter you
+just optimized, so what you see there afterward is what the run produced.
+
+A target filter must be selected before the run can start. A live run additionally requires the filter wheel connected:
+**Start** moves the wheel to the target filter and sweeps on exactly that filter, using its per-filter autofocus
+binning, gain, and offset. Exposure is still whatever you set on this page. The usual switch to the profile's
+designated autofocus filter is skipped, and the wheel stays on the target when the sweep finishes. A replay needs no
+equipment, so you can work through your saved runs and optimize each filter in turn without connecting anything.
+
 ## How a candidate is scored
 
 For each candidate the evaluator runs star detection on every frame of the saved run, pools the
