@@ -27,6 +27,7 @@
     <TextBlock x:Key="SDOpt_Continue_Tooltip" Text="Run another optimization pass starting from the settings just found, giving the search a fresh chance to refine further (it resets its step sizes, so it can make larger moves again). Useful when the last pass looks like it stopped just short. Limited to 3 total passes; the Changed parameters table shows the value of each setting after every pass." />
     <TextBlock x:Key="SDOpt_LiveExposure_Tooltip" Text="The exposure for every frame of the sweep, starting from your profile's auto-focus exposure. Make it long enough that stars stay visible out at the defocused ends of the sweep. Narrowband filters usually need a longer exposure to start. After a good result you can adopt this exposure into your profile from the summary." />
     <TextBlock x:Key="SDOpt_LiveSaveFolder_Tooltip" Text="The captured frames are saved here, in a timestamped AutoFocus_… subfolder, then loaded back like a saved run so the optimizer can search them. A folder is required before Start. Choosing one also saves it as your Hocus Focus auto-focus save path." />
+    <TextBlock x:Key="SDOpt_TargetFilter_Tooltip" Text="Per-filter star detection is enabled, so this run tunes ONE filter's settings set. The baseline and 'current settings' come from this filter's set; a live sweep moves the wheel to this filter and exposes through it; and Accept writes the optimized result into this filter's set." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
           SelectedCurve, so toggling the variant rebuilds the plot from a fresh OptimizationCurve instance (a robust
@@ -293,6 +294,23 @@
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
                         </ComboBox>
+                    </StackPanel>
+
+                    <!--  Target filter (per-filter star detection only, both modes): the ONE filter this run
+                          captures on, seeds its baseline from, and writes its accepted result to.  -->
+                    <StackPanel
+                        Margin="0,4"
+                        Orientation="Horizontal"
+                        Visibility="{Binding IsPerFilterEnabled, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                        <TextBlock
+                            Width="90"
+                            VerticalAlignment="Center"
+                            Text="Target filter" />
+                        <ComboBox
+                            Width="160"
+                            ItemsSource="{Binding AvailableFilterNames}"
+                            SelectedItem="{Binding TargetFilterName}"
+                            ToolTip="{StaticResource SDOpt_TargetFilter_Tooltip}" />
                     </StackPanel>
 
                     <StackPanel Margin="0,4" Orientation="Horizontal">
