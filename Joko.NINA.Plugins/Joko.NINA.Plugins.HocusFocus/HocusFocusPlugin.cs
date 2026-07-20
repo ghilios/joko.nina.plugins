@@ -148,7 +148,15 @@ namespace NINA.Joko.Plugins.HocusFocus {
                     StarDetectionOptions,
                     profileService,
                     () => filterWheelMediator.GetInfo()?.SelectedFilter?.Name,
-                    ApplicationDispatcher);
+                    ApplicationDispatcher,
+                    // Connectivity is passed separately from the filter name: the name alone cannot tell a
+                    // disconnected wheel from a connected one mid-move, and the options-page warning needs to say
+                    // different things about those two states.
+                    () => filterWheelMediator.GetInfo()?.Connected == true);
+                // The warning is computed, so it only reaches the UI when something raises PropertyChanged for it.
+                // Held in a static so the registration lives as long as the binder it drives.
+                ActiveFilterWheelWatcher = new ActiveFilterWheelWatcher(
+                    filterWheelMediator, () => PerFilterStarDetectionEditBinder.RefreshActiveFilter());
             }
             // Must follow CameraSimulatorOptions: the VM reads it and subscribes to its PropertyChanged.
             SimTiltAdapterVM = new SimulatedTiltAdapterVM(CameraSimulatorOptions);
@@ -323,6 +331,13 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public static PerFilterStarDetectionStore PerFilterStarDetection { get; private set; }
 
         public static PerFilterEditBinder PerFilterStarDetectionEditBinder { get; private set; }
+
+        /// <summary>
+        /// Keeps <see cref="PerFilterEditBinder.ActiveFilterWarning"/> live: the binder cannot observe the filter
+        /// wheel itself (it takes plain delegates, not mediators, so it stays testable without equipment), so this
+        /// consumer re-raises the warning whenever the wheel connects, disconnects, or changes filter.
+        /// </summary>
+        public static ActiveFilterWheelWatcher ActiveFilterWheelWatcher { get; private set; }
 
         /// <summary>
         /// Backs the simulated tilt adapter's configuration on the Camera Simulator options page, whose DataContext

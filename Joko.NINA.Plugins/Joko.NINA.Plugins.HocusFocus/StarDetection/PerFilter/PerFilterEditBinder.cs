@@ -47,6 +47,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
         private readonly StarDetectionOptions buffer;
         private readonly IProfileService profileService;
         private readonly Func<string> getCurrentFilterName;
+        // Connectivity is a SEPARATE input from the filter name because getCurrentFilterName cannot distinguish
+        // "no wheel connected" from "wheel connected but no filter reported yet" — both yield null, and the two
+        // states need different warnings (see ActiveFilterWarning). Null in hosts that do not supply it, which then
+        // fall back to inferring connectivity from the presence of a filter name.
+        private readonly Func<bool> getFilterWheelConnected;
         // Null in headless/test hosts; the marshaling helper below then runs inline, matching ApplicationDispatcher's
         // own null-dispatcher behavior.
         private readonly IApplicationDispatcher applicationDispatcher;
@@ -65,12 +70,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             StarDetectionOptions buffer,
             IProfileService profileService,
             Func<string> getCurrentFilterName,
-            IApplicationDispatcher applicationDispatcher = null) {
+            IApplicationDispatcher applicationDispatcher = null,
+            Func<bool> getFilterWheelConnected = null) {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.buffer = buffer ?? throw new ArgumentNullException(nameof(buffer));
             this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             this.getCurrentFilterName = getCurrentFilterName ?? throw new ArgumentNullException(nameof(getCurrentFilterName));
             this.applicationDispatcher = applicationDispatcher;
+            // Optional so existing fixtures (and any host without a wheel mediator to hand) keep constructing the
+            // binder with plain delegates and no equipment. The fallback treats a reported filter name as proof of
+            // a connected wheel, which is the best inference available without a connectivity signal.
+            this.getFilterWheelConnected = getFilterWheelConnected
+                ?? (() => !string.IsNullOrEmpty(getCurrentFilterName()));
 
             ObserveProfileFilters();
             profileService.ProfileChanged += ProfileService_ProfileChanged;
@@ -91,11 +102,72 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
                 if (editedFilterName != value) {
                     editedFilterName = value;
                     RaisePropertyChanged();
+                    RaiseActiveFilterWarningChanged();
                     if (!string.IsNullOrEmpty(editedFilterName)) {
                         LoadSnapshotIntoBuffer(editedFilterName);
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Warning text for the options page when the filter being edited is not the filter light is actually
+        /// coming through, so the user can see that their edits will not affect what they are currently imaging or
+        /// focusing. Null (and <see cref="HasActiveFilterWarning"/> false) whenever there is nothing to say — the
+        /// feature is off, or the wheel is connected and reporting the filter being edited.
+        ///
+        /// Two states warrant a warning. Without a connected wheel there is no capture-time filter name to key on
+        /// at all, which is why the run entry points (HocusFocusVM / InspectorVM / RunAberrationInspector) refuse
+        /// up front; this is the passive, always-visible counterpart to those gates. With a wheel connected but
+        /// parked on a different filter, the edits are simply landing on the wrong set. A connected wheel that has
+        /// not reported a filter yet (mid-move) is deliberately silent: it is transient and there is no second name
+        /// to name.
+        ///
+        /// This is a computed property, so it only reaches the UI when something raises PropertyChanged for it —
+        /// see <see cref="RefreshActiveFilter"/>, which the host's filter-wheel consumer drives.
+        /// </summary>
+        public string ActiveFilterWarning {
+            get {
+                if (!store.Enabled) {
+                    return null;
+                }
+                if (!getFilterWheelConnected()) {
+                    return "No filter wheel is connected. Per-filter star detection matches settings to the filter "
+                        + "name recorded in each image, so there is no way to tell which filter's settings apply. "
+                        + "Autofocus and the aberration inspector will refuse to run until a filter wheel is connected.";
+                }
+                var currentFilterName = getCurrentFilterName();
+                if (string.IsNullOrEmpty(currentFilterName) || string.IsNullOrEmpty(editedFilterName)) {
+                    return null;
+                }
+                if (string.Equals(currentFilterName, editedFilterName, StringComparison.Ordinal)) {
+                    return null;
+                }
+                return $"The filter in the light path is '{currentFilterName}', but you are editing '{editedFilterName}'. "
+                    + $"These changes will not affect star detection while imaging or focusing through '{currentFilterName}'.";
+            }
+        }
+
+        public bool HasActiveFilterWarning => !string.IsNullOrEmpty(ActiveFilterWarning);
+
+        /// <summary>
+        /// Re-evaluates <see cref="ActiveFilterWarning"/>. Called by the host whenever the filter wheel connects,
+        /// disconnects, or changes filter — the binder has no way to observe that itself, by design: it takes plain
+        /// delegates rather than NINA mediator types so it stays constructible with no equipment.
+        ///
+        /// The host drives this from an <c>IFilterWheelConsumer</c> broadcast, which arrives on whatever thread the
+        /// mediator publishes from, so the notification is marshaled through the same non-blocking Post as
+        /// <see cref="Store_SnapshotChanged"/> — raising PropertyChanged for WPF-bound text off the UI thread is
+        /// exactly what that dispatcher exists to prevent, and a blocking Invoke would risk the deadlock described
+        /// in the class doc.
+        /// </summary>
+        public void RefreshActiveFilter() {
+            PostToUiThread(RaiseActiveFilterWarningChanged);
+        }
+
+        private void RaiseActiveFilterWarningChanged() {
+            RaisePropertyChanged(nameof(ActiveFilterWarning));
+            RaisePropertyChanged(nameof(HasActiveFilterWarning));
         }
 
         public IReadOnlyList<string> AvailableFilterNames {
@@ -165,6 +237,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             } else {
                 buffer.PersistToProfile = true;
             }
+            // A new profile can bring a different filter set and a different edited filter.
+            RaiseActiveFilterWarningChanged();
         }
 
         private string ResolveDefaultFilterName(IReadOnlyList<string> names) {
@@ -182,6 +256,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
                 buffer.PersistToProfile = true;
                 buffer.ReloadFromProfile();
             }
+            // The warning is gated on Enabled, so toggling the feature always changes whether it shows. Raised
+            // inline like the buffer mutations above: Enabled is flipped from the options UI.
+            RaiseActiveFilterWarningChanged();
         }
 
         private void OnFeatureEnabled() {

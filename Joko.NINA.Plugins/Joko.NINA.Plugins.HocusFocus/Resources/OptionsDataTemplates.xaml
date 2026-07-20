@@ -946,95 +946,6 @@
                         TextWrapping="Wrap" />
                 </Button>
             </Grid>
-            <!--  Per-filter star detection: master toggle (always visible) + the editing-filter selector and
-                  copy-from row (shown only while the feature is on, via the RowDefinition-style pattern). A
-                  separate grid ABOVE the settings grid, sharing its label/value size groups so columns align.
-                  Binding paths (PerFilterStore.*, PerFilterEditBinder.*, CopyStarDetectionFromFilterCommand)
-                  resolve on BOTH hosts: HocusFocusPlugin (plugin options page) and StarDetectionOptionsVM
-                  (Imaging dockable) expose identically-named instance properties.  -->
-            <Grid Margin="5,0,5,5" HorizontalAlignment="Left">
-                <Grid.Resources>
-                    <Style x:Key="ShowOnPerFilterEnabled" TargetType="{x:Type RowDefinition}">
-                        <Setter Property="Height" Value="0" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding PerFilterStore.Enabled}" Value="True">
-                                <Setter Property="Height" Value="Auto" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </Grid.Resources>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol0" />
-                    <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol1" />
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition />
-                    <RowDefinition Style="{StaticResource ShowOnPerFilterEnabled}" />
-                    <RowDefinition Style="{StaticResource ShowOnPerFilterEnabled}" />
-                </Grid.RowDefinitions>
-                <TextBlock
-                    Grid.Row="0"
-                    Grid.Column="0"
-                    VerticalAlignment="Center"
-                    Text="Per-Filter Star Detection"
-                    ToolTip="{StaticResource PerFilterStarDetectionEnabled_Tooltip}" />
-                <CheckBox
-                    Grid.Row="0"
-                    Grid.Column="1"
-                    MinWidth="80"
-                    Margin="5,5,0,0"
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Center"
-                    IsChecked="{Binding PerFilterStore.Enabled}"
-                    ToolTip="{StaticResource PerFilterStarDetectionEnabled_Tooltip}" />
-                <TextBlock
-                    Grid.Row="1"
-                    Grid.Column="0"
-                    VerticalAlignment="Center"
-                    Text="Editing Filter"
-                    ToolTip="{StaticResource EditedFilterName_Tooltip}" />
-                <ComboBox
-                    Name="PART_EditedFilterList"
-                    Grid.Row="1"
-                    Grid.Column="1"
-                    MinWidth="80"
-                    Margin="5,5,0,0"
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Center"
-                    ItemsSource="{Binding PerFilterEditBinder.AvailableFilterNames}"
-                    SelectedItem="{Binding PerFilterEditBinder.EditedFilterName}"
-                    ToolTip="{StaticResource EditedFilterName_Tooltip}" />
-                <TextBlock
-                    Grid.Row="2"
-                    Grid.Column="0"
-                    VerticalAlignment="Center"
-                    Text="Copy Settings From"
-                    ToolTip="{StaticResource CopyStarDetectionFromFilter_Tooltip}" />
-                <StackPanel
-                    Grid.Row="2"
-                    Grid.Column="1"
-                    Orientation="Horizontal">
-                    <ComboBox
-                        Name="PART_CopySourceFilterList"
-                        MinWidth="80"
-                        Margin="5,5,0,0"
-                        VerticalAlignment="Center"
-                        ItemsSource="{Binding PerFilterEditBinder.AvailableFilterNames}"
-                        ToolTip="{StaticResource CopyStarDetectionFromFilter_Tooltip}" />
-                    <Button
-                        Margin="8,5,0,0"
-                        VerticalAlignment="Center"
-                        Command="{Binding CopyStarDetectionFromFilterCommand}"
-                        CommandParameter="{Binding SelectedItem, ElementName=PART_CopySourceFilterList}"
-                        ToolTip="{StaticResource CopyStarDetectionFromFilter_Tooltip}">
-                        <TextBlock
-                            Margin="10,5,10,5"
-                            Foreground="{StaticResource ButtonForegroundBrush}"
-                            Text="Copy"
-                            TextWrapping="Wrap" />
-                    </Button>
-                </StackPanel>
-            </Grid>
         <Grid
             Margin="5"
             VerticalAlignment="Top"
@@ -2382,6 +2293,122 @@
                 IsChecked="{Binding StarDetectionOptions.SaveIntermediateImages}"
                 ToolTip="{StaticResource SaveIntermediateFiles_Tooltip}" />
         </Grid>
+            <!--  Per-filter star detection: master toggle (always visible) + the editing-filter selector and
+                  copy-from row (shown only while the feature is on, via the RowDefinition-style pattern). A
+                  separate grid BELOW the settings grid and above Import/Export, sharing the settings grid's
+                  label/value size groups so columns stay aligned with it.
+                  Binding paths (PerFilterStore.*, PerFilterEditBinder.*, CopyStarDetectionFromFilterCommand)
+                  resolve on BOTH hosts: HocusFocusPlugin (plugin options page) and StarDetectionOptionsVM
+                  (Imaging dockable) expose identically-named instance properties.  -->
+            <Grid Margin="5,10,5,0" HorizontalAlignment="Left">
+                <Grid.Resources>
+                    <Style x:Key="ShowOnPerFilterEnabled" TargetType="{x:Type RowDefinition}">
+                        <Setter Property="Height" Value="0" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding PerFilterStore.Enabled}" Value="True">
+                                <Setter Property="Height" Value="Auto" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                    <!--  The active-filter warning row collapses on its own condition rather than on the feature
+                          toggle: HasActiveFilterWarning is already false whenever per-filter detection is off, so
+                          this one trigger covers both "feature disabled" and "nothing to warn about".  -->
+                    <Style x:Key="ShowOnActiveFilterWarning" TargetType="{x:Type RowDefinition}">
+                        <Setter Property="Height" Value="0" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding PerFilterEditBinder.HasActiveFilterWarning}" Value="True">
+                                <Setter Property="Height" Value="Auto" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Resources>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol0" />
+                    <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol1" />
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition />
+                    <RowDefinition Style="{StaticResource ShowOnPerFilterEnabled}" />
+                    <RowDefinition Style="{StaticResource ShowOnActiveFilterWarning}" />
+                    <RowDefinition Style="{StaticResource ShowOnPerFilterEnabled}" />
+                </Grid.RowDefinitions>
+                <TextBlock
+                    Grid.Row="0"
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="Per-Filter Star Detection"
+                    ToolTip="{StaticResource PerFilterStarDetectionEnabled_Tooltip}" />
+                <CheckBox
+                    Grid.Row="0"
+                    Grid.Column="1"
+                    MinWidth="80"
+                    Margin="5,5,0,0"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    IsChecked="{Binding PerFilterStore.Enabled}"
+                    ToolTip="{StaticResource PerFilterStarDetectionEnabled_Tooltip}" />
+                <TextBlock
+                    Grid.Row="1"
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="Editing Filter"
+                    ToolTip="{StaticResource EditedFilterName_Tooltip}" />
+                <ComboBox
+                    Name="PART_EditedFilterList"
+                    Grid.Row="1"
+                    Grid.Column="1"
+                    MinWidth="80"
+                    Margin="5,5,0,0"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Center"
+                    ItemsSource="{Binding PerFilterEditBinder.AvailableFilterNames}"
+                    SelectedItem="{Binding PerFilterEditBinder.EditedFilterName}"
+                    ToolTip="{StaticResource EditedFilterName_Tooltip}" />
+                <!--  Warns that the filter being edited is not the one in the light path (no wheel connected, or a
+                      wheel parked on a different filter). Spans both columns and carries its own MaxWidth because
+                      the grid's columns are Auto-sized and left-aligned, so without one the text would not wrap.  -->
+                <TextBlock
+                    Grid.Row="2"
+                    Grid.Column="0"
+                    Grid.ColumnSpan="2"
+                    MaxWidth="420"
+                    Margin="0,6,0,0"
+                    HorizontalAlignment="Left"
+                    FontStyle="Italic"
+                    Foreground="{StaticResource NotificationWarningBrush}"
+                    Text="{Binding PerFilterEditBinder.ActiveFilterWarning}"
+                    TextWrapping="Wrap" />
+                <TextBlock
+                    Grid.Row="3"
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="Copy Settings From"
+                    ToolTip="{StaticResource CopyStarDetectionFromFilter_Tooltip}" />
+                <StackPanel
+                    Grid.Row="3"
+                    Grid.Column="1"
+                    Orientation="Horizontal">
+                    <ComboBox
+                        Name="PART_CopySourceFilterList"
+                        MinWidth="80"
+                        Margin="5,5,0,0"
+                        VerticalAlignment="Center"
+                        ItemsSource="{Binding PerFilterEditBinder.AvailableFilterNames}"
+                        ToolTip="{StaticResource CopyStarDetectionFromFilter_Tooltip}" />
+                    <Button
+                        Margin="8,5,0,0"
+                        VerticalAlignment="Center"
+                        Command="{Binding CopyStarDetectionFromFilterCommand}"
+                        CommandParameter="{Binding SelectedItem, ElementName=PART_CopySourceFilterList}"
+                        ToolTip="{StaticResource CopyStarDetectionFromFilter_Tooltip}">
+                        <TextBlock
+                            Margin="10,5,10,5"
+                            Foreground="{StaticResource ButtonForegroundBrush}"
+                            Text="Copy"
+                            TextWrapping="Wrap" />
+                    </Button>
+                </StackPanel>
+            </Grid>
             <!--  Import / Export the star-detection parameters only (tune on a fast machine, import on the imaging machine).  -->
             <StackPanel
                 Margin="5,10,5,5"

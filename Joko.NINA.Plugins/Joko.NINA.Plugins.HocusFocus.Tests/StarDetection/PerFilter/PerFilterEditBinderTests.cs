@@ -23,6 +23,7 @@ public class PerFilterEditBinderTests {
         public IPerFilterStarDetectionStore Store;
         public PerFilterEditBinder Binder;
         public string CurrentFilterName;
+        public bool FilterWheelConnected = true;
     }
 
     private static ObserveAllCollection<FilterInfo> MakeFilters(params string[] names) {
@@ -74,7 +75,7 @@ public class PerFilterEditBinderTests {
         }
     }
 
-    private static Harness Build(bool enabled = false, string currentFilter = "Ha", string[] filterNames = null, IApplicationDispatcher dispatcher = null) {
+    private static Harness Build(bool enabled = false, string currentFilter = "Ha", string[] filterNames = null, IApplicationDispatcher dispatcher = null, bool connected = true) {
         var filters = MakeFilters(filterNames ?? new[] { "L", "Ha", "Oiii" });
         var profile = MakeProfile(filters);
         var profileService = Substitute.For<IProfileService>();
@@ -96,8 +97,10 @@ public class PerFilterEditBinderTests {
             Buffer = buffer,
             Store = store,
             CurrentFilterName = currentFilter,
+            FilterWheelConnected = connected,
         };
-        harness.Binder = new PerFilterEditBinder(store, buffer, profileService, () => harness.CurrentFilterName, dispatcher);
+        harness.Binder = new PerFilterEditBinder(
+            store, buffer, profileService, () => harness.CurrentFilterName, dispatcher, () => harness.FilterWheelConnected);
         return harness;
     }
 
@@ -406,6 +409,166 @@ public class PerFilterEditBinderTests {
         // After the switch completes, edits mirror again.
         h.Buffer.MinHFR = 1.31;
         h.Store.Received().UpsertSnapshot("Ha", Arg.Is<StarDetectionSettingsSnapshot>(s => s.MinHFR == 1.31));
+    }
+
+    // ActiveFilterWarning is the passive options-page counterpart to the up-front gates in HocusFocusVM /
+    // InspectorVM / RunAberrationInspector: it tells the user, while they are editing, that the filter they are
+    // editing is not the filter light is actually coming through — so their edits will not affect what they are
+    // imaging. Only meaningful while the feature is on.
+
+    [Test]
+    public void ActiveFilterWarning_FeatureDisabled_IsSilent() {
+        var h = Build(enabled: false, connected: false);
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.ActiveFilterWarning, Is.Null);
+            Assert.That(h.Binder.HasActiveFilterWarning, Is.False);
+        });
+    }
+
+    [Test]
+    public void ActiveFilterWarning_NoFilterWheelConnected_ExplainsThereIsNoFilterToMatchOn() {
+        var h = Build(enabled: true, connected: false);
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.HasActiveFilterWarning, Is.True);
+            Assert.That(h.Binder.ActiveFilterWarning, Does.Contain("No filter wheel is connected"));
+        });
+    }
+
+    // The current delegate cannot distinguish "no wheel" from "wheel connected, filter not yet reported" — both
+    // yield a null name — so connectivity is a separate input and the disconnected message wins on it alone.
+    [Test]
+    public void ActiveFilterWarning_ConnectedButNoFilterReportedYet_IsSilent() {
+        var h = Build(enabled: true, currentFilter: null, connected: true);
+
+        Assert.That(h.Binder.ActiveFilterWarning, Is.Null);
+    }
+
+    [Test]
+    public void ActiveFilterWarning_ConnectedAndEditingADifferentFilter_NamesBothFilters() {
+        var h = Build(enabled: true, currentFilter: "Ha", connected: true);   // resolves to editing "Ha"
+
+        h.Binder.EditedFilterName = "Oiii";
+
+        var warning = h.Binder.ActiveFilterWarning;
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.HasActiveFilterWarning, Is.True);
+            Assert.That(warning, Does.Contain("Ha"), "the filter actually in the light path");
+            Assert.That(warning, Does.Contain("Oiii"), "the filter being edited");
+        });
+    }
+
+    [Test]
+    public void ActiveFilterWarning_ConnectedAndEditingTheActiveFilter_IsSilent() {
+        var h = Build(enabled: true, currentFilter: "Ha", connected: true);
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.EditedFilterName, Is.EqualTo("Ha"));
+            Assert.That(h.Binder.ActiveFilterWarning, Is.Null);
+            Assert.That(h.Binder.HasActiveFilterWarning, Is.False);
+        });
+    }
+
+    [Test]
+    public void ActiveFilterWarning_SwitchingTheEditedFilter_RaisesPropertyChanged() {
+        var h = Build(enabled: true, currentFilter: "Ha", connected: true);
+        var raised = new List<string>();
+        h.Binder.PropertyChanged += (s, e) => raised.Add(e.PropertyName);
+
+        h.Binder.EditedFilterName = "Oiii";
+
+        Assert.Multiple(() => {
+            Assert.That(raised, Does.Contain(nameof(PerFilterEditBinder.ActiveFilterWarning)));
+            Assert.That(raised, Does.Contain(nameof(PerFilterEditBinder.HasActiveFilterWarning)));
+        });
+    }
+
+    // A computed property alone never updates the UI: WPF only re-reads on PropertyChanged. The filter-wheel
+    // consumer registered in HocusFocusPlugin drives RefreshActiveFilter on every device-info update, which is what
+    // makes the warning appear/disappear as the wheel connects, disconnects, or changes filter.
+    [Test]
+    public void RefreshActiveFilter_AfterTheWheelChangesFilter_RaisesPropertyChangedAndReflectsTheNewFilter() {
+        var h = Build(enabled: true, currentFilter: "Ha", connected: true);
+        Assert.That(h.Binder.ActiveFilterWarning, Is.Null);
+        var raised = new List<string>();
+        h.Binder.PropertyChanged += (s, e) => raised.Add(e.PropertyName);
+
+        h.CurrentFilterName = "Oiii";   // the wheel moved; the edited filter did not follow
+        h.Binder.RefreshActiveFilter();
+
+        Assert.Multiple(() => {
+            Assert.That(raised, Does.Contain(nameof(PerFilterEditBinder.ActiveFilterWarning)));
+            Assert.That(raised, Does.Contain(nameof(PerFilterEditBinder.HasActiveFilterWarning)));
+            Assert.That(h.Binder.ActiveFilterWarning, Does.Contain("Oiii").And.Contains("Ha"));
+        });
+    }
+
+    [Test]
+    public void RefreshActiveFilter_AfterTheWheelDisconnects_RaisesPropertyChangedAndWarns() {
+        var h = Build(enabled: true, currentFilter: "Ha", connected: true);
+        var raised = new List<string>();
+        h.Binder.PropertyChanged += (s, e) => raised.Add(e.PropertyName);
+
+        h.FilterWheelConnected = false;
+        h.CurrentFilterName = null;
+        h.Binder.RefreshActiveFilter();
+
+        Assert.Multiple(() => {
+            Assert.That(raised, Does.Contain(nameof(PerFilterEditBinder.ActiveFilterWarning)));
+            Assert.That(h.Binder.ActiveFilterWarning, Does.Contain("No filter wheel is connected"));
+        });
+    }
+
+    [Test]
+    public void ToggleTheFeature_RaisesActiveFilterWarningPropertyChanged() {
+        var h = Build(enabled: false, connected: false);
+        var raised = new List<string>();
+        h.Binder.PropertyChanged += (s, e) => raised.Add(e.PropertyName);
+
+        SetEnabled(h, true);
+
+        Assert.Multiple(() => {
+            Assert.That(raised, Does.Contain(nameof(PerFilterEditBinder.ActiveFilterWarning)));
+            Assert.That(h.Binder.HasActiveFilterWarning, Is.True);
+        });
+    }
+
+    // Filter-wheel consumer callbacks arrive on whatever thread the mediator broadcasts from, and raising
+    // PropertyChanged for WPF-bound text off the UI thread is exactly what the dispatcher exists to prevent.
+    // Post, never a blocking Invoke (see .claude/docs/mvvm-patterns.md).
+    [Test]
+    public void RefreshActiveFilter_MarshalsThroughTheNonBlockingPost() {
+        var dispatcher = new RecordingApplicationDispatcher();
+        var h = Build(enabled: true, dispatcher: dispatcher);
+        var postsBefore = dispatcher.PostCount;
+
+        h.Binder.RefreshActiveFilter();
+
+        Assert.Multiple(() => {
+            Assert.That(dispatcher.PostCount - postsBefore, Is.EqualTo(1));
+            Assert.That(dispatcher.DispatchCount, Is.Zero, "a blocking Invoke from a mediator broadcast would deadlock");
+        });
+    }
+
+    [Test]
+    public void RefreshActiveFilter_FromABackgroundThread_DefersTheNotificationUntilTheUiThreadPumps() {
+        var dispatcher = new DeferringApplicationDispatcher();
+        var h = Build(enabled: true, currentFilter: "Ha", dispatcher: dispatcher);
+        var raised = new List<string>();
+        h.Binder.PropertyChanged += (s, e) => raised.Add(e.PropertyName);
+
+        h.CurrentFilterName = "Oiii";
+        h.Binder.RefreshActiveFilter();
+
+        Assert.Multiple(() => {
+            Assert.That(dispatcher.PendingCount, Is.EqualTo(1));
+            Assert.That(raised, Is.Empty, "PropertyChanged for bound text must not be raised on the mediator's thread");
+        });
+
+        dispatcher.Pump();
+
+        Assert.That(raised, Does.Contain(nameof(PerFilterEditBinder.ActiveFilterWarning)));
     }
 
     [Test]
