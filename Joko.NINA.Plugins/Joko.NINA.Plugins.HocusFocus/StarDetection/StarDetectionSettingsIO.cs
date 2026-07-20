@@ -50,7 +50,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     return;
                 }
 
-                var export = StarDetectionSettingsExport.FromOptions(options);
+                var export = StarDetectionSettingsExport.FromOptions(options, GetEditedFilterName());
                 File.WriteAllText(dialog.FileName, export.Serialize());
                 Logger.Info($"Exported star detection settings to {dialog.FileName}");
                 Notification.ShowInformation($"Exported star detection settings to {Path.GetFileName(dialog.FileName)}");
@@ -58,6 +58,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Logger.Error(ex, "Failed to export star detection settings");
                 Notification.ShowError($"Failed to export star detection settings: {ex.Message}");
             }
+        }
+
+        /// <summary>The filter whose set the edit buffer currently holds, or null when per-filter star detection is
+        /// off (or the plugin singletons are absent, as under unit tests). Provenance only; never drives an import.</summary>
+        private static string GetEditedFilterName() {
+            return HocusFocusPlugin.PerFilterStarDetection?.Enabled == true
+                ? HocusFocusPlugin.PerFilterStarDetectionEditBinder?.EditedFilterName
+                : null;
         }
 
         /// <summary>Prompts for a file, validates it, shows the diff-confirmation dialog, and — only on Apply — applies
@@ -157,7 +165,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 ? "unknown time"
                 : export.CreatedAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
             var version = string.IsNullOrEmpty(export.PluginVersion) ? "unknown" : export.PluginVersion;
-            return $"Exported {when}  ·  plugin {version}";
+            var summary = $"Exported {when}  ·  plugin {version}";
+            if (!string.IsNullOrEmpty(export.FilterName)) {
+                summary += $"  ·  filter {export.FilterName}";
+            }
+            return summary;
         }
     }
 }
