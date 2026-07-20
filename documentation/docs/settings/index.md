@@ -2,7 +2,7 @@
 
 Hocus Focus's star detector turns a raw frame into a set of accepted stars with measured Half-Flux Radius (HFR), and optionally a fitted PSF for FWHM and eccentricity. Almost every tunable knob feeds a single parameter bundle (`StarDetectorParams`) built by one function, `BuildStarDetectorParams`, so what you set in NINA's plugin options is exactly what the detector runs, and exactly what the headless tooling reproduces.
 
-This page is the entry point to the settings reference. It explains the two ways to drive the detector (**Simple mode** vs **Advanced mode**), where to find the options in NINA, the high-level shape of the detection pipeline, and the practical EARLY-vs-LATE parameter distinction. Each pipeline stage links to its own sub-page where every setting is documented with its tooltip, default, range, and when to adjust it.
+This page is the entry point to the settings reference. It explains the two ways to drive the detector (**Simple mode** vs **Advanced mode**), where to find the options in NINA, the shape of the detection pipeline, and the EARLY-vs-LATE parameter distinction. Each pipeline stage links to its own sub-page where every setting is documented with its tooltip, default, range, and when to adjust it.
 
 ## Where to find these settings
 
@@ -40,7 +40,7 @@ The three Simple-mode presets are:
 
 > Controls the amount of blurring done on the source image before beginning the star detection process. Increase this if you have a particularly noisy sensor or shoot at a very high focal ratio
 
-Internally, this preset chooses the noise-reduction radius, whether measurement-time noise reduction is on, whether hotpixel filtering runs, and the σ-based sensitivity scale. `None` disables noise reduction entirely; `Low`/`Typical` apply a small blur; `High` enables star-measurement noise reduction with a larger radius. See [Preprocessing & Noise](preprocessing.md).
+Internally, this preset chooses the noise-reduction radius, whether measurement-time noise reduction is on, and whether hotpixel filtering runs. `None` disables noise reduction and hotpixel filtering entirely; `Low` and `Typical` currently derive the same values (a small blur, radius 3); `High` enables star-measurement noise reduction with a larger radius. See [Preprocessing & Noise](preprocessing.md).
 
 **Pixel Scale** — tooltip:
 

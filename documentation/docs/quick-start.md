@@ -105,7 +105,7 @@ Now hand the saved run to the [Optimization Wizard](optimization/index.md). It r
 searching for the detection settings that produce the cleanest, most repeatable focus curve, and it
 never returns a result worse than your current settings.
 
-1. Launch the wizard from the top of the **Star Detection** options page.
+1. Launch the wizard from the top of the **Star Detector** tab.
 2. Choose your saved run as the source and keep the default objective, autofocus repeatability (leave
    **Optimize for aberration inspection** off).
 3. When the search finishes, review the improvement (reported relative to your current settings), press
@@ -118,7 +118,7 @@ computationally expensive and can take a while on a slow imaging computer.
 !!! tip "Run the wizard on another machine"
     The wizard works entirely from the saved folder, so it does not have to run on your imaging
     computer. Copy the `AutoFocus_*` folder to a faster machine with NINA and Hocus Focus installed, run
-    the wizard there, and press **Export** on the Star Detection options page. Back on the imaging
+    the wizard there, and press **Export** at the bottom of the **Star Detector** tab. Back on the imaging
     computer, **Import** the exported `.json` file, review exactly what will change, and apply. See
     [exporting and importing settings](settings/index.md#exporting-and-importing-star-detection-settings).
 
@@ -178,7 +178,7 @@ With autofocus working and tuned, the same detector and saved-run machinery feed
   tilt, backfocus error, and field curvature. Consider first re-running the
   [Optimization Wizard](optimization/index.md) with **Optimize for aberration inspection** turned on: it
   tunes detection to recover many more stars across the whole frame, which is what the tilt model needs.
-  → [Tilt &amp; Aberration Inspector](overview/tilt-aberration-inspector.md)
+  → [Tilt & Aberration Inspector](overview/tilt-aberration-inspector.md)
 - **If you have a tilt adapter, calibrate it.** The **Tilt Adapter Wizard** learns where each screw sits
   relative to your sensor and how far a turn moves it, turning tilt measurements into concrete
   screw-turn guidance. → [Tilt Adapter Wizard](overview/tilt-adapter-wizard.md)

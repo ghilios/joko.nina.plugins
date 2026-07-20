@@ -2846,47 +2846,54 @@ Gating `AnalyzeAutoFocusImpl` covers both `RunAutoFocusAnalysisCommand` and the 
   and add these tests inside the fixture (before the closing brace; the fixture is already `[Apartment(ApartmentState.STA)]`):
   ```csharp
         [Test]
-        public async Task AnalyzeAutoFocus_PerFilterEnabledAndWheelDisconnected_RefusesWithoutStartingEngine() {
+        public void AnalyzeAutoFocus_PerFilterEnabledAndWheelDisconnected_RefusesWithoutStartingEngine() {
+            // Sync test body + GetAwaiter().GetResult() (not `async Task`/`await`), matching the
+            // established pattern in InspectorVMAutomaticAdjustmentTests: this fixture is
+            // [Apartment(STA)], and NUnit's async-test SynchronizationContext for STA fixtures makes
+            // ProgressFactory.Create (called from the InspectorVM ctor) NRE when a genuinely async
+            // test method awaits before/around construction.
             var bundle = new MediatorBundle().WithFilterWheelConnected(false).WithPerFilterStarDetectionEnabled();
             var vm = bundle.BuildInspectorVM();
 
-            var result = await vm.AnalyzeAutoFocus(System.Threading.CancellationToken.None);
+            var result = vm.AnalyzeAutoFocus(System.Threading.CancellationToken.None).GetAwaiter().GetResult();
 
             Assert.That(result, Is.False);
             bundle.AutoFocusEngineFactory.DidNotReceive().Create();
         }
 
         [Test]
-        public async Task AnalyzeAutoFocus_PerFilterEnabledAndWheelConnected_ProceedsToEngine() {
+        public void AnalyzeAutoFocus_PerFilterEnabledAndWheelConnected_ProceedsToEngine() {
             var bundle = new MediatorBundle().WithFilterWheelConnected(true).WithPerFilterStarDetectionEnabled();
             var vm = bundle.BuildInspectorVM();
 
-            await vm.AnalyzeAutoFocus(System.Threading.CancellationToken.None);
+            vm.AnalyzeAutoFocus(System.Threading.CancellationToken.None).GetAwaiter().GetResult();
 
             bundle.AutoFocusEngineFactory.Received(1).Create();
         }
 
         [Test]
-        public async Task RunExposureAnalysis_PerFilterEnabledAndWheelDisconnected_RefusesWithoutStartingEngine() {
+        public void RunExposureAnalysis_PerFilterEnabledAndWheelDisconnected_RefusesWithoutStartingEngine() {
             var bundle = new MediatorBundle().WithFilterWheelConnected(false).WithPerFilterStarDetectionEnabled();
             var vm = bundle.BuildInspectorVM();
 
-            await ((IAsyncRelayCommand)vm.RunExposureAnalysisCommand).ExecuteAsync(null);
+            ((IAsyncRelayCommand)vm.RunExposureAnalysisCommand).ExecuteAsync(null).GetAwaiter().GetResult();
 
             bundle.AutoFocusEngineFactory.DidNotReceive().Create();
         }
 
         [Test]
-        public async Task RunExposureAnalysis_PerFilterDisabled_WheelDisconnected_ProceedsToEngine() {
+        public void RunExposureAnalysis_PerFilterDisabled_WheelDisconnected_ProceedsToEngine() {
             var bundle = new MediatorBundle().WithFilterWheelConnected(false);
             var vm = bundle.BuildInspectorVM();
 
-            await ((IAsyncRelayCommand)vm.RunExposureAnalysisCommand).ExecuteAsync(null);
+            ((IAsyncRelayCommand)vm.RunExposureAnalysisCommand).ExecuteAsync(null).GetAwaiter().GetResult();
 
             bundle.AutoFocusEngineFactory.Received(1).Create();
         }
   ```
-  (The "proceeds" paths terminate deterministically on substitutes: the full-run body throws an NRE on the null `AutoFocusEngineOptions` inside the `Task.Run` and is caught by the existing `catch (Exception)` → returns false; the exposure loop exits after one iteration because `starDetectionSelector.GetBehavior() as IHocusFocusStarDetection` is null and `LoopingExposureAnalysis` defaults false. Both `Create()` assertions run only after the awaited task completes.)
+  (The "proceeds" paths terminate deterministically on substitutes: the full-run body throws an NRE on the null `AutoFocusEngineOptions` inside the `Task.Run` and is caught by the existing `catch (Exception)` → returns false; the exposure loop exits after one iteration because `starDetectionSelector.GetBehavior() as IHocusFocusStarDetection` is null and `LoopingExposureAnalysis` defaults false. Both `Create()` assertions run only after the blocking `.GetAwaiter().GetResult()` call returns.
+
+  **Why not `async Task` + `await`:** this fixture runs `[Apartment(ApartmentState.STA)]`. Under NUnit's STA apartment, the async-test `SynchronizationContext` it installs conflicts with `ProgressFactory.Create`'s dispatcher-or-null assumption, so a genuinely `async Task` test method that awaits deterministically throws a `NullReferenceException` before the gate logic ever runs — every time, not a flake. The sync `void` form with `.GetAwaiter().GetResult()` avoids installing that context and is the pattern already used by `InspectorVMAutomaticAdjustmentTests`.)
 
 - [ ] **Step 3: Run the fixture and expect exactly two failures.**
   ```
@@ -3199,8 +3206,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
         [Test]
         public async Task CopyFromFilter_OnApply_LoadsSourceSnapshotIntoBuffer() {
+            // Snapshot built into a local first: constructing it via NewOptions() subscribes to a *different*
+            // NSubstitute mock's event (IProfileService.ProfileChanged), which would otherwise clobber
+            // NSubstitute's thread-global "last call" tracking if inlined into the .Returns(...) argument.
+            var sourceSnapshot = AdvancedSnapshot(8.4);
             var store = Substitute.For<IPerFilterStarDetectionStore>();
-            store.GetOrSeedSnapshot("Ha").Returns(AdvancedSnapshot(8.4));
+            store.GetOrSeedSnapshot("Ha").Returns(sourceSnapshot);
 
             var buffer = NewOptions();
             buffer.UseAdvanced = true;
@@ -3228,8 +3239,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
         [Test]
         public async Task CopyFromFilter_OnCancel_LeavesBufferUntouched() {
+            // See CopyFromFilter_OnApply_LoadsSourceSnapshotIntoBuffer for why the snapshot is hoisted to a local.
+            var sourceSnapshot = AdvancedSnapshot(8.4);
             var store = Substitute.For<IPerFilterStarDetectionStore>();
-            store.GetOrSeedSnapshot("Ha").Returns(AdvancedSnapshot(8.4));
+            store.GetOrSeedSnapshot("Ha").Returns(sourceSnapshot);
 
             var buffer = NewOptions();
             buffer.UseAdvanced = true;
@@ -3272,6 +3285,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
     }
 }
 ```
+
+**Why the snapshot is hoisted to a local instead of `store.GetOrSeedSnapshot("Ha").Returns(AdvancedSnapshot(8.4))`:** NSubstitute tracks the "last call made to any substitute" as thread-global state, not per-substitute. `AdvancedSnapshot(...)` is evaluated as an argument *before* `.Returns(...)` runs, and it calls `NewOptions()` internally, which constructs `new StarDetectionOptions(Substitute.For<IProfileService>(), ...)` — a second substitute whose constructor subscribes to `IProfileService.ProfileChanged`. That subscription becomes the new "last call", so by the time `.Returns(...)` executes, it binds to the `ProfileChanged +=` call on the *wrong* substitute instead of to `GetOrSeedSnapshot("Ha")` on `store`. Building the snapshot into a local variable first, then passing that local to `.Returns(...)`, keeps `GetOrSeedSnapshot("Ha")` as the last call at `.Returns()` time. A future edit that re-inlines the call will compile fine but the stub silently won't bind — don't revert this.
 
 - [ ] **Step 2: Run the fixture and confirm it FAILS to build.** From the repo root (allow a long timeout; builds are slow):
 

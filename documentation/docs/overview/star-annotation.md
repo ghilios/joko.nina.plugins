@@ -39,8 +39,8 @@ These controls govern the always-on overlay drawn for accepted stars. ("Property
 | Star Bounds Color | Red, 50% | ARGB color | *"The color of the bounding box or ellipse around the star"*. |
 | Show Property | HFR | None, HFR, FWHM, FWHM X, FWHM Y, FWHM Pixels, Eccentricity, PSF Rotation, Background, PSF Background, PSF Peak, Moffat Beta | *"What type of annotation to show for each star"*. Picks the text label drawn beside each star. |
 | Property Color | Yellow | ARGB color | *"The color of the annotation text next to the star"*. |
-| Property Font | Arial | system font | Font family used for the text labels. The point size is set with an inline pt box under **Property Font** (no separate label). |
-| (font size, inline) | 18 pt | > 0 | Point size of the text labels, set via the inline pt box under **Property Font**. |
+| Property Font | Arial | system font | Font family used for the text labels. |
+| Font size (inline pt box under **Property Font**) | 18 pt | > 0 | Point size of the text labels. It has no separate label in the UI. |
 | Show ROI | On | on / off | *"Whether to show the region of interest"*. |
 | ROI Color | Yellow | ARGB color | *"The color of the region of interest boxes"*. |
 | Show Star Center | On | on / off | *"Whether to show a reticule on each star center"*. |
@@ -77,7 +77,7 @@ The label drawn beside each star reflects the selected annotation type. **HFR** 
 
 ## Rejection diagnostics
 
-This is where annotation earns its keep. The detector records, per frame, the bounding boxes of candidates it threw out and groups them by the gate that rejected them. Each class has its own toggle (all default **off**) and its own color, so you can light up exactly the failure mode you are chasing. By default these reject boxes share a half-transparent green, so give the ones you are studying distinct colors before comparing them.
+The detector records, per frame, the bounding boxes of candidates it threw out and groups them by the gate that rejected them. Each class has its own toggle (all default **off**) and its own color, so you can light up exactly the failure mode you are chasing. By default these reject boxes share a half-transparent green, so give the ones you are studying distinct colors before comparing them.
 
 ![The Star Annotator rejection-diagnostic toggles and per-reason box colors](../assets/screenshots/star-annotator-rejection.png){ width=402 }
 
@@ -95,7 +95,7 @@ This is where annotation earns its keep. The detector records, per frame, the bo
 
 Each toggle has a companion color setting (Distorted Box Color, Degenerate Box Color, Saturated Box Color, Low Sensitivity Box Color, Not Centered Box Color, Too Flat Box Color, Contaminated Box Color); the six rejection-gate colors all share the tooltip *"The color of the failed star bounding box"*.
 
-**Contaminated** is special. Its tooltip explains: *"Whether to mark stars flagged as possibly contaminated by a neighbor, background gradient, or hot column. The marker is shown whether or not 'Reject Contaminated Stars' is enabled, so you can see which stars were flagged even when they are excluded from measurements"*. In other words the magenta box appears even for stars the detector already removed from the measured set, so you can tell which measurements a nearby star or gradient may have affected. The marker is drawn as the star's bounding box, in **Contaminated Box Color** (magenta, half-transparent by default).
+**Contaminated** behaves differently from the other toggles. Its marker is drawn whether or not **Reject Contaminated Stars** is enabled, so the magenta box appears even for stars the detector already removed from the measured set, and you can tell which measurements a nearby star, background gradient, or hot column may have affected. The marker is the star's bounding box, drawn in **Contaminated Box Color** (magenta, half-transparent by default).
 
 !!! tip "When this helps"
     Turn on **Show Degenerate**, **Show Distorted**, and **Show Low Sensitivity** together to see which stars are being dropped and why. If real stars are vanishing into one rejection color, that gate is too aggressive for your optics; adjust the matching acceptance gate. If a marker sits on noise, the gate is doing its job.

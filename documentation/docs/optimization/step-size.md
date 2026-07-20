@@ -1,7 +1,7 @@
 # Step-Size Recommendation
 
-Once the optimizer has fitted a clean HFR-vs-focuser curve, it can do something useful with the curve's
-*shape*: recommend an autofocus **step size**. A step size that is too coarse skips over the focus-sensitive
+Once the optimizer has fitted a clean HFR-vs-focuser curve, it reads the curve's *shape* to recommend an
+autofocus **step size**. A step size that is too coarse skips over the focus-sensitive
 region and leaves you with two or three points to fit a curve through; one that is too fine wastes exposures
 crawling across focus. The recommender sizes the step so a sensible number of measurements land where the
 curve actually carries information.
@@ -23,7 +23,8 @@ Starting from the fitted best-focus position, it searches **outward in both dire
 which the fitted HFR reaches \(3 \times \text{HFR}_{\min}\): a coarse outward walk brackets the target, then a
 bisection refines it to high precision. The search is bounded (at most a few times the sampled focuser span)
 so a flat or degenerate fit cannot send it off to infinity. The left and right offsets are **averaged** so an
-asymmetric model still yields a single half-width.
+asymmetric model still yields a single half-width; if only one side reaches the target, that side is used on
+its own, and if neither does, the recommender leaves your current step alone.
 
 ![Step size derived from the 3x-minimum-HFR half-width with about 3.5 points per side](../assets/figures/step-size.png){ width=620 }
 *The shaded band spans the region where HFR is below three times its minimum. The recommended step (green lines)
@@ -43,9 +44,10 @@ recommendation is reported alongside a default **offset of 4 steps** per side, s
 that many points on each side of the estimated minimum lands neatly inside the focus-sensitive region.
 
 !!! note "Degenerate fits are left alone"
-    If the fit is missing, its minimum is not finite, or the minimum HFR is not positive, the recommender
-    returns your **current** step unchanged (with an undefined half-width) rather than guessing. You only get a
-    new number when the curve genuinely supports one.
+    If the fit is missing, its minimum is not finite, the minimum HFR is not positive, or the curve never
+    reaches three times its minimum on either side within the bounded search, the recommender returns your
+    **current** step unchanged (with an undefined half-width) rather than guessing. You only get a new number
+    when the curve genuinely supports one.
 
 !!! tip "How to use the recommendation"
     Treat it as a starting point for your profile's **Auto Focus Step Size** on the same rig and filter.

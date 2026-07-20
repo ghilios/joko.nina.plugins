@@ -3,7 +3,14 @@
 Candidate formation begins by binarizing the structure map at a noise floor: a pixel must rise a set number of
 noise sigmas above the background to survive as part of a star candidate. That floor is the single biggest lever
 on [recall](precision-recall.md), because a star that never clears it never becomes a candidate. This page
-explains how the floor's default was lowered, and then made to vary across the frame.
+explains how the floor was audited, why the shipped default currently sits back at 4.0, and how the floor was
+made to vary across the frame.
+
+!!! warning "The shipped default is currently 4.0"
+    The audit below drove the default down from 4.0 to 2.0. That change has since been **reverted on an interim
+    basis**: the shipped default, the Simple-mode preset, and the optimizer seed all use **4.0** again, pending a
+    recalibration. The measurements below still stand, and 2.0 remains a sensible value to try by hand or to let
+    the [Optimization Wizard](../optimization/index.md) find for your rig, but it is not what ships today.
 
 ## The settings
 
@@ -11,23 +18,23 @@ The floor is controlled by three options, all documented in full on [Preprocessi
 
 | Setting | Default | Reference |
 |---|---|---|
-| Noise Clipping Multiplier | 2.0 | [Preprocessing](preprocessing.md#noise-clipping-multiplier) |
+| Noise Clipping Multiplier | 4.0 | [Preprocessing](preprocessing.md#noise-clipping-multiplier) |
 | Locally Adaptive Binarization | On | [Preprocessing](preprocessing.md#locally-adaptive-binarization) |
 | Adaptive Noise Block Size | 128 px | [Preprocessing](preprocessing.md#adaptive-noise-block-size) |
 
 ## From 4 to 2
 
 Candidate formation binarizes the structure map at a floor of
-\(\text{median} + \text{NoiseClippingMultiplier} \times \sigma_{\text{noise}}\). A lower multiplier pulls the
-floor down, so fainter structure survives to become a candidate. The multiplier had been **4 ever since Hocus
-Focus was first released**, an inherited default that was never revisited until a golden-set audit measured what
+\(\text{median} + \text{NoiseClippingMultiplier} \times \sigma_{\text{structure}}\). A lower multiplier pulls the
+floor down, so fainter structure survives to become a candidate. The multiplier had been 4 ever since Hocus
+Focus was first released, an inherited default that was never revisited until a golden-set audit measured what
 it was costing. Sweeping it directly against a [golden set](precision-recall.md) isolates its effect:
 
 | NoiseClippingMultiplier | recall @ SNR≥12 | `NO CANDIDATE` | precision |
 |---|---|---|---|
 | 4.0 (legacy) | 0.189 | 6191 | 0.85 |
 | 2.5 | 0.358 | 4712 | 0.82 |
-| **2.0 (default)** | **0.459** | **3556** | **0.81** |
+| **2.0 (audit setpoint)** | **0.459** | **3556** | **0.81** |
 | 1.5 | 0.596 | 1757 | 0.80 |
 
 ![recall @ SNR≥12 rises and NO-CANDIDATE misses fall as the noise-clipping floor is lowered](../assets/figures/nc-recall-sweep.png){ width=620 }
@@ -40,7 +47,7 @@ A lower floor admits fainter stars, and fainter stars can carry noisier HFR, so 
 this hurts the focus curve. It does not. The per-region HFR-versus-focuser curve was rebuilt at each multiplier
 (NC) and parabola-fit for best-focus position and goodness of fit:
 
-| Region | NC = 4 (legacy) | NC = 2 (default) |
+| Region | NC = 4 | NC = 2 |
 |---|---|---|
 | Global | 119 stars, R² 0.96 | 327 stars, R² 0.93 |
 | Center | 18 stars, R² 0.93 | 55 stars, R² 0.98 |
@@ -49,7 +56,7 @@ this hurts the focus curve. It does not. The per-region HFR-versus-focuser curve
 Best-focus position stayed put (global 2719 → 2718, center 2706 → 2706), goodness of fit stayed high, and
 near-focus HFR scatter rose only about 0.1 px. The corners, which are the most star-starved and which give the
 tilt fit its leverage, went from too few stars to fit to a usable 11–21. A multiplier of 1.5 adds still more
-stars but with slightly more corner scatter, so the setpoint landed at **2.0**.
+stars but with slightly more corner scatter, so the audit's setpoint landed at **2.0**.
 
 Why 2 and not 1.5? Three checks ran independently and agreed across a 17-run bank of saved focus runs:
 
@@ -60,8 +67,6 @@ Why 2 and not 1.5? Three checks ran independently and agreed across a 17-run ban
 - The per-run optimizer, which minimizes focus scatter and is therefore immune to the precision-measurement
   artifact, converged to a median multiplier of exactly 2.0 (10 of 17 runs), and where it deviated it went
   *lower*, never back toward 4.
-
-So the default changed from **4 to 2**.
 
 ## A single global floor is the wrong shape
 
@@ -83,10 +88,11 @@ background and noise gets both right.*
 
 The fix is the [Locally Adaptive Binarization](preprocessing.md#locally-adaptive-binarization) option. Instead
 of one scalar, the floor becomes a smooth surface computed from robust per-block statistics,
-\(\text{local-median}(x,y) + \text{NC} \times \sigma_{\text{local}}(x,y)\), estimated on a coarse grid (128 px
-blocks by default) and upsampled to the full frame. The multiplier stays at 2, but it is now locally fair: low
-where the background is clean, recovering faint stars, and high where it is noisy, rejecting noise. This is the
-same local-statistics approach the reference detector uses to define the recall target in the first place.
+\(\text{median}_{\text{local}}(x,y) + \text{NoiseClippingMultiplier} \times \sigma_{\text{local}}(x,y)\),
+estimated on a coarse grid (128 px blocks by default) and upsampled to the full frame. The multiplier itself is
+unchanged, but it is now locally fair: low where the background is clean, recovering faint stars, and high where
+it is noisy, rejecting noise. This is the same local-statistics approach the reference detector uses to define the
+recall target in the first place.
 
 Tested OFF against ON at NC = 2 across the 17-run bank, the surface improves recall and precision *together*,
 which no single global value can do:
@@ -98,16 +104,19 @@ the run with the most complete golden, recall jumps from 0.459 to 0.862 and the 
 halved.*
 
 Because it improves both axes with no autofocus or donut regression, locally adaptive binarization ships **on by
-default**. The multiplier stays at 2; the surface is what makes that 2 fair everywhere.
+default**. It changes the floor's shape, not its level: whatever multiplier you run, the surface is what makes
+that multiplier fair everywhere.
 
 ## Reverting to legacy behavior
 
-Two independent switches turn the change off:
+The floor's *shape* and its *level* are independent:
 
 - Turning **Locally Adaptive Binarization** off reverts the floor's *shape* to the legacy single global scalar.
   With it off, candidate formation is bit-for-bit identical to the pre-change detector.
-- Setting **Noise Clipping Multiplier** back to **4.0** reverts the floor's *level* to the legacy default.
+- The **Noise Clipping Multiplier** sets the floor's *level*. It currently ships at the legacy **4.0** (see the
+  warning at the top of this page), so only the shape differs from legacy out of the box.
 
-Setting both restores the full legacy behavior. The only reason to do that is to reproduce or compare against the
-old detector. The validated defaults (NC = 2, adaptive on) beat the legacy settings on every rollout criterion
-across the bank, so for real use, leave them as they are.
+The only reason to turn the surface off is to reproduce or compare against the old detector. Locally adaptive
+binarization beat the global floor on every rollout criterion across the bank, improving recall and precision
+together, so for real use leave it on. If you want the recall the audit above measured, lower the multiplier
+toward 2.0 yourself or let the [Optimization Wizard](../optimization/index.md) pick it for your rig.

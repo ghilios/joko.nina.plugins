@@ -25,7 +25,7 @@ categories:
 | **Wrongly-rejected** | A star the detector found but a gate rejected, which you want kept | Recall |
 | **Should-reject** | An accepted detection you judge spurious — a false positive | Precision |
 
-You create these in the review view (**"Review frames"** on the wizard summary): drag a box over a real star
+You create these on the Review page (**"Review frames"** on the wizard summary): drag a box over a real star
 the detector missed, click a rejected candidate you think should have been kept, or click an accepted
 candidate that should have been thrown out.
 

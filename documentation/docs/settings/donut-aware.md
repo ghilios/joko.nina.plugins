@@ -8,8 +8,9 @@ them off, detection is identical to having them absent.
 
 ## The settings
 
-The donut-recovery knobs are gated by the **Defocus-Aware Donut Detection** master toggle; **Defocus-Aware Gates**
-and **Defocus-Aware Structure** are independent toggles. The numeric knobs and their full reference live on the
+All defocus-aware behavior is gated by the **Defocus-Aware Donut Detection** master toggle. With the master off,
+**Defocus-Aware Gates** and **Defocus-Aware Structure** have no effect; with it on, those two act independently of
+each other. The numeric knobs and their full reference live on the
 [Acceptance Gates](acceptance-gates.md#recover-out-of-focus-donut-stars) and
 [Structure Detection](structure-detection.md#defocus-aware-structure) pages:
 
@@ -62,6 +63,6 @@ not either alone.
 
 ## What it does not recover
 
-Faint pure-ring donuts with no core stay noise-limited for everyone. Hocus Focus catches the brighter cored
+Faint pure-ring donuts with no core stay noise-limited for any detector. Hocus Focus catches the brighter cored
 donuts and misses the faint rings, and a naive matched filter over-detects them. When a star is that far out of
 focus, its ring also carries little usable focus signal.

@@ -39,18 +39,18 @@ in the daytime, from a first autofocus run to a full tilt-calibration rehearsal.
 
 ## Simple vs Advanced configuration
 
-Hocus Focus is simple to configure by default, with an advanced mode for fine tuning. There are three levels of control, in increasing order of effort:
+Hocus Focus is simple to configure by default, with two ways to go further. There are three levels of control:
 
 | Level | Who it's for | What you do |
 |---|---|---|
 | **Simple** | Most users | Accept the Simple-mode preset defaults and let the detector adapt to your image scale. |
-| **Advanced** | Tuners | Open Advanced settings to hand-tune individual detection, gating, and PSF parameters. |
-| **Optimization Wizard** | Anyone chasing the lowest HFR scatter | Let the optimizer search the parameter space against an objective function using your own saved AF runs. |
+| **Optimization Wizard** | Anyone whose rig the presets do not suit | Let the optimizer search the parameter space against an objective function using your own saved AF runs, then apply the result as your Simple-mode settings. |
+| **Advanced** | Experts setting each parameter by hand | Open Advanced settings to hand-tune individual detection, gating, and PSF parameters. |
 
-Start at the Simple level: the defaults are a reasonable starting point, and higher accuracy (lower HFR standard deviation) comes from setting parameters well. Move to Advanced only when you need to correct a specific behavior, and reach for the wizard when you want the settings tuned automatically rather than by hand.
+Start at the Simple level: the defaults are a reasonable starting point, and higher accuracy (lower HFR standard deviation) comes from setting parameters well. When the presets are not finding enough clean stars on your rig, run the Optimization Wizard next rather than hand-tuning. Reach for Advanced mode only when you want to set a specific parameter by hand.
 
 !!! tip "When to go beyond Simple"
 
-    If detection already finds plenty of clean stars and your autofocus curves are tight, the defaults are doing their job; leave them alone. Advanced tuning and the Optimization Wizard pay off when a particular setup (unusual pixel scale, heavy nebulosity, persistent false detections, or bloated defocused stars) is tripping up the defaults.
+    If detection already finds plenty of clean stars and your autofocus curves are tight, the defaults are doing their job; leave them alone. The Optimization Wizard, and after it Advanced tuning, pay off when a particular setup (unusual pixel scale, heavy nebulosity, persistent false detections, or bloated defocused stars) is tripping up the defaults.
 
 For the full per-setting reference, see [Settings](../settings/index.md). To have those settings tuned automatically against your saved runs, see the [Optimization Wizard](../optimization/index.md).

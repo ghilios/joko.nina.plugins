@@ -146,8 +146,9 @@ The approval dialog shows the bias as its own move and warns that it is present.
 
 The bias is not free. Moving all four screws together *is* a backfocus change, so it shifts your
 backfocus by the bias amount, and that shift is included in the residuals the dialog reports. To
-avoid it, give the motors room to work before adjusting — raise them away from zero in the vendor's
-app, or apply a positive backfocus move of your own — so corrections have travel underneath them.
+avoid it, give the motors room to work before adjusting, so corrections have travel underneath
+them: raise the motors away from zero in the vendor's app, or apply a positive backfocus move of
+your own.
 
 ## The Simulator port
 
@@ -181,8 +182,8 @@ connection.
 **Automatic Adjustment is disabled with "This calibration is not linked to the connected
 device."** Run a calibration with the device connected (Auto Run All is the easiest path). A
 calibration entered by hand or replayed from disk cannot prove which physical corner its screw 1
-refers to, and automation applying a rotated correction would make tilt worse
-unattended. The companion message, "This calibration is low-confidence", means the connected
+refers to, and unattended automation applying a rotated correction would make tilt worse. The
+companion message, "This calibration is low-confidence", means the connected
 calibration ran but did not pass its own quality validation; re-run it under better conditions.
 
 **Automatic Adjustment is disabled right after an adjustment.** That is the

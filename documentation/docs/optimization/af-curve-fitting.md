@@ -154,12 +154,12 @@ therefore the most information.
 the focus-sensitive band holds about 3–4 points per side. The recommendation defaults to 4 offset
 steps per side and is clamped to at least 1 (and to the focuser's limits when known).*
 
-!!! tip "When this helps"
-    A degenerate or near-flat fit (no finite minimum, non-positive minimum HFR, or a curve that never
-    reaches three times the minimum within the search budget) yields no usable half-width; the wizard then
-    leaves your current step size unchanged rather than guessing. Trust the recommendation most when
-    the fit is clean and the V-curve is well-formed, exactly the runs where the optimizer also scores
-    high.
+See [Step-size recommendation](step-size.md) for the full derivation.
+
+A degenerate or near-flat fit (no finite minimum, non-positive minimum HFR, or a curve that never
+reaches three times the minimum within the search budget) yields no usable half-width; the wizard then
+leaves your current step size unchanged rather than guessing. The recommendation is most reliable when
+the fit is clean and the V-curve is well-formed, exactly the runs where the optimizer also scores high.
 
 !!! note
     A replay cannot re-sample your sky at a new spacing, so the step size is a recommendation for
@@ -168,8 +168,8 @@ steps per side and is clamped to at least 1 (and to the focuser's limits when kn
 
 ## How this scales to a budgeted search
 
-This whole pipeline runs once per candidate, and the search tries hundreds of candidates (up
-to 400 evaluations). Two facts keep that affordable. First, detection is split into an expensive
+This whole pipeline runs once per candidate, and the search tries hundreds of candidates (250
+evaluations by default, raised to 400 when *Recover out-of-focus donut stars* is enabled). Two facts keep that affordable. First, detection is split into an expensive
 **early** stage (hot-pixel filtering, structure preparation, wavelet, binarization, candidate
 collection) and a cheap **late** stage (gate + measure); the early stage is cached per frame and
 reused whenever a candidate changes only late-stage gate parameters, which is the bulk of the search.

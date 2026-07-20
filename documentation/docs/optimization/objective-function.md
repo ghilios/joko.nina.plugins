@@ -3,14 +3,13 @@
 The Star Detection Optimization Wizard does not chase "more stars" or "lower HFR" directly. It maximizes a
 single composite score \(J \in [0, 1]\) that captures what actually matters for autofocus: **how repeatable
 the best-focus position is**, backed up by a healthy star count and a clean curve fit. Every candidate set of
-detection settings is reduced to this one number, the search keeps whatever scores highest, and the result is
-guaranteed never to be worse than your current settings. Only strictly-improving moves are accepted above the
-seed, and the wizard additionally refuses to return anything that scores below your current settings (see
-[Search algorithm](search-algorithm.md#three-guarantees)).
+detection settings is reduced to this one number, and the search keeps whatever scores highest. Only
+strictly-improving moves are accepted above the seed, and the wizard refuses to return anything that scores
+below your current settings (see [Search algorithm](search-algorithm.md#three-guarantees)).
 
-This page documents the exact objective: every sub-score, every constant, and how they combine. The values
-here are taken directly from `OptimizationObjective.cs` (`ObjectiveConstants`); they are tunable in code but
-fixed for a given build.
+This page documents the sub-scores that make up the per-run objective and how they combine. The values here are
+taken directly from `OptimizationObjective.cs` (`ObjectiveConstants`); they are tunable in code but fixed for a
+given build.
 
 !!! note "Why focus repeatability, not sharpness"
     The wizard scores a whole autofocus sweep, not a single frame. A detection setting that makes one frame
@@ -159,11 +158,6 @@ The weight is deliberately small (0.05). Coverage is allowed to cost a little fo
 across the frame is worth a minor rise in \(\sigma_{\text{focus}}\)), but at one-eleventh of the focus weight it
 cannot override the dominant focus term. When a run has no accepted-star positions to score, the term drops out of
 both the numerator and the denominator, so \(J_{\text{run}}\) is unchanged.
-
-!!! note "Coverage and aberration inspection"
-    This term reinforces what the **Optimize for aberration inspection** objective already favors: stars spread
-    across the sensor are exactly what a [tilt / curvature model](../overview/tilt-aberration-inspector.md) needs.
-    Under the default autofocus objective it stays a gentle nudge.
 
 ## \(S_{\text{label}}\) — recall and precision (weight 0.25, only with labels)
 

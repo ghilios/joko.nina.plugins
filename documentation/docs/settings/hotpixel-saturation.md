@@ -6,7 +6,7 @@ Two unrelated artifacts pollute star measurements: single bright **hot pixels** 
 
 *Hotpixel Threshold and Saturation Threshold control hot-pixel rejection and the saturation cutoff.*
 
-These options live in the **Advanced** star-detection settings. In Simple mode they are derived from the noise preset.
+These options live in the **Advanced** star-detection settings. In Simple mode only Hotpixel Filtering follows a preset: it switches on unless **Noise Level** is set to None. Hotpixel Threshold is held at its 0.1% default, and the other three keep their stored values.
 
 ## Settings at a glance
 
@@ -24,7 +24,7 @@ These options live in the **Advanced** star-detection settings. In Simple mode t
 
 **What it does:** runs a 3×3 box-median convolution over the source image to suppress isolated hot pixels before star structures are detected.
 
-> "Uses a 3x3 box median convolution to filter out hotpixels. This should be on, unless you're working with a calibrated image with hotpixels removed"
+> Uses a 3x3 box median convolution to filter out hotpixels. This should be on, unless you're working with a calibrated image with hotpixels removed
 
 - **Default:** On
 - **Range:** On / Off
@@ -37,7 +37,7 @@ When noise reduction is in play, hot-pixel filtering also runs first so the hot 
 *A single hot pixel (left) reads far above its neighbors; the 3×3 median (right) replaces it with the local median while leaving the real star untouched.*
 
 !!! tip "When this helps"
-    Leave this **on** for raw or uncalibrated frames. Almost every sensor has hot pixels, and they are the single most common source of spurious "stars." Turn it **off** only when you are feeding already-calibrated images whose hot pixels have been removed (e.g., by dark subtraction or a defect map), so you avoid a redundant filtering pass.
+    Leave this **on** for raw or uncalibrated frames. Almost every sensor has some hot pixels, and any that survive read as spurious one-pixel "stars." Turn it **off** only when you are feeding already-calibrated images whose hot pixels have been removed (e.g., by dark subtraction or a defect map), so you avoid a redundant filtering pass.
 
 ---
 
@@ -45,7 +45,7 @@ When noise reduction is in play, hot-pixel filtering also runs first so the hot 
 
 **What it does:** restricts the median replacement to pixels that differ sharply from their local median, instead of replacing every pixel and blurring the whole image.
 
-> "A more sophisticated version of hotpixel filtering that limits pixel replacement to those where the median is far off of the pixel value. This prevents the whole image from being blurred, which can have a negative effect on HFR and PSF measurement accuracy"
+> A more sophisticated version of hotpixel filtering that limits pixel replacement to those where the median is far off of the pixel value. This prevents the whole image from being blurred, which can have a negative effect on HFR and PSF measurement accuracy
 
 - **Default:** On
 - **Range:** On / Off
@@ -64,7 +64,7 @@ A plain 3×3 median replaces *every* pixel with its neighborhood median. That is
 
 **What it does:** sets how far a pixel must sit from its 3×3 median (as a fraction of full well) before it is replaced as a hot pixel.
 
-> "A percentage representing the cutoff threshold for detecting a hotpixel. It's the percentage of full well difference between the 3x3 median blurred value and the pixel value"
+> A percentage representing the cutoff threshold for detecting a hotpixel. It's the percentage of full well difference between the 3x3 median blurred value and the pixel value
 
 - **Default:** 0.1% (0.001)
 - **Range:** greater than 0% up to and including 100% (the editor accepts 0–100%; values must be within \((0, 1]\) as a fraction)
@@ -78,7 +78,7 @@ This setting only takes effect when **Use Hotpixel Thresholding** is on. A pixel
 so at the 0.1% default a pixel must exceed its local median by one part in a thousand of the full ADU range to be treated as a defect. Lower values are more aggressive (more pixels replaced, risking real star cores); higher values are more permissive (only the most extreme outliers are touched).
 
 !!! tip "When this helps"
-    Leave the default unless you have a specific reason. **Lower** the threshold if obvious hot pixels are surviving and being detected as stars; **raise** it if the filter is clipping the bright cores of real, well-sampled stars. The 0.1% default was chosen from a dedicated analysis of full-well fractions and works across a wide range of sensors and exposures.
+    Leave the default unless you have a specific reason. **Lower** the threshold if obvious hot pixels are surviving and being detected as stars; **raise** it if the filter is clipping the bright cores of real, well-sampled stars. Because the threshold is a fixed fraction of full well rather than a multiple of the frame's noise, the same value sits many times the noise at low gain and below the noise at high gain, so re-check it if you change gain or exposure substantially.
 
 !!! warning
     The threshold is a fraction of full well, not an absolute ADU count. Setting it too low on a high-bit-depth sensor can replace the peak pixels of sharp, in-focus stars and bias HFR low.
@@ -89,7 +89,7 @@ so at the 0.1% default a pixel must exceed its local median by one part in a tho
 
 **What it does:** marks pixels at or above this fraction of full well as saturated; star candidates containing them are still measured, but the saturated pixels are masked out of the PSF fit.
 
-> "A percentage representing the cutoff threshold for detecting a saturated pixel. Star candidates containing saturated pixels are processed with those pixels masked during PSF fitting"
+> A percentage representing the cutoff threshold for detecting a saturated pixel. Star candidates containing saturated pixels are processed with those pixels masked during PSF fitting
 
 - **Default:** 99% (0.99)
 - **Range:** greater than 0% up to and including 100% (the editor accepts 0–100%; values must be within \((0, 1]\) as a fraction)
@@ -108,7 +108,7 @@ When a star's core clips at the sensor's full-well limit, its peak flattens into
 
 **What it does:** keeps partially-saturated stars out of the per-frame HFR average, while still detecting and counting them.
 
-> "When enabled (default), partially-saturated stars (those whose peak reaches the Saturation Threshold) are left out of the per-frame HFR average — their flat, saturated cores bias HFR high and can pull the focus curve. The stars are still detected and counted; only the HFR average excludes them, and only while enough unsaturated stars remain. Disable to include every star's HFR as before."
+> When enabled (default), partially-saturated stars (those whose peak reaches the Saturation Threshold) are left out of the per-frame HFR average — their flat, saturated cores bias HFR high and can pull the focus curve. The stars are still detected and counted; only the HFR average excludes them, and only while enough unsaturated stars remain. Disable to include every star's HFR as before.
 
 - **Default:** On
 - **Range:** On / Off

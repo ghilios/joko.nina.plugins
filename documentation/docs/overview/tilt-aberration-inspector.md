@@ -1,6 +1,6 @@
 # Tilt &amp; Aberration Inspector
 
-The **Aberration Inspector** is a dockable panel that drives an auto-focus run (or a single snapshot)
+The **Aberration Inspector** is a dockable panel that drives an autofocus run (or a single snapshot)
 and turns the result into a quantitative picture of how your sensor sits in the optical train. It
 answers the questions a single center-of-frame focus number cannot: *Is one corner sharper than the
 other? Is the field bowed? Is my backfocus right?* (Backfocus is the spacing between the
@@ -23,7 +23,7 @@ center-to-corner bowl. The inspector separates the two.*
 
 ## What the inspector measures
 
-Running a **Detailed Analysis** performs an auto-focus across several regions of the frame at once.
+Running a **Detailed Analysis** performs an autofocus across several regions of the frame at once.
 Per the tooltip, this is used to "detect various aberrations, such as tilt, incorrect backfocus, and
 field curvature." The panel reports, among others:
 
@@ -160,7 +160,7 @@ star-matching, outlier-rejection, and save-images settings (plus **Astigmatic fi
 | **Exposures per Point** | -1 (auto) | -1 or &ge;1 | "How many exposures to average together for each focuser point. Uses the value set for AutoFocus if blank." |
 | **AutoFocus Timeout** | -1 (auto) | -1 or &gt;0 | "How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank." |
 | **Simple Analysis exposure** (the unlabeled seconds box beside **Take Exposure**) | -1 (auto) | -1 or &gt;0 | "How long of an exposure to take for analysis. Defaults to the Auto Focus exposure duration if not set." Sets the exposure for the single-frame Simple Analysis. |
-| **AutoFocus Exposure** | -1 (auto) | -1 or &gt;0 | Per-frame exposure for a Detailed Analysis sweep; defaults to the AutoFocus exposure duration when blank. Unlike the Simple Analysis exposure box, this sets the per-frame exposure for the multi-frame Detailed Analysis sweep. |
+| **AutoFocus Exposure** | -1 (auto) | -1 or &gt;0 | Per-frame exposure for a Detailed Analysis sweep; defaults to the AutoFocus exposure duration when blank. The **Simple Analysis exposure** box sets the single-frame exposure instead. |
 | **Looping** | off | on/off | "If enabled, repeatedly take and analyze exposures." |
 | **Save annotated images when rerunning a saved autofocus** | off | on/off | Save registered/alignment images when reanalyzing saved runs. |
 | **Save alignment images** | off | on/off | Also save the pre-alignment star-detection images. |
@@ -175,5 +175,5 @@ The **Run Aberration Inspector** sequence instruction performs a Detailed Analys
 validates that the camera and focuser are connected before running and fails the instruction if the
 analysis does not complete. Its estimated duration is built from the configured step count, exposure
 time, and a focuser settle allowance (the focuser-settle setting plus two seconds), scaled by the
-number of auto-focus attempts and capped to guard against unreasonable estimates, so a long sequence
+number of autofocus attempts and capped to guard against unreasonable estimates, so a long sequence
 plan can budget time for the run.
