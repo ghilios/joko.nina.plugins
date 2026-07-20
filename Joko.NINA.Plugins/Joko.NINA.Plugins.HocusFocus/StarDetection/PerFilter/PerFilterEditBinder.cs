@@ -28,14 +28,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
     /// snapshot while the feature is enabled: selecting <see cref="EditedFilterName"/> loads that filter's snapshot
     /// into the buffer (imported-snapshot semantics, so machine-local fields stay put), and buffer edits mirror back
     /// into the store. Legacy profile writes are suppressed for the duration (<c>PersistToProfile = false</c>) so
-    /// disabling the feature returns exactly to the pre-enable global settings. UI-thread only, like the options
-    /// singleton it wraps — detection threads read the store directly, never this binder.
+    /// disabling the feature returns exactly to the pre-enable global settings.
+    ///
+    /// All buffer mutation happens on the UI thread, like the options singleton it wraps. Detection threads read the
+    /// store directly and never call into this binder — but they can still reach it *indirectly*: the store raises
+    /// <see cref="IPerFilterStarDetectionStore.SnapshotChanged"/> from whatever thread mutated it, and
+    /// <c>GetOrSeedSnapshot</c> mutates (seeds) when it meets an unknown filter name. So
+    /// <see cref="Store_SnapshotChanged"/> — the one entry point a background thread can drive — marshals its whole
+    /// body through <see cref="IApplicationDispatcher.PostSynchronizationContext"/>. Post, not Dispatch: a blocking
+    /// Invoke from an imaging worker onto a busy UI thread deadlocks. Post runs inline when the caller is already on
+    /// the UI thread (and when the dispatcher is null, as in unit tests), so the synchronous UI-driven paths —
+    /// filter selection, copy-from-filter, <see cref="MutateFilterSettings"/> — keep their existing re-entrancy
+    /// guards (<c>isLoading</c>/<c>isMirroring</c> are only meaningful when the handler runs nested inside the
+    /// operation that raised the event).
     /// </summary>
     public class PerFilterEditBinder : BaseINPC {
         private readonly IPerFilterStarDetectionStore store;
         private readonly StarDetectionOptions buffer;
         private readonly IProfileService profileService;
         private readonly Func<string> getCurrentFilterName;
+        // Null in headless/test hosts; the marshaling helper below then runs inline, matching ApplicationDispatcher's
+        // own null-dispatcher behavior.
+        private readonly IApplicationDispatcher applicationDispatcher;
 
         // Profile whose filter collection is currently observed. Mirroring is gated on ActiveProfile still being
         // this instance: during a profile switch, StarDetectionOptions' ProfileChanged handler (subscribed before
@@ -50,11 +64,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             IPerFilterStarDetectionStore store,
             StarDetectionOptions buffer,
             IProfileService profileService,
-            Func<string> getCurrentFilterName) {
+            Func<string> getCurrentFilterName,
+            IApplicationDispatcher applicationDispatcher = null) {
             this.store = store ?? throw new ArgumentNullException(nameof(store));
             this.buffer = buffer ?? throw new ArgumentNullException(nameof(buffer));
             this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             this.getCurrentFilterName = getCurrentFilterName ?? throw new ArgumentNullException(nameof(getCurrentFilterName));
+            this.applicationDispatcher = applicationDispatcher;
 
             ObserveProfileFilters();
             profileService.ProfileChanged += ProfileService_ProfileChanged;
@@ -209,14 +225,34 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             }
         }
 
+        // The store raises SnapshotChanged on whichever thread mutated it, and GetOrSeedSnapshot mutates: a detection
+        // running on an imaging worker seeds a filter name the store has not seen yet and fires this handler
+        // off-thread. The window is narrow but real — right after a profile switch, before this binder's
+        // ProfileChanged handler has loaded the new profile's edited filter, a concurrent detection on that same
+        // filter name seeds it first. Without marshaling, ApplyImportedSnapshot would raise PropertyChanged for the
+        // bound options off the UI thread. The whole body is posted (not just the reload) so the re-entrancy guards
+        // and the filter-name comparison are evaluated on the thread that owns them.
         private void Store_SnapshotChanged(object sender, PerFilterSnapshotChangedEventArgs e) {
-            if (isMirroring || isLoading || !store.Enabled) {
+            var filterName = e.FilterName;
+            PostToUiThread(() => {
+                if (isMirroring || isLoading || !store.Enabled) {
+                    return;
+                }
+                if (!string.Equals(filterName, editedFilterName, StringComparison.Ordinal)) {
+                    return;
+                }
+                LoadSnapshotIntoBuffer(editedFilterName);
+            });
+        }
+
+        // Non-blocking by design (see the class doc): a blocking Invoke from an imaging worker onto a busy or
+        // tearing-down UI thread deadlocks. Runs inline on the UI thread and when no dispatcher was supplied.
+        private void PostToUiThread(Action action) {
+            if (applicationDispatcher == null) {
+                action();
                 return;
             }
-            if (!string.Equals(e.FilterName, editedFilterName, StringComparison.Ordinal)) {
-                return;
-            }
-            LoadSnapshotIntoBuffer(editedFilterName);
+            applicationDispatcher.PostSynchronizationContext(action);
         }
     }
 }

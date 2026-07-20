@@ -123,6 +123,17 @@ namespace NINA.Joko.Plugins.HocusFocus {
                 // the non-null argument here and for ProfileChanged ordering (see MigrateLegacyFocuserStepSize).
                 CameraSimulatorOptions = new CameraSimulatorOptions(profileService, InspectorOptions);
             }
+            var thisAssembly = Assembly.GetAssembly(typeof(HocusFocusPlugin));
+            var thisAssemblyFileInfo = new FileInfo(thisAssembly.Location);
+            if (ApplicationDispatcher == null) {
+                // Constructed here rather than further down: PerFilterStarDetectionEditBinder below takes it, to
+                // marshal store-driven snapshot reloads (which a detection thread can trigger) onto the UI thread.
+                ApplicationDispatcher = new ApplicationDispatcher();
+
+                var archFolder = Environment.Is64BitProcess ? "x64" : "x86";
+                var dllPath = Path.Combine(thisAssemblyFileInfo.Directory.FullName, "dll", archFolder);
+                OpenCvSharp.Internal.WindowsLibraryLoader.Instance.AdditionalPaths.Add(dllPath);
+            }
             if (PerFilterStarDetection == null) {
                 // Constructed after the options singletons: ProfileChanged handlers run in subscription order,
                 // so the store (and the binder below) re-read a new profile only after StarDetectionOptions has
@@ -136,7 +147,8 @@ namespace NINA.Joko.Plugins.HocusFocus {
                     PerFilterStarDetection,
                     StarDetectionOptions,
                     profileService,
-                    () => filterWheelMediator.GetInfo()?.SelectedFilter?.Name);
+                    () => filterWheelMediator.GetInfo()?.SelectedFilter?.Name,
+                    ApplicationDispatcher);
             }
             // Must follow CameraSimulatorOptions: the VM reads it and subscribes to its PropertyChanged.
             SimTiltAdapterVM = new SimulatedTiltAdapterVM(CameraSimulatorOptions);
@@ -171,16 +183,6 @@ namespace NINA.Joko.Plugins.HocusFocus {
                     AutoFocusOptions,
                     StarAnnotatorOptions,
                     AlglibAPI);
-            }
-
-            var thisAssembly = Assembly.GetAssembly(typeof(HocusFocusPlugin));
-            var thisAssemblyFileInfo = new FileInfo(thisAssembly.Location);
-            if (ApplicationDispatcher == null) {
-                ApplicationDispatcher = new ApplicationDispatcher();
-
-                var archFolder = Environment.Is64BitProcess ? "x64" : "x86";
-                var dllPath = Path.Combine(thisAssemblyFileInfo.Directory.FullName, "dll", archFolder);
-                OpenCvSharp.Internal.WindowsLibraryLoader.Instance.AdditionalPaths.Add(dllPath);
             }
 
             options.AddImagePattern(fwhmImagePattern);

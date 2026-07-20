@@ -47,7 +47,34 @@ public class PerFilterEditBinderTests {
         return StarDetectionSettingsSnapshot.FromOptions(scratch);
     }
 
-    private static Harness Build(bool enabled = false, string currentFilter = "Ha", string[] filterNames = null) {
+    /// <summary>
+    /// Stands in for a real WPF dispatcher seen from a NON-UI thread: <c>PostSynchronizationContext</c> queues the
+    /// action instead of running it, so a test can assert what the calling (background) thread did and did not do
+    /// before pumping. Deterministic — no second thread is involved.
+    /// </summary>
+    private sealed class DeferringApplicationDispatcher : IApplicationDispatcher {
+        private readonly Queue<Action> posted = new Queue<Action>();
+
+        public int PendingCount => posted.Count;
+
+        public void DispatchSynchronizationContext(Action action) => throw new InvalidOperationException(
+            "Blocking Invoke from a background thread onto the UI thread deadlocks; this path must Post.");
+
+        public T DispatchSynchronizationContext<T>(Func<T> func) => throw new InvalidOperationException(
+            "Blocking Invoke from a background thread onto the UI thread deadlocks; this path must Post.");
+
+        public void PostSynchronizationContext(Action action) => posted.Enqueue(action);
+
+        public T GetResource<T>(string name, T fallback) => fallback;
+
+        public void Pump() {
+            while (posted.Count > 0) {
+                posted.Dequeue()();
+            }
+        }
+    }
+
+    private static Harness Build(bool enabled = false, string currentFilter = "Ha", string[] filterNames = null, IApplicationDispatcher dispatcher = null) {
         var filters = MakeFilters(filterNames ?? new[] { "L", "Ha", "Oiii" });
         var profile = MakeProfile(filters);
         var profileService = Substitute.For<IProfileService>();
@@ -70,7 +97,7 @@ public class PerFilterEditBinderTests {
             Store = store,
             CurrentFilterName = currentFilter,
         };
-        harness.Binder = new PerFilterEditBinder(store, buffer, profileService, () => harness.CurrentFilterName);
+        harness.Binder = new PerFilterEditBinder(store, buffer, profileService, () => harness.CurrentFilterName, dispatcher);
         return harness;
     }
 
@@ -238,6 +265,78 @@ public class PerFilterEditBinderTests {
         h.Store.SnapshotChanged += Raise.Event<EventHandler<PerFilterSnapshotChangedEventArgs>>(
             h.Store, new PerFilterSnapshotChangedEventArgs("Sii"));
 
+        h.Store.DidNotReceive().GetOrSeedSnapshot(Arg.Any<string>());
+    }
+
+    // A detection running on an imaging worker calls GetOrSeedSnapshot; seeding an unseen filter name raises
+    // SnapshotChanged on THAT thread. Reloading the buffer inline would raise PropertyChanged for WPF-bound options
+    // off the UI thread, so the handler must marshal — and must Post, never Invoke (a blocking Invoke from an
+    // imaging worker onto a busy UI thread deadlocks; see .claude/docs/mvvm-patterns.md).
+    [Test]
+    public void ExternalSnapshotChange_MarshalsTheReloadThroughTheDispatcherWithoutBlocking() {
+        var dispatcher = new RecordingApplicationDispatcher();
+        var h = Build(enabled: true, dispatcher: dispatcher);
+        var updated = SnapshotWith(o => {
+            o.UseAdvanced = true;
+            o.MaxDistortion = 0.77;
+        });
+        h.Store.GetOrSeedSnapshot("Ha").Returns(updated);
+        var postsBefore = dispatcher.PostCount;
+
+        h.Store.SnapshotChanged += Raise.Event<EventHandler<PerFilterSnapshotChangedEventArgs>>(
+            h.Store, new PerFilterSnapshotChangedEventArgs("Ha"));
+
+        Assert.Multiple(() => {
+            Assert.That(dispatcher.PostCount - postsBefore, Is.EqualTo(1), "the reload must go through the non-blocking Post");
+            Assert.That(dispatcher.DispatchCount, Is.Zero, "a blocking Invoke from a detection thread would deadlock");
+            // RecordingApplicationDispatcher runs inline, so the reload still lands.
+            Assert.That(h.Buffer.MaxDistortion, Is.EqualTo(0.77));
+        });
+    }
+
+    // Same event, but with a dispatcher that behaves like a real one seen from a background thread: the buffer must
+    // not be touched on the raising thread at all, only once the UI thread pumps the queued work.
+    [Test]
+    public void ExternalSnapshotChange_FromABackgroundThread_DefersTheBufferWriteUntilTheUiThreadPumps() {
+        var dispatcher = new DeferringApplicationDispatcher();
+        var h = Build(enabled: true, dispatcher: dispatcher);
+        var updated = SnapshotWith(o => {
+            o.UseAdvanced = true;
+            o.MaxDistortion = 0.77;
+        });
+        h.Store.GetOrSeedSnapshot("Ha").Returns(updated);
+        h.Store.ClearReceivedCalls();
+        var beforeRaise = h.Buffer.MaxDistortion;
+
+        h.Store.SnapshotChanged += Raise.Event<EventHandler<PerFilterSnapshotChangedEventArgs>>(
+            h.Store, new PerFilterSnapshotChangedEventArgs("Ha"));
+
+        Assert.Multiple(() => {
+            Assert.That(dispatcher.PendingCount, Is.EqualTo(1));
+            Assert.That(h.Buffer.MaxDistortion, Is.EqualTo(beforeRaise), "the buffer must not be written on the raising thread");
+        });
+        h.Store.DidNotReceive().GetOrSeedSnapshot(Arg.Any<string>());
+
+        dispatcher.Pump();
+
+        Assert.That(h.Buffer.MaxDistortion, Is.EqualTo(0.77));
+    }
+
+    // The dispatcher runs inline on the UI thread, so the UI-driven paths keep running nested inside the operation
+    // that raised the event — which is what makes the isMirroring/isLoading re-entrancy guards meaningful.
+    [Test]
+    public void SelfOriginatedUpsert_WithADispatcher_StillDoesNotReloadTheBuffer() {
+        var dispatcher = new RecordingApplicationDispatcher();
+        var h = Build(enabled: true, dispatcher: dispatcher);
+        h.Store.When(s => s.UpsertSnapshot(Arg.Any<string>(), Arg.Any<StarDetectionSettingsSnapshot>()))
+            .Do(ci => h.Store.SnapshotChanged += Raise.Event<EventHandler<PerFilterSnapshotChangedEventArgs>>(
+                h.Store, new PerFilterSnapshotChangedEventArgs(ci.Arg<string>())));
+        h.Store.ClearReceivedCalls();
+
+        h.Buffer.UseAdvanced = true;
+        h.Buffer.MaxDistortion = 0.42;
+
+        Assert.That(h.Buffer.MaxDistortion, Is.EqualTo(0.42));
         h.Store.DidNotReceive().GetOrSeedSnapshot(Arg.Any<string>());
     }
 
