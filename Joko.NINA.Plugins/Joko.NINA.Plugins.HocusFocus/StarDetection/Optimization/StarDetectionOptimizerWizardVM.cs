@@ -409,7 +409,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     System.Windows.MessageBoxResult.Cancel) == System.Windows.MessageBoxResult.OK,
                 // Live capture readouts: the actual filter and gain the sweep will expose with.
                 currentFilterName: () => ResolveSweepFilterName(profileService, filterWheelMediator),
-                currentGain: () => ResolveSweepGain(profileService, filterWheelMediator, cameraMediator)) {
+                currentGain: () => ResolveSweepGain(profileService, filterWheelMediator, cameraMediator),
+                // Per-filter star detection: resolve the store/binder statics lazily inside the delegates (they
+                // are created by the plugin bootstrap after the options singletons).
+                perFilterEnabled: () => HocusFocusPlugin.PerFilterStarDetection?.Enabled == true,
+                isFilterWheelConnected: () => filterWheelMediator?.GetInfo()?.Connected == true,
+                getFilterNames: () => profileService.ActiveProfile.FilterWheelSettings.FilterWheelFilters.Select(f => f.Name).ToList(),
+                getCurrentFilterName: () => filterWheelMediator?.GetInfo()?.SelectedFilter?.Name,
+                resolveFilterByName: name => profileService.ActiveProfile.FilterWheelSettings.FilterWheelFilters.FirstOrDefault(f => f.Name == name),
+                getFilterDetectionOptions: name => HocusFocusPlugin.PerFilterStarDetection?.GetOrSeedSnapshot(name),
+                applyOptimizedToFilter: (name, dto) => {
+                    // Point the options-page edit buffer at the target filter, then apply through it: the binder
+                    // mirrors the result into the store and the page shows the filter that was just optimized.
+                    // A blank name would leave the binder unbound and the buffer edit would never reach the store,
+                    // silently discarding the optimization — so refuse loudly instead.
+                    if (string.IsNullOrEmpty(name)) {
+                        Logger.Error("Cannot apply optimized star-detection settings: no target filter was selected.");
+                        return;
+                    }
+                    HocusFocusPlugin.PerFilterStarDetectionEditBinder.EditedFilterName = name;
+                    HocusFocusPlugin.StarDetectionOptions.ApplyOptimizedSettings(dto);
+                }) {
         }
 
         /// <summary>
@@ -737,7 +757,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public string SweepFilterName {
             get {
                 if (IsPerFilterEnabled && !string.IsNullOrEmpty(TargetFilterName)) {
-                    return TargetFilterName;
+                    // Don't claim a filter the sweep can't actually select: Start refuses an unresolvable target,
+                    // so the readout says so up front rather than implying a capture that will be blocked.
+                    return resolveFilterByName != null && resolveFilterByName(TargetFilterName) == null
+                        ? $"{TargetFilterName} (not in profile)"
+                        : TargetFilterName;
                 }
                 var name = currentFilterName?.Invoke();
                 return string.IsNullOrEmpty(name) ? "Unavailable" : name;
@@ -1602,6 +1626,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     ErrorMessage = "Connect a filter wheel before running a live optimization.";
                     return false;
                 }
+                // The sweep must expose through EXACTLY the target filter. If the name can't be resolved to a
+                // profile filter (a common device-name/profile-name mismatch, since the default target is seeded
+                // from the wheel's reported filter), the engine would silently fall back to the designated AF
+                // filter — or not move the wheel at all — and Accept would then write the result into the target
+                // filter's settings set. Refuse to start rather than optimize the wrong filter.
+                if (IsPerFilterEnabled && resolveFilterByName?.Invoke(TargetFilterName) == null) {
+                    ErrorMessage = $"Filter '{TargetFilterName}' was not found in the profile's filter wheel settings. Choose a filter that exists in the profile.";
+                    return false;
+                }
                 // Belt to CanStart's suspenders (and the engine's own guard): never start a sweep with nowhere to save.
                 if (string.IsNullOrWhiteSpace(SaveFolderPath)) {
                     ErrorMessage = "Choose a folder to save the captured frames before running a live sweep.";
@@ -1816,6 +1849,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
+        /// <summary>Per-filter runs resolve "current settings" from the TARGET filter's stored set, threaded to
+        /// the loader as the baseline optionsOverride (the existing GetStarDetectorParams override seam). Null
+        /// when the feature is off — baseline params byte-identical to today.</summary>
+        private IStarDetectionOptions ResolveBaselineOptionsOverride() {
+            if (!IsPerFilterEnabled || getFilterDetectionOptions == null || string.IsNullOrEmpty(TargetFilterName)) {
+                return null;
+            }
+            return getFilterDetectionOptions(TargetFilterName);
+        }
+
         /// <summary>Loads each configured source folder into a <see cref="LoadedRun"/>. For Live, runs a fresh AF
         /// attempt first and then loads its saved folder. Sets <see cref="ErrorMessage"/> and returns null on a
         /// missing/invalid source. Each loaded run owns a disposable <see cref="RunEvaluationData"/> (cached source
@@ -1848,7 +1891,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     SetProgress("Loading frames", 0, 0);
                     var loadProgress = new Progress<RunLoadProgress>(rp =>
                         SetProgress("Loading frames", rp.Current, rp.Total));
-                    var loaded = await loader.LoadSavedRunAsync(folder, region, null, loadProgress, token).ConfigureAwait(true);
+                    var loaded = await loader.LoadSavedRunAsync(folder, region, null, loadProgress, ResolveBaselineOptionsOverride(), token).ConfigureAwait(true);
                     runs.Add(loaded);
                     // Record the actual folder loaded (in load order) so the re-optimize path can re-read it from disk
                     // after the source Mats are disposed. Snapshotted in SnapshotReviewInputs on full success.
@@ -1901,13 +1944,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             capturedLiveExposureSeconds = LiveExposureSeconds;   // remember what we captured with, for the Summary write-back
             RaiseExposureRowChanged();
 
+            // Per-filter runs sweep on EXACTLY the chosen target filter: pass it as the imaging filter and set
+            // UseExactImagingFilter so the engine skips the designated-AF-filter substitution. The wheel moves
+            // as part of the sweep and stays on the target afterward.
+            // ValidateSourceBeforeStart already refused an unresolvable target; this is the last line of defense —
+            // a null filter here would make the engine fall back to the designated AF filter (or not move at all),
+            // so fail loudly rather than sweep the wrong filter and attribute the result to the target.
+            FilterInfo sweepFilter = null;
+            if (IsPerFilterEnabled) {
+                sweepFilter = resolveFilterByName?.Invoke(TargetFilterName);
+                if (sweepFilter == null) {
+                    throw new InvalidOperationException($"Filter '{TargetFilterName}' was not found in the profile's filter wheel settings.");
+                }
+                options.UseExactImagingFilter = true;
+            }
+
             // Route the sweep's progress: the engine's per-point reports (tagged with its source) carry the focuser
             // position + frame count and drive the frame bar; the camera's own reports carry the exposure countdown.
             var captureProgress = new Progress<ApplicationStatus>(HandleCaptureProgress);
 
             IsCapturing = true;
             try {
-                var afResult = await autoFocusEngine.CaptureFixedSweepAsync(options, null, token, captureProgress).ConfigureAwait(true);
+                var afResult = await autoFocusEngine.CaptureFixedSweepAsync(options, sweepFilter, token, captureProgress).ConfigureAwait(true);
                 // A failed/partial sweep may still have created its timestamped folder; treat "not succeeded" as no
                 // usable capture (return null) so AcquireAsync surfaces a clean message rather than a confusing loader
                 // error on an empty or too-short attempt folder.
@@ -2259,8 +2317,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     result.BestParams, summary.RunCount, summary.SeedJ, summary.BestJ,
                     summary.RecommendedStepSize, summary.RecommendedOffsetSteps);
 
-                starDetectionOptions.ApplyOptimizedSettings(dto);
-                Logger.Info($"Applied optimized star-detection settings (J {summary.SeedJ:F3} -> {summary.BestJ:F3}, {summary.RunCount} run(s))");
+                if (IsPerFilterEnabled && applyOptimizedToFilter != null) {
+                    // Per-filter: write the result into the TARGET filter's settings set (production routes
+                    // through the edit binder, so the options page lands on the filter just optimized).
+                    applyOptimizedToFilter(TargetFilterName, dto);
+                    Logger.Info($"Applied optimized star-detection settings to filter '{TargetFilterName}' (J {summary.SeedJ:F3} -> {summary.BestJ:F3}, {summary.RunCount} run(s))");
+                } else {
+                    starDetectionOptions.ApplyOptimizedSettings(dto);
+                    Logger.Info($"Applied optimized star-detection settings (J {summary.SeedJ:F3} -> {summary.BestJ:F3}, {summary.RunCount} run(s))");
+                }
             } else {
                 Logger.Info("Keeping current star-detection settings (the optimizer did not beat them); applying the recommended auto-focus settings only.");
             }
@@ -2548,7 +2613,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     var frameLabels = LabelConverter.ToFrameLabels(runLabels);
                     var loadProgress = new Progress<RunLoadProgress>(rp =>
                         SetProgress("Loading frames", rp.Current, rp.Total));
-                    var loaded = await loader.LoadSavedRunAsync(folder, region, frameLabels, loadProgress, token).ConfigureAwait(true);
+                    var loaded = await loader.LoadSavedRunAsync(folder, region, frameLabels, loadProgress, ResolveBaselineOptionsOverride(), token).ConfigureAwait(true);
                     reloaded.Add(loaded);
                 }
 
@@ -2676,7 +2741,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     var loadProgress = new Progress<RunLoadProgress>(rp =>
                         SetProgress("Loading frames", rp.Current, rp.Total));
                     // No labels for a plain continue (byte-identical to the no-label load).
-                    var loaded = await loader.LoadSavedRunAsync(folder, region, null, loadProgress, token).ConfigureAwait(true);
+                    var loaded = await loader.LoadSavedRunAsync(folder, region, null, loadProgress, ResolveBaselineOptionsOverride(), token).ConfigureAwait(true);
                     reloaded.Add(loaded);
                 }
 
