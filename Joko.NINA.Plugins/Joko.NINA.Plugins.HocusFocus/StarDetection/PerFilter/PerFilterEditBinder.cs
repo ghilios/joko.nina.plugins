@@ -92,6 +92,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             }
         }
 
+        /// <summary>
+        /// Applies <paramref name="mutate"/> to ONE filter's settings through whichever surface actually persists.
+        /// The store's getters hand back <see cref="StarDetectionSettingsSnapshot.Clone"/>s, so mutating what
+        /// <c>GetOrSeedSnapshot</c> returns writes to a detached copy and silently persists nothing — every write for
+        /// a filter that is not currently being edited must go back through <c>UpsertSnapshot</c>. When the filter IS
+        /// <see cref="EditedFilterName"/>, the buffer is that filter's live editing surface and the mirror below
+        /// carries the change into the store; writing to the store directly would instead leave the buffer stale and
+        /// risk being clobbered by the next mirror. With the feature off there is only the buffer.
+        /// </summary>
+        public void MutateFilterSettings(string filterName, Action<IStarDetectionOptions> mutate) {
+            if (mutate == null) {
+                throw new ArgumentNullException(nameof(mutate));
+            }
+            if (!store.Enabled || string.IsNullOrEmpty(filterName) || string.Equals(filterName, editedFilterName, StringComparison.Ordinal)) {
+                mutate(buffer);
+                return;
+            }
+            var snapshot = store.GetOrSeedSnapshot(filterName);
+            mutate(snapshot);
+            store.UpsertSnapshot(filterName, snapshot);
+        }
+
         private void ObserveProfileFilters() {
             if (observedFilters != null) {
                 observedFilters.CollectionChanged -= Filters_CollectionChanged;

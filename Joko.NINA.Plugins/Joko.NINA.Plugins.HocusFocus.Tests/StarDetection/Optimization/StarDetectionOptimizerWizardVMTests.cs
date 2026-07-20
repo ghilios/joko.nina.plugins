@@ -238,7 +238,8 @@ public class StarDetectionOptimizerWizardVMTests {
         Func<string> getCurrentFilterName = null,
         Func<string, FilterInfo> resolveFilterByName = null,
         Func<string, IStarDetectionOptions> getFilterDetectionOptions = null,
-        Action<string, OptimizedStarDetectionSettings> applyOptimizedToFilter = null) {
+        Action<string, OptimizedStarDetectionSettings> applyOptimizedToFilter = null,
+        Action<string, bool> setFilterDonutDetection = null) {
         options ??= Substitute.For<IStarDetectionOptions>();
         profileService ??= Substitute.For<IProfileService>();
         return new StarDetectionOptimizerWizardVM(
@@ -262,7 +263,8 @@ public class StarDetectionOptimizerWizardVMTests {
             getCurrentFilterName: getCurrentFilterName,
             resolveFilterByName: resolveFilterByName,
             getFilterDetectionOptions: getFilterDetectionOptions,
-            applyOptimizedToFilter: applyOptimizedToFilter);
+            applyOptimizedToFilter: applyOptimizedToFilter,
+            setFilterDonutDetection: setFilterDonutDetection);
     }
 
     // An HONEST fake review builder: it maps EACH supplied descriptor to one FrameReview (so the ReviewVM's queue
@@ -1651,6 +1653,130 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(appliedDto.BrightnessSensitivity, Is.EqualTo(vm.Result.BestParams.Sensitivity).Within(1e-9));
         });
         options.DidNotReceiveWithAnyArgs().ApplyOptimizedSettings(default);
+    }
+
+    // The donut master is a per-filter setting like every other detection knob. The wizard start page's checkbox and
+    // the optimizer's seed/budget must therefore read the TARGET filter's stored set — NOT the options-page edit
+    // buffer, which belongs to whichever filter happens to be selected on the Star Detection options page and is
+    // routinely a different filter (that is the whole point of the target picker).
+
+    [Test]
+    public void DefocusAwareDonutDetection_PerFilterOn_ReadsTheTargetFilter_NotTheEditBuffer() {
+        var buffer = Substitute.For<IStarDetectionOptions>();   // the options page is editing "Lum"
+        buffer.DefocusAwareDonutDetection.Returns(false);
+        var haOptions = Substitute.For<IStarDetectionOptions>();
+        haOptions.DefocusAwareDonutDetection.Returns(true);
+        var vm = NewVM(LoaderReturning(GoodRun()), buffer,
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Ha",
+            getFilterDetectionOptions: name => name == "Ha" ? haOptions : buffer);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.TargetFilterName, Is.EqualTo("Ha"));
+            Assert.That(vm.DefocusAwareDonutDetection, Is.True, "the wizard's donut master reflects the TARGET filter");
+        });
+    }
+
+    [Test]
+    public void DefocusAwareDonutDetection_PerFilterOn_WritesTheTargetFilter_NotTheEditBuffer() {
+        var buffer = Substitute.For<IStarDetectionOptions>();
+        buffer.DefocusAwareDonutDetection.Returns(false);
+        var haOptions = Substitute.For<IStarDetectionOptions>();
+        haOptions.DefocusAwareDonutDetection.Returns(false);
+        var writes = new List<(string Filter, bool Value)>();
+        var vm = NewVM(LoaderReturning(GoodRun()), buffer,
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Ha",
+            getFilterDetectionOptions: name => name == "Ha" ? haOptions : buffer,
+            setFilterDonutDetection: (name, value) => writes.Add((name, value)));
+
+        vm.DefocusAwareDonutDetection = true;
+
+        Assert.That(writes, Is.EqualTo(new[] { ("Ha", true) }), "the donut master persists into the TARGET filter's set");
+        // The options-page buffer belongs to a different filter; ticking the wizard's checkbox must not touch it.
+        buffer.DidNotReceiveWithAnyArgs().DefocusAwareDonutDetection = default;
+    }
+
+    [Test]
+    public void DefocusAwareDonutDetection_PerFilterOff_StillWritesTheOptionsSingletonDirectly() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DefocusAwareDonutDetection.Returns(false);
+        var writes = new List<(string Filter, bool Value)>();
+        var vm = NewVM(LoaderReturning(GoodRun()), options,
+            setFilterDonutDetection: (name, value) => writes.Add((name, value)));
+
+        vm.DefocusAwareDonutDetection = true;
+
+        Assert.Multiple(() => {
+            Assert.That(writes, Is.Empty, "with the feature off there is no filter to route to");
+            Assert.That(vm.IsPerFilterEnabled, Is.False);
+        });
+        options.Received().DefocusAwareDonutDetection = true;
+    }
+
+    [Test]
+    public async Task Start_PerFilterOn_SeedDonutMasterAndBudgetFollowTheTargetFilter_WhenTheBufferHasItOff() {
+        var buffer = Substitute.For<IStarDetectionOptions>();
+        buffer.DefocusAwareDonutDetection.Returns(false);
+        var haOptions = Substitute.For<IStarDetectionOptions>();
+        haOptions.DefocusAwareDonutDetection.Returns(true);
+        var run = GoodRun();
+        var settings = new OptimizerSettings { MaxEvaluations = 12, CoarseGridLevels = 2, StepFloorFraction = 0.125 };
+        var vm = NewVM(LoaderReturning(run), buffer,
+            optimizerSettings: settings,
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Ha",
+            getFilterDetectionOptions: name => name == "Ha" ? haOptions : buffer);
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(run.Seed.DefocusAwareDonutDetection, Is.True,
+                "the seed's donut master is stamped from the target filter, so CreateCuratedSet unlocks the defocus axes");
+            Assert.That(settings.MaxEvaluations, Is.EqualTo(400),
+                "and the wider donut search space gets the larger evaluation budget");
+        });
+    }
+
+    [Test]
+    public async Task Start_PerFilterOn_TargetFilterDonutOff_KeepsStandardBudget_EvenWhenTheBufferHasItOn() {
+        var buffer = Substitute.For<IStarDetectionOptions>();
+        buffer.DefocusAwareDonutDetection.Returns(true);   // the edited filter wants donuts; the target does not
+        var haOptions = Substitute.For<IStarDetectionOptions>();
+        haOptions.DefocusAwareDonutDetection.Returns(false);
+        var run = GoodRun();
+        var settings = new OptimizerSettings { MaxEvaluations = 12, CoarseGridLevels = 2, StepFloorFraction = 0.125 };
+        var vm = NewVM(LoaderReturning(run), buffer,
+            optimizerSettings: settings,
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Ha",
+            getFilterDetectionOptions: name => name == "Ha" ? haOptions : buffer);
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(run.Seed.DefocusAwareDonutDetection, Is.False);
+            Assert.That(settings.MaxEvaluations, Is.EqualTo(12), "the edited filter's donut master must not widen this run's search");
+        });
+    }
+
+    [Test]
+    public async Task Start_PerFilterOff_SeedDonutMasterAndBudgetStillComeFromTheOptionsSingleton() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DefocusAwareDonutDetection.Returns(true);
+        var run = GoodRun();
+        var settings = new OptimizerSettings { MaxEvaluations = 12, CoarseGridLevels = 2, StepFloorFraction = 0.125 };
+        var vm = NewVM(LoaderReturning(run), options, optimizerSettings: settings);
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(run.Seed.DefocusAwareDonutDetection, Is.True);
+            Assert.That(settings.MaxEvaluations, Is.EqualTo(400));
+        });
     }
 
     [Test]

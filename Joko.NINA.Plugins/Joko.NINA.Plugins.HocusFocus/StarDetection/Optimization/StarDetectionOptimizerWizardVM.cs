@@ -324,6 +324,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private readonly Func<string, FilterInfo> resolveFilterByName;
         private readonly Func<string, IStarDetectionOptions> getFilterDetectionOptions;
         private readonly Action<string, OptimizedStarDetectionSettings> applyOptimizedToFilter;
+        // Writes the donut master into ONE filter's settings set. Separate from getFilterDetectionOptions because the
+        // store's getters return CLONES: mutating what they hand back persists nothing. Production routes this through
+        // PerFilterEditBinder.MutateFilterSettings, which picks the store or the edit buffer as appropriate.
+        private readonly Action<string, bool> setFilterDonutDetection;
 
         // Snapshotted at the end of a successful run (BEFORE loadedRuns is disposed): the Mat-free per-frame
         // descriptors for every loaded run, the labels dir each run's labels persist to, and the in-memory label
@@ -429,6 +433,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     }
                     HocusFocusPlugin.PerFilterStarDetectionEditBinder.EditedFilterName = name;
                     HocusFocusPlugin.StarDetectionOptions.ApplyOptimizedSettings(dto);
+                },
+                // The donut master is a per-filter setting: write it into the TARGET filter's set, through the binder
+                // so the store-vs-buffer choice (and the clone-return trap) is handled in one place.
+                setFilterDonutDetection: (name, value) => {
+                    var binder = HocusFocusPlugin.PerFilterStarDetectionEditBinder;
+                    if (binder == null) {
+                        Logger.Error("Cannot set the defocus-aware donut master: the per-filter edit binder is unavailable.");
+                        return;
+                    }
+                    binder.MutateFilterSettings(name, o => o.DefocusAwareDonutDetection = value);
                 }) {
         }
 
@@ -456,7 +470,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             Func<string> getCurrentFilterName = null,
             Func<string, FilterInfo> resolveFilterByName = null,
             Func<string, IStarDetectionOptions> getFilterDetectionOptions = null,
-            Action<string, OptimizedStarDetectionSettings> applyOptimizedToFilter = null) {
+            Action<string, OptimizedStarDetectionSettings> applyOptimizedToFilter = null,
+            Action<string, bool> setFilterDonutDetection = null) {
             this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
             this.starDetectionOptions = starDetectionOptions ?? throw new ArgumentNullException(nameof(starDetectionOptions));
             this.loader = loader ?? throw new ArgumentNullException(nameof(loader));
@@ -481,6 +496,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             this.resolveFilterByName = resolveFilterByName;
             this.getFilterDetectionOptions = getFilterDetectionOptions;
             this.applyOptimizedToFilter = applyOptimizedToFilter;
+            this.setFilterDonutDetection = setFilterDonutDetection;
             if (this.perFilterEnabled()) {
                 // Default the target to the currently-loaded wheel filter, else the first profile filter.
                 var current = this.getCurrentFilterName?.Invoke();
@@ -609,14 +625,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// (VM-only, resets each launch) this is a true profile option: the setter persists IMMEDIATELY on click
         /// (NINA auto-saves the active profile), because it changes what the wizard's seed/baseline detection does
         /// for this very run (it gates the early morph-close and unlocks the defocus axes for the optimizer). The
-        /// optimizer's tuned numeric values still persist only on Accept (ApplyOptimizedSettings).</summary>
+        /// optimizer's tuned numeric values still persist only on Accept (ApplyOptimizedSettings).
+        ///
+        /// <para>While per-filter star detection is on this reads and writes the TARGET filter's settings set, like
+        /// every other input to the run — NOT the options-page edit buffer, which belongs to whichever filter is
+        /// selected over there and is routinely a different one.</para></summary>
         public bool DefocusAwareDonutDetection {
-            get => starDetectionOptions.DefocusAwareDonutDetection;
+            get => EffectiveDetectionOptions.DefocusAwareDonutDetection;
             set {
-                if (starDetectionOptions.DefocusAwareDonutDetection != value) {
-                    starDetectionOptions.DefocusAwareDonutDetection = value;
-                    RaisePropertyChanged();
+                if (EffectiveDetectionOptions.DefocusAwareDonutDetection == value) {
+                    return;
                 }
+                if (setFilterDonutDetection != null && UsesTargetFilterSettings) {
+                    setFilterDonutDetection(TargetFilterName, value);
+                } else {
+                    starDetectionOptions.DefocusAwareDonutDetection = value;
+                }
+                RaisePropertyChanged();
             }
         }
 
@@ -678,6 +703,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     RaisePropertyChanged();
                     // The sweep readouts (filter/gain) reflect the target filter while per-filter is on.
                     RaiseSweepReadoutsChanged();
+                    // So does the donut master: it is read from the target filter's set, so re-targeting changes it.
+                    RaisePropertyChanged(nameof(DefocusAwareDonutDetection));
                 }
             }
         }
@@ -1853,11 +1880,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// the loader as the baseline optionsOverride (the existing GetStarDetectorParams override seam). Null
         /// when the feature is off — baseline params byte-identical to today.</summary>
         private IStarDetectionOptions ResolveBaselineOptionsOverride() {
-            if (!IsPerFilterEnabled || getFilterDetectionOptions == null || string.IsNullOrEmpty(TargetFilterName)) {
+            if (!UsesTargetFilterSettings || getFilterDetectionOptions == null) {
                 return null;
             }
             return getFilterDetectionOptions(TargetFilterName);
         }
+
+        /// <summary>True when this run's settings come from the target filter's stored set rather than the
+        /// options-page edit buffer.</summary>
+        private bool UsesTargetFilterSettings => IsPerFilterEnabled && !string.IsNullOrEmpty(TargetFilterName);
+
+        /// <summary>The settings set this RUN reads from: the target filter's stored set while per-filter routing
+        /// applies, otherwise the options singleton — so with the feature off every read is byte-identical to
+        /// before per-filter existed. Read-only: the store hands back clones, so writes must go through
+        /// <see cref="setFilterDonutDetection"/>.</summary>
+        private IStarDetectionOptions EffectiveDetectionOptions => ResolveBaselineOptionsOverride() ?? starDetectionOptions;
 
         /// <summary>Loads each configured source folder into a <see cref="LoadedRun"/>. For Live, runs a fresh AF
         /// attempt first and then loads its saved folder. Sets <see cref="ErrorMessage"/> and returns null on a
@@ -2116,11 +2153,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // seed's early morph-close runs and CreateCuratedSet includes the defocus axes iff the user enabled it
             // (the default Seed carries master=OFF, so without this the donut feature would never be searched when
             // not starting from current settings).
-            seed.DefocusAwareDonutDetection = starDetectionOptions.DefocusAwareDonutDetection;
+            // Read once, from the SAME set the baseline came from (the target filter while per-filter is on), so the
+            // seed, the budget, and runs[0].Baseline can never disagree about whether this run is hunting donuts.
+            var donutMaster = EffectiveDetectionOptions.DefocusAwareDonutDetection;
+            seed.DefocusAwareDonutDetection = donutMaster;
             // Donut recovery widens the curated search space (the defocus axes are added only when the master is
             // on), so it needs more iterations to converge: use the larger budget when enabled, else the standard
             // one. Re-applied each call so toggling the donut master between builds takes effect.
-            optimizerSettings.MaxEvaluations = starDetectionOptions.DefocusAwareDonutDetection ? DonutMaxEvaluations : standardMaxEvaluations;
+            optimizerSettings.MaxEvaluations = donutMaster ? DonutMaxEvaluations : standardMaxEvaluations;
             var variables = variablesOverride ?? OptimizerVariable.CreateCuratedSet(seed);
             var evaluator = RunEvaluationData.CreateEvaluator(runs.Select(r => r.Data).ToList());
 
@@ -2447,7 +2487,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (ReviewVM != null) {
                     ReviewVM.PropertyChanged -= OnReviewLabelsChanged;
                 }
-                ReviewVM = new StarReviewVM(reviews, labelsByRun, labelsDir ?? string.Empty, starDetectionOptions.MeasurementAverage);
+                ReviewVM = new StarReviewVM(reviews, labelsByRun, labelsDir ?? string.Empty, EffectiveDetectionOptions.MeasurementAverage);
                 // Surface label edits live: the "Optimize with feedback" button enables as soon as the user labels
                 // anything (the StarReviewVM raises CountsLabel on every add/remove).
                 ReviewVM.PropertyChanged += OnReviewLabelsChanged;

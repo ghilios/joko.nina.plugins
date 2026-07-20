@@ -174,6 +174,47 @@ public class PerFilterEditBinderTests {
         h.Store.DidNotReceive().UpsertSnapshot(Arg.Any<string>(), Arg.Any<StarDetectionSettingsSnapshot>());
     }
 
+    // MutateFilterSettings is the write path for callers that target ONE filter which is not necessarily the one on
+    // the options page (the optimization wizard's target filter). The store's getters return clones, so a write for a
+    // non-edited filter has to go back through UpsertSnapshot or it silently persists nothing.
+
+    [Test]
+    public void MutateFilterSettings_NonEditedFilter_UpsertsTheStoreAndLeavesTheBufferAlone() {
+        var h = Build(enabled: true);   // editing "Ha"
+        h.Buffer.DefocusAwareDonutDetection = false;
+        h.Store.ClearReceivedCalls();
+
+        h.Binder.MutateFilterSettings("Oiii", o => o.DefocusAwareDonutDetection = true);
+
+        h.Store.Received().UpsertSnapshot("Oiii", Arg.Is<StarDetectionSettingsSnapshot>(s => s.DefocusAwareDonutDetection));
+        Assert.Multiple(() => {
+            Assert.That(h.Buffer.DefocusAwareDonutDetection, Is.False, "the edited filter's buffer is untouched");
+            Assert.That(h.Binder.EditedFilterName, Is.EqualTo("Ha"), "and the options page stays on its filter");
+        });
+    }
+
+    [Test]
+    public void MutateFilterSettings_EditedFilter_GoesThroughTheBufferSoTheMirrorPersistsIt() {
+        var h = Build(enabled: true);   // editing "Ha"
+        h.Buffer.DefocusAwareDonutDetection = false;
+        h.Store.ClearReceivedCalls();
+
+        h.Binder.MutateFilterSettings("Ha", o => o.DefocusAwareDonutDetection = true);
+
+        Assert.That(h.Buffer.DefocusAwareDonutDetection, Is.True, "the buffer IS this filter's live editing surface");
+        h.Store.Received().UpsertSnapshot("Ha", Arg.Is<StarDetectionSettingsSnapshot>(s => s.DefocusAwareDonutDetection));
+    }
+
+    [Test]
+    public void MutateFilterSettings_FeatureDisabled_WritesTheBufferOnly() {
+        var h = Build();
+
+        h.Binder.MutateFilterSettings("Oiii", o => o.DefocusAwareDonutDetection = true);
+
+        Assert.That(h.Buffer.DefocusAwareDonutDetection, Is.True);
+        h.Store.DidNotReceive().UpsertSnapshot(Arg.Any<string>(), Arg.Any<StarDetectionSettingsSnapshot>());
+    }
+
     [Test]
     public void ExternalSnapshotChange_ForEditedFilter_ReloadsTheBuffer() {
         var h = Build(enabled: true);
