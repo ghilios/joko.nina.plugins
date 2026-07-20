@@ -52,14 +52,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // Informational provenance — not used to drive an import.
         public string PluginVersion { get; set; }
 
+        /// <summary>Name of the filter whose per-filter settings set was exported. Stamped only while per-filter
+        /// star detection is enabled; omitted from the JSON when null so files written with the feature off (and
+        /// every pre-existing export) keep the legacy schema byte-for-byte. Provenance only — an import applies to
+        /// whichever filter is being edited, regardless of this value.</summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public string FilterName { get; set; }
+
         /// <summary>The full star-detection knob set + optimized-settings layer (see
         /// <see cref="StarDetectionSettingsSnapshot"/>).</summary>
         public StarDetectionSettingsSnapshot StarDetection { get; set; }
 
         /// <summary>Captures the live options into a portable export. The machine-local intermediate-image path and
         /// save-intermediate flag are blanked: they are never applied on import and the path would otherwise leak a
-        /// local user directory into the shared file.</summary>
-        public static StarDetectionSettingsExport FromOptions(IStarDetectionOptions options) {
+        /// local user directory into the shared file. <paramref name="filterName"/> is the edited filter when
+        /// per-filter star detection is on; null/empty leaves the provenance field absent.</summary>
+        public static StarDetectionSettingsExport FromOptions(IStarDetectionOptions options, string filterName = null) {
             if (options == null) {
                 throw new ArgumentNullException(nameof(options));
             }
@@ -73,6 +81,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 SchemaVersion = CurrentSchemaVersion,
                 CreatedAtUtc = DateTime.UtcNow,
                 PluginVersion = typeof(StarDetectionSettingsExport).Assembly.GetName().Version?.ToString(),
+                FilterName = string.IsNullOrEmpty(filterName) ? null : filterName,
                 StarDetection = snapshot
             };
         }

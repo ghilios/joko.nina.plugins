@@ -215,5 +215,70 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 File.Delete(path);
             }
         }
+
+        [Test]
+        public void RoundTrips_FilterNameProvenance() {
+            var original = BuildPopulated();
+            original.FilterName = "Ha";
+
+            var json = original.Serialize();
+            Assert.That(json, Does.Contain("\"filterName\": \"Ha\""));
+
+            var restored = StarDetectionSettingsExport.Deserialize(json);
+            restored.Validate();
+            Assert.That(restored.FilterName, Is.EqualTo("Ha"));
+        }
+
+        [Test]
+        public void Serialize_OmitsFilterName_WhenNotSet() {
+            // Exports written with per-filter mode off must stay byte-compatible with the pre-FilterName schema.
+            var json = BuildPopulated().Serialize();
+
+            Assert.That(json, Does.Not.Contain("\"filterName\""));
+
+            var restored = StarDetectionSettingsExport.Deserialize(json);
+            restored.Validate();
+            Assert.That(restored.FilterName, Is.Null);
+        }
+
+        [Test]
+        public void TryLoad_LoadsLegacyFileWithoutFilterName() {
+            var path = Path.Combine(Path.GetTempPath(), "HFExport_" + Guid.NewGuid().ToString("N") + ".json");
+            try {
+                // Written by a plugin version that predates the FilterName provenance field.
+                File.WriteAllText(path, @"{
+  ""fileType"": ""HocusFocusStarDetectionSettings"",
+  ""schemaVersion"": 1,
+  ""createdAtUtc"": ""2026-06-28T01:02:03Z"",
+  ""pluginVersion"": ""3.0.0.99"",
+  ""starDetection"": { ""brightnessSensitivity"": 7.25 }
+}");
+
+                var ok = StarDetectionSettingsExport.TryLoad(path, out var export, out var error);
+
+                Assert.Multiple(() => {
+                    Assert.That(ok, Is.True);
+                    Assert.That(error, Is.Null);
+                    Assert.That(export.FilterName, Is.Null);
+                    Assert.That(export.StarDetection.BrightnessSensitivity, Is.EqualTo(7.25));
+                });
+            } finally {
+                File.Delete(path);
+            }
+        }
+
+        [Test]
+        public void FromOptions_StampsFilterName_WhenProvided() {
+            var options = new StarDetectionOptions(Substitute.For<IProfileService>(), new InMemoryPluginOptionsAccessor());
+            var export = StarDetectionSettingsExport.FromOptions(options, "SII");
+            Assert.That(export.FilterName, Is.EqualTo("SII"));
+        }
+
+        [Test]
+        public void FromOptions_LeavesFilterNameNull_ByDefault() {
+            var options = new StarDetectionOptions(Substitute.For<IProfileService>(), new InMemoryPluginOptionsAccessor());
+            var export = StarDetectionSettingsExport.FromOptions(options);
+            Assert.That(export.FilterName, Is.Null);
+        }
     }
 }
