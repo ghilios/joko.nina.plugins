@@ -207,6 +207,10 @@ namespace NINA.Joko.Plugins.HocusFocus {
             LaunchStarDetectionOptimizer = OptimizeStarDetection;
             ExportStarDetectionSettingsCommand = new RelayCommand(() => StarDetectionSettingsIO.Export(StarDetectionOptions));
             ImportStarDetectionSettingsCommand = new AsyncRelayCommand(() => StarDetectionSettingsIO.ImportAsync(StarDetectionOptions, windowServiceFactory));
+            // No canExecute predicate: CommunityToolkit commands do not requery on CommandManager.RequerySuggested,
+            // and ButtonBase does not requery when CommandParameter changes, so a predicate here would latch the
+            // button disabled forever. The button's enablement is driven reactively by PerFilterEditBinder
+            // .CanCopyFromFilter via an IsEnabled binding instead.
             CopyStarDetectionFromFilterCommand = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand<string>(CopyStarDetectionFromFilter);
             LaunchCopyStarDetectionFromFilter = CopyStarDetectionFromFilter;
         }
@@ -265,8 +269,17 @@ namespace NINA.Joko.Plugins.HocusFocus {
             windowService.ShowDialog(vm, "Optimize Star Detection", ResizeMode.CanResize, WindowStyle.SingleBorderWindow);
         }
 
-        private Task CopyStarDetectionFromFilter(string sourceFilterName) {
-            return StarDetectionSettingsIO.CopyFromFilterAsync(sourceFilterName, PerFilterStarDetection, StarDetectionOptions, windowServiceFactory);
+        private async Task CopyStarDetectionFromFilter(string sourceFilterName) {
+            try {
+                await StarDetectionSettingsIO.CopyFromFilterAsync(sourceFilterName, PerFilterStarDetection, StarDetectionOptions, windowServiceFactory);
+            } finally {
+                // Reset the "Copy Settings From" dropdown to no selection once the flow finishes (applied or not), so
+                // the Copy button disables again and the next copy is a deliberate re-selection. Shared binder, so
+                // this clears the dropdown on whichever host raised the command.
+                if (PerFilterStarDetectionEditBinder != null) {
+                    PerFilterStarDetectionEditBinder.CopySourceFilterName = null;
+                }
+            }
         }
 
         private void ChooseIntermediatePathDiag() {

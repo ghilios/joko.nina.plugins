@@ -51,6 +51,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             OptimizeStarDetectionCommand = new RelayCommand(OptimizeStarDetection);
             ExportStarDetectionSettingsCommand = new RelayCommand(() => StarDetectionSettingsIO.Export(StarDetectionOptions));
             ImportStarDetectionSettingsCommand = new AsyncRelayCommand(() => StarDetectionSettingsIO.ImportAsync(StarDetectionOptions, windowServiceFactory));
+            // Enablement is driven by PerFilterEditBinder.CanCopyFromFilter (IsEnabled binding), not a canExecute
+            // predicate — see the note on the same command in HocusFocusPlugin.
             CopyStarDetectionFromFilterCommand = new CommunityToolkit.Mvvm.Input.AsyncRelayCommand<string>(CopyStarDetectionFromFilter);
         }
 

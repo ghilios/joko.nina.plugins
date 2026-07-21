@@ -2389,17 +2389,21 @@
                     Grid.Column="1"
                     Orientation="Horizontal">
                     <ComboBox
-                        Name="PART_CopySourceFilterList"
                         MinWidth="80"
                         Margin="5,5,0,0"
                         VerticalAlignment="Center"
                         ItemsSource="{Binding PerFilterEditBinder.AvailableFilterNames}"
+                        SelectedItem="{Binding PerFilterEditBinder.CopySourceFilterName, Mode=TwoWay}"
                         ToolTip="{StaticResource CopyStarDetectionFromFilter_Tooltip}" />
+                    <!--  IsEnabled (not a command canExecute) gates the button on a chosen source: CommunityToolkit
+                          commands never requery on a parameter change, so a predicate would latch it disabled.
+                          CanCopyFromFilter tracks CopySourceFilterName, which the copy flow clears when it finishes.  -->
                     <Button
                         Margin="8,5,0,0"
                         VerticalAlignment="Center"
                         Command="{Binding CopyStarDetectionFromFilterCommand}"
-                        CommandParameter="{Binding SelectedItem, ElementName=PART_CopySourceFilterList}"
+                        CommandParameter="{Binding PerFilterEditBinder.CopySourceFilterName}"
+                        IsEnabled="{Binding PerFilterEditBinder.CanCopyFromFilter}"
                         ToolTip="{StaticResource CopyStarDetectionFromFilter_Tooltip}">
                         <TextBlock
                             Margin="10,5,10,5"

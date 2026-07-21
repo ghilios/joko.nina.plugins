@@ -150,19 +150,75 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
 
         public bool HasActiveFilterWarning => !string.IsNullOrEmpty(ActiveFilterWarning);
 
+        private string copySourceFilterName;
+
         /// <summary>
-        /// Re-evaluates <see cref="ActiveFilterWarning"/>. Called by the host whenever the filter wheel connects,
-        /// disconnects, or changes filter — the binder has no way to observe that itself, by design: it takes plain
-        /// delegates rather than NINA mediator types so it stays constructible with no equipment.
+        /// The filter chosen in the "Copy Settings From" dropdown, held here (rather than read straight off the
+        /// ComboBox) so it resolves identically on both hosts, gates the Copy button's enablement via CanExecute,
+        /// and can be cleared back to no-selection after a copy completes. Pure transient UI state — never persisted.
+        /// </summary>
+        public string CopySourceFilterName {
+            get => copySourceFilterName;
+            set {
+                if (copySourceFilterName != value) {
+                    copySourceFilterName = value;
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(CanCopyFromFilter));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Drives the Copy button's enablement through an IsEnabled binding (not a command <c>canExecute</c>
+        /// predicate: CommunityToolkit commands only requery on an explicit <c>NotifyCanExecuteChanged</c>, which a
+        /// button parameter change never triggers). False until a source filter is chosen, so nothing is copied from
+        /// nowhere, and back to false once a copy completes and the selection is cleared.
+        /// </summary>
+        public bool CanCopyFromFilter => !string.IsNullOrEmpty(copySourceFilterName);
+
+        /// <summary>
+        /// Re-syncs the edited filter to the wheel and re-evaluates <see cref="ActiveFilterWarning"/>. Called by the
+        /// host whenever the filter wheel connects, disconnects, or changes filter — the binder has no way to observe
+        /// that itself, by design: it takes plain delegates rather than NINA mediator types so it stays constructible
+        /// with no equipment.
         ///
         /// The host drives this from an <c>IFilterWheelConsumer</c> broadcast, which arrives on whatever thread the
-        /// mediator publishes from, so the notification is marshaled through the same non-blocking Post as
-        /// <see cref="Store_SnapshotChanged"/> — raising PropertyChanged for WPF-bound text off the UI thread is
-        /// exactly what that dispatcher exists to prevent, and a blocking Invoke would risk the deadlock described
-        /// in the class doc.
+        /// mediator publishes from, so the work is marshaled through the same non-blocking Post as
+        /// <see cref="Store_SnapshotChanged"/> — raising PropertyChanged for WPF-bound text (and mutating the buffer,
+        /// which raises it too) off the UI thread is exactly what that dispatcher exists to prevent, and a blocking
+        /// Invoke would risk the deadlock described in the class doc.
         /// </summary>
         public void RefreshActiveFilter() {
-            PostToUiThread(RaiseActiveFilterWarningChanged);
+            PostToUiThread(() => {
+                SelectActiveFilterIfConnected();
+                RaiseActiveFilterWarningChanged();
+            });
+        }
+
+        /// <summary>
+        /// While the feature is on and the wheel is connected and parked on a filter this profile defines, point the
+        /// editing selection at it, so the settings on the options page track the filter light is coming through — a
+        /// focus run or exposure lands on the filter you were just editing. A silent no-op otherwise: feature off, no
+        /// wheel, mid-move with no filter reported yet, or a wheel filter this profile does not define (all of which
+        /// leave any manual selection in place). Because the physical filter is authoritative, a subsequent wheel
+        /// change overrides a manual selection made in between — the mismatch warning covers that interim window.
+        /// Sets the field directly rather than through <see cref="EditedFilterName"/> so the warning is raised once,
+        /// by the caller, after this returns.
+        /// </summary>
+        private void SelectActiveFilterIfConnected() {
+            if (!store.Enabled || !getFilterWheelConnected()) {
+                return;
+            }
+            var current = getCurrentFilterName();
+            if (string.IsNullOrEmpty(current) || string.Equals(current, editedFilterName, StringComparison.Ordinal)) {
+                return;
+            }
+            if (!AvailableFilterNames.Contains(current)) {
+                return;
+            }
+            editedFilterName = current;
+            RaisePropertyChanged(nameof(EditedFilterName));
+            LoadSnapshotIntoBuffer(current);
         }
 
         private void RaiseActiveFilterWarningChanged() {
@@ -239,6 +295,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             }
             // A new profile can bring a different filter set and a different edited filter.
             RaiseActiveFilterWarningChanged();
+            // A copy source picked against the old profile's filters is meaningless now.
+            CopySourceFilterName = null;
         }
 
         private string ResolveDefaultFilterName(IReadOnlyList<string> names) {
@@ -259,6 +317,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             // The warning is gated on Enabled, so toggling the feature always changes whether it shows. Raised
             // inline like the buffer mutations above: Enabled is flipped from the options UI.
             RaiseActiveFilterWarningChanged();
+            // Start each enable/disable with the Copy source unselected (button disabled).
+            CopySourceFilterName = null;
         }
 
         private void OnFeatureEnabled() {

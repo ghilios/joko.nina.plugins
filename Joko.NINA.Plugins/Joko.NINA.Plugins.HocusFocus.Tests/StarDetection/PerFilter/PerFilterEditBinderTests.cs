@@ -486,22 +486,122 @@ public class PerFilterEditBinderTests {
 
     // A computed property alone never updates the UI: WPF only re-reads on PropertyChanged. The filter-wheel
     // consumer registered in HocusFocusPlugin drives RefreshActiveFilter on every device-info update, which is what
-    // makes the warning appear/disappear as the wheel connects, disconnects, or changes filter.
+    // makes the edited filter follow the wheel (and the warning appear/disappear) as it connects, disconnects, or
+    // changes filter.
     [Test]
-    public void RefreshActiveFilter_AfterTheWheelChangesFilter_RaisesPropertyChangedAndReflectsTheNewFilter() {
-        var h = Build(enabled: true, currentFilter: "Ha", connected: true);
-        Assert.That(h.Binder.ActiveFilterWarning, Is.Null);
+    public void RefreshActiveFilter_WheelMovesToAKnownFilter_FollowsItLoadsItsSnapshotAndGoesSilent() {
+        var h = Build(enabled: true, currentFilter: "Ha", connected: true);   // editing "Ha"
+        var oiii = SnapshotWith(o => {
+            o.UseAdvanced = true;
+            o.MaxDistortion = 0.31;
+        });
+        h.Store.GetOrSeedSnapshot("Oiii").Returns(oiii);
         var raised = new List<string>();
         h.Binder.PropertyChanged += (s, e) => raised.Add(e.PropertyName);
 
-        h.CurrentFilterName = "Oiii";   // the wheel moved; the edited filter did not follow
+        h.CurrentFilterName = "Oiii";   // the wheel moved to a filter this profile defines
         h.Binder.RefreshActiveFilter();
 
         Assert.Multiple(() => {
+            Assert.That(h.Binder.EditedFilterName, Is.EqualTo("Oiii"), "the edited filter follows the wheel");
+            Assert.That(h.Buffer.MaxDistortion, Is.EqualTo(0.31), "and its snapshot is loaded into the buffer");
+            Assert.That(h.Binder.ActiveFilterWarning, Is.Null, "editing the active filter is not a mismatch");
+            Assert.That(raised, Does.Contain(nameof(PerFilterEditBinder.EditedFilterName)));
             Assert.That(raised, Does.Contain(nameof(PerFilterEditBinder.ActiveFilterWarning)));
-            Assert.That(raised, Does.Contain(nameof(PerFilterEditBinder.HasActiveFilterWarning)));
-            Assert.That(h.Binder.ActiveFilterWarning, Does.Contain("Oiii").And.Contains("Ha"));
         });
+        h.Store.Received().GetOrSeedSnapshot("Oiii");
+    }
+
+    [Test]
+    public void RefreshActiveFilter_WheelMovesToAFilterTheProfileDoesNotDefine_DoesNotFollowAndWarns() {
+        var h = Build(enabled: true, currentFilter: "Ha", connected: true);   // editing "Ha"
+
+        h.CurrentFilterName = "Sii";   // not one of L/Ha/Oiii
+        h.Binder.RefreshActiveFilter();
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.EditedFilterName, Is.EqualTo("Ha"), "an unknown wheel filter is not auto-selected");
+            Assert.That(h.Binder.ActiveFilterWarning, Does.Contain("Sii").And.Contains("Ha"));
+        });
+    }
+
+    [Test]
+    public void RefreshActiveFilter_WheelDisconnects_KeepsTheEditedFilterAndWarns() {
+        var h = Build(enabled: true, currentFilter: "Ha", connected: true);   // editing "Ha"
+
+        h.FilterWheelConnected = false;
+        h.CurrentFilterName = null;
+        h.Binder.RefreshActiveFilter();
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.EditedFilterName, Is.EqualTo("Ha"), "disconnect leaves the last edited filter in place");
+            Assert.That(h.Binder.ActiveFilterWarning, Does.Contain("No filter wheel is connected"));
+        });
+    }
+
+    [Test]
+    public void RefreshActiveFilter_FeatureDisabled_DoesNotTouchTheEditedFilter() {
+        var h = Build(enabled: false, currentFilter: "Ha", connected: true);
+        h.Store.ClearReceivedCalls();
+
+        h.CurrentFilterName = "Oiii";
+        h.Binder.RefreshActiveFilter();
+
+        Assert.That(h.Binder.EditedFilterName, Is.Null, "nothing is edited while the feature is off");
+        h.Store.DidNotReceive().GetOrSeedSnapshot(Arg.Any<string>());
+    }
+
+    // A manual pick different from the wheel stands until the wheel next moves; the mismatch warning covers the gap.
+    [Test]
+    public void RefreshActiveFilter_ManualPickThenWheelMoves_ResyncsToTheWheel() {
+        var h = Build(enabled: true, currentFilter: "Ha", connected: true);   // editing "Ha"
+        h.Binder.EditedFilterName = "L";   // user deliberately edits a different filter
+        Assert.That(h.Binder.ActiveFilterWarning, Does.Contain("Ha").And.Contains("L"));
+
+        h.CurrentFilterName = "Oiii";   // wheel moves
+        h.Binder.RefreshActiveFilter();
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.EditedFilterName, Is.EqualTo("Oiii"), "the physical filter wins over the manual pick");
+            Assert.That(h.Binder.ActiveFilterWarning, Is.Null);
+        });
+    }
+
+    [Test]
+    public void CopySourceFilterName_GatesCanCopyAndRaisesBothProperties() {
+        var h = Build(enabled: true);
+        Assert.That(h.Binder.CanCopyFromFilter, Is.False, "no source chosen -> Copy disabled");
+        var raised = new List<string>();
+        h.Binder.PropertyChanged += (s, e) => raised.Add(e.PropertyName);
+
+        h.Binder.CopySourceFilterName = "Oiii";
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.CopySourceFilterName, Is.EqualTo("Oiii"));
+            Assert.That(h.Binder.CanCopyFromFilter, Is.True, "a source is chosen -> Copy enabled");
+            Assert.That(raised, Does.Contain(nameof(PerFilterEditBinder.CopySourceFilterName)));
+            Assert.That(raised, Does.Contain(nameof(PerFilterEditBinder.CanCopyFromFilter)));
+        });
+    }
+
+    [Test]
+    public void CopySourceFilterName_ClearedToEmpty_DisablesCopyAgain() {
+        var h = Build(enabled: true);
+        h.Binder.CopySourceFilterName = "Oiii";
+
+        h.Binder.CopySourceFilterName = null;   // what the copy flow does when it completes
+
+        Assert.That(h.Binder.CanCopyFromFilter, Is.False);
+    }
+
+    [Test]
+    public void CopySourceFilterName_ClearedWhenTheFeatureIsDisabled() {
+        var h = Build(enabled: true);
+        h.Binder.CopySourceFilterName = "Oiii";
+
+        SetEnabled(h, false);
+
+        Assert.That(h.Binder.CopySourceFilterName, Is.Null);
     }
 
     [Test]
