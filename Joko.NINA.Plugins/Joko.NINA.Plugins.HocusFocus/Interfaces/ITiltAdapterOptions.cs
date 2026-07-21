@@ -27,7 +27,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         Turns = 0,
 
         [Description("Degrees")]
-        Degrees = 1
+        Degrees = 1,
+
+        [Description("Minutes")]
+        Minutes = 2
     }
 
     public interface ITiltAdapterOptions : INotifyPropertyChanged {
@@ -60,7 +63,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         TiltAdjustmentType AdjustmentType { get; set; }      // screws vs stepper motors
 
         // Display unit for the Tilt Adapter Guidance numeric amounts on screw adapters:
-        // Turns (default) or Degrees (1 turn = 360°). Ignored for stepper adapters (always whole steps).
+        // Turns (default), Degrees (1 turn = 360°), or Minutes (1 turn = 60 min). Ignored for
+        // stepper adapters (always whole steps).
         TiltGuidanceAngleUnit AngleDisplayUnit { get; set; }
 
         double ThreadPitchMicrons { get; set; }              // axial microns per full screw turn

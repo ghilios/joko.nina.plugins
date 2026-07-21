@@ -42,7 +42,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public bool HasNumericGuidance { get; set; }
         public bool UnitsAreSteps { get; set; }
 
-        // The Turns/Degrees dropdown is meaningful only for screw adapters with numeric guidance;
+        // The Turns/Degrees/Minutes dropdown is meaningful only for screw adapters with numeric guidance;
         // steppers always show whole steps. Single derived bool so the XAML uses one plain Visibility
         // binding (mirrors HasFourScrewBackfocus).
         public bool ShowAngleUnitSelector => HasNumericGuidance && !UnitsAreSteps;
@@ -80,7 +80,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// "(assumed)" flags a direction setting never verified by a wizard measurement.
         /// </summary>
         public static string BuildDirectionLegend(bool steps, bool signIsMeasured, TiltGuidanceAngleUnit angleUnit) {
-            string unitWord = angleUnit == TiltGuidanceAngleUnit.Degrees ? "degrees" : "turns";
+            string unitWord = angleUnit switch {
+                TiltGuidanceAngleUnit.Degrees => "degrees",
+                TiltGuidanceAngleUnit.Minutes => "minutes",
+                _ => "turns"
+            };
             string body = steps
                 ? "⬆ = adapter moves toward the objective · steps are signed as in the wizard prompts"
                 : $"⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in {unitWord}";
@@ -90,11 +94,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         /// <summary>
         /// Format a signed per-screw adjustment. Positive = clockwise / the wizard-prompt "+" step
-        /// direction. Screws render the magnitude with a rotation glyph — either turns ("1.25 ⟳",
-        /// 2 decimals) or whole degrees ("45° ⟳", 1 turn = 360°) per <paramref name="angleUnit"/>;
-        /// steppers render signed whole steps ("+35 steps") and ignore the unit. Values below the
-        /// 0.005-turn noise floor render as an em dash with no direction mark (so the smallest shown
-        /// degree value is ~2°).
+        /// direction. Screws render the magnitude with a rotation glyph — turns ("1.25 ⟳", 2 decimals),
+        /// whole degrees ("45° ⟳", 1 turn = 360°), or minutes ("15.0 min ⟳", 60 minutes = 1 turn,
+        /// 1 decimal) per <paramref name="angleUnit"/>; steppers render signed whole steps ("+35 steps")
+        /// and ignore the unit. Values below the 0.005-turn noise floor render as an em dash with no
+        /// direction mark (so the smallest shown value is ~2° / 0.3 min).
         /// </summary>
         public static string FormatAmount(double signedAmount, bool steps, TiltGuidanceAngleUnit angleUnit) {
             if (steps) {
@@ -107,6 +111,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             if (angleUnit == TiltGuidanceAngleUnit.Degrees) {
                 long degrees = (long)Math.Round(Math.Abs(signedAmount) * 360.0, MidpointRounding.AwayFromZero);
                 return $"{degrees}° {glyph}";
+            }
+            if (angleUnit == TiltGuidanceAngleUnit.Minutes) {
+                // 60 minutes = one full turn (clock-face convention, NOT arcminutes). One decimal
+                // preserves turns' physical resolution (0.1 min = 0.6° = 0.00167 turn) and keeps
+                // values just above the 0.005-turn floor visible (0.005 turn = 0.3 min) rather than
+                // rounding them down to a misleading 0.
+                return $"{Math.Abs(signedAmount) * 60.0:0.0} min {glyph}";
             }
             return $"{Math.Abs(signedAmount):0.00} {glyph}";
         }
