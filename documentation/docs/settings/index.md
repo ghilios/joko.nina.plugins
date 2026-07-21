@@ -2,7 +2,7 @@
 
 Hocus Focus's star detector turns a raw frame into a set of accepted stars with measured Half-Flux Radius (HFR), and optionally a fitted PSF for FWHM and eccentricity. Almost every tunable knob feeds a single parameter bundle (`StarDetectorParams`) built by one function, `BuildStarDetectorParams`, so what you set in NINA's plugin options is exactly what the detector runs, and exactly what the headless tooling reproduces.
 
-This page is the entry point to the settings reference. It explains the two ways to drive the detector (**Simple mode** vs **Advanced mode**), where to find the options in NINA, the high-level shape of the detection pipeline, and the practical EARLY-vs-LATE parameter distinction. Each pipeline stage links to its own sub-page where every setting is documented with its tooltip, default, range, and when to adjust it.
+This page is the entry point to the settings reference. It explains the two ways to drive the detector (**Simple mode** vs **Advanced mode**), where to find the options in NINA, the shape of the detection pipeline, and the EARLY-vs-LATE parameter distinction. Each pipeline stage links to its own sub-page where every setting is documented with its tooltip, default, range, and when to adjust it.
 
 ## Where to find these settings
 
@@ -40,7 +40,7 @@ The three Simple-mode presets are:
 
 > Controls the amount of blurring done on the source image before beginning the star detection process. Increase this if you have a particularly noisy sensor or shoot at a very high focal ratio
 
-Internally, this preset chooses the noise-reduction radius, whether measurement-time noise reduction is on, whether hotpixel filtering runs, and the σ-based sensitivity scale. `None` disables noise reduction entirely; `Low`/`Typical` apply a small blur; `High` enables star-measurement noise reduction with a larger radius. See [Preprocessing & Noise](preprocessing.md).
+Internally, this preset chooses the noise-reduction radius, whether measurement-time noise reduction is on, and whether hotpixel filtering runs. `None` disables noise reduction and hotpixel filtering entirely; `Low` and `Typical` currently derive the same values (a small blur, radius 3); `High` enables star-measurement noise reduction with a larger radius. See [Preprocessing & Noise](preprocessing.md).
 
 **Pixel Scale** — tooltip:
 
@@ -68,7 +68,34 @@ Star-detection settings can move between machines. Two buttons at the bottom of 
 
 Only **star-detection** settings are written, not autofocus, inspector, or tilt settings. The wizard's optimized-settings snapshot is included too, so the imported profile can turn it on with **Use Optimized Settings**. A few values are deliberately left out because they belong to one computer: the intermediate-image path, the **Save Intermediate** flag, **Debug Mode**, and **PSF Parallel Size**. Those keep their local values on import.
 
+With [per-filter star detection](#per-filter-star-detection) enabled, **Export** writes the set of the filter you are currently editing and records that filter's name in the file, and the import confirmation shows the name so you can tell which filter a file was tuned for. **Import** applies to whichever filter you are editing at the time, regardless of the name in the file.
+
 Import never changes anything silently. After you pick a file, a confirmation dialog lists every setting that would change in a **Setting / Current / Imported** table, and the new values are applied only when you click **Apply**. If the file matches your current settings, it tells you there is nothing to change. A file that is not a Hocus Focus star-detection export, or that comes from a newer version's format, is rejected without touching your settings.
+
+## Per-filter star detection
+
+A single set of detection settings serves every filter by default. That is a compromise: narrowband frames carry fainter stars and darker backgrounds than broadband frames, so settings tuned for luminance can miss half the stars through Ha. **Per-filter star detection** gives every filter in the active profile's filter wheel its own complete settings set, tuned by hand or by the [Optimization Wizard](../optimization/index.md).
+
+Enable it with the **Per-Filter Star Detection** checkbox at the top of the **Star Detector** tab (default **off**; with it off, nothing changes). On enable, every filter defined in the profile starts with a copy of your current settings, so behavior is identical until you change something for a specific filter. A filter added to the profile later starts from that same captured copy the first time it is used.
+
+### Editing one filter's settings
+
+With the feature on, an **Editing Filter** dropdown appears above the settings. Everything below it, including the Simple-mode presets, **Advanced Mode**, **Use Optimized Settings**, **Reset Defaults**, **Export**, and **Import**, now edits the selected filter's set. Pick another filter and the controls reload with that filter's values; changes are still written to the profile as you make them. The machine-local values (**Debug Mode**, the intermediate-image path and **Save Intermediate** flag, and **PSF Parallel Size**) stay global, since they describe the computer rather than the filter.
+
+**Copy Settings From** copies another filter's set onto the filter you are editing: choose the source filter from the dropdown and click **Copy**. Like Import, it shows the confirmation dialog listing every setting that would change and applies nothing until you click **Apply**. A common workflow: tune one narrowband filter with the wizard, then copy the result to the other narrowband filters.
+
+At detection time each image uses the settings of the filter it was captured with, read from the image metadata. Autofocus frames carry the filter that is physically in the light path, so a focus run through Ha is measured with your Ha settings automatically.
+
+### Filter wheel required
+
+Per-filter sets are keyed by filter name, so detection must know which filter took each frame; that knowledge comes from the connected filter wheel. With the feature on and no wheel connected:
+
+- Hocus Focus refuses to start its own operations up front: autofocus runs, aberration inspector runs and analyses, and the Optimization Wizard all stop with a message naming the feature, and the sequencer's **Run Aberration Inspector** instruction reports a validation issue.
+- Any detection that still reaches a frame with no filter in its metadata (NINA's built-in autofocus using the Hocus Focus detector, for example) returns zero stars and shows a warning each time: *"Per-filter star detection is enabled but the active filter is unknown - connect a filter wheel."* It never fails the imaging pipeline with an error.
+
+If you image without a filter wheel (an OSC rig, say), leave the feature off.
+
+Renaming a filter starts the new name from the captured global copy; the old name's set is kept and reattaches if the name returns. Disabling the feature restores the single global set exactly as it was when you enabled per-filter mode, and the per-filter sets are kept for the next time you enable it.
 
 ## Reading the results: the Star Detection Results panel
 

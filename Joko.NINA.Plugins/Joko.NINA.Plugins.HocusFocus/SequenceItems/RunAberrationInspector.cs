@@ -24,6 +24,7 @@ using System.Threading.Tasks;
 using NINA.Core.Locale;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus;
 
 namespace NINA.Sequencer.SequenceItem.Autofocus {
 
@@ -39,18 +40,25 @@ namespace NINA.Sequencer.SequenceItem.Autofocus {
         private readonly IFilterWheelMediator filterWheelMediator;
         private readonly IFocuserMediator focuserMediator;
         private readonly IInspectorVMFactory inspectorVMFactory;
+        private readonly IPerFilterStarDetectionStore perFilterStarDetectionStore;
 
         [ImportingConstructor]
         public RunAberrationInspector(
-            IProfileService profileService, ICameraMediator cameraMediator, IFocuserMediator focuserMediator, IFilterWheelMediator filterWheelMediator, IInspectorVMFactory inspectorVMFactory) {
+            IProfileService profileService, ICameraMediator cameraMediator, IFocuserMediator focuserMediator, IFilterWheelMediator filterWheelMediator, IInspectorVMFactory inspectorVMFactory)
+            : this(profileService, cameraMediator, focuserMediator, filterWheelMediator, inspectorVMFactory, HocusFocusPlugin.PerFilterStarDetection) {
+        }
+
+        public RunAberrationInspector(
+            IProfileService profileService, ICameraMediator cameraMediator, IFocuserMediator focuserMediator, IFilterWheelMediator filterWheelMediator, IInspectorVMFactory inspectorVMFactory, IPerFilterStarDetectionStore perFilterStarDetectionStore) {
             this.profileService = profileService;
             this.cameraMediator = cameraMediator;
             this.focuserMediator = focuserMediator;
             this.filterWheelMediator = filterWheelMediator;
             this.inspectorVMFactory = inspectorVMFactory;
+            this.perFilterStarDetectionStore = perFilterStarDetectionStore;
         }
 
-        private RunAberrationInspector(RunAberrationInspector cloneMe) : this(cloneMe.profileService, cloneMe.cameraMediator, cloneMe.focuserMediator, cloneMe.filterWheelMediator, cloneMe.inspectorVMFactory) {
+        private RunAberrationInspector(RunAberrationInspector cloneMe) : this(cloneMe.profileService, cloneMe.cameraMediator, cloneMe.focuserMediator, cloneMe.filterWheelMediator, cloneMe.inspectorVMFactory, cloneMe.perFilterStarDetectionStore) {
             CopyMetaData(cloneMe);
         }
 
@@ -86,6 +94,9 @@ namespace NINA.Sequencer.SequenceItem.Autofocus {
             }
             if (!focuserMediator.GetInfo().Connected) {
                 i.Add(Loc.Instance["LblFocuserNotConnected"]);
+            }
+            if (perFilterStarDetectionStore?.Enabled == true && filterWheelMediator.GetInfo()?.Connected != true) {
+                i.Add("Per-filter star detection requires a connected filter wheel");
             }
 
             Issues = i;

@@ -12,6 +12,7 @@
 
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Core.Utility;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
@@ -25,14 +26,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     [JsonObject]
     public class StarDetectionOptions : BaseINPC, IStarDetectionOptions {
-        private readonly IPluginOptionsAccessor optionsAccessor;
+        private readonly SuppressiblePluginOptionsAccessor optionsAccessor;
 
         public StarDetectionOptions(IProfileService profileService)
             : this(profileService, CreateDefaultAccessor(profileService)) {
         }
 
         internal StarDetectionOptions(IProfileService profileService, IPluginOptionsAccessor optionsAccessor) {
-            this.optionsAccessor = optionsAccessor ?? throw new ArgumentNullException(nameof(optionsAccessor));
+            if (optionsAccessor == null) {
+                throw new ArgumentNullException(nameof(optionsAccessor));
+            }
+            this.optionsAccessor = new SuppressiblePluginOptionsAccessor(optionsAccessor, MachineLocalKeys);
             profileService.ProfileChanged += ProfileService_ProfileChanged;
             this.PropertyChanged += StarDetectionOptions_PropertyChanged;
             InitializeOptions();
@@ -44,6 +48,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 throw new Exception($"Guid not found in assembly metadata");
             }
             return new PluginOptionsAccessor(profileService, guid.Value);
+        }
+
+        // Machine-local persisted keys stay global in per-filter mode — they keep writing through even while
+        // buffered edits suppress the legacy profile keys. (SaveIntermediateImages is never persisted.)
+        internal static readonly ISet<string> MachineLocalKeys = new HashSet<string> {
+            "DetectionDebugMode",
+            nameof(IntermediateSavePath),
+            "PSFParallelPartitionSize",
+        };
+
+        // Per-filter "buffered" edit mode: while false, the legacy profile keys are frozen (fields and
+        // PropertyChanged behave normally; machine-local keys still write through).
+        public bool PersistToProfile {
+            get => !optionsAccessor.SuppressWrites;
+            set => optionsAccessor.SuppressWrites = !value;
+        }
+
+        internal void ReloadFromProfile() {
+            InitializeOptions();
+            RaiseAllPropertiesChanged();
         }
 
         private void ProfileService_ProfileChanged(object sender, EventArgs e) {

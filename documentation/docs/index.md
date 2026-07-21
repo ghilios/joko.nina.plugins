@@ -34,7 +34,7 @@ the field.
   so autofocus and tilt correction can be tested and rehearsed in the daytime.
 
 !!! note "Mix and match"
-    You can use the new star detector or the new annotator independently; keep whichever you like.
+    The star detector and the annotator can each be enabled independently; keep whichever pieces you like.
     To enable the autofocus and aberration-inspector features, Hocus Focus must be selected for both
     Auto Focus and Star Detector.
 
@@ -60,8 +60,8 @@ and **Auto Focus** dropdowns.
   aberration inspector, with the concepts and figures behind each.
 - **[Star Detection Settings](settings/index.md)** — a complete reference for every star-detection
   setting: what it does, when it helps, and when it can hurt.
-- **[Star Detection Optimization](optimization/index.md)** — a technical deep-dive into the optimization
-  approach: the objective function, the search algorithm, and how each setting factors in.
+- **[Star Detection Optimization](optimization/index.md)** — how the Optimization Wizard works: the
+  objective function, the search algorithm, and how each setting factors in.
 
 ## License and source
 

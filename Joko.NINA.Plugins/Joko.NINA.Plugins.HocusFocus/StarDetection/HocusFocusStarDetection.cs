@@ -12,6 +12,7 @@
 
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Utility;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter;
 using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Utility;
@@ -227,6 +228,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         private readonly IStarDetectionOptions starDetectionOptions;
         private readonly IProfileService profileService;
         private readonly IFocuserMediator focuserMediator;
+        private readonly IPerFilterStarDetectionStore perFilterStore;
         private bool pixelScaleWarningShown = false;
 
         public IImageStatisticsVM ImageStatisticsVM { get; private set; }
@@ -237,7 +239,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         [ImportingConstructor]
         public HocusFocusStarDetection(IImageStatisticsVM imageStatisticsVM, IProfileService profileService, IFocuserMediator focuserMediator) :
-            this(imageStatisticsVM, profileService, focuserMediator, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.AlglibAPI) {
+            this(imageStatisticsVM, profileService, focuserMediator, HocusFocusPlugin.StarDetectionOptions, HocusFocusPlugin.AlglibAPI, HocusFocusPlugin.PerFilterStarDetection) {
         }
 
         public HocusFocusStarDetection(
@@ -245,11 +247,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             IProfileService profileService,
             IFocuserMediator focuserMediator,
             IStarDetectionOptions starDetectionOptions,
-            IAlglibAPI alglibAPI) {
+            IAlglibAPI alglibAPI,
+            IPerFilterStarDetectionStore perFilterStore) {
             this.starDetector = new StarDetector(alglibAPI);
             this.starDetectionOptions = starDetectionOptions;
             this.profileService = profileService;
             this.focuserMediator = focuserMediator;
+            this.perFilterStore = perFilterStore;
             ImageStatisticsVM = imageStatisticsVM;
         }
 
@@ -261,16 +265,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var selectedAutoFocusBehavior = profileService.ActiveProfile.ApplicationSettings.SelectedPluggableBehaviors.Where(k => k.Key == typeof(IAutoFocusVMFactory).FullName).ToList();
             var ninaStockAutoFocus = selectedAutoFocusBehavior.Count == 0 || selectedAutoFocusBehavior.First().Value == "NINA";
             var isNinaAutoFocus = ninaStockAutoFocus && p.IsAutoFocus;
-            if (!starDetectionOptions.UseAutoFocusCrop && !isNinaAutoFocus) {
-                p.UseROI = false;
+            // UseAutoFocusCrop and ModelPSF are per-filter-scoped, so they must come from the SAME resolved
+            // options object as every other knob in this detection (Task 7 review fix). Resolving here also
+            // moves the indeterminate-filter throw inside the try below.
+            IStarDetectionOptions effectiveOptions;
+            StarDetectorParams detectorParams;
+            try {
+                effectiveOptions = ResolveEffectiveOptions(image);
+                if (!effectiveOptions.UseAutoFocusCrop && !isNinaAutoFocus) {
+                    p.UseROI = false;
+                }
+                var starDetectionRegion = StarDetectionRegion.FromStarDetectionParams(p);
+                detectorParams = BuildStarDetectorParams(effectiveOptions, image, starDetectionRegion, p.IsAutoFocus);
+            } catch (PerFilterSettingsUnavailableException e) {
+                // Soft-fail: never throw into NINA's imaging pipeline. Warn on EVERY occurrence (no one-shot
+                // latch) so a misconfigured session cannot silently zero out all of its detections.
+                Logger.Warning(e.Message);
+                Notification.ShowWarning(e.Message);
+                return new HocusFocusStarDetectionResult() {
+                    StarList = new List<DetectedStar>(),
+                    DetectedStars = 0,
+                    Params = p
+                };
             }
-
-            var starDetectionRegion = StarDetectionRegion.FromStarDetectionParams(p);
-            var detectorParams = GetStarDetectorParams(image, starDetectionRegion, p.IsAutoFocus);
-            // GetStarDetectorParams forces ModelPSF off for auto-focus (speed); lift that for a Review-Frames run so the
-            // per-star PSF properties are populated, honoring the star-detection options' PSF setting + fit type.
+            // BuildStarDetectorParams forces ModelPSF off for auto-focus (speed); lift that for a Review-Frames run
+            // so the per-star PSF properties are populated, honoring the effective PSF setting + fit type.
             if (modelPSFForAutoFocus) {
-                detectorParams.ModelPSF = starDetectionOptions.ModelPSF;
+                detectorParams.ModelPSF = effectiveOptions.ModelPSF;
             }
             var hocusFocusParams = ToHocusFocusParams(p);
 
@@ -429,13 +450,49 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public StarDetectorParams GetStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus) {
-            var detectorParams = BuildStarDetectorParams(starDetectionOptions);
+            return BuildStarDetectorParams(ResolveEffectiveOptions(image), image, starDetectionRegion, isAutoFocus);
+        }
+
+        /// <summary>
+        /// Builds the full detector params from an ALREADY-RESOLVED options source. Callers that need other
+        /// per-filter-scoped knobs for the same detection (see the 6-arg <see cref="Detect(IRenderedImage, PixelFormat, StarDetectionParams, IProgress{ApplicationStatus}, CancellationToken, bool)"/>)
+        /// resolve once via <see cref="ResolveEffectiveOptions"/> and call this, so a single detection can never mix
+        /// a filter's snapshot with the live global options.
+        /// </summary>
+        private StarDetectorParams BuildStarDetectorParams(IStarDetectionOptions effectiveOptions, IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus) {
+            var detectorParams = BuildStarDetectorParams(effectiveOptions);
             ApplyDetectionImageContext(detectorParams, image, starDetectionRegion, isAutoFocus);
             if (!isAutoFocus) {
                 // Only save intermediate images for 1 detection. Doing this again should require the user to pick it again.
+                // SaveIntermediateImages is machine-local by scope decision, so the one-shot reset always targets the
+                // live options — never a per-filter snapshot clone.
                 starDetectionOptions.SaveIntermediateImages = false;
             }
             return detectorParams;
+        }
+
+        /// <summary>
+        /// Resolves the options source for a detection with strict precedence: the per-filter snapshot for the
+        /// image's capture-time filter (feature enabled; machine-local fields copied from the live options so a
+        /// snapshot never overrides debug/save/parallelism settings), else the injected singleton. Feature enabled
+        /// with an indeterminate filter throws <see cref="PerFilterSettingsUnavailableException"/> — the NINA-facing
+        /// Detect soft-fails on it; typed callers propagate it to their existing failure handling. The explicit
+        /// optionsOverride overload of GetStarDetectorParams bypasses this entirely (replay wins).
+        /// </summary>
+        private IStarDetectionOptions ResolveEffectiveOptions(IRenderedImage image) {
+            if (!perFilterStore.Enabled) {
+                return starDetectionOptions;
+            }
+            var filterName = image?.RawImageData?.MetaData?.FilterWheel?.Filter;
+            // Whitespace-only counts as indeterminate: seeding a whitespace-keyed snapshot would persist a row into
+            // the profile blob that no UI filter row can ever match. The name is otherwise passed through untrimmed,
+            // which keeps it consistent with the store's StringComparer.Ordinal keys and the binder's comparisons.
+            if (string.IsNullOrWhiteSpace(filterName)) {
+                throw new PerFilterSettingsUnavailableException("Per-filter star detection is enabled but the active filter is unknown - connect a filter wheel.");
+            }
+            var snapshot = perFilterStore.GetOrSeedSnapshot(filterName);
+            snapshot.CopyMachineLocalFrom(starDetectionOptions);
+            return snapshot;
         }
 
         /// <summary>The detector's injected star-detection options (read-only).</summary>

@@ -10,10 +10,7 @@ These settings live under the **Advanced** star-detection options. They do not a
 
 ## What PSF modeling does
 
-Star detection first finds candidates, measures each star's centroid and **HFR**, and applies the acceptance gates. If PSF modeling is enabled, every accepted star then gets an analytic profile fit on top of that. The fit is solved per star, optionally across parallel batches, and is accepted only if its goodness of fit (R²) clears a threshold. A star whose PSF fit fails the threshold keeps its HFR but reports no FWHM/eccentricity (and increments the `PSFFitFailed` metric).
-
-!!! note "HFR is always measured; FWHM is not"
-    HFR (Half-Flux Radius) is the flux-weighted mean radius over a circular aperture, an empirical flux sum that the detector always computes for every accepted star, independent of PSF modeling. See [Half-Flux Radius](#half-flux-radius-hfr) below. FWHM and eccentricity come *only* from the PSF fit, so they are blank when `ModelPSF` is off or when the fit is rejected by the R² gate.
+Star detection first finds candidates, measures each star's centroid and **HFR**, and applies the acceptance gates. If PSF modeling is enabled, every accepted star then gets an analytic profile fit on top of that. The fit is solved per star, optionally across parallel batches, and is accepted only if its goodness of fit (R²) clears a threshold. A star whose PSF fit fails the threshold keeps its HFR but reports no FWHM/eccentricity (and increments the `PSFFitFailed` metric). HFR itself never depends on these settings; see [Half-Flux Radius](#half-flux-radius-hfr) below.
 
 ## Settings at a glance
 
@@ -24,7 +21,7 @@ Star detection first finds candidates, measures each star's centroid and **HFR**
 | PSF Resolution | 10 | integer > 0 (pixels) | Sampling-grid width across the star box; accuracy vs. speed |
 | PSF Fit Threshold | 0.9 | (0, 1] (R²) | Minimum R² for a fit to be accepted |
 | PSF Pixel Integration | Off | On / Off | Integrate the model over each pixel instead of point-sampling |
-| PSF MAD Fitting (`UsePSFAbsoluteDeviation`) | Off | On / Off | Experimental absolute-deviation fit, more robust to noise/outliers |
+| PSF MAD Fitting | Off | On / Off | Experimental absolute-deviation fit, more robust to noise/outliers |
 | PSF Parallel Size | 100 | integer ≥ 0 (stars) | Batch size for parallel fitting; 0 disables parallelism |
 
 ![Gaussian versus Moffat PSF images with radial profiles, showing the heavier wings of the Moffat model](../assets/figures/psf-models.png){ width=620 }
@@ -46,7 +43,7 @@ When this is on, each accepted star is fit and the results populate the star's F
 *Eccentricity measures how elongated a star is: a round star (left) has eccentricity near 0, while an elongated one (right), from tilt, trailing, or astigmatism, has high eccentricity. This shape comes only from the fitted PSF.*
 
 !!! tip "When this helps"
-    Leave it **on** for aberration inspection, tilt analysis, eccentricity maps, and any workflow that reads FWHM/eccentricity. Turn it **off** only when you need the lightest, fastest detection and care solely about star counts and HFR (the cost is per-star fit time, which grows on dense fields). (Auto-focus runs already disable PSF modeling internally for speed, so this switch primarily affects detection-driven analysis panels.)
+    Leave it **on** for aberration inspection, tilt analysis, eccentricity maps, and any workflow that reads FWHM/eccentricity. Turn it **off** only when you need the lightest, fastest detection and care solely about star counts and HFR; the cost is per-star fit time, which grows on dense fields. Auto-focus runs already force PSF modeling off internally for speed, so this switch mainly affects the detection-driven analysis panels.
 
 ## PSF Type
 
@@ -89,7 +86,7 @@ The R² goodness-of-fit gate that decides whether a PSF fit is trustworthy.
 
 > The minimum goodness of fit (R²) required for a PSF
 
-**Default:** 0.9 (R²) &nbsp;•&nbsp; **Range:** (0, 1]. The field validates `0 ≤ value ≤ 1.0`; the backing property rejects values outside the open-low, closed-high interval \((0, 1]\)
+**Default:** 0.9 (R²) &nbsp;•&nbsp; **Range:** greater than 0 and at most 1.0 (the field accepts 0 through 1.0; the backing property rejects 0 and anything above 1.0)
 
 After a star is fit, its coefficient of determination \( R^2 \) is compared against this threshold. A fit with \( R^2 \ge \) threshold is kept; otherwise the fit is discarded (the star keeps its HFR but reports no FWHM/eccentricity, and the `PSFFitFailed` count increases). \( R^2 = 1 \) is a perfect fit; lower values mean the model explains less of the star's pixel variance.
 
@@ -114,11 +111,11 @@ Point-sampling the model at \( (i, j) \) ignores how the profile varies across a
 
 ## PSF MAD Fitting
 
-Experimental fitting mode that minimizes absolute deviation instead of squared residuals.
+**PSF MAD Fitting** (property `UsePSFAbsoluteDeviation`) is an experimental fitting mode that minimizes absolute deviation instead of squared residuals.
 
 > Enables an experimental PSF fitting approach that is more robust to noise and outlier pixels. This should more closely mimic PixInsight PSF fitting logic
 
-**Default:** Off &nbsp;•&nbsp; **Range:** On / Off (property name `UsePSFAbsoluteDeviation`)
+**Default:** Off &nbsp;•&nbsp; **Range:** On / Off
 
 Fitting to minimize absolute deviation downweights outlier pixels (a hot pixel, a cosmic-ray hit, a nearby star's flux) relative to a least-squares fit, at a modest extra computational cost.
 
@@ -142,7 +139,7 @@ Stars are partitioned into batches of this size and each batch is fit on its own
 
 ## Half-Flux Radius (HFR)
 
-HFR is the workhorse focus metric and is measured for every accepted star regardless of the PSF settings above. It is the **flux-weighted mean radius** of a star's light over a circular aperture, computed with per-pixel local-background subtraction. Equivalently, it is the radius at which half of the star's enclosed flux lies inside and half outside, so a tighter, better-focused star has a smaller HFR and a bloated, defocused star a larger one.
+HFR is the workhorse focus metric and is measured for every accepted star regardless of the PSF settings above. It is the **flux-weighted mean radius** of a star's light over a circular aperture, computed with per-pixel local-background subtraction: each pixel's distance from the centroid is weighted by its background-subtracted flux. A tighter, better-focused star has a smaller HFR, and a bloated, defocused star a larger one.
 
 \[
 \mathrm{HFR} = \frac{\sum_i f_i \, r_i}{\sum_i f_i}
@@ -150,8 +147,11 @@ HFR is the workhorse focus metric and is measured for every accepted star regard
 
 where \( f_i \) is the background-subtracted flux of pixel \( i \) and \( r_i \) is its distance from the centroid.
 
-![Enclosed-flux curve defining the Half-Flux Radius as the radius enclosing half the star's total flux](../assets/figures/hfr-half-flux.png){ width=620 }
-*The Half-Flux Radius is the aperture radius that encloses half of a star's total flux.*
+![Enclosed-flux curve showing the radius at which half of a star's total flux is enclosed](../assets/figures/hfr-half-flux.png){ width=620 }
+*The classic construction the name "half-flux radius" comes from: the aperture radius enclosing half the star's
+total flux. Hocus Focus does not measure it this way — it computes the flux-weighted mean radius above, which
+tracks the same thing (tight star, small value; bloated star, large value) but is cheaper and more robust on
+faint stars.*
 
 !!! note
     HFR is the value auto-focus minimizes to find best focus, and the per-star metric the detector reports even when `ModelPSF` is off. FWHM (from the PSF fit) is a related but distinct measurement of profile width; the two are not interchangeable. For how HFR feeds the focus curve, see [Auto-Focus](../overview/autofocus.md).

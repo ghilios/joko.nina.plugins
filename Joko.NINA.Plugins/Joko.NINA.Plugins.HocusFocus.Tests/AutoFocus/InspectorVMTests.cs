@@ -1,3 +1,4 @@
+using CommunityToolkit.Mvvm.Input;
 using NINA.Core.Interfaces;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Image.ImageAnalysis;
@@ -207,6 +208,52 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                 Assert.That(InspectorVM.HasInspectorRegionLayout(6), Is.True);
                 Assert.That(InspectorVM.HasInspectorRegionLayout(7), Is.True);
             });
+        }
+
+        [Test]
+        public void AnalyzeAutoFocus_PerFilterEnabledAndWheelDisconnected_RefusesWithoutStartingEngine() {
+            // Sync test body + GetAwaiter().GetResult() (not `async Task`/`await`), matching the
+            // established pattern in InspectorVMAutomaticAdjustmentTests: this fixture is
+            // [Apartment(STA)], and NUnit's async-test SynchronizationContext for STA fixtures makes
+            // ProgressFactory.Create (called from the InspectorVM ctor) NRE when a genuinely async
+            // test method awaits before/around construction.
+            var bundle = new MediatorBundle().WithFilterWheelConnected(false).WithPerFilterStarDetectionEnabled();
+            var vm = bundle.BuildInspectorVM();
+
+            var result = vm.AnalyzeAutoFocus(System.Threading.CancellationToken.None).GetAwaiter().GetResult();
+
+            Assert.That(result, Is.False);
+            bundle.AutoFocusEngineFactory.DidNotReceive().Create();
+        }
+
+        [Test]
+        public void AnalyzeAutoFocus_PerFilterEnabledAndWheelConnected_ProceedsToEngine() {
+            var bundle = new MediatorBundle().WithFilterWheelConnected(true).WithPerFilterStarDetectionEnabled();
+            var vm = bundle.BuildInspectorVM();
+
+            vm.AnalyzeAutoFocus(System.Threading.CancellationToken.None).GetAwaiter().GetResult();
+
+            bundle.AutoFocusEngineFactory.Received(1).Create();
+        }
+
+        [Test]
+        public void RunExposureAnalysis_PerFilterEnabledAndWheelDisconnected_RefusesWithoutStartingEngine() {
+            var bundle = new MediatorBundle().WithFilterWheelConnected(false).WithPerFilterStarDetectionEnabled();
+            var vm = bundle.BuildInspectorVM();
+
+            ((IAsyncRelayCommand)vm.RunExposureAnalysisCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            bundle.AutoFocusEngineFactory.DidNotReceive().Create();
+        }
+
+        [Test]
+        public void RunExposureAnalysis_PerFilterDisabled_WheelDisconnected_ProceedsToEngine() {
+            var bundle = new MediatorBundle().WithFilterWheelConnected(false);
+            var vm = bundle.BuildInspectorVM();
+
+            ((IAsyncRelayCommand)vm.RunExposureAnalysisCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            bundle.AutoFocusEngineFactory.Received(1).Create();
         }
     }
 }

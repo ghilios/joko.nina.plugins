@@ -28,7 +28,11 @@ Each row is one tunable axis. **Type** governs quantization (see [Quantization r
 | `DefocusAwareGates` | Boolean (synthetic) | 0 | 1 | — | Two gate-relaxation params at once (see below) |
 | `DefocusAwareStructure` | Integer (synthetic) | 0 | 4 | 1 | Defocus-aware structure flag + layer boost (see below) |
 
-Those are the **12** always-on axes. The two synthetic rows in the table above (`DefocusAwareGates`, `DefocusAwareStructure`) plus seven further defocus-tuning knobs (`DefocusDistortionSizeReference`, `DefocusDistortionMinFactor`, `DefocusCenteringToleranceFactor`, `DonutMorphCloseSize`, `DonutMinAnnularityHoleFraction`, `DonutMaxStreakEccentricity`, `DonutSaturationBloomRadius`) are added only when *Recover out-of-focus donut stars* is enabled, taking the curated set to **21** axes; with that master toggle off (the default) the optimizer never touches any defocus parameter. Several bounds are open-ended in the detector (there is no hard UI validation range), so the wizard applies pragmatic heuristic limits. For example, `Sensitivity` was widened from a 20 to a 50 ceiling and `StarClippingMultiplier` to a `[0.25, 10]` range because rich star fields kept pinning the older, tighter bounds. The two highest-impact axes, `Sensitivity` and `StarClippingMultiplier`, are also the pair the search grids over first in its coarse Phase A (see [search algorithm](search-algorithm.md)).
+Those are the **12** always-on axes. The two synthetic rows in the table above (`DefocusAwareGates`, `DefocusAwareStructure`) plus seven further defocus-tuning knobs (`DefocusDistortionSizeReference`, `DefocusDistortionMinFactor`, `DefocusCenteringToleranceFactor`, `DonutMorphCloseSize`, `DonutMinAnnularityHoleFraction`, `DonutMaxStreakEccentricity`, `DonutSaturationBloomRadius`) are added only when *Recover out-of-focus donut stars* is enabled, taking the curated set to **21** axes. With that master toggle off (the default) the optimizer never touches any defocus parameter.
+
+Several bounds are open-ended in the detector (there is no hard UI validation range), so the wizard applies pragmatic heuristic limits. `Sensitivity` was widened from a 20 to a 50 ceiling and `StarClippingMultiplier` to a `[0.25, 10]` range because rich star fields kept pinning the older, tighter bounds.
+
+The two highest-impact axes, `Sensitivity` and `StarClippingMultiplier`, are also the pair the search grids over first in its coarse Phase A (see [search algorithm](search-algorithm.md)).
 
 ## The two synthetic variables
 
@@ -36,7 +40,7 @@ Most axes are a one-to-one alias for a single `StarDetectorParams` field. Two ar
 
 ### `DefocusAwareGates` (Boolean)
 
-A single on/off switch that flips **both** defocus-aware gate relaxations together (`DefocusAwareDistortion` and `DefocusAwareCentering`) in lockstep. When enabled, these gates relax the distortion and centering checks for large candidates (large size is used as a defocus proxy), recovering bloated and donut-shaped defocused stars that the strict gates would reject (see [Defocus-Aware Gates](../settings/acceptance-gates.md#defocus-aware-gates)).
+A single on/off switch that flips **both** defocus-aware gate relaxations (`DefocusAwareDistortion` and `DefocusAwareCentering`) in lockstep. When enabled, these gates relax the distortion and centering checks for large candidates (large size is used as a defocus proxy), recovering bloated and donut-shaped defocused stars that the strict gates would reject (see [Defocus-Aware Gates](../settings/acceptance-gates.md#defocus-aware-gates)).
 
 The variable reads the distortion flag as its value and writes the same value to both flags. Both flags are OFF in the default seed parameters, so the baseline is unchanged, and the search may flip the pair on if it helps the curve.
 
@@ -47,7 +51,7 @@ The variable reads the distortion flag as its value and writes the same value to
 
 A single integer that drives **both** the `DefocusAwareStructure` flag **and** the `StructureLayerBoost` count. A value of `0` means OFF (the bit-identical baseline); any value `> 0` enables defocus-aware structure detection with that many extra wavelet layers, recovering large/donut defocused stars that otherwise never form a candidate at all.
 
-The variable reads the *effective* boost (0 when the flag is off), so the seed's \(J\) is unchanged; the search may raise it. Note this knob is **structure-side** (it changes which candidates are formed), whereas `DefocusAwareGates` is **gate-side** (it changes which formed candidates survive).
+The variable reads the *effective* boost (0 when the flag is off), so the seed's \(J\) is unchanged; the search may raise it. This knob is **structure-side** (it changes which candidates are formed), whereas `DefocusAwareGates` is **gate-side** (it changes which formed candidates survive).
 
 ## Quantization rules
 

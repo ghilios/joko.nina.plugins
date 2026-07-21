@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Core.Model;
+using NINA.Core.Model.Equipment;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
@@ -153,6 +154,9 @@ public class StarDetectionOptimizerWizardVMTests {
         // The progress-bearing overload is the one the VM actually calls (acquire + re-load); feed it the same queue.
         loader.LoadSavedRunAsync(Arg.Any<string>(), Arg.Any<StarDetectionRegion>(), Arg.Any<IReadOnlyList<FrameLabels>>(), Arg.Any<IProgress<RunLoadProgress>>(), Arg.Any<CancellationToken>())
             .Returns(_ => Task.FromResult(queue.Count > 0 ? queue.Dequeue() : runs[runs.Length - 1]));
+        // The baseline-override overload is the one the VM calls once per-filter routing lands; same queue.
+        loader.LoadSavedRunAsync(Arg.Any<string>(), Arg.Any<StarDetectionRegion>(), Arg.Any<IReadOnlyList<FrameLabels>>(), Arg.Any<IProgress<RunLoadProgress>>(), Arg.Any<IStarDetectionOptions>(), Arg.Any<CancellationToken>())
+            .Returns(_ => Task.FromResult(queue.Count > 0 ? queue.Dequeue() : runs[runs.Length - 1]));
         return loader;
     }
 
@@ -205,6 +209,14 @@ public class StarDetectionOptimizerWizardVMTests {
             }
             return Task.FromResult(Make(attemptFolderPath, labels));
         }
+
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, IProgress<RunLoadProgress> progress, IStarDetectionOptions baselineOptionsOverride, CancellationToken token) {
+            // Record the override alongside the folder so the fake stays lossless if a test ever asserts on it.
+            BaselineOverridesByFolder[attemptFolderPath] = baselineOptionsOverride;
+            return LoadSavedRunAsync(attemptFolderPath, region, labels, progress, token);
+        }
+
+        public Dictionary<string, IStarDetectionOptions> BaselineOverridesByFolder { get; } = new Dictionary<string, IStarDetectionOptions>();
     }
 
     private static StarDetectionOptimizerWizardVM NewVM(
@@ -219,7 +231,15 @@ public class StarDetectionOptimizerWizardVMTests {
         IAutoFocusOptions autoFocusOptions = null,
         Func<bool> confirmRoughFocus = null,
         Func<string> currentFilterName = null,
-        Func<int?> currentGain = null) {
+        Func<int?> currentGain = null,
+        Func<bool> perFilterEnabled = null,
+        Func<bool> isFilterWheelConnected = null,
+        Func<IReadOnlyList<string>> getFilterNames = null,
+        Func<string> getCurrentFilterName = null,
+        Func<string, FilterInfo> resolveFilterByName = null,
+        Func<string, IStarDetectionOptions> getFilterDetectionOptions = null,
+        Action<string, OptimizedStarDetectionSettings> applyOptimizedToFilter = null,
+        Action<string, bool> setFilterDonutDetection = null) {
         options ??= Substitute.For<IStarDetectionOptions>();
         profileService ??= Substitute.For<IProfileService>();
         return new StarDetectionOptimizerWizardVM(
@@ -236,7 +256,15 @@ public class StarDetectionOptimizerWizardVMTests {
             autoFocusOptions: autoFocusOptions,
             confirmRoughFocus: confirmRoughFocus,
             currentFilterName: currentFilterName,
-            currentGain: currentGain);
+            currentGain: currentGain,
+            perFilterEnabled: perFilterEnabled,
+            isFilterWheelConnected: isFilterWheelConnected,
+            getFilterNames: getFilterNames,
+            getCurrentFilterName: getCurrentFilterName,
+            resolveFilterByName: resolveFilterByName,
+            getFilterDetectionOptions: getFilterDetectionOptions,
+            applyOptimizedToFilter: applyOptimizedToFilter,
+            setFilterDonutDetection: setFilterDonutDetection);
     }
 
     // An HONEST fake review builder: it maps EACH supplied descriptor to one FrameReview (so the ReviewVM's queue
@@ -566,7 +594,7 @@ public class StarDetectionOptimizerWizardVMTests {
         Assert.Multiple(() => {
             Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
             Assert.That(vm.Summary.RunCount, Is.EqualTo(2));
-            loader.Received(2).LoadSavedRunAsync(Arg.Any<string>(), Arg.Any<StarDetectionRegion>(), Arg.Any<IReadOnlyList<FrameLabels>>(), Arg.Any<IProgress<RunLoadProgress>>(), Arg.Any<CancellationToken>());
+            loader.Received(2).LoadSavedRunAsync(Arg.Any<string>(), Arg.Any<StarDetectionRegion>(), Arg.Any<IReadOnlyList<FrameLabels>>(), Arg.Any<IProgress<RunLoadProgress>>(), Arg.Any<IStarDetectionOptions>(), Arg.Any<CancellationToken>());
         });
     }
 
@@ -1390,6 +1418,404 @@ public class StarDetectionOptimizerWizardVMTests {
         Assert.That(vm.IsLive, Is.False, "default source is Saved Auto-Focus (Replay)");
         vm.SourceMode = SourceMode.Live;
         Assert.That(vm.IsLive, Is.True, "Live mode shows the confirmation panel");
+    }
+
+    // ---- Per-filter star detection: target filter state + Start validation -----------------------------
+
+    [Test]
+    public void TargetFilterName_DefaultsToCurrentWheelFilter_WhenPerFilterEnabled() {
+        var vm = NewVM(LoaderReturning(GoodRun()),
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha", "OIII" },
+            getCurrentFilterName: () => "Ha");
+        Assert.Multiple(() => {
+            Assert.That(vm.IsPerFilterEnabled, Is.True);
+            Assert.That(vm.TargetFilterName, Is.EqualTo("Ha"));
+            Assert.That(vm.AvailableFilterNames, Is.EqualTo(new[] { "Lum", "Ha", "OIII" }));
+        });
+    }
+
+    [Test]
+    public void TargetFilterName_DefaultsToFirstProfileFilter_WhenWheelFilterUnknown() {
+        var vm = NewVM(LoaderReturning(GoodRun()),
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" },
+            getCurrentFilterName: () => null);
+        Assert.That(vm.TargetFilterName, Is.EqualTo("Lum"));
+    }
+
+    [Test]
+    public void IsPerFilterEnabled_False_ByDefault() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        Assert.Multiple(() => {
+            Assert.That(vm.IsPerFilterEnabled, Is.False);
+            Assert.That(vm.TargetFilterName, Is.Null, "feature off: no target filter is seeded");
+        });
+    }
+
+    [Test]
+    public async Task Start_PerFilterOn_NoTargetFilter_SetsErrorAndDoesNotLoad() {
+        var loader = LoaderReturning(GoodRun());
+        var vm = NewVM(loader, perFilterEnabled: () => true, getFilterNames: () => Array.Empty<string>());
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Is.EqualTo("Select a target filter."));
+            Assert.That(vm.CurrentStep, Is.Not.EqualTo(WizardStep.Summary));
+            loader.DidNotReceiveWithAnyArgs().LoadSavedRunAsync(default, default, default);
+        });
+    }
+
+    [Test]
+    public async Task Start_PerFilterOn_Live_FilterWheelDisconnected_SetsError() {
+        var vm = NewVM(LoaderReturning(GoodRun()),
+            isCameraConnected: () => true, isFocuserConnected: () => true,
+            perFilterEnabled: () => true,
+            isFilterWheelConnected: () => false,
+            getFilterNames: () => new[] { "Ha" });
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Is.EqualTo("Connect a filter wheel before running a live optimization."));
+            Assert.That(vm.CurrentStep, Is.Not.EqualTo(WizardStep.Summary));
+        });
+    }
+
+    [Test]
+    public async Task Start_PerFilterOn_Live_TargetFilterNotInProfile_SetsErrorAndDoesNotCapture() {
+        // The wheel reports a filter name the profile doesn't have: the sweep could not select it, so Start must
+        // refuse rather than capture through some other filter and attribute the result to the target.
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(GoodRun()),
+            isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine,
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Ha" }, getCurrentFilterName: () => "Ha",
+            resolveFilterByName: _ => null);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Does.Contain("Ha").And.Contain("not found in the profile"));
+            Assert.That(vm.CurrentStep, Is.Not.EqualTo(WizardStep.Summary));
+        });
+        _ = engine.DidNotReceiveWithAnyArgs().CaptureFixedSweepAsync(default, default, default, default);
+    }
+
+    [Test]
+    public void SweepFilterName_FlagsTargetFilterMissingFromProfile() {
+        var vm = NewVM(LoaderReturning(GoodRun()),
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Ha" }, getCurrentFilterName: () => "Ha",
+            resolveFilterByName: _ => null);
+        Assert.That(vm.SweepFilterName, Is.EqualTo("Ha (not in profile)"));
+    }
+
+    [Test]
+    public async Task Start_PerFilterOn_Replay_DoesNotRequireFilterWheel() {
+        // Replay needs no equipment: the wheel-connected gate applies to Live only.
+        var vm = NewVM(LoaderReturning(GoodRun()),
+            perFilterEnabled: () => true,
+            isFilterWheelConnected: () => false,
+            getFilterNames: () => new[] { "Ha" });
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+    }
+
+    [Test]
+    public void SweepReadouts_ReflectTargetFilter_WhenPerFilterEnabled() {
+        var target = new FilterInfo("Ha", 0, 1) { AutoFocusGain = 200 };
+        var vm = NewVM(LoaderReturning(GoodRun()),
+            currentFilterName: () => "Lum", currentGain: () => 100,
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" },
+            getCurrentFilterName: () => "Ha",
+            resolveFilterByName: name => name == "Ha" ? target : null);
+        Assert.Multiple(() => {
+            Assert.That(vm.SweepFilterName, Is.EqualTo("Ha"), "the target filter name, not the AF/current filter");
+            Assert.That(vm.SweepGain, Is.EqualTo("200"), "the target filter's per-filter AF gain");
+        });
+    }
+
+    [Test]
+    public void SweepReadouts_FallBackToProviders_WhenPerFilterOff() {
+        var vm = NewVM(LoaderReturning(GoodRun()), currentFilterName: () => "Lum", currentGain: () => 100);
+        Assert.Multiple(() => {
+            Assert.That(vm.SweepFilterName, Is.EqualTo("Lum"));
+            Assert.That(vm.SweepGain, Is.EqualTo("100"));
+        });
+    }
+
+    [Test]
+    public void SummaryFilter_ShowsTargetFilter_WhenPerFilterEnabled() {
+        var vm = NewVM(LoaderReturning(GoodRun()),
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" },
+            getCurrentFilterName: () => "Ha");
+        Assert.Multiple(() => {
+            Assert.That(vm.HasSummaryFilter, Is.True);
+            Assert.That(vm.SummaryFilterName, Is.EqualTo("Ha"));
+        });
+    }
+
+    [Test]
+    public void SummaryFilter_Hidden_WhenPerFilterDisabled() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.TargetFilterName = "Ha"; // even if somehow set, per-filter off means no filter to name
+        Assert.Multiple(() => {
+            Assert.That(vm.HasSummaryFilter, Is.False);
+            Assert.That(vm.SummaryFilterName, Is.Null);
+        });
+    }
+
+    [Test]
+    public void TargetFilterName_Set_RaisesPropertyChanged_ForSummaryFilterReadouts() {
+        var vm = NewVM(LoaderReturning(GoodRun()),
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" },
+            getCurrentFilterName: () => "Lum");
+        var raised = new List<string>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.TargetFilterName = "Ha";
+
+        Assert.Multiple(() => {
+            Assert.That(raised, Does.Contain(nameof(vm.SummaryFilterName)));
+            Assert.That(raised, Does.Contain(nameof(vm.HasSummaryFilter)));
+        });
+    }
+
+    // ---- Per-filter star detection: capture / baseline / Accept routing --------------------------------
+
+    [Test]
+    public async Task Start_PerFilterLive_PassesTargetFilterWithUseExactImagingFilter() {
+        var target = new FilterInfo("Ha", 0, 1);
+        FilterInfo capturedFilter = null;
+        AutoFocusEngineOptions capturedOptions = null;
+        var engine = LiveEngine(ci => {
+            capturedOptions = ci.ArgAt<AutoFocusEngineOptions>(0);
+            capturedFilter = ci.ArgAt<FilterInfo>(1);
+            return new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" };
+        });
+        var vm = NewVM(LoaderReturning(GoodRun()),
+            isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine,
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Ha",
+            resolveFilterByName: name => name == "Ha" ? target : null);
+        vm.SourceMode = SourceMode.Live;
+        vm.OptimizeMode = WizardOptimizeMode.UseCurrentSettings;
+        vm.SaveFolderPath = @"C:\live";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(capturedFilter, Is.SameAs(target), "the sweep exposes through the resolved target filter");
+            Assert.That(capturedOptions.UseExactImagingFilter, Is.True, "the AF-filter substitution is suppressed");
+        });
+    }
+
+    [Test]
+    public async Task Start_Live_PerFilterOff_KeepsNullFilterAndDefaultEngineOptions() {
+        var capturedFilter = new FilterInfo("sentinel", 0, 0);
+        AutoFocusEngineOptions capturedOptions = null;
+        var engine = LiveEngine(ci => {
+            capturedOptions = ci.ArgAt<AutoFocusEngineOptions>(0);
+            capturedFilter = ci.ArgAt<FilterInfo>(1);
+            return new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" };
+        });
+        var vm = NewLiveVM(engine);
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(capturedFilter, Is.Null, "feature off: no imaging filter is passed (existing behavior)");
+            Assert.That(capturedOptions.UseExactImagingFilter, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task Start_PerFilterOn_ThreadsTargetFilterOptionsIntoLoaderBaseline() {
+        var filterOptions = Substitute.For<IStarDetectionOptions>();
+        var loader = LoaderReturning(GoodRun());
+        var vm = NewVM(loader,
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Ha" }, getCurrentFilterName: () => "Ha",
+            getFilterDetectionOptions: name => name == "Ha" ? filterOptions : null);
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        await loader.Received(1).LoadSavedRunAsync(
+            @"C:\run1", Arg.Any<StarDetectionRegion>(), Arg.Any<IReadOnlyList<FrameLabels>>(),
+            Arg.Any<IProgress<RunLoadProgress>>(), filterOptions, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task Start_PerFilterOff_PassesNullBaselineOverrideToLoader() {
+        var loader = LoaderReturning(GoodRun());
+        var vm = NewVM(loader);
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        await loader.Received(1).LoadSavedRunAsync(
+            @"C:\run1", Arg.Any<StarDetectionRegion>(), Arg.Any<IReadOnlyList<FrameLabels>>(),
+            Arg.Any<IProgress<RunLoadProgress>>(), (IStarDetectionOptions)null, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task Accept_PerFilterOn_RoutesThroughApplyOptimizedToFilter() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        string appliedFilter = null;
+        OptimizedStarDetectionSettings appliedDto = null;
+        var vm = NewVM(LoaderReturning(GoodRun()), options,
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Ha" }, getCurrentFilterName: () => "Ha",
+            applyOptimizedToFilter: (name, dto) => { appliedFilter = name; appliedDto = dto; });
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+
+        vm.AcceptCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            Assert.That(appliedFilter, Is.EqualTo("Ha"), "the DTO lands in the TARGET filter's settings set");
+            Assert.That(appliedDto, Is.Not.Null);
+            Assert.That(appliedDto.BrightnessSensitivity, Is.EqualTo(vm.Result.BestParams.Sensitivity).Within(1e-9));
+        });
+        options.DidNotReceiveWithAnyArgs().ApplyOptimizedSettings(default);
+    }
+
+    // The donut master is a per-filter setting like every other detection knob. The wizard start page's checkbox and
+    // the optimizer's seed/budget must therefore read the TARGET filter's stored set — NOT the options-page edit
+    // buffer, which belongs to whichever filter happens to be selected on the Star Detection options page and is
+    // routinely a different filter (that is the whole point of the target picker).
+
+    [Test]
+    public void DefocusAwareDonutDetection_PerFilterOn_ReadsTheTargetFilter_NotTheEditBuffer() {
+        var buffer = Substitute.For<IStarDetectionOptions>();   // the options page is editing "Lum"
+        buffer.DefocusAwareDonutDetection.Returns(false);
+        var haOptions = Substitute.For<IStarDetectionOptions>();
+        haOptions.DefocusAwareDonutDetection.Returns(true);
+        var vm = NewVM(LoaderReturning(GoodRun()), buffer,
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Ha",
+            getFilterDetectionOptions: name => name == "Ha" ? haOptions : buffer);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.TargetFilterName, Is.EqualTo("Ha"));
+            Assert.That(vm.DefocusAwareDonutDetection, Is.True, "the wizard's donut master reflects the TARGET filter");
+        });
+    }
+
+    [Test]
+    public void DefocusAwareDonutDetection_PerFilterOn_WritesTheTargetFilter_NotTheEditBuffer() {
+        var buffer = Substitute.For<IStarDetectionOptions>();
+        buffer.DefocusAwareDonutDetection.Returns(false);
+        var haOptions = Substitute.For<IStarDetectionOptions>();
+        haOptions.DefocusAwareDonutDetection.Returns(false);
+        var writes = new List<(string Filter, bool Value)>();
+        var vm = NewVM(LoaderReturning(GoodRun()), buffer,
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Ha",
+            getFilterDetectionOptions: name => name == "Ha" ? haOptions : buffer,
+            setFilterDonutDetection: (name, value) => writes.Add((name, value)));
+
+        vm.DefocusAwareDonutDetection = true;
+
+        Assert.That(writes, Is.EqualTo(new[] { ("Ha", true) }), "the donut master persists into the TARGET filter's set");
+        // The options-page buffer belongs to a different filter; ticking the wizard's checkbox must not touch it.
+        buffer.DidNotReceiveWithAnyArgs().DefocusAwareDonutDetection = default;
+    }
+
+    [Test]
+    public void DefocusAwareDonutDetection_PerFilterOff_StillWritesTheOptionsSingletonDirectly() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DefocusAwareDonutDetection.Returns(false);
+        var writes = new List<(string Filter, bool Value)>();
+        var vm = NewVM(LoaderReturning(GoodRun()), options,
+            setFilterDonutDetection: (name, value) => writes.Add((name, value)));
+
+        vm.DefocusAwareDonutDetection = true;
+
+        Assert.Multiple(() => {
+            Assert.That(writes, Is.Empty, "with the feature off there is no filter to route to");
+            Assert.That(vm.IsPerFilterEnabled, Is.False);
+        });
+        options.Received().DefocusAwareDonutDetection = true;
+    }
+
+    [Test]
+    public async Task Start_PerFilterOn_SeedDonutMasterAndBudgetFollowTheTargetFilter_WhenTheBufferHasItOff() {
+        var buffer = Substitute.For<IStarDetectionOptions>();
+        buffer.DefocusAwareDonutDetection.Returns(false);
+        var haOptions = Substitute.For<IStarDetectionOptions>();
+        haOptions.DefocusAwareDonutDetection.Returns(true);
+        var run = GoodRun();
+        var settings = new OptimizerSettings { MaxEvaluations = 12, CoarseGridLevels = 2, StepFloorFraction = 0.125 };
+        var vm = NewVM(LoaderReturning(run), buffer,
+            optimizerSettings: settings,
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Ha",
+            getFilterDetectionOptions: name => name == "Ha" ? haOptions : buffer);
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(run.Seed.DefocusAwareDonutDetection, Is.True,
+                "the seed's donut master is stamped from the target filter, so CreateCuratedSet unlocks the defocus axes");
+            Assert.That(settings.MaxEvaluations, Is.EqualTo(400),
+                "and the wider donut search space gets the larger evaluation budget");
+        });
+    }
+
+    [Test]
+    public async Task Start_PerFilterOn_TargetFilterDonutOff_KeepsStandardBudget_EvenWhenTheBufferHasItOn() {
+        var buffer = Substitute.For<IStarDetectionOptions>();
+        buffer.DefocusAwareDonutDetection.Returns(true);   // the edited filter wants donuts; the target does not
+        var haOptions = Substitute.For<IStarDetectionOptions>();
+        haOptions.DefocusAwareDonutDetection.Returns(false);
+        var run = GoodRun();
+        var settings = new OptimizerSettings { MaxEvaluations = 12, CoarseGridLevels = 2, StepFloorFraction = 0.125 };
+        var vm = NewVM(LoaderReturning(run), buffer,
+            optimizerSettings: settings,
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Ha",
+            getFilterDetectionOptions: name => name == "Ha" ? haOptions : buffer);
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(run.Seed.DefocusAwareDonutDetection, Is.False);
+            Assert.That(settings.MaxEvaluations, Is.EqualTo(12), "the edited filter's donut master must not widen this run's search");
+        });
+    }
+
+    [Test]
+    public async Task Start_PerFilterOff_SeedDonutMasterAndBudgetStillComeFromTheOptionsSingleton() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DefocusAwareDonutDetection.Returns(true);
+        var run = GoodRun();
+        var settings = new OptimizerSettings { MaxEvaluations = 12, CoarseGridLevels = 2, StepFloorFraction = 0.125 };
+        var vm = NewVM(LoaderReturning(run), options, optimizerSettings: settings);
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(run.Seed.DefocusAwareDonutDetection, Is.True);
+            Assert.That(settings.MaxEvaluations, Is.EqualTo(400));
+        });
     }
 
     [Test]

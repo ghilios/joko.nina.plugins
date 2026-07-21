@@ -19,7 +19,7 @@ This page describes *how* the search moves. The score it maximizes is on
 
 ## Three guarantees
 
-The whole search is built around three properties that the design relies on.
+These three properties hold for every run of the search.
 
 - **Deterministic.** There is no random number generator. The seed is read from a fixed starting
   vector: by default the **default** detection parameters, or your **current** settings when you
@@ -106,9 +106,9 @@ The two stages alternate in an outer loop:
 
 ## Convergence and the budget
 
-A continuous axis halves its step each fruitless sweep (`InitialStep`, then half, then a quarter)
-until it passes the `0.125 × InitialStep` floor. With three halvings reaching that floor, each axis
-gets a coarse-to-fine refinement and then stops; the search terminates rather than oscillating on
+A continuous axis halves its step each fruitless sweep (`InitialStep`, then a half, a quarter, and an
+eighth) until the step falls below the `0.125 × InitialStep` floor. Each axis therefore works through
+four step sizes, coarse to fine, and then stops; the search terminates rather than oscillating on
 quantization noise.
 
 Two hard stops bound the work:
@@ -135,8 +135,8 @@ One evaluation scores a candidate against the run the wizard is optimizing. The 
 3. **Fits the focus curve** with your run's actual AF fit settings, requiring at least
    `MinPositionsForFit = 3` distinct focuser positions; too few yields a NaN focus σ and the objective
    hard-fails that run to a score of 0.
-4. Reads \(\sigma_{\text{focus}}\), \(R^2\), and reduced \(\chi^2\) off the winning fit, plus recall
-   and precision when labels exist.
+4. **Reads the fit metrics** off the winning fit: \(\sigma_{\text{focus}}\), \(R^2\), and reduced
+   \(\chi^2\), plus recall and precision when labels exist.
 
 These metrics feed the composite objective \(J\) for the run (see
 [Objective function](objective-function.md)).

@@ -11,9 +11,9 @@ used when tuning detection.
 | Setting | Default | Range / Values | Effect |
 |---|---|---|---|
 | Advanced Mode | Off | On / Off | Stops deriving knobs from presets; exposes every advanced control for manual editing |
-| Noise Level (Simple) | Typical | None / Low / Typical / High | Sets blur radius, measurement-noise reduction, and sensitivity scaling |
+| Noise Level (Simple) | Typical | None / Low / Typical / High | Sets hotpixel filtering, blur radius, and measurement-noise reduction |
 | Pixel Scale (Simple) | Typical | Wide Field / Typical / Long Focal Length | Shifts wavelet layers, min bounding-box size, and sub-pixel sampling |
-| Focus Range (Simple) | Typical | Typical / Wide Range | Adds a wavelet layer + raises sensitivity for far-from-focus donuts |
+| Focus Range (Simple) | Typical | Typical / Wide Range | Adds a structure layer and raises the brightness threshold for far-from-focus donuts |
 | Use Optimized Settings | Off | On / Off | Drives detection from the wizard's saved snapshot instead of the presets |
 | Measurement Averaging | Median | Median / Mean + Outlier Detection | How per-frame HFR is aggregated across the detected stars |
 | Use AutoFocus Crop | On | On / Off | Applies the AF inner/outer crop to *non*-focusing exposures |
@@ -23,9 +23,8 @@ used when tuning detection.
 
 !!! note "Simple mode vs. Advanced mode"
 
-    With **Advanced Mode** off (the default), the four advanced groups are computed for you every time a
-    Simple preset changes; you never edit individual knobs. The settings on the rest of this section's
-    pages only become directly editable once you turn **Advanced Mode** on.
+    The settings on the rest of this section's pages only become directly editable once you turn
+    **Advanced Mode** on.
 
 ## Advanced Mode
 
@@ -64,7 +63,7 @@ changes).
 
 ### Noise Level
 
-Controls how much the source image is smoothed before detection, and scales the brightness/clip thresholds.
+Controls how much the source image is smoothed before detection.
 
 > Controls the amount of blurring done on the source image before beginning the star detection process.
 > Increase this if you have a particularly noisy sensor or shoot at a very high focal ratio
@@ -74,20 +73,20 @@ Controls how much the source image is smoothed before detection, and scales the 
 
 How each value maps:
 
-| Noise Level | Hotpixel filtering | Noise-reduction radius | Measurement noise reduction | Sensitivity scale |
-|---|---|---|---|---|
-| None | Off | 0 | Off | ×1.0 |
-| Low | On | 4 | Off | ×0.2 |
-| Typical | On | 4 | Off | ×0.2 |
-| High | On | 6 | On | ×1.0 |
+| Noise Level | Hotpixel filtering | Noise-reduction radius | Measurement noise reduction |
+|---|---|---|---|
+| None | Off | 0 | Off |
+| Low | On | 4 | Off |
+| Typical | On | 4 | Off |
+| High | On | 6 | On |
 
-Noise-reduction radius: the base radius is 3/5; +1 is added whenever Hotpixel Thresholding is enabled (the
-default), so the applied radius is 4/6. None stays 0 because filtering is off.
+Low and Typical currently derive the same values. Noise-reduction radius: the base radius is 3 for Low and
+Typical, and 5 for High. One is added whenever Hotpixel Thresholding is enabled (the default), so the applied
+radii are 4 and 6. None stays at 0 because filtering is off.
 
-The *sensitivity scale* compensates for how the noise σ is measured per preset, so that the same effective
-threshold is preserved across presets. It feeds into the derived **Brightness Sensitivity** described below.
-At **None** there is no blur and noise reduction is fully disabled; at **High**, noise reduction is also
-applied to the measurement image, not just the structure-detection image.
+At **None** there is no blur and noise reduction is fully disabled. At **High**, noise reduction is also
+applied to the measurement image, not just the structure-detection image. Noise Level does not change the
+brightness threshold; see [Brightness Sensitivity](acceptance-gates.md#brightness-sensitivity) for that gate.
 
 !!! tip "When this helps"
 
@@ -114,11 +113,12 @@ Relative to the Typical baseline (structure layers 4, min bounding-box size 5, s
 |---|---|---|---|---|
 | Wide Field | −1 | −1 | 0.5 | unchanged |
 | Typical | baseline | baseline | 1.0 | unchanged |
-| Long Focal Length | +1 | +1 | unchanged | more sensitive |
+| Long Focal Length | +1 | +1 | unchanged | less sensitive |
 
 Wide-field rigs have small, possibly undersampled stars, so detection looks at fewer (smaller) structure
 layers and samples sub-pixel. Long focal lengths spread each star over more pixels, so an extra layer and a
-larger minimum box are used, and sensitivity is raised to keep faint stars.
+larger minimum box are used, and the brightness threshold is raised to reject the faint fragments that flux
+spreading produces.
 
 !!! warning "Long Focal Length and nebulosity"
 
@@ -137,9 +137,9 @@ Tells detection how far from critical focus your sweep travels.
 - **Default:** Typical
 - **Values:** Typical / Wide Range
 
-**Wide Range** adds one structure layer (so larger, more-defocused stars survive) and raises sensitivity
-(lowers the brightness threshold) because far-from-focus frames carry more risk of bad data and need to be
-more sensitive to compensate.
+**Wide Range** adds one structure layer, so larger, more-defocused stars survive structure detection. It also
+raises the brightness threshold, which makes the gate stricter: heavy defocus produces small donut fragments
+with tiny HFRs, and rejecting them keeps them out of the frame's median HFR.
 
 !!! tip "When this helps"
 
@@ -149,7 +149,7 @@ more sensitive to compensate.
 
 ### How the presets combine
 
-The derivations stack: Noise Level sets the blur and the sensitivity scale; Pixel Scale and Focus Range then
+The derivations stack: Noise Level sets hotpixel filtering and the blur; Pixel Scale and Focus Range then
 adjust the structure-layer count, minimum box size, sub-pixel sampling, and brightness threshold on top of
 that. The presets also fix several knobs that are not exposed as preset dropdowns (for example Star Peak
 Response, Max Distortion, Star Center Tolerance, the PSF fit type (Moffat 4.0) and resolution, and the

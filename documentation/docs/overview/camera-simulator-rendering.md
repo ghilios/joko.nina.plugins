@@ -30,7 +30,7 @@ onto the sensor, so a half-donut at the edge of a defocused frame looks the way 
 
 ## From magnitude to electrons
 
-The heart of the simulator is a radiometric exposure calculator. A star of magnitude \(m\)
+Star brightness comes from a radiometric exposure calculator. A star of magnitude \(m\)
 delivers
 
 \[
@@ -71,7 +71,7 @@ hundred times fewer electrons. That is why the simulator reproduces narrowband a
 | SII 5nm / 3nm | 672.4 | 5 / 3 |
 
 The filter's central wavelength is also the wavelength used by the diffraction and defocus model
-below, so switching from OIII to SII subtly changes the diffraction-limited PSF, as it should.
+below, so switching from OIII to SII slightly changes the diffraction-limited PSF.
 
 ### Sensors
 
@@ -173,8 +173,8 @@ current focus plane and this surface at the star's position, fed into the defocu
 aberrations are purely local defocus: stars blur and donut asymmetrically across the field, but no
 coma or astigmatism stretching is modeled.
 
-The options map onto the surface in the inspector's own reporting convention, so injection and
-measurement are two sides of one identity:
+The options map onto the surface in the inspector's own reporting convention, so the values you
+inject are the values the inspector reports back:
 
 - **Tilt Angle** is the tilt azimuth, \(\operatorname{atan2}(G_y, G_x)\).
 - **Tilt Amount** is the inspector's *Tilt Effect*: the worst-case center-to-corner focus swing
@@ -202,9 +202,9 @@ Development converts that to ADU with the full noise chain, per pixel:
    result clamps to the sensor's bit depth. The gain law is ZWO-style, 0.1 dB per gain unit:
    \(g_{e^-/\text{ADU}} = (\text{full well} / 2^{\text{bits}}) \cdot 10^{-\text{gain}/200}\).
 
-The result is a mono 16-bit frame with the statistics a calibrated eye expects: background
+The result is a mono 16-bit frame whose statistics behave like a real camera's: background
 standard deviation set by sky shot noise and read noise, faint stars emerging from the noise floor
-as exposure grows, bright stars saturating and flattening.
+as exposure grows, and bright stars saturating and flattening.
 
 ## Determinism
 

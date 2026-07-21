@@ -37,6 +37,7 @@ internal sealed class MediatorBundle {
     public IInspectorOptions InspectorOptions { get; } = Substitute.For<IInspectorOptions>();
     public IAutoFocusOptions AutoFocusOptions { get; } = Substitute.For<IAutoFocusOptions>();
     public ITiltAdapterOptions TiltAdapterOptions { get; } = Substitute.For<ITiltAdapterOptions>();
+    public IPerFilterStarDetectionStore PerFilterStarDetectionStore { get; } = Substitute.For<IPerFilterStarDetectionStore>();
 
     public IAutoFocusEngineFactory AutoFocusEngineFactory { get; } = Substitute.For<IAutoFocusEngineFactory>();
     public IPluggableBehaviorSelector<IStarDetection> StarDetectionSelector { get; } = Substitute.For<IPluggableBehaviorSelector<IStarDetection>>();
@@ -69,6 +70,11 @@ internal sealed class MediatorBundle {
         return this;
     }
 
+    public MediatorBundle WithPerFilterStarDetectionEnabled(bool enabled = true) {
+        PerFilterStarDetectionStore.Enabled.Returns(enabled);
+        return this;
+    }
+
     public InspectorVM BuildInspectorVM(
         TiltDeviceConnectionService tiltDeviceConnectionService = null,
         Func<string, string, Task<bool>> confirmPromptAsync = null,
@@ -96,7 +102,8 @@ internal sealed class MediatorBundle {
             tiltDeviceConnectionService: tiltDeviceConnectionService,
             confirmPromptAsync: confirmPromptAsync,
             showAdjustmentPromptAsync: showAdjustmentPromptAsync,
-            reRunAnalysisAsync: reRunAnalysisAsync);
+            reRunAnalysisAsync: reRunAnalysisAsync,
+            perFilterStarDetectionStore: PerFilterStarDetectionStore);
     }
 
     public HocusFocusVM BuildHocusFocusVM() {
@@ -110,6 +117,7 @@ internal sealed class MediatorBundle {
             applicationStatusMediator: ApplicationStatusMediator,
             starDetectionSelector: StarDetectionSelector,
             alglibAPI: AlglibAPI,
-            applicationDispatcher: ApplicationDispatcher);
+            applicationDispatcher: ApplicationDispatcher,
+            perFilterStore: PerFilterStarDetectionStore);
     }
 }

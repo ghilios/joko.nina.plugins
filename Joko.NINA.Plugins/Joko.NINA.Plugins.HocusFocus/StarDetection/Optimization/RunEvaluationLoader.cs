@@ -77,6 +77,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <c>null</c> progress is identical to them.
         /// </summary>
         Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, IProgress<RunLoadProgress> progress, CancellationToken token);
+
+        /// <summary>
+        /// As the progress overload, additionally building the run's <see cref="LoadedRun.Baseline"/> ("current
+        /// settings") params from <paramref name="baselineOptionsOverride"/> instead of the detector's injected
+        /// options — the per-filter wizard resolves the TARGET filter's settings set through this seam (the
+        /// existing optionsOverride overload of GetStarDetectorParams). Null is identical to the progress
+        /// overload: the detector's own options build the baseline, byte-identical to today.
+        /// </summary>
+        Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, IProgress<RunLoadProgress> progress, IStarDetectionOptions baselineOptionsOverride, CancellationToken token);
     }
 
     /// <summary>
@@ -126,7 +135,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             LoadSavedRunAsync(attemptFolderPath, region, labels, progress: null, token);
 
         /// <inheritdoc />
-        public async Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, IProgress<RunLoadProgress> progress, CancellationToken token) {
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, IProgress<RunLoadProgress> progress, CancellationToken token) =>
+            LoadSavedRunAsync(attemptFolderPath, region, labels, progress, baselineOptionsOverride: null, token);
+
+        /// <inheritdoc />
+        public async Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, IProgress<RunLoadProgress> progress, IStarDetectionOptions baselineOptionsOverride, CancellationToken token) {
             if (string.IsNullOrEmpty(attemptFolderPath)) {
                 throw new ArgumentException("attemptFolderPath is required", nameof(attemptFolderPath));
             }
@@ -164,7 +177,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // settings. Baseline = the user's CURRENT settings, kept for the displayed "before" comparison (σ, cost J,
             // the "Current" curve). Both carry the same image context; neither writes to options.
             var seed = detection.GetDefaultStarDetectorParams(firstImage, region, isAutoFocus: true);
-            var baseline = detection.GetStarDetectorParams(firstImage, region, isAutoFocus: true);
+            // The optionsOverride overload delegates to the plain path on null, so a null override is byte-identical.
+            var baseline = detection.GetStarDetectorParams(firstImage, region, isAutoFocus: true, baselineOptionsOverride);
 
             // Every detection these params drive is an OPTIMIZER evaluation — the seed (and the candidates the
             // optimizer materializes from it via Clone) and the baseline are each detected across all frames many

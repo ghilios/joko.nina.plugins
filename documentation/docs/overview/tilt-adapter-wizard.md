@@ -66,18 +66,17 @@ flags inconsistent repeats so you can re-run.
 
 *The Measurement section configures each calibration sweep and sets which way a clockwise turn moves the adapter.*
 
-!!! tip "Each calibration step runs a full inspector sweep"
-    A calibration measurement is a full sensor-model sweep, so it runs the same alignment and
-    focus-centering steps as a standalone Detailed Analysis. **Center Focuser First** (off by
-    default) re-centers the focuser at best focus before each step's sweep, so the measurement is not
-    skewed toward one side of focus. **Signal Amplification** gives each step more, finer-spaced
-    focus points for a steadier per-star fit. Both are editable in the wizard's **Measurement**
-    section (they are the same settings as the [Inspector
-    options](tilt-aberration-inspector.md#inspector-options)), which also shows a live estimate of the
-    images each sweep captures and the total for the whole calibration. For a heavily-defocused frame
-    that would otherwise fail to register, the frame aligner escalates its search rather than dropping
-    the frame from that step's model. These help most on faint fields or in poor seeing. Raising
-    **Measurements to average** above 1 averages independent repeats on top of them.
+A calibration measurement is a full sensor-model sweep, so it runs the same alignment and
+focus-centering steps as a standalone Detailed Analysis. **Center Focuser First** (off by default)
+re-centers the focuser at best focus before each step's sweep, so the measurement is not skewed
+toward one side of focus. **Signal Amplification** gives each step more, finer-spaced focus points
+for a steadier per-star fit. Both settings help most on faint fields or in poor seeing, and both are
+editable in the wizard's **Measurement** section (they are the same settings as the [Inspector
+options](tilt-aberration-inspector.md#inspector-options)), which also shows a live estimate of the
+images each sweep captures and the total for the whole calibration. Heavily-defocused frames that
+would otherwise fail to register are not dropped from a step's model: the frame aligner escalates
+its search instead (see [cross-frame
+registration](sensor-model.md#from-stars-to-data-points)).
 
 !!! note "Set Focuser Step Size for the best guidance"
     Per its tooltip, *Focuser Step Size* is "how much the focuser moves per step, in microns.

@@ -27,7 +27,7 @@ This page documents the gates exposed as **Advanced** star-detection options. Th
 
 | Setting | Default | Range | Effect |
 |---|---|---|---|
-| Brightness Sensitivity | 2.0 | ≥ 0 | Minimum signal-to-noise \((s-b)/n\); rejects faint candidates as **Low Sensitivity** |
+| Brightness Sensitivity | 10.0 | ≥ 0 | Minimum signal-to-noise \((s-b)/n\); rejects faint candidates as **Low Sensitivity** |
 | Star Peak Response | 0.75 (75%) | 0–100% | Max median/peak ratio; rejects flat blobs as **Too Flat** |
 | Max Distortion | 0.5 | 0–1 | Min fill ratio of the bounding box; rejects stringy shapes as **Too Distorted** |
 | Star Center Tolerance | 0.3 (30%) | 0–100% | Centered sub-box the centroid must fall in; rejects off-center candidates as **Not Centered** |
@@ -55,13 +55,18 @@ A candidate is accepted only when its brightness above background divided by the
 
 **Smaller values are more sensitive** (they admit fainter stars); larger values are stricter. Because \(n\) is measured on the image actually sampled for star measurement, the same threshold keeps its meaning whether or not noise reduction is enabled.
 
-**Default:** 2.0. **Range:** ≥ 0 (must be non-negative)
+**Default:** 10.0. **Range:** ≥ 0 (must be non-negative)
+
+!!! note "The tooltip's \"default of 2\" is out of date"
+    The in-app tooltip quoted above still says the default is 2. The shipped default is **10.0**, and Simple mode
+    adds 2.0 for the Wide Range focus range and another 2.0 for the Long Focal Length pixel scale (so 12.0 with
+    either, 14.0 with both). Trust the value in the field, not the tooltip.
 
 ![Bright star clears the (s-b)/n floor while a dim star does not](../assets/figures/gate-sensitivity.png){ width=620 }
 *Sensitivity is the star's brightness above background relative to the noise; a dim star with low \((s-b)/n\) is rejected.*
 
 !!! tip "When to adjust"
-    Lower it (toward 1) if too many real but faint stars are reported as **Low Sensitivity** (watch the **Low Sensitivity** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel)) and your autofocus runs are starved for stars. Raise it on noisy data where spurious faint blobs are slipping through. It can hurt by flooding detection with noise clumps if set too low, or by discarding usable faint stars near focus if set too high. Leave it at the default for typical data.
+    Lower it if too many real but faint stars are reported as **Low Sensitivity** (watch the **Low Sensitivity** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel)) and your autofocus runs are starved for stars. Raise it on noisy data where spurious faint blobs are slipping through. It can hurt by flooding detection with noise clumps if set too low, or by discarding usable faint stars near focus if set too high. Leave it at the default for typical data.
 
 ## Star Peak Response
 
@@ -150,14 +155,14 @@ Rejects candidates whose measured Half-Flux Radius is at or below this floor. Su
 
 A star's HFR is the radius enclosing half its total flux (see [Star detection](../overview/star-detection.md)). An impossibly small HFR indicates a point-like artifact (a residual hot pixel or single-pixel spike) rather than a focused star, which always has a finite, optics-limited width. The gate runs late, after HFR has actually been measured, and rejects when \(\text{HFR} \le \text{MinHFR}\).
 
-**Default:** 1.2 px. **Range:** > 0 (the model accepts 0, but the UI requires a value greater than zero)
+**Default:** 1.2 px. **Range:** > 0 (the backing property accepts 0, but the UI field requires a value greater than zero)
 
 !!! tip "When to adjust"
     Leave it at the default for almost all setups. Lower it only if you are extremely undersampled and confident your real stars measure below 1.2 px. Raising it discards the sharpest stars and is rarely useful. The default of 1.2 is calibrated to the current measurement pipeline; older versions defaulted to 1.5, which compensated for noise-inflated HFR measurements of faint stars and is no longer needed.
 
 ## Background Box Expansion
 
-Sets how far outside each candidate's bounding box the local background is sampled. This is not a gate, but the background estimate it produces feeds the sensitivity, flatness, and HFR measurements above, so it indirectly affects every gate.
+Sets how far outside each candidate's bounding box the local background is sampled. This is not a gate, but the background estimate it produces feeds the sensitivity, flatness, and HFR measurements above, so it indirectly affects those gates.
 
 > The background is estimated by looking in an area around the star bounding box, increased on each side by this number of pixels. The default value of 3 should work for most cases, but you can consider increasing it if stars are very spare, or even decreasing it if the star field is very crowded with stars less than 3 pixels from one another.
 
@@ -203,7 +208,7 @@ A single opt-in toggle that relaxes both the Max Distortion and Star Center Tole
 
     additionally capped at 1.0 (the sub-box covering the whole bounding box), so a bigger donut gets a larger centered acceptance region.
 
-Because near-focus candidates stay at or below the size reference, they keep the strict thresholds and junk is still rejected. Stars admitted only by the relaxation are flagged internally so the optimizer can discourage over-relaxing into false positives.
+Stars admitted only by the relaxation are flagged internally so the optimizer can discourage over-relaxing into false positives.
 
 !!! tip "When this helps"
     Enable it when you deliberately collect autofocus frames far from focus (wide sweeps) and see donut stars dropped as **Too Distorted** or **Not Centered** at the sweep extremes. It does nothing for near-focus imaging frames, and it should stay off there so the strict gates keep filtering noise. If even heavily defocused stars never appear as candidates at all (not merely rejected), that is a structure-detection problem, not a gate problem; see Defocus-Aware Structure on the [Structure detection](structure-detection.md) page.
@@ -214,7 +219,7 @@ Because near-focus candidates stay at or below the size reference, they keep the
 
 **Default:** 30 px. **Range:** 1–1000
 
-Lower it to begin relaxing at smaller candidate sizes (recovers slightly-smaller donuts, at the cost of relaxing moderately-defocused frames); raise it to keep more of the strict behavior. The default of 30 px was tuned so the most-defocused donuts clear the gates while the nearest in-sweep frames stay sane.
+Lower it to begin relaxing at smaller candidate sizes (recovers slightly-smaller donuts, at the cost of relaxing moderately-defocused frames); raise it to keep more of the strict behavior. The default of 30 px was tuned so the most-defocused donuts clear the gates while the nearest in-sweep frames keep the strict thresholds and do not flood with false detections.
 
 ### Defocus Distortion Min Factor
 

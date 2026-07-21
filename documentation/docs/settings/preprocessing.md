@@ -15,13 +15,13 @@ A key idea runs through all of these: Hocus Focus keeps **two images**. A *struc
 !!! note
     These are **Advanced** settings. In Simple mode they are derived for you from the **Noise Level**, **Pixel Scale**, and **Focus Range** presets, so you normally never touch them directly. Switch on Advanced mode to expose them.
 
-## Summary
+## Settings at a glance
 
 | Setting | Default | Range | Effect |
 |---|---|---|---|
 | Noise Reduced Star Measurement (`StarMeasurementNoiseReductionEnabled`) | Off | On / Off | Also blur the *measurement* image, not just the structure-detection image |
 | Noise Reduction Radius (`NoiseReductionRadius`) | 3 | ≥ 0 (UI requires > 0) | Half-size of the Gaussian blur applied for noise reduction |
-| Noise Clipping Multiplier (`NoiseClippingMultiplier`) | 2.0 | ≥ 0 (UI requires > 0) | σ multiplier for the structure-map binarization floor (candidate finding) |
+| Noise Clipping Multiplier (`NoiseClippingMultiplier`) | 4.0 | ≥ 0 (UI requires > 0) | σ multiplier for the structure-map binarization floor (candidate finding) |
 | Locally Adaptive Binarization (`LocallyAdaptiveBinarization`) | On | On / Off | Make the binarization floor a per-region surface instead of one global value |
 | Adaptive Noise Block Size (`AdaptiveNoiseBlockSize`) | 128 px | 64–256 (UI) | Block size for the adaptive floor's local statistics |
 | Star Clipping Multiplier (`StarClippingMultiplier`) | 2.0 | ≥ 0 (UI requires > 0) | σ multiplier for the per-star measurement-pixel inclusion gate |
@@ -68,7 +68,7 @@ Turning it on changes what the noise σ is measured against. Hocus Focus tracks 
 
 > Structure map generation binarizes pixels above the noise floor after noise detection and before star detection. This floor is calculated based on the background (median of the whole image) + this multiplier times the noise standard deviation, as calculated using the Kappa-Sigma algorithm. When Locally Adaptive Binarization is enabled (the default), the background median and noise are measured locally per region rather than across the whole image. Increasing this value more aggressively clips the background, which can be useful if star bounding boxes include too much background data.
 
-**Default:** `2.0` &nbsp;•&nbsp; **Range:** must be non-negative. The Advanced UI field requires a value greater than zero.
+**Default:** `4.0` &nbsp;•&nbsp; **Range:** must be non-negative. The Advanced UI field requires a value greater than zero.
 
 This multiplier governs **candidate finding only**. After noise reduction and wavelet structure detection, the structure map is binarized at a threshold of
 
@@ -84,11 +84,13 @@ where the median is the background and \(\sigma_{\text{structure}}\) is the Kapp
 !!! tip "When this helps"
     Raise it when star bounding boxes are swallowing too much background (loose, bloated boxes), or when faint noise structure is being detected as junk candidates, especially after adding light noise reduction. **Lower it** to recover faint stars on clean data. It does **not** affect the measured HFR of an accepted star; that is the job of the Star Clipping Multiplier below.
 
-!!! note "Why the default is 2"
-    The default was lowered from 4 to 2 after a recall audit found that a 4σ floor left most real stars below
-    the candidate threshold: roughly 79% of real stars never formed a candidate at all. Dropping it to 2 about
-    doubled the recall of bright stars at a small precision cost, with no loss of focus-curve accuracy. The full
-    data is on [Adaptive Binarization](adaptive-binarization.md). With Locally Adaptive
+!!! note "Why 4, and why 2 is worth trying"
+    The default was once lowered from 4 to 2 after a recall audit found that a 4σ floor left most real stars
+    below the candidate threshold: roughly 79% of real stars never formed a candidate at all. Dropping it to 2
+    about doubled the recall of bright stars at a small precision cost, with no loss of focus-curve accuracy.
+    That change has since been **reverted on an interim basis**, so 4.0 is what ships today, pending a
+    recalibration. The full data is on [Adaptive Binarization](adaptive-binarization.md), and lowering this
+    value toward 2 remains a reasonable thing to try if faint stars are going undetected. With Locally Adaptive
     Binarization on (the default, below), this multiplier scales a *local* floor that varies across the frame
     rather than a single global one.
 

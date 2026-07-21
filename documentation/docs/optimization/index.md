@@ -11,9 +11,9 @@ The **Star Detection Optimization Wizard** automates that tuning. It searches fo
 settings that make your stars trace the cleanest, most repeatable focus V-curve, working from a set of
 autofocus frames: either a run you saved earlier or one it captures live. Because the wizard scores
 settings by the *quality of the focus curve they produce* (not by any single hand-picked metric), it
-optimizes the whole detection pipeline against the outcome you actually care about.
+optimizes the whole detection pipeline against focus repeatability rather than a proxy for it.
 
-The wizard launches from the top of the Star Detection options page. Its optimized settings are
+The wizard launches from the top of the **Star Detector** tab. Its optimized settings are
 stored **separately** from your presets and are activated by a single Simple-mode toggle ("Use
 Optimized Settings") that only appears once a run has succeeded. Nothing is overwritten until you
 confirm, and the toggle is fully reversible.
@@ -110,6 +110,23 @@ On the summary, a live run adds an **Exposure** row beside the recommended step 
 these auto-focus settings to my profile when I click Accept** checkbox covers it: turn it on to adopt
 the sweep exposure as your auto-focus exposure time, so you focus with the exposure you optimized
 against.
+
+## Optimizing one filter
+
+With [per-filter star detection](../settings/index.md#per-filter-star-detection) enabled, the start
+page adds a **Target filter** dropdown for both sources, defaulting to the filter currently in the
+wheel. The whole run is about that one filter: the baseline and the **"Start from my current
+settings"** seed come from its settings set, the filter and gain readouts on the start page show the
+target filter (not the profile's designated autofocus filter), and **Accept** writes the winning
+settings into the target filter's set. The Star Detector options switch to the filter you just
+optimized, so what you see there afterward is what the run produced.
+
+A target filter must be selected before the run can start. A live run additionally requires the
+filter wheel connected: **Start** moves the wheel to the target filter and sweeps on exactly that
+filter, using its per-filter autofocus binning, gain, and offset. Exposure is still whatever you set
+on this page. The usual switch to the profile's designated autofocus filter is skipped, and the
+wheel stays on the target when the sweep finishes. A replay needs no equipment, so you can work
+through your saved runs and optimize each filter in turn without connecting anything.
 
 ## How a candidate is scored
 

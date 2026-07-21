@@ -108,6 +108,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // detection, so a stale or unreadable cache can never produce a wrong measurement.
         public bool ReuseSavedDetection { get; set; } = false;
 
+        // When true and an imaging filter is supplied, the run exposes through EXACTLY that filter: the engine
+        // moves the wheel to it and skips the designated-AF-filter substitution that UseFilterWheelOffsets
+        // normally applies in SetAutofocusFilter. Set by the Star Detection Optimizer Wizard's target-filter
+        // sweep (per-filter star detection). Default false = existing behavior, byte-identical.
+        public bool UseExactImagingFilter { get; set; } = false;
+
         // When non-null, the engine builds star-detector params from THIS options snapshot (via
         // HocusFocusStarDetection.BuildStarDetectorParams) instead of the live detector's injected options — letting
         // a saved run replay with its capture-time detection settings WITHOUT mutating HocusFocusPlugin

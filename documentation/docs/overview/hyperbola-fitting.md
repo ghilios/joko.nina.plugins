@@ -54,7 +54,7 @@ of focus.
 ## Why real curves are often asymmetric
 
 Inside and outside focus a star defocuses differently, from spherical aberration, the optical train,
-and the atmosphere, and at the defocused extremes stars get dimmer and scarcer so HFR is noisier on
+and the atmosphere. At the defocused extremes stars also get dimmer and scarcer, so HFR is noisier on
 one side. The result is one wing steeper than the other. Forcing a symmetric curve onto an asymmetric
 V pulls the fitted minimum toward the shallower side, biasing the best-focus estimate.
 

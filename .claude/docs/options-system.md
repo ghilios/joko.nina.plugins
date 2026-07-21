@@ -66,4 +66,25 @@ Every new option added to `StarDetectionOptions` (or any other options class) **
 - Boolean options → `CheckBox` bound to `StarDetectionOptions.<PropertyName>`
 - Double/numeric options → `ninactrl:UnitTextBox` with a `DoubleRangeRule` validation
 - Enum options → `ComboBox` with `util:EnumBindingSource` and `HF_EnumStaticDescriptionValueConverter`
+
+## Per-Filter Star Detection (store + binder)
+
+Star-detection settings can be per-filter (`StarDetection/PerFilter/`). Two persisted values are owned by
+`PerFilterStarDetectionStore` — not by an options class, but written through the same `PluginOptionsAccessor`:
+
+- `PerFilterStarDetectionEnabled` — bool, default `false`.
+- `PerFilterStarDetectionJson` — one JSON blob (`PerFilterStarDetectionData`) holding the pre-enable global
+  seed plus a `StarDetectionSettingsSnapshot` per filter name. Corrupt JSON is discarded with a
+  `Logger.Warning`.
+
+While enabled, the `StarDetectionOptions` singleton is an edit buffer: `PerFilterEditBinder` loads the selected
+filter's snapshot into it and mirrors every edit back to the store, and the singleton's legacy accessor writes
+are suppressed (`PersistToProfile` backed by `SuppressiblePluginOptionsAccessor`) except for the machine-local
+keys in `StarDetectionOptions.MachineLocalKeys`. Consequences when changing `StarDetectionOptions`:
+
+- A new persisted star-detection option must also be added to `StarDetectionSettingsSnapshot` (and its
+  `Clone`/`FromOptions`/apply paths), or it stays global and is silently dropped from per-filter sets.
+- A machine-local (per-computer, not per-filter) option must be listed in `MachineLocalKeys` and handled in
+  `PerFilterStarDetectionStore.Scrub` / `StarDetectionSettingsSnapshot.CopyMachineLocalFrom`.
+- The UI invariant is unchanged: every new option still needs a control in `Resources/OptionsDataTemplates.xaml`.
 - Add a tooltip `TextBlock` resource (key: `<PropertyName>_Tooltip`) near the other tooltips at the top of `OptionsDataTemplates.xaml`
