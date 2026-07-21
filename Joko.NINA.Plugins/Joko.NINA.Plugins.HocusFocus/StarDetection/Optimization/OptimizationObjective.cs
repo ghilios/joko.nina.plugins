@@ -210,6 +210,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // entirely (J bit-identical at the baseline).
         public IReadOnlyList<double> FrameRegionOccupancy { get; set; }
 
+        // Parallel to FrameStarCounts; true ⇒ this frame is a far-from-focus recovery frame
+        // (down-weighted in the fit, exempt from star-count gates). null ⇒ baseline (no recovery).
+        public IReadOnlyList<bool> FrameIsRecovery { get; set; }
+
         // Label scores for this run, supplied by the evaluator only when labels exist; null otherwise. The
         // optimizer passes these straight through to JRun, keeping itself label-agnostic.
         public double? Recall { get; set; }

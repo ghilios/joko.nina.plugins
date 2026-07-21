@@ -138,6 +138,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>Number of DISTINCT focuser positions that fed the fit (frames at the same position are pooled).</summary>
         public int PooledPointCount { get; set; }
 
+        /// <summary>Number of NON-recovery distinct positions actually added to the fit's <see cref="Points"/>. In the
+        /// weighted fit recovery positions ARE added (down-weighted), so this is less than <see cref="PooledPointCount"/>;
+        /// in the un-weighted fit recovery positions are excluded, so it equals <see cref="PooledPointCount"/>. When the
+        /// focus-recovery feature is off (no recovery positions) this equals <see cref="PooledPointCount"/> exactly.</summary>
+        public int NonRecoveryPooledPointCount { get; set; }
+
         /// <summary>The pooled (mean) HFR at each distinct focuser position; for assertions/diagnostics.</summary>
         public IReadOnlyDictionary<int, double> PooledHfrByPosition { get; set; }
 
@@ -200,6 +206,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // A hyperbola has 4-5 parameters; fewer than this many distinct positions can never determine a fit.
         private const int MinPositionsForFit = 3;
 
+        // Focus-recovery down-weighting: the multiplier applied to a recovery sweep position's pooled scatter (its fit
+        // ErrorY) so its fit weight (1/ErrorY — see HyperbolicFittingAlglib) lands at ≈ 1/RecoveryErrorInflation of a
+        // typical near-focus point's. A far-from-focus "recovery" frame is noisy (few/no stars) and should only PIN the
+        // curve's wings, never STEER the minimum, so it is bracketed in at ~1/10 the weight. Single tuning knob.
+        // Internal (not private) so the test suite can assert the down-weighted ErrorY against the production symbol.
+        internal const double RecoveryErrorInflation = 10.0;
+
         // Region-coverage grid (structural, not a scoring weight): per-frame occupancy is computed over a
         // CoverageGridRows × CoverageGridCols equal tiling of the sensor, matching the inspector's region set. 3×3
         // is coarse enough that a thin-but-spread frame still registers full coverage, yet penalizes corner clusters.
@@ -224,6 +237,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // the frame fan-out at that value; <= 0 means "use DefaultFrameParallelism". Not persisted; an in-memory knob
         // only (settable so tests can force cap=1 to prove the parallel path ≡ the sequential path).
         public int FrameParallelismOverride { get; set; } = 0;
+
+        // Focus-recovery knob (in-memory, not persisted; mirrors FrameParallelismOverride's style). Number of extra
+        // sweep steps per side captured for focus recovery: the outermost RecoveryStepsPerSide DISTINCT sweep positions
+        // per side are DOWN-WEIGHTED in the AF curve fit (their ErrorY inflated by RecoveryErrorInflation, or excluded
+        // outright when the fit is un-weighted) and TAGGED (FrameIsRecovery) so a later task's objective can exempt them
+        // from the star-count gates. Default 0 ⇒ feature off ⇒ byte-identical: no recovery set is computed, no ErrorY
+        // changes, no fit point is added/removed, and FrameIsRecovery on the metrics is null.
+        public int RecoveryStepsPerSide { get; set; } = 0;
 
         /// <summary>The effective frame-detection concurrency cap for this run: the override when set (> 0), else
         /// <see cref="DefaultFrameParallelism"/>. Always in [1, frameCount].</summary>
@@ -629,12 +650,75 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 measures.Add(new MeasureAndError { Measure = detection.AverageHFR, Stdev = detection.HFRStdDev });
             }
 
+            // Focus-recovery: identify the outermost RecoveryStepsPerSide DISTINCT sweep positions per side (the
+            // far-from-focus extremes). Null when the feature is off / too few positions / the cap collapses perSide to
+            // 0, in which case every downstream value is byte-identical to the baseline (see ComputeRecoveryPositions).
+            var recoveryPositions = ComputeRecoveryPositions(byPosition, RecoveryStepsPerSide);
+
+            // Per-frame recovery flags (PARALLEL to frameStarCounts / frameFocuserPositions). A frame is a recovery
+            // frame iff its DISTINCT focuser position is in the recovery set, so ALL frames sharing a recovery position
+            // are flagged. Left null (never an all-false list) when there is no recovery ⇒ baseline / FrameIsRecovery null.
+            List<bool> frameIsRecovery = null;
+            if (recoveryPositions != null) {
+                frameIsRecovery = new List<bool>(frameFocuserPositions.Count);
+                foreach (var pos in frameFocuserPositions) {
+                    frameIsRecovery.Add(recoveryPositions.Contains(pos));
+                }
+            }
+
             var points = new List<ScatterErrorPoint>(byPosition.Count);
             var pooledHfr = new Dictionary<int, double>(byPosition.Count);
-            foreach (var kvp in byPosition) {
-                var pooled = kvp.Value.AverageMeasurement();
-                pooledHfr[kvp.Key] = pooled.Measure;
-                points.Add(new ScatterErrorPoint(kvp.Key, pooled.Measure, 0, SafeDisplayError(pooled.Stdev)));
+            int nonRecoveryPooledPointCount;
+            if (recoveryPositions == null) {
+                // Baseline path — verbatim: pool every position and add exactly one fit point each (byte-identical).
+                foreach (var kvp in byPosition) {
+                    var pooled = kvp.Value.AverageMeasurement();
+                    pooledHfr[kvp.Key] = pooled.Measure;
+                    points.Add(new ScatterErrorPoint(kvp.Key, pooled.Measure, 0, SafeDisplayError(pooled.Stdev)));
+                }
+                nonRecoveryPooledPointCount = points.Count;
+            } else {
+                // Recovery path: pool each position ONCE (avoid re-pooling), collecting the non-recovery display errors
+                // so we can derive a positive reference scatter for the down-weighting.
+                var pooledByPosition = new List<(int Pos, double Measure, double DisplayError, bool IsRecovery)>(byPosition.Count);
+                var nonRecoveryErrors = new List<double>();
+                foreach (var kvp in byPosition) {
+                    var pooled = kvp.Value.AverageMeasurement();
+                    pooledHfr[kvp.Key] = pooled.Measure;
+                    var displayError = SafeDisplayError(pooled.Stdev);
+                    var isRecovery = recoveryPositions.Contains(kvp.Key);
+                    pooledByPosition.Add((kvp.Key, pooled.Measure, displayError, isRecovery));
+                    if (!isRecovery) {
+                        nonRecoveryErrors.Add(displayError);
+                    }
+                }
+
+                // Reference scatter: the median of the NON-recovery positions' display errors, floored strictly
+                // positive. This keeps the inflated recovery ErrorY positive even when a recovery position's own scatter
+                // is 0 (a single frame there ⇒ SafeDisplayError == 0, and 0 × inflation would be inert / weightless).
+                var medianError = 0.0;
+                if (nonRecoveryErrors.Count > 0) {
+                    (medianError, _) = nonRecoveryErrors.MedianMAD();
+                }
+                var refErr = Math.Max(medianError, 1e-6);
+
+                var addedNonRecovery = 0;
+                foreach (var pp in pooledByPosition) {
+                    if (pp.IsRecovery) {
+                        if (fitConfig.UseWeights) {
+                            // Down-weight: inflate ErrorY so the fit weight (1/ErrorY) is ≈ 1/RecoveryErrorInflation of a
+                            // typical point's. max(ownError, refErr) keeps it strictly positive and never below the ref.
+                            var inflatedError = RecoveryErrorInflation * Math.Max(pp.DisplayError, refErr);
+                            points.Add(new ScatterErrorPoint(pp.Pos, pp.Measure, 0, inflatedError));
+                        }
+                        // Un-weighted fit: ErrorY is ignored by the fitter, so inflation cannot down-weight — EXCLUDE the
+                        // recovery position from the fit input entirely (it still populates the per-frame metrics below).
+                    } else {
+                        points.Add(new ScatterErrorPoint(pp.Pos, pp.Measure, 0, pp.DisplayError));
+                        addedNonRecovery++;
+                    }
+                }
+                nonRecoveryPooledPointCount = addedNonRecovery;
             }
 
             // 3. Fit (or degrade gracefully when there are too few distinct positions).
@@ -649,6 +733,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 FrameFocuserPositions = frameFocuserPositions,
                 FrameStarHFRs = frameStarHfrs,
                 FrameRegionOccupancy = frameRegionOccupancy,
+                // null (never an all-false list) when the focus-recovery feature is off ⇒ baseline.
+                FrameIsRecovery = frameIsRecovery,
                 BestFocusPosition = double.NaN
             };
             AlglibHyperbolicFitting bestFit = null;
@@ -685,6 +771,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 Metrics = metrics,
                 BestFit = bestFit,
                 PooledPointCount = points.Count,
+                NonRecoveryPooledPointCount = nonRecoveryPooledPointCount,
                 PooledHfrByPosition = pooledHfr,
                 Points = points
             };
@@ -763,6 +850,32 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
                 return results;
             };
+        }
+
+        /// <summary>
+        /// The outermost <paramref name="recoverySteps"/> DISTINCT sweep positions per side (the far-from-focus
+        /// extremes), taken from the SORTED keys of <paramref name="byPosition"/> — the authoritative distinct
+        /// positions the fit pools on. <c>perSide</c> is capped at <c>(D − MinPositionsForFit) / 2</c> so the fit always
+        /// keeps ≥ <see cref="MinPositionsForFit"/> non-recovery anchor positions (2·perSide ≤ D − MinPositionsForFit).
+        /// Returns <b>null</b> (no recovery) when <paramref name="recoverySteps"/> ≤ 0, there are no positions, or the
+        /// cap collapses perSide to 0 — so the caller's downstream values stay byte-identical to the baseline.
+        /// </summary>
+        private static HashSet<int> ComputeRecoveryPositions(SortedDictionary<int, List<MeasureAndError>> byPosition, int recoverySteps) {
+            var d = byPosition.Count;
+            if (recoverySteps <= 0 || d <= 0) {
+                return null;
+            }
+            var perSide = Math.Min(recoverySteps, Math.Max(0, (d - MinPositionsForFit) / 2));
+            if (perSide <= 0) {
+                return null;
+            }
+            var sortedKeys = byPosition.Keys.ToList(); // ascending distinct sweep positions
+            var recoveryPositions = new HashSet<int>();
+            for (var k = 0; k < perSide; k++) {
+                recoveryPositions.Add(sortedKeys[k]);            // one of the perSide smallest positions
+                recoveryPositions.Add(sortedKeys[d - 1 - k]);    // one of the perSide largest positions
+            }
+            return recoveryPositions;
         }
 
         /// <summary>
