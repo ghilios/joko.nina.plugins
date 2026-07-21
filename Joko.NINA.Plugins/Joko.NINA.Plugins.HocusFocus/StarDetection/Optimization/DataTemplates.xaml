@@ -37,7 +37,19 @@
           the fitted curve, and a PointAnnotation diamond at the curve minimum (best focus). The default tracker shows
           the per-point readout on hover/click.  -->
     <DataTemplate DataType="{x:Type local:OptimizationCurve}">
-        <oxy:Plot
+        <DockPanel>
+            <!--  Legend for the hollow recovery markers, shown only when the selected variant has recovery points.
+                  ○ = a far-from-focus recovery point (down-weighted in the fit) — deliberately NOT the app's red-cross
+                  "rejected point" language, since these points are present, just down-weighted.  -->
+            <TextBlock
+                DockPanel.Dock="Bottom"
+                Margin="6,2,0,0"
+                HorizontalAlignment="Left"
+                FontSize="10"
+                Foreground="{StaticResource SecondaryBrush}"
+                Text="&#x25CB; recovery point — down-weighted in fit"
+                Visibility="{Binding HasRecoveryPoints, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+            <oxy:Plot
             MinHeight="240"
             Background="{StaticResource BackgroundBrush}"
             PlotAreaBackground="{StaticResource BackgroundBrush}"
@@ -71,11 +83,26 @@
                     Title="Focuser position" />
             </oxy:Plot.Axes>
             <oxy:Plot.Series>
+                <!--  Recovery overlay: the far-from-focus, down-weighted points rendered as hollow rings (transparent
+                      fill + faint primary stroke) with a dimmed error bar, so they read as "present but down-weighted"
+                      WITHOUT the red-cross "rejected point" language. Declared BEFORE the main series so it draws
+                      underneath. Empty (nothing drawn) when recovery is off, so this is inert at the baseline.  -->
+                <oxy:ScatterErrorSeries
+                    ErrorBarColor="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=100}"
+                    ErrorBarStopWidth="2"
+                    ErrorBarStrokeThickness="1"
+                    ItemsSource="{Binding RecoveryPoints}"
+                    MarkerFill="Transparent"
+                    MarkerSize="5"
+                    MarkerStroke="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=150}"
+                    MarkerStrokeThickness="1.5"
+                    MarkerType="Circle"
+                    TrackerFormatString="Focuser: {2:0}, HFR: {4:0.000} (recovery)" />
                 <oxy:ScatterErrorSeries
                     ErrorBarColor="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
                     ErrorBarStopWidth="2"
                     ErrorBarStrokeThickness="2"
-                    ItemsSource="{Binding Points}"
+                    ItemsSource="{Binding CorePoints}"
                     MarkerFill="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                     MarkerType="Circle"
                     TrackerFormatString="Focuser: {2:0}, HFR: {4:0.000}" />
@@ -91,7 +118,8 @@
                     X="{Binding Minimum.X}"
                     Y="{Binding Minimum.Y}" />
             </oxy:Plot.Annotations>
-        </oxy:Plot>
+            </oxy:Plot>
+        </DockPanel>
     </DataTemplate>
 
     <!--  Fitted focus graph for a registered star WITH an accepted fit (Review Frames hover): plain scatter (NO error

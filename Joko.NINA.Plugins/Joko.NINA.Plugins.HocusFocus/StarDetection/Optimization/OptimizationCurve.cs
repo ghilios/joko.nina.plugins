@@ -40,7 +40,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     /// </summary>
     public sealed class OptimizationCurve {
         public string Label { get; set; }
+
+        /// <summary>The FULL pooled scatter set (core ∪ recovery). Remains the set backing <see cref="Bounds"/> and
+        /// <see cref="HasFit"/>, so axis extents and fit-presence are unaffected by the core/recovery split. The chart
+        /// draws the split subsets (<see cref="CorePoints"/> + <see cref="RecoveryPoints"/>), not this list directly.</summary>
         public IReadOnlyList<ScatterErrorPoint> Points { get; set; }
+
+        /// <summary>The NON-recovery subset of <see cref="Points"/> — the near-focus points the MAIN scatter series draws.
+        /// <c>Points == CorePoints ∪ RecoveryPoints</c>. Equal in content to <see cref="Points"/> when recovery is off.</summary>
+        public IReadOnlyList<ScatterErrorPoint> CorePoints { get; set; }
+
+        /// <summary>The far-from-focus recovery subset of <see cref="Points"/> — down-weighted in the fit, drawn as the
+        /// hollow overlay series. Never null (callers set an empty list when there is no recovery). <c>Points ==
+        /// CorePoints ∪ RecoveryPoints</c>.</summary>
+        public IReadOnlyList<ScatterErrorPoint> RecoveryPoints { get; set; }
+
         public AlglibHyperbolicFitting Fit { get; set; }
 
         /// <summary>Accepted star count per frame for this variant's params (parallel to
@@ -68,6 +82,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         /// <summary>True when there is a real fit and at least one scatter point to plot.</summary>
         public bool HasFit => Fit != null && Points != null && Points.Count > 0;
+
+        /// <summary>True when there is at least one far-from-focus recovery point to draw as the hollow overlay (and to
+        /// show the "recovery point" caption). False when recovery is off or every recovery position was excluded upstream.</summary>
+        public bool HasRecoveryPoints => RecoveryPoints != null && RecoveryPoints.Count > 0;
     }
 
     /// <summary>

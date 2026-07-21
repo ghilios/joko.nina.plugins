@@ -25,6 +25,7 @@ using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using OpenCvSharp;
+using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -2301,6 +2302,39 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// settings (baseline) and best, averaged across runs), and the recommended step size from the representative (first) run's best
         /// fit, clamped to the focuser's max increment when known.
         /// </summary>
+        /// <summary>
+        /// Splits an evaluation's pooled scatter points into the NON-recovery (core) subset and the far-from-focus
+        /// RECOVERY subset, so the chart can draw the recovery points as a visually-distinct hollow overlay while the
+        /// main series draws only the core. A point is a recovery point iff its focuser position (X, rounded) is one of
+        /// the DISTINCT positions flagged as recovery in <see cref="RunEvaluationMetrics.FrameIsRecovery"/>.
+        ///
+        /// <para>When recovery is OFF (<c>FrameIsRecovery</c> null) — or no position is flagged, or the recovery
+        /// positions were excluded from <c>eval.Points</c> upstream (the un-weighted-fit case) — this returns
+        /// <c>(points, empty)</c>, so <c>CorePoints</c> is content-identical to <c>Points</c> and the overlay is empty:
+        /// rendering is byte-identical to before this feature. <c>core ∪ recovery == points</c> with no duplication.</para>
+        /// </summary>
+        internal static (IReadOnlyList<ScatterErrorPoint> core, IReadOnlyList<ScatterErrorPoint> recovery)
+            PartitionRecoveryPoints(RunEvaluationResult eval) {
+            var points = eval.Points;
+            var metrics = eval.Metrics;
+            if (points == null) return (System.Array.Empty<ScatterErrorPoint>(), System.Array.Empty<ScatterErrorPoint>());
+            if (metrics?.FrameIsRecovery == null || metrics.FrameFocuserPositions == null) {
+                return (points, System.Array.Empty<ScatterErrorPoint>());   // recovery off ⇒ all core, none recovery
+            }
+            var recoverySet = new HashSet<int>();
+            var flags = metrics.FrameIsRecovery;
+            var positions = metrics.FrameFocuserPositions;
+            var n = System.Math.Min(flags.Count, positions.Count);
+            for (var i = 0; i < n; i++) { if (flags[i]) recoverySet.Add(positions[i]); }
+            if (recoverySet.Count == 0) return (points, System.Array.Empty<ScatterErrorPoint>());
+            var core = new List<ScatterErrorPoint>();
+            var recovery = new List<ScatterErrorPoint>();
+            foreach (var p in points) {
+                if (recoverySet.Contains((int)System.Math.Round(p.X))) recovery.Add(p); else core.Add(p);
+            }
+            return (core, recovery);
+        }
+
         private async Task<(OptimizationSummary Summary, OptimizationCurve CurrentCurve, OptimizationCurve OptimizedCurve)>
             BuildSummaryAsync(IReadOnlyList<LoadedRun> runs, OptimizationResult res, CancellationToken token) {
             // The displayed "before" is the user's CURRENT settings (Baseline), NOT the optimizer's default seed.
@@ -2334,13 +2368,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (double.IsFinite(bestEval.Metrics.SigmaFocus)) { bestSigmaSum += bestEval.Metrics.SigmaFocus; bestSigmaCount++; }
                 if (i == 0) {
                     representativeBestFit = bestEval.BestFit;
+                    var (baselineCore, baselineRecovery) = PartitionRecoveryPoints(baselineEval);
+                    var (bestCore, bestRecovery) = PartitionRecoveryPoints(bestEval);
                     currentCurveLocal = new OptimizationCurve {
                         Label = "Current", Points = baselineEval.Points, Fit = baselineEval.BestFit,
+                        CorePoints = baselineCore, RecoveryPoints = baselineRecovery,
                         FrameStarCounts = baselineEval.Metrics.FrameStarCounts,
                         FrameFocuserPositions = baselineEval.Metrics.FrameFocuserPositions
                     };
                     optimizedCurveLocal = new OptimizationCurve {
                         Label = "Optimized", Points = bestEval.Points, Fit = bestEval.BestFit,
+                        CorePoints = bestCore, RecoveryPoints = bestRecovery,
                         FrameStarCounts = bestEval.Metrics.FrameStarCounts,
                         FrameFocuserPositions = bestEval.Metrics.FrameFocuserPositions
                     };

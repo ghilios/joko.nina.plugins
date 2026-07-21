@@ -23,6 +23,7 @@ using NINA.WPF.Base.ViewModel.AutoFocus;
 using NSubstitute;
 using NSubstitute.Core;
 using NUnit.Framework;
+using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -2651,6 +2652,88 @@ public class StarDetectionOptimizerWizardVMTests {
         // Toggling away from Feedback hides the comparison.
         vm.SelectedVariant = OptimizationVariant.Optimized;
         Assert.That(vm.HasStarCountChanges, Is.False, "the comparison only shows on the feedback variant");
+    }
+
+    // ---- Recovery-point partitioning (chart's hollow-marker overlay) -----------------------------------
+
+    private static ScatterErrorPoint Sep(double x, double y = 2.0) => new ScatterErrorPoint(x, y, 0, 0.1);
+
+    [Test]
+    public void PartitionRecoveryPoints_RecoveryOff_AllCore_NoRecovery() {
+        // FrameIsRecovery == null (the baseline / feature-off case) ⇒ every point is core, the overlay is empty.
+        var points = new List<ScatterErrorPoint> { Sep(100), Sep(200), Sep(300) };
+        var eval = new RunEvaluationResult {
+            Points = points,
+            Metrics = new RunEvaluationMetrics {
+                FrameIsRecovery = null,
+                FrameFocuserPositions = new[] { 100, 200, 300 }
+            }
+        };
+
+        var (core, recovery) = StarDetectionOptimizerWizardVM.PartitionRecoveryPoints(eval);
+
+        Assert.Multiple(() => {
+            Assert.That(recovery, Is.Empty, "no recovery data ⇒ empty overlay");
+            Assert.That(core.Select(p => p.X), Is.EquivalentTo(points.Select(p => p.X)), "all points are core");
+            Assert.That(core.Count, Is.EqualTo(points.Count));
+        });
+    }
+
+    [Test]
+    public void PartitionRecoveryPoints_SplitsByRecoveryPosition_PartitionIsExactAndDisjoint() {
+        // Positions 100 and 500 are the far-from-focus recovery extremes; 200/300/400 are core. Two frames share
+        // position 100 (both flagged) to prove distinct-position handling doesn't duplicate the single pooled point.
+        var points = new List<ScatterErrorPoint> { Sep(100), Sep(200), Sep(300), Sep(400), Sep(500) };
+        var eval = new RunEvaluationResult {
+            Points = points,
+            Metrics = new RunEvaluationMetrics {
+                FrameFocuserPositions = new[] { 100, 100, 200, 300, 400, 500 },
+                FrameIsRecovery = new[] { true, true, false, false, false, true }
+            }
+        };
+
+        var (core, recovery) = StarDetectionOptimizerWizardVM.PartitionRecoveryPoints(eval);
+
+        Assert.Multiple(() => {
+            Assert.That(recovery.Select(p => p.X), Is.EquivalentTo(new[] { 100.0, 500.0 }), "recovery positions ⇒ overlay");
+            Assert.That(core.Select(p => p.X), Is.EquivalentTo(new[] { 200.0, 300.0, 400.0 }), "the rest ⇒ main series");
+            // core ∪ recovery == points, with no duplication.
+            Assert.That(core.Count + recovery.Count, Is.EqualTo(points.Count));
+            Assert.That(core.Concat(recovery).Select(p => p.X), Is.EquivalentTo(points.Select(p => p.X)));
+        });
+    }
+
+    [Test]
+    public void PartitionRecoveryPoints_RecoveryPositionAbsentFromPoints_EmptyRecovery() {
+        // Un-weighted-fit case: a recovery position is flagged in the metrics but was EXCLUDED from eval.Points
+        // upstream. It therefore matches no point ⇒ the overlay is empty and every present point is core.
+        var points = new List<ScatterErrorPoint> { Sep(200), Sep(300), Sep(400) };
+        var eval = new RunEvaluationResult {
+            Points = points,
+            Metrics = new RunEvaluationMetrics {
+                FrameFocuserPositions = new[] { 100, 200, 300, 400, 500 },
+                FrameIsRecovery = new[] { true, false, false, false, true } // 100 & 500 flagged but not in Points
+            }
+        };
+
+        var (core, recovery) = StarDetectionOptimizerWizardVM.PartitionRecoveryPoints(eval);
+
+        Assert.Multiple(() => {
+            Assert.That(recovery, Is.Empty, "flagged recovery positions absent from Points ⇒ nothing to overlay");
+            Assert.That(core.Select(p => p.X), Is.EquivalentTo(points.Select(p => p.X)), "all present points are core");
+        });
+    }
+
+    [Test]
+    public void OptimizationCurve_HasRecoveryPoints_TrueOnlyWhenNonEmpty() {
+        var none = new OptimizationCurve { RecoveryPoints = null };
+        var empty = new OptimizationCurve { RecoveryPoints = System.Array.Empty<ScatterErrorPoint>() };
+        var some = new OptimizationCurve { RecoveryPoints = new[] { Sep(100) } };
+        Assert.Multiple(() => {
+            Assert.That(none.HasRecoveryPoints, Is.False, "null ⇒ no overlay/caption");
+            Assert.That(empty.HasRecoveryPoints, Is.False, "empty ⇒ no overlay/caption");
+            Assert.That(some.HasRecoveryPoints, Is.True, "non-empty ⇒ overlay/caption shown");
+        });
     }
 
 }
