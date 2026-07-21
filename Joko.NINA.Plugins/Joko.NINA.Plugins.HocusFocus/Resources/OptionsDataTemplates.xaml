@@ -2310,17 +2310,6 @@
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
-                    <!--  The active-filter warning row collapses on its own condition rather than on the feature
-                          toggle: HasActiveFilterWarning is already false whenever per-filter detection is off, so
-                          this one trigger covers both "feature disabled" and "nothing to warn about".  -->
-                    <Style x:Key="ShowOnActiveFilterWarning" TargetType="{x:Type RowDefinition}">
-                        <Setter Property="Height" Value="0" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding PerFilterEditBinder.HasActiveFilterWarning}" Value="True">
-                                <Setter Property="Height" Value="Auto" />
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
                 </Grid.Resources>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" SharedSizeGroup="HF_SDCol0" />
@@ -2329,7 +2318,6 @@
                 <Grid.RowDefinitions>
                     <RowDefinition />
                     <RowDefinition Style="{StaticResource ShowOnPerFilterEnabled}" />
-                    <RowDefinition Style="{StaticResource ShowOnActiveFilterWarning}" />
                     <RowDefinition Style="{StaticResource ShowOnPerFilterEnabled}" />
                 </Grid.RowDefinitions>
                 <TextBlock
@@ -2364,28 +2352,14 @@
                     ItemsSource="{Binding PerFilterEditBinder.AvailableFilterNames}"
                     SelectedItem="{Binding PerFilterEditBinder.EditedFilterName}"
                     ToolTip="{StaticResource EditedFilterName_Tooltip}" />
-                <!--  Warns that the filter being edited is not the one in the light path (no wheel connected, or a
-                      wheel parked on a different filter). Spans both columns and carries its own MaxWidth because
-                      the grid's columns are Auto-sized and left-aligned, so without one the text would not wrap.  -->
                 <TextBlock
                     Grid.Row="2"
-                    Grid.Column="0"
-                    Grid.ColumnSpan="2"
-                    MaxWidth="420"
-                    Margin="0,6,0,0"
-                    HorizontalAlignment="Left"
-                    FontStyle="Italic"
-                    Foreground="{StaticResource NotificationWarningBrush}"
-                    Text="{Binding PerFilterEditBinder.ActiveFilterWarning}"
-                    TextWrapping="Wrap" />
-                <TextBlock
-                    Grid.Row="3"
                     Grid.Column="0"
                     VerticalAlignment="Center"
                     Text="Copy Settings From"
                     ToolTip="{StaticResource CopyStarDetectionFromFilter_Tooltip}" />
                 <StackPanel
-                    Grid.Row="3"
+                    Grid.Row="2"
                     Grid.Column="1"
                     Orientation="Horizontal">
                     <ComboBox
@@ -2413,6 +2387,32 @@
                     </Button>
                 </StackPanel>
             </Grid>
+            <!--  Active-filter warning: a standalone full-width message BELOW the per-filter grid, deliberately NOT a
+                  cell in that grid. A wrapping TextBlock must not span the grid's Auto SharedSizeGroup columns
+                  (HF_SDCol0/HF_SDCol1 are shared with the settings grid): a wrapping cell spanning shared columns
+                  whose widths are negotiated across two grids does not converge under a UI-Automation-driven
+                  re-measure and livelocks the UI thread. Here it wraps within its own bounded MaxWidth, clear of the
+                  shared-size scope. Collapses (via its Style) whenever there is nothing to warn about, which is
+                  already the case whenever per-filter detection is off.  -->
+            <TextBlock
+                Margin="5,6,5,0"
+                MaxWidth="420"
+                HorizontalAlignment="Left"
+                FontStyle="Italic"
+                Foreground="{StaticResource NotificationWarningBrush}"
+                Text="{Binding PerFilterEditBinder.ActiveFilterWarning}"
+                TextWrapping="Wrap">
+                <TextBlock.Style>
+                    <Style TargetType="{x:Type TextBlock}">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding PerFilterEditBinder.HasActiveFilterWarning}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
             <!--  Import / Export the star-detection parameters only (tune on a fast machine, import on the imaging machine).  -->
             <StackPanel
                 Margin="5,10,5,5"

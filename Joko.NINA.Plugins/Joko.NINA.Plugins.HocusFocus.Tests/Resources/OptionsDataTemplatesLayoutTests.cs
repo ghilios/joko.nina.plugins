@@ -62,5 +62,42 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Resources {
                 "Two column-0 controls share a grid row, so they render on top of each other:\n" +
                 string.Join("\n", collisions));
         }
+
+        // Guards against the UI-thread livelock fixed after the per-filter "active filter" warning was added: a
+        // wrapping TextBlock placed as a direct cell of a Grid whose columns use SharedSizeGroup, and spanning more
+        // than one column, does not converge its measure when UI Automation forces a re-measure (the shared column
+        // widths are negotiated across every grid in the scope). An accessibility/automation client walking the tree
+        // then pegs the UI thread at 100% CPU and the window hangs. Keep wrapping messages out of shared-size spanned
+        // cells (put them in their own bounded-width element outside the shared-size grid).
+        [Test]
+        public void OptionGrids_NoWrappingTextBlockSpansSharedSizeColumns() {
+            var doc = LoadOptionsDataTemplates();
+            var offenders = new List<string>();
+
+            foreach (var grid in doc.Descendants(Presentation + "Grid")) {
+                var colDefs = grid.Element(Presentation + "Grid.ColumnDefinitions");
+                var hasSharedSizeColumns = colDefs != null && colDefs
+                    .Elements(Presentation + "ColumnDefinition")
+                    .Any(cd => (string)cd.Attribute("SharedSizeGroup") != null);
+                if (!hasSharedSizeColumns) {
+                    continue;
+                }
+                foreach (var textBlock in grid.Elements(Presentation + "TextBlock")) {
+                    var wrapping = (string)textBlock.Attribute("TextWrapping");
+                    var isWrapping = wrapping != null && wrapping != "NoWrap";
+                    var span = (string)textBlock.Attribute("Grid.ColumnSpan");
+                    var spansMultipleColumns = span != null && int.TryParse(span, out var n) && n > 1;
+                    if (isWrapping && spansMultipleColumns) {
+                        var text = (string)textBlock.Attribute("Text") ?? "<TextBlock>";
+                        offenders.Add($"TextBlock Text='{text}' TextWrapping={wrapping} Grid.ColumnSpan={span}");
+                    }
+                }
+            }
+
+            Assert.That(offenders, Is.Empty,
+                "A wrapping TextBlock spans SharedSizeGroup columns as a direct grid cell, which livelocks the UI " +
+                "thread under UI Automation (the shared column widths never converge). Move the message out of the " +
+                "shared-size grid so it wraps within its own bounded width:\n" + string.Join("\n", offenders));
+        }
     }
 }
