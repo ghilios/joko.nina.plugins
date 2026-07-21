@@ -620,6 +620,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
+        private int focusRecoverySteps = 1;
+
+        /// <summary>Session-only "Focus recovery = N" knob (default 1, VM-only, resets each launch like
+        /// <see cref="StartFromCurrentSettings"/> since the VM is constructed fresh per wizard launch). Only meaningful
+        /// in Live mode: it widens the captured focuser sweep by N extra steps PER SIDE beyond the profile's
+        /// <see cref="SweepOffsetSteps"/> (see <see cref="SweepEffectiveOffsetSteps"/> / <see cref="ApplyFocusRecovery"/>),
+        /// and is snapshotted at Start onto every loaded run's <see cref="RunEvaluationData.RecoveryStepsPerSide"/> so the
+        /// evaluator TAGS those outer frames as recovery (down-weighted in the fit, exempt from star-count gates). Inert
+        /// for Replay and production autofocus: <see cref="SweepEffectiveOffsetSteps"/> adds 0 when not Live, the snapshot
+        /// is 0 unless the run is Live, and <see cref="ApplyFocusRecovery"/> is a no-op at N &lt;= 0.</summary>
+        public int FocusRecoverySteps {
+            get => focusRecoverySteps;
+            set {
+                var clamped = Math.Max(0, value);
+                if (focusRecoverySteps != clamped) {
+                    focusRecoverySteps = clamped;
+                    RaisePropertyChanged();
+                    RaiseSweepReadoutsChanged();
+                }
+            }
+        }
+
         /// <summary>Pass-through to the profile-saved <see cref="IStarDetectionOptions.DefocusAwareDonutDetection"/>
         /// master toggle, surfaced on the wizard start page. Default OFF. UNLIKE <see cref="StartFromCurrentSettings"/>
         /// (VM-only, resets each launch) this is a true profile option: the setter persists IMMEDIATELY on click
@@ -757,7 +779,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // do not change during the wizard, so they need no change notifications beyond the initial bind.
         public int SweepStepSize => profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize;
         public int SweepOffsetSteps => profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps;
-        public int SweepPointCount => 2 * SweepOffsetSteps + 1;
+
+        /// <summary>The offset-steps-per-side the Live sweep will actually capture: the profile's
+        /// <see cref="SweepOffsetSteps"/> plus the session-only <see cref="FocusRecoverySteps"/> recovery steps. Adds 0
+        /// unless the source is Live, so the Replay readouts (and any production path) are byte-identical to before.</summary>
+        public int SweepEffectiveOffsetSteps => SweepOffsetSteps + (IsLive ? Math.Max(0, FocusRecoverySteps) : 0);
+
+        public int SweepPointCount => 2 * SweepEffectiveOffsetSteps + 1;
         public int SweepFramesPerPoint => profileService.ActiveProfile.FocuserSettings.AutoFocusNumberOfFramesPerPoint;
         public string SweepBinning {
             get {
@@ -820,6 +848,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         private void RaiseSweepReadoutsChanged() {
             RaisePropertyChanged(nameof(SweepStepSize));
+            RaisePropertyChanged(nameof(SweepEffectiveOffsetSteps));
             RaisePropertyChanged(nameof(SweepPointCount));
             RaisePropertyChanged(nameof(SweepBinning));
             RaisePropertyChanged(nameof(SweepFilterName));
@@ -1448,6 +1477,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // live capture happened (gates the exposure write-back offer). A fresh Replay run clears the flag.
         private double capturedLiveExposureSeconds;
         private bool lastRunWasLive;
+        // Snapshotted at Start (Live => Math.Max(0, FocusRecoverySteps), else 0) and stamped onto EVERY loaded run's
+        // RunEvaluationData.RecoveryStepsPerSide (acquire AND the re-optimize/feedback reload loop) so both optimize
+        // passes tag the same outer frames as recovery even if the UI box is later edited. 0 for Replay => inert.
+        private int capturedRecoveryStepsPerSide;
 
         private bool LastRunWasLive {
             get => lastRunWasLive;
@@ -1730,6 +1763,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // Whether this fresh run is a Live sweep decides whether the Summary offers the exposure write-back.
             // (Continue/Re-optimize don't reset it — they preserve the original run's nature.)
             LastRunWasLive = SourceMode == SourceMode.Live;
+            // Snapshot the recovery knob NOW so a later edit of the box can't desync the widened capture from the
+            // tagging, nor the first optimize pass from the re-optimize/feedback pass. Replay => 0 (recovery inert).
+            capturedRecoveryStepsPerSide = (SourceMode == SourceMode.Live) ? Math.Max(0, FocusRecoverySteps) : 0;
             ResetVariants();
             // Clear stale progress so a re-run after a cancel/complete doesn't briefly show the previous run's
             // evaluation count / phase / improvement before the first progress callback overwrites them.
@@ -1938,6 +1974,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     var loadProgress = new Progress<RunLoadProgress>(rp =>
                         SetProgress("Loading frames", rp.Current, rp.Total));
                     var loaded = await loader.LoadSavedRunAsync(folder, region, null, loadProgress, ResolveBaselineOptionsOverride(), token).ConfigureAwait(true);
+                    // Stamp the recovery snapshot so the evaluator tags the outer sweep frames as recovery. 0 for
+                    // Replay/non-Live => RunEvaluationData is byte-identical to before (FrameIsRecovery stays null).
+                    loaded.Data.RecoveryStepsPerSide = capturedRecoveryStepsPerSide;
                     runs.Add(loaded);
                     // Record the actual folder loaded (in load order) so the re-optimize path can re-read it from disk
                     // after the source Mats are disposed. Snapshotted in SnapshotReviewInputs on full success.
@@ -2005,6 +2044,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 options.UseExactImagingFilter = true;
             }
 
+            // Widen the captured sweep by the snapshotted recovery steps (never the live box) so the widened capture and
+            // the tagged evaluation use the identical N, and scale the per-run timeout so the longer sweep doesn't time
+            // out. No-op at N <= 0, keeping the Live path byte-identical when recovery is off.
+            ApplyFocusRecovery(options, capturedRecoveryStepsPerSide);
+
             // Route the sweep's progress: the engine's per-point reports (tagged with its source) carry the focuser
             // position + frame count and drive the frame bar; the camera's own reports carry the exposure countdown.
             var captureProgress = new Progress<ApplicationStatus>(HandleCaptureProgress);
@@ -2022,6 +2066,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 CaptureContextText = null;
                 CaptureExposureText = null;
                 ExposureProgressMax = 0;
+            }
+        }
+
+        /// <summary>Widens a Live sweep's per-run options for focus recovery: adds <paramref name="recoverySteps"/> extra
+        /// offset steps PER SIDE (widening the sweep RANGE, not refining it — <see cref="AutoFocusEngineOptions.AutoFocusStepSize"/>
+        /// is deliberately untouched) and scales ONLY the per-run <see cref="AutoFocusEngineOptions.AutoFocusTimeout"/>
+        /// override by the point-count ratio so the longer sweep (the fixed sweep enforces a hard timeout) doesn't time
+        /// out. Never touches the persisted profile offset or timeout seconds. A no-op at <paramref name="recoverySteps"/>
+        /// &lt;= 0 (or null options), so the Live path stays byte-identical when recovery is off. Internal + static so the
+        /// widening is directly unit-testable.</summary>
+        internal static void ApplyFocusRecovery(AutoFocusEngineOptions options, int recoverySteps) {
+            if (options == null || recoverySteps <= 0) {
+                return; // N<=0 keeps the Live path byte-identical
+            }
+            var oldOffset = options.AutoFocusInitialOffsetSteps;
+            var oldPoints = 2 * oldOffset + 1;
+            var newOffset = oldOffset + recoverySteps;
+            var newPoints = 2 * newOffset + 1;
+            options.AutoFocusInitialOffsetSteps = newOffset;             // widen range (do NOT touch AutoFocusStepSize — recovery widens, not refines)
+            if (oldPoints > 0 && newPoints > oldPoints) {                // scale ONLY the per-run timeout override (fixed sweep enforces AutoFocusTimeout)
+                var oldTicks = options.AutoFocusTimeout.Ticks;
+                options.AutoFocusTimeout = TimeSpan.FromTicks((long)(oldTicks * (double)newPoints / oldPoints));
             }
         }
 
@@ -2071,7 +2137,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var results = await AnalyzeWithProgressAsync(runs, guardParams, token).ConfigureAwait(true);
             var anyUsable = false;
             foreach (var eval in results) {
-                if (double.IsFinite(eval.Metrics.SigmaFocus) && eval.PooledPointCount >= MinPositionsForFit) {
+                // Gate on the NON-recovery positions: with recovery frames the raw PooledPointCount is trivially >= 3, so
+                // a starless-near-focus run could pass on recovery positions alone. RecoveryStepsPerSide == 0 =>
+                // NonRecoveryPooledPointCount == PooledPointCount, so Replay/N=0 behavior is unchanged.
+                if (double.IsFinite(eval.Metrics.SigmaFocus) && eval.NonRecoveryPooledPointCount >= MinPositionsForFit) {
                     anyUsable = true;
                     break;
                 }
@@ -2663,6 +2732,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     var loadProgress = new Progress<RunLoadProgress>(rp =>
                         SetProgress("Loading frames", rp.Current, rp.Total));
                     var loaded = await loader.LoadSavedRunAsync(folder, region, frameLabels, loadProgress, ResolveBaselineOptionsOverride(), token).ConfigureAwait(true);
+                    // CRITICAL: stamp the SAME recovery snapshot the first pass used, or the feedback/second optimize
+                    // pass loses the tag and its runs hard-floor on star-count gates, making its J disagree with pass 1.
+                    loaded.Data.RecoveryStepsPerSide = capturedRecoveryStepsPerSide;
                     reloaded.Add(loaded);
                 }
 
@@ -2791,6 +2863,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                         SetProgress("Loading frames", rp.Current, rp.Total));
                     // No labels for a plain continue (byte-identical to the no-label load).
                     var loaded = await loader.LoadSavedRunAsync(folder, region, null, loadProgress, ResolveBaselineOptionsOverride(), token).ConfigureAwait(true);
+                    // Same rationale as the re-optimize loop: stamp the recovery snapshot so a continued round keeps the
+                    // recovery tag and its J stays comparable with the prior round. 0 for Replay/N=0 => inert.
+                    loaded.Data.RecoveryStepsPerSide = capturedRecoveryStepsPerSide;
                     reloaded.Add(loaded);
                 }
 
