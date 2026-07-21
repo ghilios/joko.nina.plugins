@@ -3021,7 +3021,7 @@
                                     Visibility="{Binding TiltGuidance.HasFourScrewBackfocus, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             </Grid>
 
-                            <!--  Turns/Degrees display selector — screw adapters only (steppers always show whole steps)  -->
+                            <!--  Turns/Degrees/Minutes display selector — screw adapters only (steppers always show whole steps)  -->
                             <StackPanel
                                 Margin="5,8,5,0"
                                 Orientation="Horizontal"

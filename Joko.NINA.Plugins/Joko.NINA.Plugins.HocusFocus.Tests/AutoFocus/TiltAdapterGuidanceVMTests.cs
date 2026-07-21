@@ -37,9 +37,26 @@ public class TiltAdapterGuidanceVMTests {
     }
 
     [Test]
+    public void FormatAmount_ScrewsMinutes_ScalesSixtyMinutesPerTurnWithGlyph() {
+        Assert.Multiple(() => {
+            // 60 minutes = 1 full turn (clock-face convention, not arcminutes).
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(1.0, steps: false, TiltGuidanceAngleUnit.Minutes), Is.EqualTo("60.0 min ⟳"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.5, steps: false, TiltGuidanceAngleUnit.Minutes), Is.EqualTo("30.0 min ⟲"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.25, steps: false, TiltGuidanceAngleUnit.Minutes), Is.EqualTo("15.0 min ⟳"));
+            // One decimal place: 0.125 turn = 7.5 min.
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.125, steps: false, TiltGuidanceAngleUnit.Minutes), Is.EqualTo("7.5 min ⟳"));
+            // Same physical noise floor as turns/degrees: |turns| < 0.005 renders as the dash.
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.004, steps: false, TiltGuidanceAngleUnit.Minutes), Is.EqualTo("—"));
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(-0.004, steps: false, TiltGuidanceAngleUnit.Minutes), Is.EqualTo("—"));
+            // At the floor, 0.005 turn = 0.3 min stays visible rather than rounding down to 0.
+            Assert.That(TiltAdapterGuidanceVM.FormatAmount(0.005, steps: false, TiltGuidanceAngleUnit.Minutes), Is.EqualTo("0.3 min ⟳"));
+        });
+    }
+
+    [Test]
     public void FormatAmount_Steppers_IgnoreUnitAndShowSignedSteps() {
-        // The unit selector never applies to steppers; assert both units render identical whole steps.
-        foreach (var unit in new[] { TiltGuidanceAngleUnit.Turns, TiltGuidanceAngleUnit.Degrees }) {
+        // The unit selector never applies to steppers; assert every unit renders identical whole steps.
+        foreach (var unit in new[] { TiltGuidanceAngleUnit.Turns, TiltGuidanceAngleUnit.Degrees, TiltGuidanceAngleUnit.Minutes }) {
             Assert.Multiple(() => {
                 Assert.That(TiltAdapterGuidanceVM.FormatAmount(35.2, steps: true, unit), Is.EqualTo("+35 steps"));
                 Assert.That(TiltAdapterGuidanceVM.FormatAmount(-35.2, steps: true, unit), Is.EqualTo("−35 steps"));
@@ -58,6 +75,8 @@ public class TiltAdapterGuidanceVMTests {
                 Is.EqualTo("⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in turns"));
             Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, signIsMeasured: true, TiltGuidanceAngleUnit.Degrees),
                 Is.EqualTo("⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in degrees"));
+            Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, signIsMeasured: true, TiltGuidanceAngleUnit.Minutes),
+                Is.EqualTo("⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in minutes"));
             Assert.That(TiltAdapterGuidanceVM.BuildDirectionLegend(steps: false, signIsMeasured: false, TiltGuidanceAngleUnit.Degrees),
                 Is.EqualTo("⬆ = adapter moves toward the objective · ⟳ = clockwise (tighten) · amounts in degrees (assumed — set or measure in the Tilt Adapter Wizard)"));
             // Steppers ignore the unit word entirely.

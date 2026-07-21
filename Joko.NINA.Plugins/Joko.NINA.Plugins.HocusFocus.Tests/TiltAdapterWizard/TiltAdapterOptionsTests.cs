@@ -186,15 +186,16 @@ public class TiltAdapterOptionsTests {
         Assert.That(options.AngleDisplayUnit, Is.EqualTo(TiltGuidanceAngleUnit.Turns));
     }
 
-    [Test]
-    public void AngleDisplayUnit_PersistsAndRoundTrips() {
+    [TestCase(TiltGuidanceAngleUnit.Degrees)]
+    [TestCase(TiltGuidanceAngleUnit.Minutes)]
+    public void AngleDisplayUnit_PersistsAndRoundTrips(TiltGuidanceAngleUnit unit) {
         var (options, store, _) = Build();
-        options.AngleDisplayUnit = TiltGuidanceAngleUnit.Degrees;
+        options.AngleDisplayUnit = unit;
         Assert.Multiple(() => {
             Assert.That(store.GetValueEnum(nameof(TiltAdapterOptions.AngleDisplayUnit), TiltGuidanceAngleUnit.Turns),
-                Is.EqualTo(TiltGuidanceAngleUnit.Degrees));
+                Is.EqualTo(unit));
             var reloaded = new TiltAdapterOptions(Substitute.For<IProfileService>(), store);
-            Assert.That(reloaded.AngleDisplayUnit, Is.EqualTo(TiltGuidanceAngleUnit.Degrees));
+            Assert.That(reloaded.AngleDisplayUnit, Is.EqualTo(unit));
         });
     }
 }
