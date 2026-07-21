@@ -546,6 +546,14 @@
                             FontWeight="Bold"
                             Text="Optimization complete" />
 
+                        <!--  Per-filter runs tune one filter; name it up front so the results are unambiguously attributed to it.
+                              Collapsed when per-filter detection is off (the run tuned the single global set).  -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6"
+                                    Visibility="{Binding HasSummaryFilter, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <TextBlock Width="200" Text="Filter" />
+                            <TextBlock Text="{Binding SummaryFilterName, Mode=OneWay}" />
+                        </StackPanel>
+
                         <!--  Variant toggle: switch the chart + summary between Current / Optimized / Optimized (with
                               feedback). Hidden when only the current curve exists (review-only).  -->
                         <StackPanel

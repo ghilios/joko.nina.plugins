@@ -1555,6 +1555,45 @@ public class StarDetectionOptimizerWizardVMTests {
         });
     }
 
+    [Test]
+    public void SummaryFilter_ShowsTargetFilter_WhenPerFilterEnabled() {
+        var vm = NewVM(LoaderReturning(GoodRun()),
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" },
+            getCurrentFilterName: () => "Ha");
+        Assert.Multiple(() => {
+            Assert.That(vm.HasSummaryFilter, Is.True);
+            Assert.That(vm.SummaryFilterName, Is.EqualTo("Ha"));
+        });
+    }
+
+    [Test]
+    public void SummaryFilter_Hidden_WhenPerFilterDisabled() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.TargetFilterName = "Ha"; // even if somehow set, per-filter off means no filter to name
+        Assert.Multiple(() => {
+            Assert.That(vm.HasSummaryFilter, Is.False);
+            Assert.That(vm.SummaryFilterName, Is.Null);
+        });
+    }
+
+    [Test]
+    public void TargetFilterName_Set_RaisesPropertyChanged_ForSummaryFilterReadouts() {
+        var vm = NewVM(LoaderReturning(GoodRun()),
+            perFilterEnabled: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" },
+            getCurrentFilterName: () => "Lum");
+        var raised = new List<string>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        vm.TargetFilterName = "Ha";
+
+        Assert.Multiple(() => {
+            Assert.That(raised, Does.Contain(nameof(vm.SummaryFilterName)));
+            Assert.That(raised, Does.Contain(nameof(vm.HasSummaryFilter)));
+        });
+    }
+
     // ---- Per-filter star detection: capture / baseline / Accept routing --------------------------------
 
     [Test]

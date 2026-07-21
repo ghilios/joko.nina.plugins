@@ -705,6 +705,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     RaiseSweepReadoutsChanged();
                     // So does the donut master: it is read from the target filter's set, so re-targeting changes it.
                     RaisePropertyChanged(nameof(DefocusAwareDonutDetection));
+                    RaisePropertyChanged(nameof(SummaryFilterName));
+                    RaisePropertyChanged(nameof(HasSummaryFilter));
                 }
             }
         }
@@ -794,6 +796,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return string.IsNullOrEmpty(name) ? "Unavailable" : name;
             }
         }
+
+        /// <summary>The filter these summary results are for, shown on the summary page. Null when per-filter
+        /// detection is off (the run tuned the single global set, so there is no filter to name).</summary>
+        public string SummaryFilterName => IsPerFilterEnabled ? TargetFilterName : null;
+
+        /// <summary>Whether to show the summary-page filter readout at all.</summary>
+        public bool HasSummaryFilter => IsPerFilterEnabled && !string.IsNullOrEmpty(TargetFilterName);
 
         public int SweepEstimatedFrames => SweepPointCount * Math.Max(1, SweepFramesPerPoint);
 
