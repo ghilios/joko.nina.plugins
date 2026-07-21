@@ -210,6 +210,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // entirely (J bit-identical at the baseline).
         public IReadOnlyList<double> FrameRegionOccupancy { get; set; }
 
+        // Parallel to FrameStarCounts; true ⇒ this frame is a far-from-focus recovery frame
+        // (down-weighted in the fit, exempt from star-count gates). null ⇒ baseline (no recovery).
+        public IReadOnlyList<bool> FrameIsRecovery { get; set; }
+
         // Label scores for this run, supplied by the evaluator only when labels exist; null otherwise. The
         // optimizer passes these straight through to JRun, keeping itself label-agnostic.
         public double? Recall { get; set; }
@@ -303,9 +307,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var effRecall = recall ?? m.Recall;
             var effPrecision = precision ?? m.Precision;
 
-            // Hard constraint: too many starved frames.
+            // Hard constraint: too many starved frames. Far-from-focus RECOVERY frames (m.FrameIsRecovery[i] == true)
+            // are EXEMPT — they routinely detect < NHard stars by design, so counting them would force J = 0 for every
+            // candidate and make the wizard unusable. When FrameIsRecovery is null (the baseline — every legacy caller /
+            // Replay / production autofocus) the recovery guard is never taken, so `below` reduces EXACTLY to
+            // FrameStarCounts.Count(n => n < c.NHard) and J stays byte-identical.
             if (m.FrameStarCounts != null) {
-                var below = m.FrameStarCounts.Count(n => n < c.NHard);
+                var counts = m.FrameStarCounts;
+                var isRecovery = m.FrameIsRecovery;
+                var below = 0;
+                for (var i = 0; i < counts.Count; i++) {
+                    if (counts[i] >= c.NHard) {
+                        continue;
+                    }
+                    if (IsRecoveryFrame(isRecovery, i)) {
+                        continue; // exempt tagged recovery frame from the hard floor
+                    }
+                    below++;
+                }
                 if (below > c.MaxFramesBelowHardFloor) {
                     return 0.0;
                 }
@@ -315,7 +334,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (double.IsNaN(sFocus)) {
                 return 0.0; // unusable focus σ => hard fail
             }
-            var sStars = SStars(m.FrameStarCounts, c);
+            // S_stars is computed over the NON-recovery frames only: nMin/nMedian must not be dragged down by the
+            // heavily-defocused recovery wings. NonRecoveryStarCounts returns the ORIGINAL list reference when
+            // FrameIsRecovery is null, so this is byte-identical at the baseline.
+            var sStars = SStars(NonRecoveryStarCounts(m), c);
             var sFit = SFit(m.RSquared, m.ReducedChiSquared, c);
 
             // Region-coverage reward: an ADDITIVE sub-score folded into the renormalized weighted sum. Active only
@@ -390,7 +412,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (m?.FrameStarCounts == null || m.FrameStarCounts.Count == 0) {
                 return 0.0;
             }
-            var nMean = m.FrameStarCounts.Average();
+            // The tie-breaker is active by default (Wtie > 0) and is NOT near-focus-windowed, so the far-out recovery
+            // wings WOULD bias this plateau-search mean. Take it over the NON-recovery frames only. NonRecoveryStarCounts
+            // returns the ORIGINAL list reference when FrameIsRecovery is null ⇒ this mean is byte-identical at the baseline.
+            var nMean = NonRecoveryStarCounts(m).Average();
             // Unsaturating total-star richness: mean/(mean+k), half-saturated at the S_stars target knee.
             var tStars = nMean / (nMean + c.NTarget);
 
@@ -427,6 +452,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// (total relaxed / total accepted), guarded by <see cref="ObjectiveConstants.MinFramesForPenalty"/> and
         /// <see cref="ObjectiveConstants.MinAcceptedForPenalty"/> so a thin run can't be spuriously penalized.</para>
         ///
+        /// <para>Recovery frames (<see cref="RunEvaluationMetrics.FrameIsRecovery"/>[i] == true) are EXEMPT on BOTH
+        /// paths — numerator, denominator, the zero-relaxation short-circuit, and the fallback frame-count gate all
+        /// skip them. A recovery frame is heavily defocused by design, so its by-design donut relaxation must never
+        /// drive a NEAR-FOCUS precision penalty even when a short/skewed sweep places a recovery position inside the
+        /// near-focus window. When <see cref="RunEvaluationMetrics.FrameIsRecovery"/> is null (the baseline) every skip
+        /// is inert, so J is byte-identical.</para>
+        ///
         /// <para>Penalty shape (both signals): <c>1 − Strength · max(0, relaxedFrac − Threshold)</c>, clamped to
         /// [<see cref="ObjectiveConstants.DefocusPrecisionMinFactor"/>, 1]. At or below the threshold the factor is
         /// exactly 1.0.</para>
@@ -442,10 +474,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
 
             // Cheap short-circuit: zero relaxation anywhere ⇒ exactly 1.0 (the gate-OFF baseline). This is the
-            // bit-identity guarantee: when every per-frame relaxed count is 0, J is returned unchanged.
+            // bit-identity guarantee: when every per-frame relaxed count is 0, J is returned unchanged. RECOVERY frames
+            // are skipped here so their by-design relaxation never counts toward the penalty (relaxation confined to
+            // recovery frames ⇒ no penalty). nonRecoveryRelaxedFrames counts the NON-recovery frames over the SAME list
+            // the fallback frame-count gate references, so null FrameIsRecovery ⇒ it equals relaxed.Count (byte-identical).
+            var isRecovery = m.FrameIsRecovery;
             long totalRelaxed = 0;
+            var nonRecoveryRelaxedFrames = 0;
             for (var i = 0; i < relaxed.Count; i++) {
+                if (IsRecoveryFrame(isRecovery, i)) {
+                    continue; // recovery relaxation is by-design donut recovery, never a precision defect
+                }
                 totalRelaxed += relaxed[i];
+                nonRecoveryRelaxedFrames++;
             }
             if (totalRelaxed == 0) {
                 return 1.0;
@@ -465,6 +506,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 long nearRelaxed = 0;
                 long nearAccepted = 0;
                 for (var i = 0; i < relaxed.Count; i++) {
+                    // A recovery frame inside the window (the poor-start scenario) is exempt: skipping it drops BOTH its
+                    // relaxed and accepted counts together, so nearFrac stays a pure NON-recovery signal.
+                    if (IsRecoveryFrame(isRecovery, i)) {
+                        continue;
+                    }
                     if (Math.Abs(positions[i] - m.BestFocusPosition) <= window) {
                         nearRelaxed += relaxed[i];
                         nearAccepted += counts[i];
@@ -480,13 +526,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
 
             // ── Fallback: run-level relaxed fraction (documented choice when no positions/fit minimum) ───────
+            // Denominator skips recovery frames to stay consistent with the recovery-exempt totalRelaxed numerator (so
+            // the fraction can never exceed 1 or spuriously penalize a recovery-heavy run). The frame-count gate uses
+            // nonRecoveryRelaxedFrames (not counts.Count, which can differ from relaxed.Count on the fallback path).
             long totalAccepted = 0;
             if (counts != null) {
                 for (var i = 0; i < counts.Count; i++) {
+                    if (IsRecoveryFrame(isRecovery, i)) {
+                        continue;
+                    }
                     totalAccepted += counts[i];
                 }
             }
-            if (relaxed.Count < c.MinFramesForPenalty || totalAccepted < c.MinAcceptedForPenalty || totalAccepted <= 0) {
+            if (nonRecoveryRelaxedFrames < c.MinFramesForPenalty || totalAccepted < c.MinAcceptedForPenalty || totalAccepted <= 0) {
                 return 1.0; // too thin to trust ⇒ no penalty
             }
             var frac = (double)totalRelaxed / totalAccepted;
@@ -557,8 +609,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // Pool the eligible frames' accepted-star HFRs into one robust sample (maximizes n for the median/MAD).
             var pooled = new List<double>();
             var eligibleFrames = 0;
+            var isRecovery = m.FrameIsRecovery;
             for (var i = 0; i < hfrs.Count; i++) {
                 if (canUseNearFocus && Math.Abs(positions[i] - m.BestFocusPosition) > window) {
+                    continue;
+                }
+                // Exempt tagged recovery frames from the pooled HFR sample on BOTH paths. On the near-focus (primary)
+                // path this matters only when a short/skewed sweep places a recovery position inside the window; it also
+                // protects the FALLBACK pool (taken when BestFocusPosition is NaN), which otherwise pools every frame.
+                // Null FrameIsRecovery ⇒ guard never fires ⇒ byte-identical baseline.
+                if (IsRecoveryFrame(isRecovery, i)) {
                     continue;
                 }
                 var fr = hfrs[i];
@@ -647,10 +707,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 IsFinite(m.BestFocusPosition) && m.StepSize > 0.0 && c.NearFocusWindowSteps > 0.0;
             var window = canUseNearFocus ? c.NearFocusWindowSteps * m.StepSize : 0.0;
 
+            var isRecovery = m.FrameIsRecovery;
             var sum = 0.0;
             var n = 0;
             for (var i = 0; i < occ.Count; i++) {
                 if (canUseNearFocus && Math.Abs(positions[i] - m.BestFocusPosition) > window) {
+                    continue;
+                }
+                // Exempt tagged recovery frames from the coverage mean on BOTH paths. On the near-focus (primary) path
+                // this matters only when a short/skewed sweep places a recovery position inside the window; it also
+                // protects the FALLBACK average (taken when BestFocusPosition is NaN), which otherwise averages every
+                // finite frame. Null FrameIsRecovery ⇒ guard never fires ⇒ byte-identical baseline.
+                if (IsRecoveryFrame(isRecovery, i)) {
                     continue;
                 }
                 if (!IsFinite(occ[i])) {
@@ -753,6 +821,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
             return false;
         }
+
+        /// <summary>
+        /// The per-frame accepted-star counts with far-from-focus RECOVERY frames removed (those tagged in
+        /// <see cref="RunEvaluationMetrics.FrameIsRecovery"/>). Recovery frames are the outer, heavily-defocused sweep
+        /// positions that detect few/no stars; they are down-weighted in the fit and must not bias the star-count
+        /// sub-scores or gates. When <see cref="RunEvaluationMetrics.FrameIsRecovery"/> is null (the baseline — every
+        /// legacy caller / Replay / production autofocus) this returns the ORIGINAL list reference unchanged, so all
+        /// downstream star-count math (Min/Median/Average) is byte-identical. If filtering would remove EVERY frame it
+        /// also falls back to the original list, so a caller using Min/Average never sees an empty sequence (in practice
+        /// this can't happen — the recovery tagging always leaves ≥ 3 non-recovery frames).
+        /// </summary>
+        private static IReadOnlyList<int> NonRecoveryStarCounts(RunEvaluationMetrics m) {
+            var counts = m.FrameStarCounts;
+            var isRecovery = m.FrameIsRecovery;
+            if (counts == null || isRecovery == null) {
+                return counts; // baseline: same reference => byte-identical downstream
+            }
+            var filtered = new List<int>(counts.Count);
+            for (var i = 0; i < counts.Count; i++) {
+                if (IsRecoveryFrame(isRecovery, i)) {
+                    continue; // exempt far-from-focus recovery frame
+                }
+                filtered.Add(counts[i]);
+            }
+            return filtered.Count == 0 ? counts : filtered; // never hand back an empty sequence
+        }
+
+        /// <summary>
+        /// True iff frame <paramref name="i"/> is tagged a far-from-focus RECOVERY frame. Bounds-checked so a caller can
+        /// pass a <paramref name="flags"/> list that is null (the baseline ⇒ always false ⇒ byte-identical) or, defensively,
+        /// shorter than the frame axis. The single guard used at every recovery-exemption site (hard floor, SDefocusPrecision,
+        /// SHfrOutlier, SCoverage) so the null/bounds semantics can't drift between them.
+        /// </summary>
+        private static bool IsRecoveryFrame(IReadOnlyList<bool> flags, int i) => flags != null && i < flags.Count && flags[i];
 
         private static bool IsFinite(double v) => !double.IsNaN(v) && !double.IsInfinity(v);
 

@@ -570,6 +570,261 @@ public class OptimizationObjectiveTests {
             "the shipped tie-breaker keeps the star-rich corner on the plateau");
     }
 
+    // ---- Focus recovery: exempt tagged recovery frames from the star-count gates ----
+
+    // A run with explicit per-frame counts and a parallel FrameIsRecovery tag list (null => baseline / no recovery).
+    // All other sub-scores are held healthy so the star-count gates are the only thing under test.
+    private static RunEvaluationMetrics RecoveryRun(int[] counts, bool[] isRecovery, double sigmaFocus = 0.05) =>
+        new RunEvaluationMetrics {
+            SigmaFocus = sigmaFocus,
+            LooStdError = double.NaN,
+            StepSize = 1.0,
+            RSquared = 0.99,
+            ReducedChiSquared = 1.0,
+            FrameStarCounts = counts,
+            FrameIsRecovery = isRecovery
+        };
+
+    [Test]
+    public void JRun_HardFloorExemption_TaggedRecoveryFramesDoNotZeroJ() {
+        var c = C; // NHard=3, MaxFramesBelowHardFloor=0
+        // Two starved wing frames (0 and 1 stars) + 7 healthy frames. This is the core failure the feature fixes:
+        // recovery frames routinely detect < NHard stars, and the hard floor would force J = 0 for every candidate.
+        var counts = new[] { 0, 1, 40, 40, 40, 40, 40, 40, 40 };
+
+        // Untagged (baseline): the starved frames must STILL hard-fail (proves the null path keeps gating).
+        var untagged = RecoveryRun(counts, isRecovery: null);
+        Assert.That(OptimizationObjective.JRun(untagged, c), Is.EqualTo(0.0),
+            "with FrameIsRecovery null the starved frames must still force the hard floor => J == 0");
+
+        // Same counts, but the two starved frames are tagged recovery => exempt from the hard floor.
+        var tagged = RecoveryRun(counts,
+            isRecovery: new[] { true, true, false, false, false, false, false, false, false });
+        Assert.That(OptimizationObjective.JRun(tagged, c), Is.GreaterThan(0.0),
+            "starved frames tagged as recovery are exempt from the hard floor => J > 0");
+    }
+
+    [Test]
+    public void JRun_HardFloorExemption_NonRecoveryStarvedFrameStillHardFails() {
+        var c = C;
+        // Frame index 2 is starved (2 < 3) but NOT tagged recovery => it must still hard-fail even though the
+        // outer wings are tagged. Exemption applies ONLY to tagged frames.
+        var counts = new[] { 0, 1, 2, 40, 40, 40, 40, 40, 40 };
+        var tagged = RecoveryRun(counts,
+            isRecovery: new[] { true, true, false, false, false, false, false, false, false });
+        Assert.That(OptimizationObjective.JRun(tagged, c), Is.EqualTo(0.0),
+            "a starved NON-recovery frame is not exempt => the run still hard-fails");
+    }
+
+    [Test]
+    public void JRun_SStars_IgnoresTaggedRecoveryFrames() {
+        var c = C;
+        // Healthy counts chosen so S_stars is BELOW 1.0 (min-term 1, median-term 0.5) and therefore sensitive to
+        // any starved frame that leaks into nMin/nMedian.
+        var healthy = Enumerable.Repeat(10, 7).ToArray();
+
+        // Baseline: only the 7 healthy frames, no recovery tagging.
+        var noRecovery = RecoveryRun(healthy, isRecovery: null, sigmaFocus: 0.2);
+
+        // Same 7 healthy frames PLUS two starved (count 2) frames tagged as recovery. If those leaked into S_stars,
+        // nMin would collapse to 2 and J would drop; the exemption must make J equal to the run without them.
+        var withRecovery = RecoveryRun(
+            new[] { 2, 2 }.Concat(healthy).ToArray(),
+            isRecovery: new[] { true, true }.Concat(Enumerable.Repeat(false, 7)).ToArray(),
+            sigmaFocus: 0.2);
+
+        Assert.That(OptimizationObjective.JRun(withRecovery, c),
+            Is.EqualTo(OptimizationObjective.JRun(noRecovery, c)).Within(1e-12),
+            "starved recovery frames must not drag nMin/nMedian => J matches the run without them");
+    }
+
+    [Test]
+    public void TieBreakerScore_IgnoresTaggedRecoveryFrames() {
+        var c = C;
+        // Baseline plateau: 9 frames @ 100 stars, no recovery.
+        var baseline = PlateauRun(100);
+
+        // Same 9 healthy frames @ 100 plus two recovery frames whose counts (0 and 5000) would swing the mean
+        // dramatically if counted. Tagged recovery => excluded from the tie-breaker mean.
+        var withRecovery = new RunEvaluationMetrics {
+            SigmaFocus = 1e-6, LooStdError = double.NaN, StepSize = 100.0, RSquared = 1.0, ReducedChiSquared = 1.0,
+            FrameStarCounts = new[] { 0, 5000 }.Concat(Enumerable.Repeat(100, 9)).ToArray(),
+            FrameIsRecovery = new[] { true, true }.Concat(Enumerable.Repeat(false, 9)).ToArray()
+        };
+
+        Assert.That(OptimizationObjective.TieBreakerScore(withRecovery, c),
+            Is.EqualTo(OptimizationObjective.TieBreakerScore(baseline, c)).Within(1e-12),
+            "recovery frames (even wild outlier counts) must not move the tie-breaker mean");
+    }
+
+    [Test]
+    [TestCase(0.05, 40)]
+    [TestCase(0.18, 25)]
+    [TestCase(0.30, 10)]
+    [TestCase(0.50, 8)]
+    public void JRun_BitIdentical_WhenFrameIsRecoveryNull(double sigmaFocus, int starsPerFrame) {
+        // Regression net for THE OVERRIDING INVARIANT: when FrameIsRecovery is null (every legacy caller / Replay /
+        // production autofocus), the recovery code path must be provably inert — JRun must equal the pre-feature
+        // weighted-sum formula. Wtie = 0 isolates the primary objective (LegacyJRun models only the weighted sum).
+        var c = new ObjectiveConstants { Wtie = 0.0 };
+        var m = GoodRun(sigmaFocus: sigmaFocus, frameCount: 10, starsPerFrame: starsPerFrame);
+        Assert.That(m.FrameIsRecovery, Is.Null, "baseline: recovery tagging absent");
+        Assert.Multiple(() => {
+            Assert.That(OptimizationObjective.JRun(m, c), Is.EqualTo(LegacyJRun(m, c, null, null)),
+                "recovery code path must be inert when FrameIsRecovery is null (unlabeled)");
+            Assert.That(OptimizationObjective.JRun(m, c, recall: 0.8, precision: 0.7),
+                Is.EqualTo(LegacyJRun(m, c, 0.8, 0.7)),
+                "recovery code path must be inert when FrameIsRecovery is null (labeled)");
+        });
+    }
+
+    // A run with per-frame positions/counts/relaxed and an optional recovery tag list, for SDefocusPrecision tests.
+    // bestFocus = NaN forces the run-level FALLBACK path; a finite bestFocus uses the near-focus PRIMARY path.
+    private static RunEvaluationMetrics PrecisionRun(
+            int[] positions, int[] counts, int[] relaxed, bool[] isRecovery,
+            int stepSize = 100, double bestFocus = 5000, double sigmaFocus = 0.05) =>
+        new RunEvaluationMetrics {
+            SigmaFocus = sigmaFocus,
+            LooStdError = double.NaN,
+            StepSize = stepSize,
+            RSquared = 0.99,
+            ReducedChiSquared = 1.0,
+            FrameStarCounts = counts,
+            FrameFocuserPositions = positions,
+            FrameRelaxationAdmittedCounts = relaxed,
+            BestFocusPosition = bestFocus,
+            FrameIsRecovery = isRecovery
+        };
+
+    [Test]
+    public void SDefocusPrecision_PrimaryWindow_ExemptsRecoveryFrameInsideWindow() {
+        var c = C; // near-focus window = 1.5 * 100 = 150 around bestFocus 5000
+        // Genuine near-focus frames carry a real relaxed fraction (30/120 = 0.25 => penalty 0.975).
+        var positions = new[] { 4900, 5000, 5100 };
+        var counts = new[] { 40, 40, 40 };
+        var relaxed = new[] { 10, 10, 10 };
+        var basePenalty = OptimizationObjective.SDefocusPrecision(
+            PrecisionRun(positions, counts, relaxed, isRecovery: null), c);
+
+        // A recovery frame lands INSIDE the window (position 5000, the poor-start scenario) with heavy relaxation.
+        var posRec = new[] { 4900, 5000, 5100, 5000 };
+        var countsRec = new[] { 40, 40, 40, 40 };
+        var relaxedRec = new[] { 10, 10, 10, 40 };
+        var withTagged = OptimizationObjective.SDefocusPrecision(
+            PrecisionRun(posRec, countsRec, relaxedRec, new[] { false, false, false, true }), c);
+        var withUntagged = OptimizationObjective.SDefocusPrecision(
+            PrecisionRun(posRec, countsRec, relaxedRec, isRecovery: null), c);
+
+        Assert.Multiple(() => {
+            Assert.That(withTagged, Is.EqualTo(basePenalty).Within(1e-12),
+                "a recovery frame inside the near-focus window must not create/inflate the precision penalty");
+            Assert.That(withUntagged, Is.LessThan(basePenalty),
+                "the SAME frame untagged DOES inflate the penalty — proving the recovery exemption is what suppresses it");
+        });
+    }
+
+    [Test]
+    public void SDefocusPrecision_Fallback_ExemptsRecoveryFrame() {
+        var c = C; // bestFocus = NaN => run-level fallback
+        var positions = new[] { 4900, 5000, 5100 };
+        var basePenalty = OptimizationObjective.SDefocusPrecision(
+            PrecisionRun(positions, new[] { 40, 40, 40 }, new[] { 20, 20, 20 }, isRecovery: null, bestFocus: double.NaN), c);
+
+        var posRec = new[] { 4900, 5000, 5100, 4600 };
+        var countsRec = new[] { 40, 40, 40, 40 };
+        var relaxedRec = new[] { 20, 20, 20, 40 };
+        var withTagged = OptimizationObjective.SDefocusPrecision(
+            PrecisionRun(posRec, countsRec, relaxedRec, new[] { false, false, false, true }, bestFocus: double.NaN), c);
+        var withUntagged = OptimizationObjective.SDefocusPrecision(
+            PrecisionRun(posRec, countsRec, relaxedRec, isRecovery: null, bestFocus: double.NaN), c);
+
+        Assert.Multiple(() => {
+            Assert.That(withTagged, Is.EqualTo(basePenalty).Within(1e-12),
+                "fallback penalty must be unchanged by a tagged recovery frame (numerator AND denominator both skip it)");
+            Assert.That(withTagged, Is.GreaterThanOrEqualTo(c.DefocusPrecisionMinFactor),
+                "the recovery-exempt fraction stays consistent (never > 1) => penalty stays within [MinFactor, 1]");
+            Assert.That(withUntagged, Is.LessThan(basePenalty),
+                "the same frame untagged DOES lower the fallback penalty");
+        });
+    }
+
+    // A fallback-path HFR run (positions null / bestFocus NaN => pool every eligible frame) with a recovery tag list.
+    private static RunEvaluationMetrics HfrFallbackRun(IReadOnlyList<double>[] frameHfrs, bool[] isRecovery) =>
+        new RunEvaluationMetrics {
+            SigmaFocus = 0.05,
+            LooStdError = double.NaN,
+            StepSize = 100,
+            RSquared = 0.99,
+            ReducedChiSquared = 1.0,
+            FrameStarCounts = frameHfrs.Select(f => f.Count).ToArray(),
+            FrameStarHFRs = frameHfrs,
+            FrameIsRecovery = isRecovery
+        };
+
+    [Test]
+    public void SHfrOutlier_Fallback_ExemptsRecoveryFrame() {
+        var c = C;
+        var baseFrames = new IReadOnlyList<double>[] { NormalsPlusBlob(9), NormalsPlusBlob(9), NormalsPlusBlob(9) };
+        var basePenalty = OptimizationObjective.SHfrOutlier(HfrFallbackRun(baseFrames, isRecovery: null), c);
+
+        var recoveryFrame = (IReadOnlyList<double>)Normals(10, hfr: 6.0); // an all-bloated recovery frame
+        var withFrames = new[] { baseFrames[0], baseFrames[1], baseFrames[2], recoveryFrame };
+        var withTagged = OptimizationObjective.SHfrOutlier(HfrFallbackRun(withFrames, new[] { false, false, false, true }), c);
+        var withUntagged = OptimizationObjective.SHfrOutlier(HfrFallbackRun(withFrames, isRecovery: null), c);
+
+        Assert.Multiple(() => {
+            Assert.That(withTagged, Is.EqualTo(basePenalty).Within(1e-12),
+                "a tagged recovery frame must not change the pooled outlier fraction");
+            Assert.That(withUntagged, Is.Not.EqualTo(basePenalty).Within(1e-12),
+                "the same frame untagged DOES change the pooled HFR sample");
+        });
+    }
+
+    // A fallback-path coverage run (positions null / bestFocus NaN => average every finite frame) with a recovery tag list.
+    private static RunEvaluationMetrics CoverageFallbackRun(double[] occupancy, bool[] isRecovery) =>
+        new RunEvaluationMetrics {
+            SigmaFocus = 0.05,
+            LooStdError = double.NaN,
+            StepSize = 100,
+            RSquared = 0.99,
+            ReducedChiSquared = 1.0,
+            FrameStarCounts = Enumerable.Repeat(40, occupancy.Length).ToArray(),
+            FrameRegionOccupancy = occupancy,
+            FrameIsRecovery = isRecovery
+        };
+
+    [Test]
+    public void SCoverage_Fallback_ExemptsRecoveryFrame() {
+        var c = C;
+        var baseCov = OptimizationObjective.SCoverage(CoverageFallbackRun(new[] { 0.2, 0.4, 0.6 }, isRecovery: null), c);
+        var withTagged = OptimizationObjective.SCoverage(
+            CoverageFallbackRun(new[] { 0.2, 0.4, 0.6, 1.0 }, new[] { false, false, false, true }), c);
+        var withUntagged = OptimizationObjective.SCoverage(
+            CoverageFallbackRun(new[] { 0.2, 0.4, 0.6, 1.0 }, isRecovery: null), c);
+        Assert.Multiple(() => {
+            Assert.That(withTagged, Is.EqualTo(baseCov).Within(1e-12),
+                "a tagged recovery frame with skewed occupancy must not move the coverage mean");
+            Assert.That(withUntagged, Is.GreaterThan(baseCov),
+                "the same frame untagged DOES move the coverage mean");
+        });
+    }
+
+    [Test]
+    public void JRun_AllFramesRecovery_DoesNotThrow() {
+        var c = C;
+        // Degenerate (can't happen in practice — the evaluator always leaves >= 3 non-recovery frames): EVERY frame is
+        // tagged recovery and below the hard floor. JRun (via SStars) and TieBreakerScore both route the counts through
+        // the internal NonRecoveryStarCounts, whose empty filtered sequence must fall back to the original counts so
+        // Min/Median/Average never throw; the hard floor must also treat every frame as exempt (no divide-by-empty).
+        var m = RecoveryRun(new[] { 0, 1, 2, 0 }, isRecovery: new[] { true, true, true, true });
+        double j = double.NaN;
+        Assert.Multiple(() => {
+            Assert.That(() => j = OptimizationObjective.JRun(m, c), Throws.Nothing);
+            Assert.That(() => OptimizationObjective.TieBreakerScore(m, c), Throws.Nothing);
+        });
+        Assert.That(j, Is.InRange(0.0, 1.0), "JRun still returns a valid score with every frame exempt");
+    }
+
     // ---- JTotal ----
 
     [Test]

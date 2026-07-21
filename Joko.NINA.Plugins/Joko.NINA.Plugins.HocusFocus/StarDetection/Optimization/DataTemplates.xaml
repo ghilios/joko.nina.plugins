@@ -28,6 +28,7 @@
     <TextBlock x:Key="SDOpt_LiveExposure_Tooltip" Text="The exposure for every frame of the sweep, starting from your profile's auto-focus exposure. Make it long enough that stars stay visible out at the defocused ends of the sweep. Narrowband filters usually need a longer exposure to start. After a good result you can adopt this exposure into your profile from the summary." />
     <TextBlock x:Key="SDOpt_LiveSaveFolder_Tooltip" Text="The captured frames are saved here, in a timestamped AutoFocus_… subfolder, then loaded back like a saved run so the optimizer can search them. A folder is required before Start. Choosing one also saves it as your Hocus Focus auto-focus save path." />
     <TextBlock x:Key="SDOpt_TargetFilter_Tooltip" Text="Per-filter star detection is enabled, so this run tunes ONE filter's settings set. The baseline and 'current settings' come from this filter's set; a live sweep moves the wheel to this filter and exposes through it; and Accept writes the optimized result into this filter's set." />
+    <TextBlock x:Key="SDOpt_FocusRecovery_Tooltip" Text="Widens the live sweep by this many extra steps on EACH side, so the auto-focus curve can still bracket focus when you start well off focus. The extra far-from-focus frames are down-weighted in the fit and exempt from the star-count requirements, so they help find focus without skewing it. Set 0 to disable recovery." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
           SelectedCurve, so toggling the variant rebuilds the plot from a fresh OptimizationCurve instance (a robust
@@ -36,7 +37,19 @@
           the fitted curve, and a PointAnnotation diamond at the curve minimum (best focus). The default tracker shows
           the per-point readout on hover/click.  -->
     <DataTemplate DataType="{x:Type local:OptimizationCurve}">
-        <oxy:Plot
+        <DockPanel>
+            <!--  Legend for the hollow recovery markers, shown only when the selected variant has recovery points.
+                  ○ = a far-from-focus recovery point (down-weighted in the fit) — deliberately NOT the app's red-cross
+                  "rejected point" language, since these points are present, just down-weighted.  -->
+            <TextBlock
+                DockPanel.Dock="Bottom"
+                Margin="6,2,0,0"
+                HorizontalAlignment="Left"
+                FontSize="10"
+                Foreground="{StaticResource SecondaryBrush}"
+                Text="&#x25CB; recovery point — down-weighted in fit"
+                Visibility="{Binding HasRecoveryPoints, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+            <oxy:Plot
             MinHeight="240"
             Background="{StaticResource BackgroundBrush}"
             PlotAreaBackground="{StaticResource BackgroundBrush}"
@@ -70,11 +83,26 @@
                     Title="Focuser position" />
             </oxy:Plot.Axes>
             <oxy:Plot.Series>
+                <!--  Recovery overlay: the far-from-focus, down-weighted points rendered as hollow rings (transparent
+                      fill + faint primary stroke) with a dimmed error bar, so they read as "present but down-weighted"
+                      WITHOUT the red-cross "rejected point" language. Declared BEFORE the main series so it draws
+                      underneath. Empty (nothing drawn) when recovery is off, so this is inert at the baseline.  -->
+                <oxy:ScatterErrorSeries
+                    ErrorBarColor="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=100}"
+                    ErrorBarStopWidth="2"
+                    ErrorBarStrokeThickness="1"
+                    ItemsSource="{Binding RecoveryPoints}"
+                    MarkerFill="Transparent"
+                    MarkerSize="5"
+                    MarkerStroke="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=150}"
+                    MarkerStrokeThickness="1.5"
+                    MarkerType="Circle"
+                    TrackerFormatString="Focuser: {2:0}, HFR: {4:0.000} (recovery)" />
                 <oxy:ScatterErrorSeries
                     ErrorBarColor="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
                     ErrorBarStopWidth="2"
                     ErrorBarStrokeThickness="2"
-                    ItemsSource="{Binding Points}"
+                    ItemsSource="{Binding CorePoints}"
                     MarkerFill="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                     MarkerType="Circle"
                     TrackerFormatString="Focuser: {2:0}, HFR: {4:0.000}" />
@@ -90,7 +118,8 @@
                     X="{Binding Minimum.X}"
                     Y="{Binding Minimum.Y}" />
             </oxy:Plot.Annotations>
-        </oxy:Plot>
+            </oxy:Plot>
+        </DockPanel>
     </DataTemplate>
 
     <!--  Fitted focus graph for a registered star WITH an accepted fit (Review Frames hover): plain scatter (NO error
@@ -425,6 +454,33 @@
                         <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
                             <TextBlock Width="200" VerticalAlignment="Center" Text="Step size" />
                             <TextBlock VerticalAlignment="Center" Text="{Binding SweepStepSize}" />
+                        </StackPanel>
+                        <!--  Editable focus recovery: widen the sweep by N extra steps on each side so the curve can
+                              bracket focus even when starting well off focus. The resulting point count shows directly
+                              below (SweepPointCount already reflects the widened total). 0 disables recovery.  -->
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <TextBlock
+                                Width="200"
+                                VerticalAlignment="Center"
+                                Text="Focus recovery (extra steps/side)"
+                                ToolTip="{StaticResource SDOpt_FocusRecovery_Tooltip}" />
+                            <TextBox
+                                MinWidth="80"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                ToolTip="{StaticResource SDOpt_FocusRecovery_Tooltip}">
+                                <TextBox.Text>
+                                    <Binding Path="FocusRecoverySteps" UpdateSourceTrigger="LostFocus">
+                                        <Binding.ValidationRules>
+                                            <rules:IntRangeRule>
+                                                <rules:IntRangeRule.ValidRange>
+                                                    <rules:IntRangeChecker Maximum="25" Minimum="0" />
+                                                </rules:IntRangeRule.ValidRange>
+                                            </rules:IntRangeRule>
+                                        </Binding.ValidationRules>
+                                    </Binding>
+                                </TextBox.Text>
+                            </TextBox>
                         </StackPanel>
                         <StackPanel Margin="0,2" Orientation="Horizontal">
                             <TextBlock Width="200" VerticalAlignment="Center" Text="Number of points" />

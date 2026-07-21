@@ -431,6 +431,266 @@ public class RunEvaluationDataTests {
         });
     }
 
+    // ── Focus recovery ────────────────────────────────────────────────────────────────────────────────────────
+
+    private static RunFitConfig UnweightedFitConfig() => new RunFitConfig {
+        StepSize = 100,
+        UseWeights = false,
+        MaxOutlierRejections = 0,
+        RejectionConfidence = 0.0,
+        PreferredModel = null
+    };
+
+    private static List<RunFrame> FramesAt(IEnumerable<int> positions) =>
+        positions.Select(pos => new RunFrame { FrameId = $"pos_{pos}", FocuserPosition = pos, Image = pos }).ToList();
+
+    // Detection delegate returning a clean hyperbola HFR with a per-position stdev (so a test can make a chosen
+    // position zero-scatter), a fixed star count, and no centers.
+    private static Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> HyperbolaDetectWithStdev(
+        Func<int, double> stdevFor, int starCount = 50) {
+        return (image, p, token) => {
+            var pos = (int)image;
+            return Task.FromResult(new FrameDetectionResult {
+                AverageHFR = Hfr(pos),
+                HFRStdDev = stdevFor(pos),
+                StarCount = starCount,
+                StarCenters = Array.Empty<(double X, double Y)>()
+            });
+        };
+    }
+
+    private static double ErrorYAt(RunEvaluationResult r, int x) =>
+        r.Points.First(pt => Math.Abs(pt.X - x) < 0.5).ErrorY;
+
+    // A GENTLE symmetric hyperbola about a chosen center (HFR ~2 at focus, ~6 at ±400 for the default sweep). Used by
+    // the down-weighting test to place the recovery-position HFRs on a DIFFERENT (false) center than the interior.
+    private static double GentleHfr(int pos, int center) {
+        const double a = 2.0, b = 70.0;
+        var dx = (pos - center) / b;
+        return Math.Sqrt(a * a + dx * dx);
+    }
+
+    [Test]
+    public async Task EvaluateAndFitAsync_RecoverySteps_MarksOutermostNPerSideAsRecovery() {
+        // 9 distinct positions (p0-400..p0+400), N=2 => the 2 smallest AND 2 largest positions are recovery; the
+        // interior 5 are not. Recovery is defined by distinct position.
+        var data = new RunEvaluationData("recovery", NineFrames(), HyperbolaDetect(), NewAlglib(), DefaultFitConfig()) {
+            RecoveryStepsPerSide = 2
+        };
+        var result = await data.EvaluateAndFitAsync(new StarDetectorParams(), CancellationToken.None);
+        var flags = result.Metrics.FrameIsRecovery;
+        var positions = result.Metrics.FrameFocuserPositions;
+
+        Assert.That(flags, Is.Not.Null, "N>0 with enough positions => a recovery flag list");
+        Assert.That(flags.Count, Is.EqualTo(9));
+        var recovery = new HashSet<int> { HyperbolaP0 - 400, HyperbolaP0 - 300, HyperbolaP0 + 300, HyperbolaP0 + 400 };
+        Assert.Multiple(() => {
+            for (var i = 0; i < flags.Count; i++) {
+                Assert.That(flags[i], Is.EqualTo(recovery.Contains(positions[i])),
+                    $"frame at position {positions[i]} recovery flag");
+            }
+            Assert.That(flags.Count(f => f), Is.EqualTo(4), "exactly 2-per-side extreme positions are recovery");
+        });
+    }
+
+    [Test]
+    public async Task EvaluateAndFitAsync_RecoverySteps_InflatesRecoveryErrorY_IncludingZeroScatterPosition() {
+        // Interior (non-recovery) positions carry per-frame stdev 0.05; the smallest recovery position (p0-400) is a
+        // SINGLE frame with per-frame HFRStdDev 0. AverageMeasurement pools that lone frame with no VALID variance
+        // contribution (validVarianceCount == 0 since HFRStdDev is not > 0), so its pooled Stdev is NaN, which
+        // SafeDisplayError maps to display error 0. refErr = median(non-recovery display errors) = 0.05, so even the
+        // zero-scatter recovery position is down-weighted: ErrorY = inflation * max(0, refErr) = inflation * refErr.
+        var zeroScatterPos = HyperbolaP0 - 400;
+        var detect = HyperbolaDetectWithStdev(pos => pos == zeroScatterPos ? 0.0 : 0.05);
+        var data = new RunEvaluationData("recovery-inflate", NineFrames(), detect, NewAlglib(), DefaultFitConfig()) {
+            RecoveryStepsPerSide = 2
+        };
+        var result = await data.EvaluateAndFitAsync(new StarDetectorParams(), CancellationToken.None);
+
+        const double refErr = 0.05;      // median of the interior positions' display errors
+        const double interiorErrorY = 0.05;
+        var recoveryPositions = new[] { HyperbolaP0 - 400, HyperbolaP0 - 300, HyperbolaP0 + 300, HyperbolaP0 + 400 };
+        var interiorPositions = new[] { HyperbolaP0 - 200, HyperbolaP0 - 100, HyperbolaP0, HyperbolaP0 + 100, HyperbolaP0 + 200 };
+
+        Assert.Multiple(() => {
+            Assert.That(result.Points.Count, Is.EqualTo(9), "weighted fit keeps recovery points (down-weighted)");
+            foreach (var pos in interiorPositions) {
+                Assert.That(ErrorYAt(result, pos), Is.EqualTo(interiorErrorY).Within(1e-9),
+                    "non-recovery point ErrorY is unchanged from the baseline scatter");
+            }
+            foreach (var pos in recoveryPositions) {
+                Assert.That(ErrorYAt(result, pos), Is.EqualTo(RunEvaluationData.RecoveryErrorInflation * refErr).Within(1e-9),
+                    $"recovery point at {pos} is down-weighted (ErrorY = inflation * max(ownStdev, refErr))");
+                Assert.That(ErrorYAt(result, pos), Is.GreaterThan(interiorErrorY), "recovery ErrorY exceeds the reference");
+            }
+            // The zero-scatter recovery position is STILL down-weighted (0 * inflation would be inert => must use refErr).
+            Assert.That(ErrorYAt(result, zeroScatterPos), Is.EqualTo(RunEvaluationData.RecoveryErrorInflation * refErr).Within(1e-9));
+            Assert.That(ErrorYAt(result, zeroScatterPos), Is.GreaterThan(0.0), "zero-scatter recovery point is not weightless");
+        });
+    }
+
+    [Test]
+    public async Task EvaluateAndFitAsync_TooFewPositions_CollapsesToNoRecovery() {
+        // 4 distinct positions with a large N: perSide = min(N, (4-3)/2) = 0 => no recovery (>=3 anchors preserved).
+        var frames = FramesAt(new[] { HyperbolaP0 - 300, HyperbolaP0 - 100, HyperbolaP0 + 100, HyperbolaP0 + 300 });
+        var data = new RunEvaluationData("too-few", frames, HyperbolaDetect(), NewAlglib(), DefaultFitConfig()) {
+            RecoveryStepsPerSide = 5
+        };
+        var result = await data.EvaluateAndFitAsync(new StarDetectorParams(), CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(result.Metrics.FrameIsRecovery, Is.Null, "cap collapses perSide to 0 => no recovery");
+            Assert.That(result.NonRecoveryPooledPointCount, Is.EqualTo(result.PooledPointCount),
+                "no recovery => non-recovery count equals the pooled count");
+            Assert.That(result.PooledPointCount, Is.EqualTo(4), "all 4 positions still feed the fit");
+        });
+    }
+
+    [Test]
+    public async Task EvaluateAndFitAsync_CapLimitsPerSideToPositiveValue() {
+        // 6 distinct positions with a large N: perSide = min(5, (6-3)/2) = min(5, 1) = 1 => exactly the outermost ONE
+        // position per side is recovery (2 recovery positions), leaving 4 interior anchors. Exercises the cap between
+        // its collapse-to-0 boundary and the requested N.
+        var positions = new[] { HyperbolaP0 - 250, HyperbolaP0 - 150, HyperbolaP0 - 50, HyperbolaP0 + 50, HyperbolaP0 + 150, HyperbolaP0 + 250 };
+        var data = new RunEvaluationData("cap", FramesAt(positions), HyperbolaDetect(), NewAlglib(), DefaultFitConfig()) {
+            RecoveryStepsPerSide = 5
+        };
+        var result = await data.EvaluateAndFitAsync(new StarDetectorParams(), CancellationToken.None);
+        var flags = result.Metrics.FrameIsRecovery;
+        var framePositions = result.Metrics.FrameFocuserPositions;
+
+        var recovery = new HashSet<int> { HyperbolaP0 - 250, HyperbolaP0 + 250 }; // only the outermost 1 per side
+        Assert.Multiple(() => {
+            Assert.That(flags, Is.Not.Null);
+            Assert.That(flags.Count, Is.EqualTo(6));
+            for (var i = 0; i < flags.Count; i++) {
+                Assert.That(flags[i], Is.EqualTo(recovery.Contains(framePositions[i])),
+                    $"frame at position {framePositions[i]} recovery flag");
+            }
+            Assert.That(flags.Count(f => f), Is.EqualTo(2), "perSide capped to 1 => exactly 2 recovery positions");
+            Assert.That(result.PooledPointCount, Is.EqualTo(6), "weighted fit keeps all positions (recovery down-weighted)");
+            Assert.That(result.NonRecoveryPooledPointCount, Is.EqualTo(4), "4 interior anchors are non-recovery");
+        });
+    }
+
+    [Test]
+    public async Task EvaluateAndFitAsync_DownWeightingKeepsMinimumNearTruth_DespiteCorruptedWings() {
+        // The feature's raison d'être: the interior positions lie on a hyperbola centered at the TRUE minimum
+        // (HyperbolaP0), but the outermost (recovery) positions are CORRUPTED onto a hyperbola with a false center —
+        // off-curve points that, at full weight, drag the fitted minimum away from truth. With recovery ON the
+        // corrupted wings are down-weighted 10×, so the clean interior anchors keep the minimum near truth; with
+        // recovery OFF (same corrupted points, full weight) the minimum is dragged noticeably away.
+        const int falseCenter = HyperbolaP0 + 600;
+        var recovery = new HashSet<int> { HyperbolaP0 - 400, HyperbolaP0 - 300, HyperbolaP0 + 300, HyperbolaP0 + 400 };
+        Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect = (image, p, token) => {
+            var pos = (int)image;
+            var hfr = recovery.Contains(pos) ? GentleHfr(pos, falseCenter) : GentleHfr(pos, HyperbolaP0);
+            return Task.FromResult(new FrameDetectionResult {
+                AverageHFR = hfr,
+                HFRStdDev = 0.05,
+                StarCount = 50,
+                StarCenters = Array.Empty<(double X, double Y)>()
+            });
+        };
+
+        var runOn = new RunEvaluationData("down-on", NineFrames(), detect, NewAlglib(), DefaultFitConfig()) {
+            RecoveryStepsPerSide = 2
+        };
+        var runOff = new RunEvaluationData("down-off", NineFrames(), detect, NewAlglib(), DefaultFitConfig()) {
+            RecoveryStepsPerSide = 0
+        };
+        var onResult = await runOn.EvaluateAndFitAsync(new StarDetectorParams(), CancellationToken.None);
+        var offResult = await runOff.EvaluateAndFitAsync(new StarDetectorParams(), CancellationToken.None);
+
+        var onBest = onResult.Metrics.BestFocusPosition;
+        var offBest = offResult.Metrics.BestFocusPosition;
+        Assert.Multiple(() => {
+            Assert.That(double.IsFinite(onBest), Is.True, "recovery-ON fit must produce a finite minimum");
+            Assert.That(double.IsFinite(offBest), Is.True, "recovery-OFF fit must produce a finite minimum");
+            // Recovery ON keeps the minimum near the true center despite the corrupted wings.
+            Assert.That(Math.Abs(onBest - HyperbolaP0), Is.LessThan(100.0),
+                "down-weighted wings must not drag the minimum far from truth");
+            // Recovery OFF drags the minimum noticeably away from truth (direction depends on the corruption geometry).
+            Assert.That(Math.Abs(offBest - HyperbolaP0), Is.GreaterThan(100.0),
+                "full-weight corrupted wings drag the minimum away from truth");
+            Assert.That(Math.Abs(onBest - HyperbolaP0), Is.LessThan(Math.Abs(offBest - HyperbolaP0)),
+                "recovery keeps the minimum strictly closer to truth than the full-weight fit");
+        });
+    }
+
+    [Test]
+    public async Task EvaluateAndFitAsync_DuplicateFramesAtRecoveryPosition_AllFlagged() {
+        // Two frames at the smallest position (a recovery position) => BOTH frames are flagged (recovery is by
+        // distinct position). 10 frames, 9 distinct positions.
+        var frames = NineFrames();
+        frames.Add(new RunFrame { FrameId = "pos_dup", FocuserPosition = HyperbolaP0 - 400, Image = HyperbolaP0 - 400 });
+        var data = new RunEvaluationData("dup", frames, HyperbolaDetect(), NewAlglib(), DefaultFitConfig()) {
+            RecoveryStepsPerSide = 2
+        };
+        var result = await data.EvaluateAndFitAsync(new StarDetectorParams(), CancellationToken.None);
+        var flags = result.Metrics.FrameIsRecovery;
+        var positions = result.Metrics.FrameFocuserPositions;
+
+        Assert.Multiple(() => {
+            Assert.That(flags, Is.Not.Null);
+            Assert.That(flags.Count, Is.EqualTo(10), "per-frame flags include the duplicate frame");
+            var atSmallest = Enumerable.Range(0, flags.Count).Where(i => positions[i] == HyperbolaP0 - 400).ToList();
+            Assert.That(atSmallest.Count, Is.EqualTo(2), "two frames sit at the smallest position");
+            Assert.That(atSmallest.All(i => flags[i]), Is.True, "all frames at a recovery position are flagged");
+        });
+    }
+
+    [Test]
+    public async Task EvaluateAndFitAsync_UnweightedFit_ExcludesRecoveryFromPoints_ButKeepsFlags() {
+        // With UseWeights=false the fitter ignores ErrorY, so inflation cannot down-weight — recovery positions are
+        // EXCLUDED from the fit points entirely. They still populate the per-frame FrameIsRecovery flags, and
+        // NonRecoveryPooledPointCount stays consistent with the excluded set.
+        var data = new RunEvaluationData("unweighted", NineFrames(), HyperbolaDetect(), NewAlglib(), UnweightedFitConfig()) {
+            RecoveryStepsPerSide = 2
+        };
+        var result = await data.EvaluateAndFitAsync(new StarDetectorParams(), CancellationToken.None);
+
+        var recovery = new HashSet<int> { HyperbolaP0 - 400, HyperbolaP0 - 300, HyperbolaP0 + 300, HyperbolaP0 + 400 };
+        Assert.Multiple(() => {
+            Assert.That(result.PooledPointCount, Is.EqualTo(5), "the 4 recovery positions are excluded from the fit");
+            Assert.That(result.NonRecoveryPooledPointCount, Is.EqualTo(5), "all fitted points are non-recovery");
+            Assert.That(result.Points.Any(pt => recovery.Contains((int)Math.Round(pt.X))), Is.False,
+                "no recovery position appears in the fit points");
+            // Metrics still tag every frame (only the FIT omits the recovery positions).
+            Assert.That(result.Metrics.FrameIsRecovery, Is.Not.Null);
+            Assert.That(result.Metrics.FrameIsRecovery.Count(f => f), Is.EqualTo(4));
+        });
+    }
+
+    [Test]
+    public async Task EvaluateAndFitAsync_RecoveryOff_IsByteIdenticalBaseline() {
+        // Regression guard: RecoveryStepsPerSide == 0 (default) => FrameIsRecovery null, NonRecoveryPooledPointCount ==
+        // PooledPointCount, and the interior (non-recovery) points' ErrorY are IDENTICAL to a run with N=2 (the
+        // recovery feature only perturbs the extremes; it never touches the baseline points).
+        var detect = HyperbolaDetectWithStdev(_ => 0.05);
+        var baseline = new RunEvaluationData("baseline", NineFrames(), detect, NewAlglib(), DefaultFitConfig());
+        var withRecovery = new RunEvaluationData("with-recovery", NineFrames(), detect, NewAlglib(), DefaultFitConfig()) {
+            RecoveryStepsPerSide = 2
+        };
+        var baseResult = await baseline.EvaluateAndFitAsync(new StarDetectorParams(), CancellationToken.None);
+        var recResult = await withRecovery.EvaluateAndFitAsync(new StarDetectorParams(), CancellationToken.None);
+
+        var interiorPositions = new[] { HyperbolaP0 - 200, HyperbolaP0 - 100, HyperbolaP0, HyperbolaP0 + 100, HyperbolaP0 + 200 };
+        Assert.Multiple(() => {
+            Assert.That(baseResult.Metrics.FrameIsRecovery, Is.Null, "feature off => FrameIsRecovery is null (not an all-false list)");
+            Assert.That(baseResult.NonRecoveryPooledPointCount, Is.EqualTo(baseResult.PooledPointCount),
+                "feature off => non-recovery count equals the pooled count");
+            Assert.That(baseResult.Points.Count, Is.EqualTo(9));
+            Assert.That(baseResult.Points.All(pt => Math.Abs(pt.ErrorY - 0.05) < 1e-9), Is.True,
+                "baseline points carry the raw display scatter");
+            // The interior points are byte-identical between the baseline and the recovery run.
+            foreach (var pos in interiorPositions) {
+                Assert.That(ErrorYAt(recResult, pos), Is.EqualTo(ErrorYAt(baseResult, pos)).Within(1e-12),
+                    "recovery must not perturb the interior (non-recovery) fit points");
+            }
+        });
+    }
+
     // Synchronous IProgress so reports are captured on the calling thread (no SynchronizationContext marshaling).
     private sealed class ImmediateProgress<T> : IProgress<T> {
         private readonly Action<T> onReport;

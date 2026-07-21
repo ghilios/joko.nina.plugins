@@ -23,6 +23,7 @@ using NINA.WPF.Base.ViewModel.AutoFocus;
 using NSubstitute;
 using NSubstitute.Core;
 using NUnit.Framework;
+using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -174,6 +175,11 @@ public class StarDetectionOptimizerWizardVMTests {
         public int LabelOverloadCalls { get; private set; }
         public int NoLabelCalls { get; private set; }
 
+        // Every LoadedRun this fake manufactures, in creation order. The VM's load-and-stamp choke-point mutates the
+        // SAME RunEvaluationData instance AFTER the loader returns it, so RecoveryStepsPerSide read here (post-flow)
+        // reflects the stamp — letting a test assert reload paths preserve the recovery tag.
+        public List<LoadedRun> ProducedRuns { get; } = new List<LoadedRun>();
+
         public RecordingLoader(double optSensitivity = 10.0, int seedSensitivity = 2) {
             this.optSensitivity = optSensitivity;
             this.seedSensitivity = seedSensitivity;
@@ -185,11 +191,13 @@ public class StarDetectionOptimizerWizardVMTests {
 
         private LoadedRun Make(string folder, IReadOnlyList<FrameLabels> labels) {
             var data = new RunEvaluationData(RunIdFor(folder), NineFrames(), OptimizableDetect(optSensitivity), NewAlglib(), DefaultFitConfig(), labels);
-            return new LoadedRun {
+            var run = new LoadedRun {
                 Data = data,
                 Seed = new StarDetectorParams { Sensitivity = seedSensitivity, StarClippingMultiplier = 2.0 },
                 AfOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 }
             };
+            ProducedRuns.Add(run);
+            return run;
         }
 
         public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, CancellationToken token) =>
@@ -1420,6 +1428,252 @@ public class StarDetectionOptimizerWizardVMTests {
         Assert.That(vm.IsLive, Is.True, "Live mode shows the confirmation panel");
     }
 
+    // ---- Focus recovery (Task C): session-only knob, widened Live sweep, run tagging --------------------
+
+    [Test]
+    public void FocusRecoverySteps_DefaultsToOne_AndClampsNegativeToZero() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        Assert.That(vm.FocusRecoverySteps, Is.EqualTo(1), "focus recovery defaults to 1");
+        vm.FocusRecoverySteps = -3;
+        Assert.That(vm.FocusRecoverySteps, Is.EqualTo(0), "a negative value clamps to 0");
+        vm.FocusRecoverySteps = 4;
+        Assert.That(vm.FocusRecoverySteps, Is.EqualTo(4), "a positive value is kept");
+    }
+
+    [Test]
+    public void FocusRecoverySteps_Live_WidensSweepReadouts_Replay_LeavesThemUnchanged() {
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        focuserSettings.AutoFocusInitialOffsetSteps.Returns(4);
+        focuserSettings.AutoFocusNumberOfFramesPerPoint.Returns(1);
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+        var vm = NewVM(LoaderReturning(GoodRun()), profileService: profileService);
+
+        // Live mode: recovery widens the effective sweep readouts, and editing it raises change notifications.
+        vm.SourceMode = SourceMode.Live;
+        Assert.That(vm.SweepEffectiveOffsetSteps, Is.EqualTo(4 + 1), "the default recovery=1 already widens the Live sweep");
+
+        var raised = new List<string>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        vm.FocusRecoverySteps = 3;
+
+        Assert.Multiple(() => {
+            Assert.That(vm.SweepEffectiveOffsetSteps, Is.EqualTo(4 + 3), "profile offset (4) + recovery (3)");
+            Assert.That(vm.SweepPointCount, Is.EqualTo(2 * (4 + 3) + 1), "point count follows the widened offset");
+            Assert.That(vm.SweepEstimatedFrames, Is.EqualTo((2 * (4 + 3) + 1) * 1), "estimated frames follow the widened point count");
+            Assert.That(raised, Does.Contain(nameof(vm.FocusRecoverySteps)));
+            Assert.That(raised, Does.Contain(nameof(vm.SweepEffectiveOffsetSteps)));
+            Assert.That(raised, Does.Contain(nameof(vm.SweepPointCount)));
+            Assert.That(raised, Does.Contain(nameof(vm.SweepEstimatedFrames)));
+        });
+
+        // Replay mode: the SAME edit leaves the readouts unchanged (recovery adds 0 off the Live path).
+        vm.SourceMode = SourceMode.Replay;
+        var effBefore = vm.SweepEffectiveOffsetSteps;
+        var pointsBefore = vm.SweepPointCount;
+        var framesBefore = vm.SweepEstimatedFrames;
+        vm.FocusRecoverySteps = 6;
+        Assert.Multiple(() => {
+            Assert.That(vm.SweepEffectiveOffsetSteps, Is.EqualTo(4), "Replay ignores recovery: effective offset == profile offset");
+            Assert.That(vm.SweepEffectiveOffsetSteps, Is.EqualTo(effBefore));
+            Assert.That(vm.SweepPointCount, Is.EqualTo(pointsBefore), "Replay point count is unchanged by recovery");
+            Assert.That(vm.SweepEstimatedFrames, Is.EqualTo(framesBefore), "Replay estimated frames are unchanged by recovery");
+        });
+    }
+
+    [Test]
+    public async Task Start_LiveSweep_PassesWidenedOffsetToEngine() {
+        const int P = 3;   // profile offset the engine's GetOptions reports
+        const int N = 2;   // recovery steps per side
+        var baseTimeout = TimeSpan.FromSeconds(300);
+        AutoFocusEngineOptions captured = null;
+        var engine = Substitute.For<IAutoFocusEngine>();
+        engine.GetOptions().Returns(_ => new AutoFocusEngineOptions {
+            AutoFocusInitialOffsetSteps = P,
+            AutoFocusStepSize = DefaultStepSize,
+            AutoFocusTimeout = baseTimeout
+        });
+        engine.CaptureFixedSweepAsync(default, default, default, default).ReturnsForAnyArgs(ci => {
+            captured = ci.ArgAt<AutoFocusEngineOptions>(0);
+            return Task.FromResult(new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        });
+        var vm = NewVM(LoaderReturning(GoodRun()), isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.OptimizeMode = WizardOptimizeMode.UseCurrentSettings;
+        vm.SaveFolderPath = @"C:\live";
+        vm.FocusRecoverySteps = N;
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(captured, Is.Not.Null, "the widened options were handed to the engine's fixed sweep");
+        var oldPoints = 2 * P + 1;
+        var newPoints = 2 * (P + N) + 1;
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Is.Null.Or.Empty, "the widened Live run completes cleanly");
+            Assert.That(captured.AutoFocusInitialOffsetSteps, Is.EqualTo(P + N), "offset widened by N recovery steps");
+            Assert.That(captured.AutoFocusStepSize, Is.EqualTo(DefaultStepSize), "step size is untouched (recovery widens, not refines)");
+            Assert.That(captured.AutoFocusTimeout.Ticks,
+                Is.EqualTo((long)(baseTimeout.Ticks * (double)newPoints / oldPoints)),
+                "timeout scaled by the point-count ratio (2(P+N)+1)/(2P+1)");
+        });
+    }
+
+    [Test]
+    public void ApplyFocusRecovery_WidensOffsetAndScalesTimeout_NeverStepSize() {
+        var options = new AutoFocusEngineOptions {
+            AutoFocusInitialOffsetSteps = 5,
+            AutoFocusStepSize = 100,
+            AutoFocusTimeout = TimeSpan.FromSeconds(600)
+        };
+        StarDetectionOptimizerWizardVM.ApplyFocusRecovery(options, 2);
+        var oldPoints = 2 * 5 + 1;   // 11
+        var newPoints = 2 * 7 + 1;   // 15
+        Assert.Multiple(() => {
+            Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(7), "offset bumped by N");
+            Assert.That(options.AutoFocusStepSize, Is.EqualTo(100), "step size never changes");
+            Assert.That(options.AutoFocusTimeout.Ticks,
+                Is.EqualTo((long)(TimeSpan.FromSeconds(600).Ticks * (double)newPoints / oldPoints)),
+                "timeout scaled by the point-count ratio");
+        });
+    }
+
+    [Test]
+    public void ApplyFocusRecovery_NonPositiveSteps_IsCompleteNoOp() {
+        foreach (var n in new[] { 0, -1, -5 }) {
+            var options = new AutoFocusEngineOptions {
+                AutoFocusInitialOffsetSteps = 5,
+                AutoFocusStepSize = 100,
+                AutoFocusTimeout = TimeSpan.FromSeconds(600)
+            };
+            StarDetectionOptimizerWizardVM.ApplyFocusRecovery(options, n);
+            Assert.Multiple(() => {
+                Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(5), $"offset unchanged at N={n}");
+                Assert.That(options.AutoFocusStepSize, Is.EqualTo(100), $"step size unchanged at N={n}");
+                Assert.That(options.AutoFocusTimeout, Is.EqualTo(TimeSpan.FromSeconds(600)), $"timeout unchanged at N={n}");
+            });
+        }
+    }
+
+    [Test]
+    public async Task Start_Live_StampsRecoverySnapshotOntoLoadedRun() {
+        // The loaded run's RunEvaluationData must carry the snapshotted recovery steps so the evaluator tags the outer
+        // frames. The fake loader hands back the same LoadedRun instance we hold, and RecoveryStepsPerSide survives the
+        // post-run Dispose (it is a plain int), so we can read the stamp after Start completes.
+        var run = GoodRun();
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(run), isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.OptimizeMode = WizardOptimizeMode.UseCurrentSettings;
+        vm.SaveFolderPath = @"C:\live";
+        vm.FocusRecoverySteps = 2;
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Is.Null.Or.Empty);
+            Assert.That(run.Data.RecoveryStepsPerSide, Is.EqualTo(2), "a Live start stamps the recovery snapshot onto the loaded run");
+        });
+    }
+
+    [Test]
+    public async Task Start_Replay_LeavesRecoverySnapshotAtZero() {
+        // Recovery must be inert for Replay: even with the box set, a Replay start stamps 0 so the run is untagged.
+        var run = GoodRun();
+        var vm = NewVM(LoaderReturning(run));
+        vm.FocusRecoverySteps = 5; // Replay must ignore this
+        vm.SourcePaths[0] = @"C:\run1";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(run.Data.RecoveryStepsPerSide, Is.EqualTo(0), "a Replay start leaves recovery inert regardless of the box value");
+        });
+    }
+
+    // Reload-survival regression: the load-and-stamp choke-point must keep the recovery tag on EVERY reload path
+    // (re-optimize AND continue). A future change that drops the stamp from a reload path must fail these. The
+    // RecordingLoader manufactures a fresh run per load and records them, so we can inspect the runs the RELOAD
+    // produced (after the originating Start's runs) and assert their stamped RecoveryStepsPerSide.
+
+    [Test]
+    public async Task ReOptimize_Live_ReloadedRunKeepsRecoveryTag() {
+        var loader = new RecordingLoader();
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(loader, isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine,
+            frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.FocusRecoverySteps = 2;
+
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        vm.ReviewVM.AddMissedBox(150.0, 175.0, 18.0, 18.0);
+        vm.BackToSummaryCommand.Execute(null);
+        Assert.That(vm.ReOptimizeCommand.CanExecute(null), Is.True, "precondition: labeled + idle => re-optimize enabled");
+
+        var producedBeforeReload = loader.ProducedRuns.Count;
+        await vm.ReOptimizeCommand.ExecuteAsync(null);
+
+        var reloaded = loader.ProducedRuns.Skip(producedBeforeReload).ToList();
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(reloaded, Is.Not.Empty, "the re-optimize path re-loaded at least one run");
+            Assert.That(reloaded.All(r => r.Data.RecoveryStepsPerSide == 2), Is.True,
+                "the re-optimize reload preserved the recovery tag (snapshot N=2)");
+        });
+    }
+
+    [Test]
+    public async Task Continue_Live_ReloadedRunKeepsRecoveryTag() {
+        var loader = new RecordingLoader();
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(loader, isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine,
+            frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.FocusRecoverySteps = 2;
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.CanContinueOptimization, Is.True, "precondition: an optimize pass ran so continue is available");
+
+        var producedBeforeReload = loader.ProducedRuns.Count;
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null);
+
+        var reloaded = loader.ProducedRuns.Skip(producedBeforeReload).ToList();
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(reloaded, Is.Not.Empty, "the continue path re-loaded at least one run");
+            Assert.That(reloaded.All(r => r.Data.RecoveryStepsPerSide == 2), Is.True,
+                "the continue reload preserved the recovery tag (snapshot N=2)");
+        });
+    }
+
+    [Test]
+    public async Task ReOptimize_Replay_ReloadedRunStaysUntagged() {
+        // The mirror case: a Replay reload must stay inert (0) even with the recovery box set, because the snapshot
+        // was taken as 0 at a Replay Start — so the tag never leaks onto a replay's re-optimize pass.
+        var loader = new RecordingLoader();
+        var vm = NewVM(loader, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.FocusRecoverySteps = 5; // Replay must ignore this
+        vm.SourcePaths[0] = @"C:\reopt-run";
+
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        vm.ReviewVM.AddMissedBox(150.0, 175.0, 18.0, 18.0);
+        vm.BackToSummaryCommand.Execute(null);
+
+        var producedBeforeReload = loader.ProducedRuns.Count;
+        await vm.ReOptimizeCommand.ExecuteAsync(null);
+
+        var reloaded = loader.ProducedRuns.Skip(producedBeforeReload).ToList();
+        Assert.Multiple(() => {
+            Assert.That(reloaded, Is.Not.Empty, "the re-optimize path re-loaded at least one run");
+            Assert.That(reloaded.All(r => r.Data.RecoveryStepsPerSide == 0), Is.True,
+                "a Replay reload stays untagged regardless of the box value");
+        });
+    }
+
     // ---- Per-filter star detection: target filter state + Start validation -----------------------------
 
     [Test]
@@ -2398,6 +2652,88 @@ public class StarDetectionOptimizerWizardVMTests {
         // Toggling away from Feedback hides the comparison.
         vm.SelectedVariant = OptimizationVariant.Optimized;
         Assert.That(vm.HasStarCountChanges, Is.False, "the comparison only shows on the feedback variant");
+    }
+
+    // ---- Recovery-point partitioning (chart's hollow-marker overlay) -----------------------------------
+
+    private static ScatterErrorPoint Sep(double x, double y = 2.0) => new ScatterErrorPoint(x, y, 0, 0.1);
+
+    [Test]
+    public void PartitionRecoveryPoints_RecoveryOff_AllCore_NoRecovery() {
+        // FrameIsRecovery == null (the baseline / feature-off case) ⇒ every point is core, the overlay is empty.
+        var points = new List<ScatterErrorPoint> { Sep(100), Sep(200), Sep(300) };
+        var eval = new RunEvaluationResult {
+            Points = points,
+            Metrics = new RunEvaluationMetrics {
+                FrameIsRecovery = null,
+                FrameFocuserPositions = new[] { 100, 200, 300 }
+            }
+        };
+
+        var (core, recovery) = StarDetectionOptimizerWizardVM.PartitionRecoveryPoints(eval);
+
+        Assert.Multiple(() => {
+            Assert.That(recovery, Is.Empty, "no recovery data ⇒ empty overlay");
+            Assert.That(core.Select(p => p.X), Is.EquivalentTo(points.Select(p => p.X)), "all points are core");
+            Assert.That(core.Count, Is.EqualTo(points.Count));
+        });
+    }
+
+    [Test]
+    public void PartitionRecoveryPoints_SplitsByRecoveryPosition_PartitionIsExactAndDisjoint() {
+        // Positions 100 and 500 are the far-from-focus recovery extremes; 200/300/400 are core. Two frames share
+        // position 100 (both flagged) to prove distinct-position handling doesn't duplicate the single pooled point.
+        var points = new List<ScatterErrorPoint> { Sep(100), Sep(200), Sep(300), Sep(400), Sep(500) };
+        var eval = new RunEvaluationResult {
+            Points = points,
+            Metrics = new RunEvaluationMetrics {
+                FrameFocuserPositions = new[] { 100, 100, 200, 300, 400, 500 },
+                FrameIsRecovery = new[] { true, true, false, false, false, true }
+            }
+        };
+
+        var (core, recovery) = StarDetectionOptimizerWizardVM.PartitionRecoveryPoints(eval);
+
+        Assert.Multiple(() => {
+            Assert.That(recovery.Select(p => p.X), Is.EquivalentTo(new[] { 100.0, 500.0 }), "recovery positions ⇒ overlay");
+            Assert.That(core.Select(p => p.X), Is.EquivalentTo(new[] { 200.0, 300.0, 400.0 }), "the rest ⇒ main series");
+            // core ∪ recovery == points, with no duplication.
+            Assert.That(core.Count + recovery.Count, Is.EqualTo(points.Count));
+            Assert.That(core.Concat(recovery).Select(p => p.X), Is.EquivalentTo(points.Select(p => p.X)));
+        });
+    }
+
+    [Test]
+    public void PartitionRecoveryPoints_RecoveryPositionAbsentFromPoints_EmptyRecovery() {
+        // Un-weighted-fit case: a recovery position is flagged in the metrics but was EXCLUDED from eval.Points
+        // upstream. It therefore matches no point ⇒ the overlay is empty and every present point is core.
+        var points = new List<ScatterErrorPoint> { Sep(200), Sep(300), Sep(400) };
+        var eval = new RunEvaluationResult {
+            Points = points,
+            Metrics = new RunEvaluationMetrics {
+                FrameFocuserPositions = new[] { 100, 200, 300, 400, 500 },
+                FrameIsRecovery = new[] { true, false, false, false, true } // 100 & 500 flagged but not in Points
+            }
+        };
+
+        var (core, recovery) = StarDetectionOptimizerWizardVM.PartitionRecoveryPoints(eval);
+
+        Assert.Multiple(() => {
+            Assert.That(recovery, Is.Empty, "flagged recovery positions absent from Points ⇒ nothing to overlay");
+            Assert.That(core.Select(p => p.X), Is.EquivalentTo(points.Select(p => p.X)), "all present points are core");
+        });
+    }
+
+    [Test]
+    public void OptimizationCurve_HasRecoveryPoints_TrueOnlyWhenNonEmpty() {
+        var none = new OptimizationCurve { RecoveryPoints = null };
+        var empty = new OptimizationCurve { RecoveryPoints = System.Array.Empty<ScatterErrorPoint>() };
+        var some = new OptimizationCurve { RecoveryPoints = new[] { Sep(100) } };
+        Assert.Multiple(() => {
+            Assert.That(none.HasRecoveryPoints, Is.False, "null ⇒ no overlay/caption");
+            Assert.That(empty.HasRecoveryPoints, Is.False, "empty ⇒ no overlay/caption");
+            Assert.That(some.HasRecoveryPoints, Is.True, "non-empty ⇒ overlay/caption shown");
+        });
     }
 
 }
