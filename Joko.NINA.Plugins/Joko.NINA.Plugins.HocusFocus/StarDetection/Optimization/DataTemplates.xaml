@@ -28,6 +28,7 @@
     <TextBlock x:Key="SDOpt_LiveExposure_Tooltip" Text="The exposure for every frame of the sweep, starting from your profile's auto-focus exposure. Make it long enough that stars stay visible out at the defocused ends of the sweep. Narrowband filters usually need a longer exposure to start. After a good result you can adopt this exposure into your profile from the summary." />
     <TextBlock x:Key="SDOpt_LiveSaveFolder_Tooltip" Text="The captured frames are saved here, in a timestamped AutoFocus_… subfolder, then loaded back like a saved run so the optimizer can search them. A folder is required before Start. Choosing one also saves it as your Hocus Focus auto-focus save path." />
     <TextBlock x:Key="SDOpt_TargetFilter_Tooltip" Text="Per-filter star detection is enabled, so this run tunes ONE filter's settings set. The baseline and 'current settings' come from this filter's set; a live sweep moves the wheel to this filter and exposes through it; and Accept writes the optimized result into this filter's set." />
+    <TextBlock x:Key="SDOpt_FocusRecovery_Tooltip" Text="Widens the live sweep by this many extra steps on EACH side, so the auto-focus curve can still bracket focus when you start well off focus. The extra far-from-focus frames are down-weighted in the fit and exempt from the star-count requirements, so they help find focus without skewing it. Set 0 to disable recovery." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
           SelectedCurve, so toggling the variant rebuilds the plot from a fresh OptimizationCurve instance (a robust
@@ -425,6 +426,33 @@
                         <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
                             <TextBlock Width="200" VerticalAlignment="Center" Text="Step size" />
                             <TextBlock VerticalAlignment="Center" Text="{Binding SweepStepSize}" />
+                        </StackPanel>
+                        <!--  Editable focus recovery: widen the sweep by N extra steps on each side so the curve can
+                              bracket focus even when starting well off focus. The resulting point count shows directly
+                              below (SweepPointCount already reflects the widened total). 0 disables recovery.  -->
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <TextBlock
+                                Width="200"
+                                VerticalAlignment="Center"
+                                Text="Focus recovery (extra steps/side)"
+                                ToolTip="{StaticResource SDOpt_FocusRecovery_Tooltip}" />
+                            <TextBox
+                                MinWidth="80"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                ToolTip="{StaticResource SDOpt_FocusRecovery_Tooltip}">
+                                <TextBox.Text>
+                                    <Binding Path="FocusRecoverySteps" UpdateSourceTrigger="LostFocus">
+                                        <Binding.ValidationRules>
+                                            <rules:IntRangeRule>
+                                                <rules:IntRangeRule.ValidRange>
+                                                    <rules:IntRangeChecker Maximum="25" Minimum="0" />
+                                                </rules:IntRangeRule.ValidRange>
+                                            </rules:IntRangeRule>
+                                        </Binding.ValidationRules>
+                                    </Binding>
+                                </TextBox.Text>
+                            </TextBox>
                         </StackPanel>
                         <StackPanel Margin="0,2" Orientation="Horizontal">
                             <TextBlock Width="200" VerticalAlignment="Center" Text="Number of points" />
