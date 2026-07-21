@@ -1973,10 +1973,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     SetProgress("Loading frames", 0, 0);
                     var loadProgress = new Progress<RunLoadProgress>(rp =>
                         SetProgress("Loading frames", rp.Current, rp.Total));
-                    var loaded = await loader.LoadSavedRunAsync(folder, region, null, loadProgress, ResolveBaselineOptionsOverride(), token).ConfigureAwait(true);
-                    // Stamp the recovery snapshot so the evaluator tags the outer sweep frames as recovery. 0 for
-                    // Replay/non-Live => RunEvaluationData is byte-identical to before (FrameIsRecovery stays null).
-                    loaded.Data.RecoveryStepsPerSide = capturedRecoveryStepsPerSide;
+                    // Load + stamp the recovery snapshot together through the single choke-point (see LoadRunStampedAsync).
+                    var loaded = await LoadRunStampedAsync(folder, null, loadProgress, token).ConfigureAwait(true);
                     runs.Add(loaded);
                     // Record the actual folder loaded (in load order) so the re-optimize path can re-read it from disk
                     // after the source Mats are disposed. Snapshotted in SnapshotReviewInputs on full success.
@@ -2003,6 +2001,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             foreach (var run in runs) {
                 run?.Data?.Dispose();
             }
+        }
+
+        /// <summary>The SINGLE load-and-stamp choke-point for every run this VM loads. Loads the run through the loader
+        /// exactly as the inline call sites did (same region/baseline-override; each caller still forwards its own
+        /// <paramref name="frameLabels"/> and <paramref name="progress"/>), then stamps the recovery snapshot onto the
+        /// loaded <see cref="RunEvaluationData"/> so the evaluator tags the outer sweep frames as recovery. Every reload
+        /// path (acquire, re-optimize, continue) routes through here, so a future reload site can't ship un-stamped and
+        /// silently drop the tag. Reads the <see cref="capturedRecoveryStepsPerSide"/> field on purpose: continue /
+        /// re-optimize intentionally reuse the originating Start's snapshot. 0 for Replay/non-Live => the stamp is inert
+        /// (RunEvaluationData is byte-identical to before, <see cref="RunEvaluationMetrics.FrameIsRecovery"/> stays null).</summary>
+        private async Task<LoadedRun> LoadRunStampedAsync(
+            string folder, IReadOnlyList<FrameLabels> frameLabels, IProgress<RunLoadProgress> progress, CancellationToken token) {
+            var loaded = await loader.LoadSavedRunAsync(folder, region, frameLabels, progress, ResolveBaselineOptionsOverride(), token).ConfigureAwait(true);
+            if (loaded?.Data != null) {
+                loaded.Data.RecoveryStepsPerSide = capturedRecoveryStepsPerSide;
+            }
+            return loaded;
         }
 
         /// <summary>
@@ -2731,10 +2746,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     var frameLabels = LabelConverter.ToFrameLabels(runLabels);
                     var loadProgress = new Progress<RunLoadProgress>(rp =>
                         SetProgress("Loading frames", rp.Current, rp.Total));
-                    var loaded = await loader.LoadSavedRunAsync(folder, region, frameLabels, loadProgress, ResolveBaselineOptionsOverride(), token).ConfigureAwait(true);
-                    // CRITICAL: stamp the SAME recovery snapshot the first pass used, or the feedback/second optimize
-                    // pass loses the tag and its runs hard-floor on star-count gates, making its J disagree with pass 1.
-                    loaded.Data.RecoveryStepsPerSide = capturedRecoveryStepsPerSide;
+                    // CRITICAL: load + stamp through the single choke-point (LoadRunStampedAsync) so the feedback/second
+                    // optimize pass reuses the SAME recovery snapshot the first pass used — otherwise it loses the tag and
+                    // its runs hard-floor on star-count gates, making its J disagree with pass 1.
+                    var loaded = await LoadRunStampedAsync(folder, frameLabels, loadProgress, token).ConfigureAwait(true);
                     reloaded.Add(loaded);
                 }
 
@@ -2861,11 +2876,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     var folder = reoptimizeRunFolders[i];
                     var loadProgress = new Progress<RunLoadProgress>(rp =>
                         SetProgress("Loading frames", rp.Current, rp.Total));
-                    // No labels for a plain continue (byte-identical to the no-label load).
-                    var loaded = await loader.LoadSavedRunAsync(folder, region, null, loadProgress, ResolveBaselineOptionsOverride(), token).ConfigureAwait(true);
-                    // Same rationale as the re-optimize loop: stamp the recovery snapshot so a continued round keeps the
-                    // recovery tag and its J stays comparable with the prior round. 0 for Replay/N=0 => inert.
-                    loaded.Data.RecoveryStepsPerSide = capturedRecoveryStepsPerSide;
+                    // No labels for a plain continue (byte-identical to the no-label load); load + stamp through the single
+                    // choke-point (LoadRunStampedAsync) so a continued round keeps the recovery tag and its J stays
+                    // comparable with the prior round. 0 for Replay/N=0 => inert.
+                    var loaded = await LoadRunStampedAsync(folder, null, loadProgress, token).ConfigureAwait(true);
                     reloaded.Add(loaded);
                 }
 

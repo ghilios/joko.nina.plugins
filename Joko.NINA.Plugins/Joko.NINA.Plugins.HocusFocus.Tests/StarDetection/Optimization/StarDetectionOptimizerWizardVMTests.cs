@@ -174,6 +174,11 @@ public class StarDetectionOptimizerWizardVMTests {
         public int LabelOverloadCalls { get; private set; }
         public int NoLabelCalls { get; private set; }
 
+        // Every LoadedRun this fake manufactures, in creation order. The VM's load-and-stamp choke-point mutates the
+        // SAME RunEvaluationData instance AFTER the loader returns it, so RecoveryStepsPerSide read here (post-flow)
+        // reflects the stamp — letting a test assert reload paths preserve the recovery tag.
+        public List<LoadedRun> ProducedRuns { get; } = new List<LoadedRun>();
+
         public RecordingLoader(double optSensitivity = 10.0, int seedSensitivity = 2) {
             this.optSensitivity = optSensitivity;
             this.seedSensitivity = seedSensitivity;
@@ -185,11 +190,13 @@ public class StarDetectionOptimizerWizardVMTests {
 
         private LoadedRun Make(string folder, IReadOnlyList<FrameLabels> labels) {
             var data = new RunEvaluationData(RunIdFor(folder), NineFrames(), OptimizableDetect(optSensitivity), NewAlglib(), DefaultFitConfig(), labels);
-            return new LoadedRun {
+            var run = new LoadedRun {
                 Data = data,
                 Seed = new StarDetectorParams { Sensitivity = seedSensitivity, StarClippingMultiplier = 2.0 },
                 AfOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 }
             };
+            ProducedRuns.Add(run);
+            return run;
         }
 
         public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, CancellationToken token) =>
@@ -1580,6 +1587,89 @@ public class StarDetectionOptimizerWizardVMTests {
         Assert.Multiple(() => {
             Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
             Assert.That(run.Data.RecoveryStepsPerSide, Is.EqualTo(0), "a Replay start leaves recovery inert regardless of the box value");
+        });
+    }
+
+    // Reload-survival regression: the load-and-stamp choke-point must keep the recovery tag on EVERY reload path
+    // (re-optimize AND continue). A future change that drops the stamp from a reload path must fail these. The
+    // RecordingLoader manufactures a fresh run per load and records them, so we can inspect the runs the RELOAD
+    // produced (after the originating Start's runs) and assert their stamped RecoveryStepsPerSide.
+
+    [Test]
+    public async Task ReOptimize_Live_ReloadedRunKeepsRecoveryTag() {
+        var loader = new RecordingLoader();
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(loader, isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine,
+            frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.FocusRecoverySteps = 2;
+
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        vm.ReviewVM.AddMissedBox(150.0, 175.0, 18.0, 18.0);
+        vm.BackToSummaryCommand.Execute(null);
+        Assert.That(vm.ReOptimizeCommand.CanExecute(null), Is.True, "precondition: labeled + idle => re-optimize enabled");
+
+        var producedBeforeReload = loader.ProducedRuns.Count;
+        await vm.ReOptimizeCommand.ExecuteAsync(null);
+
+        var reloaded = loader.ProducedRuns.Skip(producedBeforeReload).ToList();
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(reloaded, Is.Not.Empty, "the re-optimize path re-loaded at least one run");
+            Assert.That(reloaded.All(r => r.Data.RecoveryStepsPerSide == 2), Is.True,
+                "the re-optimize reload preserved the recovery tag (snapshot N=2)");
+        });
+    }
+
+    [Test]
+    public async Task Continue_Live_ReloadedRunKeepsRecoveryTag() {
+        var loader = new RecordingLoader();
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(loader, isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine,
+            frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.FocusRecoverySteps = 2;
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.CanContinueOptimization, Is.True, "precondition: an optimize pass ran so continue is available");
+
+        var producedBeforeReload = loader.ProducedRuns.Count;
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null);
+
+        var reloaded = loader.ProducedRuns.Skip(producedBeforeReload).ToList();
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(reloaded, Is.Not.Empty, "the continue path re-loaded at least one run");
+            Assert.That(reloaded.All(r => r.Data.RecoveryStepsPerSide == 2), Is.True,
+                "the continue reload preserved the recovery tag (snapshot N=2)");
+        });
+    }
+
+    [Test]
+    public async Task ReOptimize_Replay_ReloadedRunStaysUntagged() {
+        // The mirror case: a Replay reload must stay inert (0) even with the recovery box set, because the snapshot
+        // was taken as 0 at a Replay Start — so the tag never leaks onto a replay's re-optimize pass.
+        var loader = new RecordingLoader();
+        var vm = NewVM(loader, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.FocusRecoverySteps = 5; // Replay must ignore this
+        vm.SourcePaths[0] = @"C:\reopt-run";
+
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        vm.ReviewVM.AddMissedBox(150.0, 175.0, 18.0, 18.0);
+        vm.BackToSummaryCommand.Execute(null);
+
+        var producedBeforeReload = loader.ProducedRuns.Count;
+        await vm.ReOptimizeCommand.ExecuteAsync(null);
+
+        var reloaded = loader.ProducedRuns.Skip(producedBeforeReload).ToList();
+        Assert.Multiple(() => {
+            Assert.That(reloaded, Is.Not.Empty, "the re-optimize path re-loaded at least one run");
+            Assert.That(reloaded.All(r => r.Data.RecoveryStepsPerSide == 0), Is.True,
+                "a Replay reload stays untagged regardless of the box value");
         });
     }
 
