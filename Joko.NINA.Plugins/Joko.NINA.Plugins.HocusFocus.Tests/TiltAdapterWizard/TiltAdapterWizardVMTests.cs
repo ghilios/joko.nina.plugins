@@ -766,6 +766,102 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             });
         }
 
+        // ---- Screw-angle display shows the PHYSICAL image position (readout + wizard diagram) --------------
+        //
+        // The persisted Screw{N}AngleDegrees are RESPONSE-convention angles (physical + 180° on
+        // "CW moves adapter toward the objective" / −1 rigs). Both the calibration readout and the
+        // wizard diagram are labelled image-space ("0° points up; image as shown in NINA"), and must
+        // therefore display the PHYSICAL angle — matching the Manual Calibration Entry field — not the
+        // raw stored value. Regression guard for docs/tilt-wizard-diagram-orientation-design.md.
+
+        private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options) BuildCalibrated(
+            int sign, double s1, double s2, double s3, double s4 = double.NaN, int screwCount = 3) {
+            var (vm, options, _, _) = Build(screwCount: screwCount, configureOptions: o => {
+                o.IsCalibrated.Returns(true);
+                o.CalibratedScrewCount.Returns(screwCount);
+                o.ScrewInwardCurvatureSign.Returns(sign);
+                o.Screw1AngleDegrees.Returns(s1);
+                o.Screw2AngleDegrees.Returns(s2);
+                o.Screw3AngleDegrees.Returns(s3);
+                o.Screw4AngleDegrees.Returns(s4);
+            });
+            return (vm, options);
+        }
+
+        [Test]
+        public void RebuildDiagram_NegativeSign_PlacesPhysicalTopScrewAtCanvasTop() {
+            // −1 rig: screw 1 is physically at the TOP (physical 0°), stored as 0+180 = 180°. The
+            // diagram must draw it at canvas-top (cy = 100 − 75·cos0 = 25 → Y = 25 − 12 = 13), NOT at
+            // the bottom (the raw-stored 180° would give cy = 175). Screws 2/3 are physically 120/240.
+            var (vm, _) = BuildCalibrated(sign: -1, s1: 180, s2: 300, s3: 60);
+
+            var screw1 = vm.ScrewDiagramItems.Single(i => i.Number == 1);
+            Assert.Multiple(() => {
+                Assert.That(screw1.AngleDegrees, Is.EqualTo(0.0).Within(1e-9), "physical angle");
+                Assert.That(screw1.Y, Is.EqualTo(13.0).Within(0.5), "canvas-top, not bottom");
+                Assert.That(screw1.X, Is.EqualTo(88.0).Within(0.5), "horizontally centred");
+            });
+        }
+
+        [Test]
+        public void RebuildDiagram_PositiveSign_PlacesScrewsAtStoredAngles() {
+            // +1 rig: stored == physical, so the diagram is unchanged. Screw 1 stored 90° → right edge
+            // (cx = 175, cy = 100 → X = 163, Y = 88). Guards against a double 180° offset.
+            var (vm, _) = BuildCalibrated(sign: 1, s1: 90, s2: 210, s3: 330);
+
+            var screw1 = vm.ScrewDiagramItems.Single(i => i.Number == 1);
+            Assert.Multiple(() => {
+                Assert.That(screw1.AngleDegrees, Is.EqualTo(90.0).Within(1e-9));
+                Assert.That(screw1.X, Is.EqualTo(163.0).Within(0.5));
+                Assert.That(screw1.Y, Is.EqualTo(88.0).Within(0.5));
+            });
+        }
+
+        [Test]
+        public void PhysicalScrewAngles_NegativeSign_ConvertStoredResponseAnglesToPhysical() {
+            // Readout binds these; on a −1 rig they must be the stored angle − 180° (self-inverse).
+            var (vm, _) = BuildCalibrated(sign: -1, s1: 180, s2: 300, s3: 60);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.PhysicalScrew1AngleDegrees, Is.EqualTo(0.0).Within(1e-9));
+                Assert.That(vm.PhysicalScrew2AngleDegrees, Is.EqualTo(120.0).Within(1e-9));
+                Assert.That(vm.PhysicalScrew3AngleDegrees, Is.EqualTo(240.0).Within(1e-9));
+            });
+        }
+
+        [Test]
+        public void PhysicalScrewAngles_PositiveSign_EqualStoredAngles() {
+            var (vm, _) = BuildCalibrated(sign: 1, s1: 90, s2: 210, s3: 330);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.PhysicalScrew1AngleDegrees, Is.EqualTo(90.0).Within(1e-9));
+                Assert.That(vm.PhysicalScrew2AngleDegrees, Is.EqualTo(210.0).Within(1e-9));
+                Assert.That(vm.PhysicalScrew3AngleDegrees, Is.EqualTo(330.0).Within(1e-9));
+            });
+        }
+
+        [Test]
+        public void ScrewInwardCurvatureSignChange_RefreshesPhysicalAnglesAndDiagram() {
+            // Changing the adapter-direction setting flips the physical interpretation by 180°, so both
+            // the readout properties and the diagram must refresh when ScrewInwardCurvatureSign changes.
+            var (vm, options) = BuildCalibrated(sign: 1, s1: 0, s2: 120, s3: 240);
+            // Built on +1: screw 1 (stored 0° = physical top) starts at canvas-top.
+            Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(13.0).Within(0.5));
+
+            var raised = new System.Collections.Generic.List<string>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+            options.ScrewInwardCurvatureSign.Returns(-1);
+            options.PropertyChanged += Raise.Event<System.ComponentModel.PropertyChangedEventHandler>(
+                options, new System.ComponentModel.PropertyChangedEventArgs(nameof(ITiltAdapterOptions.ScrewInwardCurvatureSign)));
+
+            Assert.Multiple(() => {
+                Assert.That(raised, Does.Contain(nameof(TiltAdapterWizardVM.PhysicalScrew1AngleDegrees)));
+                Assert.That(raised, Does.Contain(nameof(TiltAdapterWizardVM.PhysicalScrew2AngleDegrees)));
+                // Now interpreted as a −1 rig: physical = 0 + 180 = 180° → screw 1 moves to the bottom.
+                Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(163.0).Within(0.5));
+            });
+        }
+
         [Test]
         public void StepDescription_UsesRotationGlyphs() {
             // Summary-row glyphs must match the guidance legend (⟳ = clockwise / + steps,

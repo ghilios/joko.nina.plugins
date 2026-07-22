@@ -839,6 +839,94 @@ public class SimulatedTiltAdapterVMTests {
         });
     }
 
+    // ---- Image-space (physical) angle display on −1 rigs -----------------------------------------------
+    //
+    // SimScrew{N}AngleDegrees are RESPONSE-convention (SimulatedTiltAdapter's contract), 180° from the
+    // physical image position on "CW moves adapter toward the objective" (−1) rigs. The Screw 1 input,
+    // the derived-angle readouts, and the diagram are all image-space, so they must convert — otherwise a
+    // screw physically at the top is drawn/reported at the bottom on −1 rigs. Mirrors the wizard fix
+    // (docs/tilt-wizard-diagram-orientation-design.md); SimScrew stays response-convention internally so
+    // the physics / coherence badge / copy-to-adapter are untouched.
+
+    [Test]
+    public void Screw1AngleInput_NegativeSign_RoundTripsPhysicalToResponseConvention() {
+        var options = Configured(screwCount: 3, curvatureSign: -1);
+        var vm = new SimulatedTiltAdapterVM(options, realAdapterOptions: null);
+
+        vm.Screw1AngleDegrees = 0.0; // physical: screw 1 at the top of the image
+
+        Assert.Multiple(() => {
+            Assert.That(options.SimScrew1AngleDegrees, Is.EqualTo(180.0).Within(1e-9), "stored in the response convention");
+            Assert.That(vm.Screw1AngleDegrees, Is.EqualTo(0.0).Within(1e-9), "reads back the physical angle");
+        });
+    }
+
+    [Test]
+    public void Screw1AngleInput_PositiveSign_IsIdentity() {
+        var options = Configured(screwCount: 3, curvatureSign: 1);
+        var vm = new SimulatedTiltAdapterVM(options, realAdapterOptions: null);
+
+        vm.Screw1AngleDegrees = 30.0;
+
+        Assert.Multiple(() => {
+            Assert.That(options.SimScrew1AngleDegrees, Is.EqualTo(30.0).Within(1e-9));
+            Assert.That(vm.Screw1AngleDegrees, Is.EqualTo(30.0).Within(1e-9));
+        });
+    }
+
+    [Test]
+    public void DerivedAngleDisplays_NegativeSign_ShowPhysicalImageAngles() {
+        // Stored 0/120/240 (response) → physical 180/300/60 on a −1 rig.
+        var options = Configured(screwCount: 3, curvatureSign: -1);
+        var vm = new SimulatedTiltAdapterVM(options, realAdapterOptions: null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.Screw2AngleDisplay, Is.EqualTo("300.0°"));
+            Assert.That(vm.Screw3AngleDisplay, Is.EqualTo("60.0°"));
+        });
+    }
+
+    [Test]
+    public void DerivedAngleDisplays_PositiveSign_Unchanged() {
+        var options = Configured(screwCount: 3, curvatureSign: 1);
+        var vm = new SimulatedTiltAdapterVM(options, realAdapterOptions: null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.Screw2AngleDisplay, Is.EqualTo("120.0°"));
+            Assert.That(vm.Screw3AngleDisplay, Is.EqualTo("240.0°"));
+        });
+    }
+
+    [Test]
+    public void Diagram_NegativeSign_DrawsStoredResponseAngleAtItsPhysicalPosition() {
+        // Stored screw 1 = 0° (response) is physically at 180° on a −1 rig → must draw at the BOTTOM
+        // (cy = 100 − 75·cos180 = 175 → Y = 163), not the top.
+        var options = Configured(screwCount: 3, curvatureSign: -1);
+        var vm = new SimulatedTiltAdapterVM(options, realAdapterOptions: null);
+
+        var screw1 = vm.ScrewDiagramItems.Single(i => i.Number == 1);
+        Assert.Multiple(() => {
+            Assert.That(screw1.AngleDegrees, Is.EqualTo(180.0).Within(1e-9), "physical angle");
+            Assert.That(screw1.Y, Is.EqualTo(163.0).Within(0.5), "canvas-bottom");
+        });
+    }
+
+    [Test]
+    public void AngleDisplaysAndDiagram_AdapterDirectionChange_FlipToTheOppositeSide() {
+        // Built +1: stored 0/120/240 == physical; screw 1 at the top.
+        var options = Configured(screwCount: 3, curvatureSign: 1);
+        var vm = new SimulatedTiltAdapterVM(options, realAdapterOptions: null);
+        Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(13.0).Within(0.5));
+        Assert.That(vm.Screw2AngleDisplay, Is.EqualTo("120.0°"));
+
+        options.SimScrewInwardCurvatureSign = -1; // reinterpret 180° away
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(163.0).Within(0.5), "screw 1 flips to the bottom");
+            Assert.That(vm.Screw2AngleDisplay, Is.EqualTo("300.0°"), "readouts flip too");
+        });
+    }
+
     // ---- Profile switches ---------------------------------------------------------------------------
 
     [Test]

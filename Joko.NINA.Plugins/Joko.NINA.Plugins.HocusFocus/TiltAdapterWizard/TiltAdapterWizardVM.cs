@@ -338,6 +338,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     RaisePropertyChanged(nameof(CurvatureSignDescription));
                     RaisePropertyChanged(nameof(CwMovesAdapterTowardObjective));
                     RaisePropertyChanged(nameof(CurvatureSignProvenance));
+                    // The readout + diagram show physical image angles, which are stored ± 180° keyed on
+                    // this sign — refresh both (RebuildDiagram also re-raises the PhysicalScrew* props).
+                    RebuildDiagram();
                 }
                 if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured)) {
                     RaisePropertyChanged(nameof(CurvatureSignDescription));
@@ -520,6 +523,20 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public ObservableCollection<TiltScrewDiagramItem> ScrewDiagramItems { get; }
         public ObservableCollection<TiltScrewConnectionLine> ScrewConnectionLines { get; }
         public ObservableCollection<TiltMeasurementSummaryRow> StepMeasurementSummary { get; }
+
+        // The calibration readout and the wizard diagram both display the PHYSICAL image position of
+        // each screw (0° = straight up, increasing clockwise) — matching the "Manual Calibration Entry"
+        // field and the diagram's "image as shown in NINA" caption. The persisted Screw{N}AngleDegrees
+        // are RESPONSE-convention angles (the direction a CW turn drives the tilt gradient), which sit
+        // 180° from the physical position on "CW moves adapter toward the objective" (−1) rigs and
+        // coincide with it on the default +1 rig. TiltScrewGeometry.PhysicalToStoredAngle is
+        // self-inverse, so the same call converts stored→physical with the adapter-direction sign in
+        // effect. RebuildDiagram() re-raises these (and the sign-change handler calls it) so the
+        // readout tracks both a re-calibration and a direction change.
+        public double PhysicalScrew1AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw1AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
+        public double PhysicalScrew2AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw2AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
+        public double PhysicalScrew3AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw3AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
+        public double PhysicalScrew4AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw4AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
 
         public bool IsWizardRunning {
             get => isWizardRunning;
@@ -3232,17 +3249,29 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         private void RebuildDiagram() {
+            // RebuildDiagram is the single choke point reached on every calibration, direction, and
+            // profile change — refresh the readout's physical-angle properties here too (before the
+            // early-return guard, so a Clear also updates them).
+            RaisePropertyChanged(nameof(PhysicalScrew1AngleDegrees));
+            RaisePropertyChanged(nameof(PhysicalScrew2AngleDegrees));
+            RaisePropertyChanged(nameof(PhysicalScrew3AngleDegrees));
+            RaisePropertyChanged(nameof(PhysicalScrew4AngleDegrees));
+
             ScrewDiagramItems.Clear();
             ScrewConnectionLines.Clear();
 
             int n = tiltAdapterOptions.ScrewCount;
             if (n < 3 || !IsCalibrationValid) return;
 
+            // Stored angles are RESPONSE-convention; the diagram depicts image space ("0° points up;
+            // image as shown in NINA"), so plot the PHYSICAL position — 180° from stored on −1 rigs,
+            // identical on +1. Self-inverse PhysicalToStoredAngle converts stored→physical.
+            int sign = tiltAdapterOptions.ScrewInwardCurvatureSign;
             var angles = new[] {
-                tiltAdapterOptions.Screw1AngleDegrees,
-                tiltAdapterOptions.Screw2AngleDegrees,
-                tiltAdapterOptions.Screw3AngleDegrees,
-                n == 4 ? tiltAdapterOptions.Screw4AngleDegrees : double.NaN
+                TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw1AngleDegrees, sign),
+                TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw2AngleDegrees, sign),
+                TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw3AngleDegrees, sign),
+                n == 4 ? TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw4AngleDegrees, sign) : double.NaN
             };
 
             var centers = new (double cx, double cy)[n];
