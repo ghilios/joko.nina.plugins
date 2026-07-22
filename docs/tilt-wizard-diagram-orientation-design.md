@@ -1,7 +1,10 @@
 # Tilt Adapter Wizard — screw-angle ↔ tilt-effect orientation
 
-**Status:** Investigation complete (root cause found, verified). Fix not yet applied.
-**Date:** 2026-07-04
+**Status:** Fixed (2026-07-22). The durable fix below is implemented — `RebuildDiagram` and the
+info-panel readout both convert to physical via `PhysicalToStoredAngle`, and the diagram/readout now
+refresh on an adapter-direction change. Covered by `TiltAdapterWizardVMTests`
+(`RebuildDiagram_NegativeSign_PlacesPhysicalTopScrewAtCanvasTop` et al.).
+**Date:** 2026-07-04 (investigation); 2026-07-22 (fix)
 **Trigger:** User reports, refined across two messages:
 1. "The orientation in the tilt adapter calibration wizard is vertically flipped — 0° comes out of the bottom of the image instead of the top."
 2. (with screenshot) "The user believes when they turn **Screw #2** it actually moves the **top** instead of the bottom."

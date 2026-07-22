@@ -270,15 +270,15 @@
         <StackPanel>
             <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
                 <TextBlock HorizontalAlignment="Center" Text="Screw 1" />
-                <TextBlock HorizontalAlignment="Center" Text="{Binding TiltAdapterOptions.Screw1AngleDegrees, StringFormat={}{0:F1}°}" />
+                <TextBlock HorizontalAlignment="Center" Text="{Binding PhysicalScrew1AngleDegrees, StringFormat={}{0:F1}°}" />
             </UniformGrid>
             <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
                 <TextBlock HorizontalAlignment="Center" Text="Screw 2" />
-                <TextBlock HorizontalAlignment="Center" Text="{Binding TiltAdapterOptions.Screw2AngleDegrees, StringFormat={}{0:F1}°}" />
+                <TextBlock HorizontalAlignment="Center" Text="{Binding PhysicalScrew2AngleDegrees, StringFormat={}{0:F1}°}" />
             </UniformGrid>
             <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
                 <TextBlock HorizontalAlignment="Center" Text="Screw 3" />
-                <TextBlock HorizontalAlignment="Center" Text="{Binding TiltAdapterOptions.Screw3AngleDegrees, StringFormat={}{0:F1}°}" />
+                <TextBlock HorizontalAlignment="Center" Text="{Binding PhysicalScrew3AngleDegrees, StringFormat={}{0:F1}°}" />
             </UniformGrid>
             <!--  Screw 4 row — collapses when ScrewCount == 3  -->
             <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
@@ -293,7 +293,7 @@
                     </Style>
                 </UniformGrid.Style>
                 <TextBlock HorizontalAlignment="Center" Text="Screw 4" />
-                <TextBlock HorizontalAlignment="Center" Text="{Binding TiltAdapterOptions.Screw4AngleDegrees, StringFormat={}{0:F1}°}" />
+                <TextBlock HorizontalAlignment="Center" Text="{Binding PhysicalScrew4AngleDegrees, StringFormat={}{0:F1}°}" />
             </UniformGrid>
             <!--  Curvature row — the arrow shows how the curvature effect responds to clockwise screw turns  -->
             <UniformGrid
