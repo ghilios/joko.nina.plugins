@@ -154,7 +154,7 @@
 
                 <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Text="Screw 1 angle" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" />
                 <ninactrl:UnitTextBox Grid.Row="7" Grid.Column="1" MinWidth="80" Margin="5,2,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource HFSim_ScrewAngle_Tooltip}" Unit="°">
-                    <Binding Path="Options.SimScrew1AngleDegrees" UpdateSourceTrigger="LostFocus">
+                    <Binding Path="Screw1AngleDegrees" UpdateSourceTrigger="LostFocus">
                         <Binding.ValidationRules>
                             <rules:FloatRangeRule>
                                 <rules:FloatRangeRule.ValidRange>

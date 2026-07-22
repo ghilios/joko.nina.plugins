@@ -3,7 +3,11 @@
 **Status:** Fixed (2026-07-22). The durable fix below is implemented — `RebuildDiagram` and the
 info-panel readout both convert to physical via `PhysicalToStoredAngle`, and the diagram/readout now
 refresh on an adapter-direction change. Covered by `TiltAdapterWizardVMTests`
-(`RebuildDiagram_NegativeSign_PlacesPhysicalTopScrewAtCanvasTop` et al.).
+(`RebuildDiagram_NegativeSign_PlacesPhysicalTopScrewAtCanvasTop` et al.). The camera-simulator virtual
+tilt adapter (`SimulatedTiltAdapterVM`) shared the same latent bug — its `SimScrew{N}AngleDegrees` are
+response-convention too — and was fixed the same way: the Screw 1 input, derived-angle readouts, diagram,
+and row labels convert to physical (`ToPhysicalAngle`), while `SimScrew` stays response-convention so the
+physics/coherence/copy paths are untouched. Covered by `SimulatedTiltAdapterVMTests`.
 **Date:** 2026-07-04 (investigation); 2026-07-22 (fix)
 **Trigger:** User reports, refined across two messages:
 1. "The orientation in the tilt adapter calibration wizard is vertically flipped — 0° comes out of the bottom of the image instead of the top."

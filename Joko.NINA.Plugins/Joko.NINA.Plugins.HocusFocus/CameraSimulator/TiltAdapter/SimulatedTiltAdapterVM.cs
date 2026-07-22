@@ -458,12 +458,26 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             }
         }
 
-        /// <summary>Screws 2..N are derived from Screw 1 + the numbering direction — rendered dimmed, never edited.</summary>
-        public string Screw2AngleDisplay => FormatAngle(options.SimScrew2AngleDegrees);
+        /// <summary>
+        /// Screw 1's PHYSICAL image angle (0° = straight up, increasing clockwise) — what the user enters and
+        /// what the "Screw 1 angle" box shows. The stored <c>SimScrew1AngleDegrees</c> is response-convention
+        /// (see <see cref="SimulatedTiltAdapter"/>), 180° from the physical position on "CW moves adapter toward
+        /// the objective" (−1) rigs; the self-inverse <see cref="TiltScrewGeometry.PhysicalToStoredAngle"/>
+        /// converts both ways. Writing SimScrew1AngleDegrees re-derives screws 2..N and rebuilds the panel via
+        /// <see cref="OnOptionsChanged"/>, which re-raises this property (through RebuildAll).
+        /// </summary>
+        public double Screw1AngleDegrees {
+            get => ToPhysicalAngle(options.SimScrew1AngleDegrees);
+            set => options.SimScrew1AngleDegrees = ToPhysicalAngle(value);
+        }
 
-        public string Screw3AngleDisplay => FormatAngle(options.SimScrew3AngleDegrees);
+        /// <summary>Screws 2..N are derived from Screw 1 + the numbering direction — rendered dimmed, never edited.
+        /// Shown as PHYSICAL image angles, like Screw 1 and the diagram.</summary>
+        public string Screw2AngleDisplay => FormatAngle(ToPhysicalAngle(options.SimScrew2AngleDegrees));
 
-        public string Screw4AngleDisplay => FormatAngle(options.SimScrew4AngleDegrees);
+        public string Screw3AngleDisplay => FormatAngle(ToPhysicalAngle(options.SimScrew3AngleDegrees));
+
+        public string Screw4AngleDisplay => FormatAngle(ToPhysicalAngle(options.SimScrew4AngleDegrees));
 
         public IReadOnlyList<int> ScrewCountOptions { get; } = new[] { 3, 4 };
 
@@ -505,6 +519,12 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         private int ResolvedCurvatureSign => options.SimScrewInwardCurvatureSign == 0
             ? TiltScrewGeometry.DefaultScrewInwardCurvatureSign
             : Math.Sign(options.SimScrewInwardCurvatureSign);
+
+        /// <summary>Converts a stored response-convention screw angle to its physical image angle (self-inverse;
+        /// identical on +1 rigs, 180° apart on −1). Every image-space display (Screw 1 input, derived readouts,
+        /// the diagram, the row labels) goes through this; the physics keeps consuming the raw stored angle.</summary>
+        private double ToPhysicalAngle(double storedAngle) =>
+            TiltScrewGeometry.PhysicalToStoredAngle(storedAngle, ResolvedCurvatureSign);
 
         public ObservableCollection<TiltScrewDiagramItem> ScrewDiagramItems { get; }
         public ObservableCollection<TiltScrewConnectionLine> ScrewConnectionLines { get; }
@@ -1041,7 +1061,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         private void RebuildRows() {
             Rows.Clear();
             var n = ScrewCount;
-            var angles = SimAngles();
+            // Row labels name the screw's image-space angle / side, so show the PHYSICAL angle (the turn
+            // buttons and coupling text are angle-independent and unaffected).
+            var angles = SimAngles().Select(ToPhysicalAngle).ToArray();
 
             if (n == 3) {
                 for (var i = 0; i < 3; i++) {
@@ -1131,7 +1153,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             ScrewConnectionLines.Clear();
 
             var n = ScrewCount;
-            var angles = SimAngles();
+            // The diagram depicts image space ("0° points up; image as shown in NINA"), so plot the PHYSICAL
+            // position — 180° from the stored response angle on −1 rigs, identical on +1.
+            var angles = SimAngles().Select(ToPhysicalAngle).ToArray();
             if (angles.Take(n).Any(a => !double.IsFinite(a))) return;
 
             var centers = new (double cx, double cy)[n];
