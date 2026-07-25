@@ -356,21 +356,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
         }
 
         // ------------------------------------------------------------------------------------------------------------
-        // B2 — Bootstrap cap respected. Start far above focus with clean stars: the descent can't form a bracket
-        // within the cap (every new point is a fresh minimum), so the STEP-OUT cap fires after exactly 8 left
-        // step-outs — well clear of a focuser travel limit placed 12 steps below the start. The reversal then probes
-        // right into a starless cutoff, exhausts the failure budget, and the run fails GRACEFULLY (both directions
-        // exhausted => TooManyFailedMeasurements, caught) instead of crashing into the "Focuser reached its limit"
-        // exception. The cap-off control shows the hazard is real: the unbounded descent marches into the travel
-        // limit (requested target below the focuser minimum).
+        // B2 — Focus lies BEYOND the focuser travel limit (focus 10000, limit at 10140). A PRODUCTIVE descent (the
+        // lowest measured HFR keeps improving as the walk nears focus) is NOT counted against the directional cap, so
+        // the walk is not reversed mid-descent — it uses the full available travel trying to reach focus and stops at
+        // the HARDWARE travel limit, failing GRACEFULLY there (a handled "focuser reached its limit", not a crash).
+        // The cap bounds NON-productive excursions (wrong-way / starless — see B1/B3); a genuinely unreachable focus is
+        // bounded by the travel limit, not by an arbitrary step cap.
         // ------------------------------------------------------------------------------------------------------------
         [Test]
-        public async Task B2_CapBoundsExcursion_NoFocuserLimitThrow_ControlMarchesIntoLimit() {
+        public async Task B2_ProductiveDescentBoundedByTravelLimit_NotByCap_FailsGracefully() {
             var start = Focus + 40 * StepSize;       // 10200
-            var focuserMin = start - 12 * StepSize;  // 10140 — the travel hazard the cap must keep clear of
+            var focuserMin = start - 12 * StepSize;  // 10140 — focus (10000) sits below this, i.e. unreachable
             var focuserMax = Focus + 100 * StepSize;
 
-            var scenario = SteepScenario(s => s.RightCutoffSteps = 45); // starless beyond +45 steps (seed top is +45s, valid)
+            var scenario = SteepScenario(s => s.RightCutoffSteps = 45);
             var options = DefaultSweepOptions(scenario, OffsetSteps);
             options.MaxBlindStepsPerDirection = 8;
             var harness = BuildHarness(scenario, options, start, focuserMin, focuserMax);
@@ -379,32 +378,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             var history = harness.Focuser.MoveHistory.ToList();
             var seedFloor = start + StepSize; // 10205, the lowest seed position
             Assert.Multiple(() => {
-                Assert.That(result, Is.Not.Null, "both-directions-exhausted is a graceful failure, not a crash");
-                Assert.That(result.Succeeded, Is.False, "this geometry is genuinely unfocusable (focus lies beyond the cap)");
-                Assert.That(history.Min(), Is.EqualTo(start + StepSize - 8 * StepSize),
-                    "the descent stopped at exactly the effective cap (8 step-outs beyond the seed floor)");
-                Assert.That(history.Where(p => p < seedFloor).Distinct().Count(), Is.EqualTo(8),
-                    "distinct walked positions in the capped direction == the cap");
-                Assert.That(history.Min(), Is.GreaterThan(focuserMin),
-                    "the capped walk never approaches the focuser travel limit");
-                Assert.That(history.Max(), Is.EqualTo(Focus + 50 * StepSize),
-                    "the post-reversal probe is bounded by the failure budget (cutoff + offsetSteps failures)");
-                Assert.That(history.Last(), Is.EqualTo(start), "the focuser is restored to the start after the failure");
-            });
-
-            // Control: cap disabled => the descent marches into the travel limit (a requested move below the focuser
-            // minimum trips the engine's limit guard). Still handled: a failed result, not an unhandled throw.
-            var controlScenario = SteepScenario(s => s.RightCutoffSteps = 45);
-            var controlOptions = DefaultSweepOptions(controlScenario, OffsetSteps);
-            controlOptions.MaxBlindStepsPerDirection = 0;
-            var controlHarness = BuildHarness(controlScenario, controlOptions, start, focuserMin, focuserMax);
-            var controlResult = await RunSweep(controlHarness, controlOptions);
-
-            Assert.Multiple(() => {
-                Assert.That(controlResult, Is.Not.Null);
-                Assert.That(controlResult.Succeeded, Is.False);
-                Assert.That(controlHarness.Focuser.MoveHistory.Min(), Is.LessThan(focuserMin),
-                    "without the cap the walk requests a move beyond the focuser travel limit — the hazard B removes");
+                Assert.That(result, Is.Not.Null, "reaching the travel limit is a graceful failure, not a crash");
+                Assert.That(result.Succeeded, Is.False, "focus is beyond the focuser travel limit — genuinely unreachable");
+                // The productive descent is NOT cut off at the cap (8 step-outs): it walks well past that, down to the
+                // travel limit, ultimately requesting a position at/below focuserMin (which trips the engine's limit guard).
+                Assert.That(history.Where(p => p < seedFloor).Distinct().Count(), Is.GreaterThan(8),
+                    "a productive descent is bounded by the travel limit, not the step cap");
+                Assert.That(history.Min(), Is.LessThanOrEqualTo(focuserMin),
+                    "the descent reaches the focuser travel limit (the real bound)");
+                Assert.That(history.Max(), Is.EqualTo(start + OffsetSteps * StepSize),
+                    "no reversal excursion above the seed ceiling — a productive descent never reverses");
             });
         }
 
@@ -540,34 +523,32 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
         }
 
         // ------------------------------------------------------------------------------------------------------------
-        // F2b — Same geometry, cap TIGHTER than the start-to-focus distance. Engine contract (hand-traced, and worth
-        // documenting): the descent caps out at 8 step-outs BEFORE reaching focus (no bracket has formed), reverses
-        // into the far starless side, exhausts the fresh failure budget, and fails gracefully. A cap smaller than the
-        // plausible start error converts a recoverable far start into a clean failure — this is the real, asserted
-        // behavior, deliberately distinct from F2a.
+        // F2b — Same geometry as F2a but with a MODEST cap (8) SMALLER than the start-to-focus distance. This is the
+        // regression guard for the reported bug: a productive descent (the lowest measured HFR keeps improving as the
+        // walk nears focus) must NOT be counted against the directional cap, so a far-but-recoverable start is not
+        // abandoned just because it needs more than `cap` steps to reach focus. The walk reaches focus and converges,
+        // exactly like F2a — the cap only bounds NON-productive excursions (see the B-scenarios).
         // ------------------------------------------------------------------------------------------------------------
         [Test]
-        public async Task F2b_StarlessOnlyFar_TightCap_CapsOutBeforeFocus_FailsGracefully() {
+        public async Task F2b_StarlessOnlyFar_ModestCap_ProductiveDescentNotCapped_Converges() {
             var start = Focus + 10 * StepSize;
             var scenario = SteepScenario(s => {
                 s.LeftCutoffSteps = 12;
                 s.RightCutoffSteps = 12;
             });
             var options = DefaultSweepOptions(scenario, OffsetSteps);
-            options.MaxBlindStepsPerDirection = 8; // tighter than the ~12 steps the descent needs
+            options.MaxBlindStepsPerDirection = 8; // smaller than the ~10 steps to focus — but a productive descent isn't capped
             var harness = BuildHarness(scenario, options, start, Focus - 5000, Focus + 5000);
             var result = await RunSweep(harness, options);
 
             var history = harness.Focuser.MoveHistory.ToList();
             Assert.Multiple(() => {
-                Assert.That(result, Is.Not.Null, "graceful failure, not a crash");
-                Assert.That(result.Succeeded, Is.False,
-                    "a cap tighter than the start-to-focus distance reverses prematurely and the run fails cleanly");
-                Assert.That(history.Min(), Is.EqualTo(start + StepSize - 8 * StepSize),
-                    "the descent stopped at exactly the cap (+3 steps from focus — before bracketing)");
-                Assert.That(history.Max(), Is.EqualTo(Focus + 20 * StepSize),
-                    "the post-reversal probe is bounded by the fresh failure budget beyond the +12-step cutoff");
-                Assert.That(history.Last(), Is.EqualTo(start), "the focuser is restored to the start");
+                Assert.That(result.Succeeded, Is.True,
+                    "a productive descent toward a reachable focus is not cut off by a modest cap");
+                Assert.That(result.RegionResults[0].EstimatedFinalFocuserPosition, Is.EqualTo(Focus).Within(StepSize));
+                Assert.That(history.Max(), Is.EqualTo(start + OffsetSteps * StepSize),
+                    "no reversal: the far starless side is only ever probed by the seeds");
+                Assert.That(history.Min(), Is.EqualTo(Focus - 5 * StepSize), "the descent reaches and brackets focus");
             });
         }
 

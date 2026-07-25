@@ -1428,6 +1428,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // fresh TooManyFailedMeasurements budget rather than immediately re-tripping on the pre-reversal failures.
             // Stays 0 when Behavior B is disabled, so the throw condition is byte-identical to `failureCount >= offsetSteps`.
             var failureBaseline = 0;
+            // Lowest trend-minimum HFR seen so far. Behavior B treats a walk that keeps LOWERING this (i.e. descending
+            // toward focus) as productive and resets its step-out budget, so a far start that legitimately needs many
+            // steps to reach focus is not reversed mid-descent. Only genuine non-progress — a wrong-way HFR rise or
+            // persistent detection failure, where the minimum stops improving — accumulates toward the cap. See the
+            // reset inside the walk loop.
+            double bestMinimumHfr = double.PositiveInfinity;
 
             // The single reversal action shared by both cap-out triggers (the failure-count throw site and the
             // directional step cap): latch hasReversed, force the opposite direction with a fresh step-out budget,
@@ -1517,6 +1523,22 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // reversal can fire, so the branch taken (and everything inside it) is byte-identical to the original.
                 var stepLeft = leftTrendCount < offsetSteps;
                 if (behaviorBEnabled) {
+                    // A step that lowered the lowest MEASURED HFR means this direction is productively descending toward
+                    // focus — even before a two-sided bracket forms. We read the lowest measured point directly, NOT
+                    // trendlineFit.Minimum: that is the left/right trend INTERSECTION, which is null during a one-sided
+                    // descent (exactly the phase this guard exists for). Reset the step-out budget on every such
+                    // improvement so a far start is not reversed mid-descent; only genuine non-progress (a wrong-way HFR
+                    // rise or persistent detection failure, where the lowest HFR stops improving) accumulates toward the cap.
+                    var currentMinHfr = focusPoints.Values
+                        .Where(m => m.Measure > 0.0)
+                        .Select(m => m.Measure)
+                        .DefaultIfEmpty(double.PositiveInfinity)
+                        .Min();
+                    if (currentMinHfr < bestMinimumHfr - 1e-6) {
+                        bestMinimumHfr = currentMinHfr;
+                        leftStepOuts = 0;
+                        rightStepOuts = 0;
+                    }
                     if (forcedDirection.HasValue) {
                         stepLeft = forcedDirection.Value == WalkDirection.Left;
                     }
