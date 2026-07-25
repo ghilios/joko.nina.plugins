@@ -269,7 +269,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             /// <summary>
             /// Behavior A (symmetric-window exclusion at finalization only). Excludes fit-input points that fall
-            /// outside the window <c>minimum ± (offsetSteps+1)*stepSize</c>, then refits on the kept subset, so a
+            /// outside the window <c>minimum ± (offsetSteps+0.5)*stepSize</c>, then refits on the kept subset, so a
             /// lopsided or far-from-focus sweep does not bias the final fit. The window is centered on the FITTED
             /// VERTEX (<see cref="DetermineFinalFocusPoint"/> — a post-Grubbs, weighted least-squares estimate), NOT
             /// the lowest raw point, so a single spurious low-HFR far point cannot drag the center out to itself.
@@ -2064,10 +2064,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         // Behavior A pure helpers for the final-fit symmetric window. Kept static and side-effect-free (mirroring
         // ComputeSweepPositions) so the window membership and partition logic can be unit-tested without a full sweep
-        // harness. STRICT bounds per spec: a point exactly on minimum ± (offsetSteps+1)*stepSize is treated as outside.
+        // harness. STRICT bounds per spec: a point exactly on minimum ± (offsetSteps+0.5)*stepSize is treated as outside.
         internal static bool IsWithinFocusWindow(double position, double minimumX, int offsetSteps, int stepSize) {
-            return position > minimumX - (offsetSteps + 1) * stepSize
-                && position < minimumX + (offsetSteps + 1) * stepSize;
+            return position > minimumX - (offsetSteps + 0.5) * stepSize
+                && position < minimumX + (offsetSteps + 0.5) * stepSize;
         }
 
         internal static (List<ScatterErrorPoint> included, List<ScatterErrorPoint> excluded) PartitionByFocusWindow(

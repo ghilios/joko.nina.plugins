@@ -159,7 +159,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Harness {
         }
 
         // A DefocusModel hyperbola centered on best focus: HFR(pos) = √(HfrMin² + (κ·(pos − focus))²). Optics chosen to
-        // give a well-conditioned V (HfrMin ≈ 0.9 px, a clear rise over the ±(offsetSteps+1)·stepSize window). Because
+        // give a well-conditioned V (HfrMin ≈ 0.9 px, a clear rise over the ±(offsetSteps+0.5)·stepSize window). Because
         // this IS a pure hyperbola, the HYPERBOLIC fit recovers the vertex exactly from noise-free samples.
         private static Func<int, double> DefaultBaselineHfr(int focusPosition) {
             var model = new DefocusModel(

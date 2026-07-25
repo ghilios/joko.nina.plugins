@@ -30,7 +30,7 @@ invariant (mirrors the focus-recovery feature).
 
 ## Behavior A — Symmetric-window exclusion at the final fit (always-on internal)
 
-**Goal:** the final fit only includes points within `minimum ± (offsetSteps+1)*stepSize`; points outside
+**Goal:** the final fit only includes points within `minimum ± (offsetSteps+0.5)*stepSize`; points outside
 that window are excluded from the fit but still surfaced for display.
 
 **Where:** apply at **finalization only**, never in the hot live `CurveFittingResult.Calculate` (the live
@@ -54,8 +54,8 @@ in both finalization loops before `SelectBestHyperbolicModel()`:
 **Pure, unit-testable helpers** (mirror the `ComputeSweepPositions` static-helper pattern):
 ```csharp
 internal static bool IsWithinFocusWindow(double position, double minimumX, int offsetSteps, int stepSize)
-    => position > minimumX - (offsetSteps + 1) * stepSize
-    && position < minimumX + (offsetSteps + 1) * stepSize;   // strict, per spec
+    => position > minimumX - (offsetSteps + 0.5) * stepSize
+    && position < minimumX + (offsetSteps + 0.5) * stepSize;   // strict, per spec
 
 internal static (List<ScatterErrorPoint> included, List<ScatterErrorPoint> excluded)
     PartitionByFocusWindow(IReadOnlyList<ScatterErrorPoint> points, double minimumX, int offsetSteps, int stepSize);

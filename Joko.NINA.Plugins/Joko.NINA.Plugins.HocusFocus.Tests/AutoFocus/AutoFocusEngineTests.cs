@@ -516,22 +516,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
 
         [Test]
         public void IsWithinFocusWindow_StrictBoundaries_SymmetricMembership() {
-            // Half-width = (offsetSteps + 1) * stepSize = 6 * 5 = 30, so the window is the OPEN interval (9970, 10030).
+            // Half-width = (offsetSteps + 0.5) * stepSize = 5.5 * 5 = 27.5, so the window is the OPEN interval (9972.5, 10027.5).
             const double min = 10000;
             Assert.Multiple(() => {
                 Assert.That(AutoFocusEngine.IsWithinFocusWindow(min, min, 5, 5), Is.True, "the center is inside");
-                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min - 29, min, 5, 5), Is.True, "just inside the low edge");
-                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min + 29, min, 5, 5), Is.True, "just inside the high edge");
-                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min - 30, min, 5, 5), Is.False, "exactly on the low edge is excluded (strict)");
-                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min + 30, min, 5, 5), Is.False, "exactly on the high edge is excluded (strict)");
-                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min - 31, min, 5, 5), Is.False, "outside the low edge");
-                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min + 31, min, 5, 5), Is.False, "outside the high edge");
+                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min - 27, min, 5, 5), Is.True, "just inside the low edge");
+                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min + 27, min, 5, 5), Is.True, "just inside the high edge");
+                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min - 27.5, min, 5, 5), Is.False, "exactly on the low edge is excluded (strict)");
+                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min + 27.5, min, 5, 5), Is.False, "exactly on the high edge is excluded (strict)");
+                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min - 28, min, 5, 5), Is.False, "outside the low edge");
+                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min + 28, min, 5, 5), Is.False, "outside the high edge");
             });
         }
 
         [Test]
         public void PartitionByFocusWindow_LopsidedSplit_ExcludesFarPoints_IncludingSpuriousLowHfr() {
-            // Window (9970, 10030) around the FITTED VERTEX (10000). Points cluster far to the right, plus a
+            // Window (9972.5, 10027.5) around the FITTED VERTEX (10000). Points cluster far to the right, plus a
             // spurious LOW-HFR point far to the left that a lowest-raw-point center would have chased. Because the
             // center is the vertex (not the lowest point), the spurious point simply lands outside the window and is
             // excluded rather than defining the minimum.
@@ -569,7 +569,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             // window (leaving the full fit intact) whenever fewer than 3 valid points would remain. Here only two
             // points fall inside the window, which the caller detects via included.Count(Y>0) and declines to apply.
             var points = new List<ScatterErrorPoint> {
-                SE(9995, 2.0), SE(10005, 2.1),                 // the only two inside (9970, 10030)
+                SE(9995, 2.0), SE(10005, 2.1),                 // the only two inside (9972.5, 10027.5)
                 SE(10050, 5.0), SE(10080, 7.0), SE(10110, 9.0) // three far right
             };
             var (included, excluded) = AutoFocusEngine.PartitionByFocusWindow(points, 10000, 5, 5);

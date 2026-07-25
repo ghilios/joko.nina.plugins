@@ -113,7 +113,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                 //   (2) reversal trace  -> the focuser was actually driven
                 Assert.That(harness.Focuser.MoveHistory, Is.Not.Empty, "the focuser must have been driven through the sweep");
                 //   (3) window-excluded vs rejected partition. The sweep reaches ~40 steps out, well beyond the
-                //       ±(offsetSteps+1)*stepSize window, so Behavior A must have excluded those far points...
+                //       ±(offsetSteps+0.5)*stepSize window, so Behavior A must have excluded those far points...
                 Assert.That(region.WindowExcludedPoints, Is.Not.Null.And.Not.Empty,
                     "far points outside the symmetric window must be surfaced as window-excluded (Behavior A ran)");
                 //       ...and window-exclusion is disjoint from Grubbs rejection by construction.
