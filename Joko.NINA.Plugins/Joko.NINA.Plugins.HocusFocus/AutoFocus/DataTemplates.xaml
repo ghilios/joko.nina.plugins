@@ -196,7 +196,7 @@
                         ErrorBarColor="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
                         ErrorBarStopWidth="2"
                         ErrorBarStrokeThickness="2"
-                        ItemsSource="{Binding FocusPoints}"
+                        ItemsSource="{Binding PlotCoreFocusPoints}"
                         MarkerFill="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                         MarkerType="Circle" />
                     <oxy:LineSeries
