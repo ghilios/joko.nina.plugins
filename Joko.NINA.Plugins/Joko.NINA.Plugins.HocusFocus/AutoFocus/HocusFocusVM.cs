@@ -62,6 +62,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private ReportAutoFocusPoint lastAutoFocusPoint;
         private AsyncObservableCollection<DataPoint> plotFocusPointsObservable;
         private AsyncObservableCollection<ScatterPoint> plotRejectedFocusPointsObservable;
+        private AsyncObservableCollection<ScatterErrorPoint> plotWindowExcludedFocusPointsObservable;
         private QuadraticFitting quadraticFitting;
         private TrendlineFitting trendLineFitting;
         private TimeSpan autoFocusDuration;
@@ -131,6 +132,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             PlotFinalFocusPointWithError = new AsyncObservableCollection<ScatterErrorPoint>();
             PlotFocusPoints = new AsyncObservableCollection<DataPoint>();
             PlotRejectedFocusPoints = new AsyncObservableCollection<ScatterPoint>();
+            PlotWindowExcludedFocusPoints = new AsyncObservableCollection<ScatterErrorPoint>();
             ClearCharts();
 
             this.progress = ProgressFactory.Create(applicationStatusMediator, "Hocus Focus");
@@ -326,6 +328,26 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        /// <summary>
+        /// Sweep points excluded from the final fit by the symmetric focus window (Behavior A) — points that lie outside
+        /// minimum ± (offsetSteps+1)*stepSize. Rendered on the results chart as hollow rings, deliberately distinct from
+        /// the red-cross <see cref="PlotRejectedFocusPoints"/> (Grubbs outliers): these points are present and valid, just
+        /// too far from focus to inform the fit. Uses ScatterErrorPoint (not ScatterPoint) so the dimmed HFR error bar
+        /// renders like the main <see cref="FocusPoints"/> series. Empty when nothing is excluded (well-centered runs).
+        /// </summary>
+        public AsyncObservableCollection<ScatterErrorPoint> PlotWindowExcludedFocusPoints {
+            get {
+                return plotWindowExcludedFocusPointsObservable;
+            }
+            set {
+                plotWindowExcludedFocusPointsObservable = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        /// <summary>Gates the "○ excluded — outside focus window" chart legend; true only once the window excludes a point.</summary>
+        public bool HasWindowExcludedFocusPoints => PlotWindowExcludedFocusPoints?.Count > 0;
+
         public QuadraticFitting QuadraticFitting {
             get => quadraticFitting;
             set {
@@ -363,6 +385,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             PlotFinalFocusPointWithError.Clear();
             PlotFocusPoints.Clear();
             PlotRejectedFocusPoints.Clear();
+            PlotWindowExcludedFocusPoints.Clear();
+            RaisePropertyChanged(nameof(HasWindowExcludedFocusPoints));
             TrendlineFitting = null;
             QuadraticFitting = null;
             HyperbolicFitting = null;
@@ -758,6 +782,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
             }
 
+            // Symmetric-window exclusions (Behavior A) are only produced by the finalized region fit, so the real set
+            // arrives here (empty on the live per-point events). Mirror the rejected-overlay re-sync as a sibling
+            // collection, built like the main FocusPoints series so the hollow-ring overlay carries the same HFR error bar.
+            PlotWindowExcludedFocusPoints.Clear();
+            if (firstRegion.WindowExcludedPoints != null) {
+                foreach (var wp in firstRegion.WindowExcludedPoints) {
+                    PlotWindowExcludedFocusPoints.Add(new ScatterErrorPoint(wp.FocuserPosition, wp.Measurement.Measure, 0, AutoFocusEngine.SafeDisplayError(wp.Measurement.Stdev)));
+                }
+            }
+            RaisePropertyChanged(nameof(HasWindowExcludedFocusPoints));
+
             RefreshFinalFocusPointError();
             AutoFocusDuration = e.Duration;
         }
@@ -776,6 +811,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             foreach (var rp in e.RejectedPoints) {
                 PlotRejectedFocusPoints.Add(new ScatterPoint(rp.FocuserPosition, rp.Measurement.Measure));
             }
+
+            // Window exclusions are decided only at finalization, so e.WindowExcludedPoints is empty on the live events;
+            // clear-and-refill keeps the sibling overlay consistent with the rejected overlay (the real set lands via
+            // AutoFocusEngine_CompletedNoReport). Built like FocusPoints so the hollow-ring overlay keeps its HFR error bar.
+            PlotWindowExcludedFocusPoints.Clear();
+            foreach (var wp in e.WindowExcludedPoints) {
+                PlotWindowExcludedFocusPoints.Add(new ScatterErrorPoint(wp.FocuserPosition, wp.Measurement.Measure, 0, AutoFocusEngine.SafeDisplayError(wp.Measurement.Stdev)));
+            }
+            RaisePropertyChanged(nameof(HasWindowExcludedFocusPoints));
 
             this.TrendlineFitting = e.Fittings.TrendlineFitting;
             this.GaussianFitting = e.Fittings.GaussianFitting;

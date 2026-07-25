@@ -26,7 +26,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
             WeightedHyperbolicFitEnabled = true,
             HyperbolicFitModel = HyperbolicFitModel.SmoothBlend,
             FitRejectionCriterion = FitRejectionCriterion.ReducedChiSquared,
-            ReducedChiSquaredRejectionThreshold = 3.3
+            ReducedChiSquaredRejectionThreshold = 3.3,
+            MaxBlindStepsPerDirection = 6,
+            SymmetricFocusWindowEnabled = false
         };
 
         private static AutoFocusReplayMetadata SampleMetadata() => new AutoFocusReplayMetadata() {
@@ -83,7 +85,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
                 WeightedHyperbolicFitEnabled = true,
                 HyperbolicFitModel = HyperbolicFitModel.UnevenBlend,
                 FitRejectionCriterion = FitRejectionCriterion.ReducedChiSquared,
-                ReducedChiSquaredRejectionThreshold = 2.7
+                ReducedChiSquaredRejectionThreshold = 2.7,
+                MaxBlindStepsPerDirection = 6,
+                // Non-default (the DTO defaults this true) so a broken Apply/Capture that drops it fails the round-trip.
+                SymmetricFocusWindowEnabled = false
             };
             var snapshot = AutoFocusReplayOptionsMapper.Capture(source);
             var target = new AutoFocusEngineOptions();
@@ -106,6 +111,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus.Replay {
                 Assert.That(target.HyperbolicFitModel, Is.EqualTo(HyperbolicFitModel.UnevenBlend));
                 Assert.That(target.FitRejectionCriterion, Is.EqualTo(FitRejectionCriterion.ReducedChiSquared));
                 Assert.That(target.ReducedChiSquaredRejectionThreshold, Is.EqualTo(2.7));
+                Assert.That(target.MaxBlindStepsPerDirection, Is.EqualTo(6));
+                Assert.That(target.SymmetricFocusWindowEnabled, Is.EqualTo(false));
             });
         }
 

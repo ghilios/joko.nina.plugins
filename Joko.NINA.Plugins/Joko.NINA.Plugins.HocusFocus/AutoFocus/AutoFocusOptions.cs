@@ -58,6 +58,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             keepFramesForReview = optionsAccessor.GetValueBoolean(nameof(KeepFramesForReview), false);
             lastSelectedLoadPath = optionsAccessor.GetValueString("LastSelectedLoadPath", "");
             focuserOffset = optionsAccessor.GetValueInt32("FocuserOffset", 0);
+            maxBlindStepsPerDirection = optionsAccessor.GetValueInt32(nameof(MaxBlindStepsPerDirection), 8);
             maxOutlierRejections = optionsAccessor.GetValueInt32(nameof(MaxOutlierRejections), 1);
             outlierRejectionConfidence = optionsAccessor.GetValueDouble(nameof(OutlierRejectionConfidence), 0.90);
             weightedHyperbolicFitEnabled = optionsAccessor.GetValueBoolean(nameof(WeightedHyperbolicFitEnabled), true);
@@ -76,6 +77,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             KeepFramesForReview = false;
             LastSelectedLoadPath = "";
             FocuserOffset = 0;
+            MaxBlindStepsPerDirection = 8;
             MaxOutlierRejections = 1;
             OutlierRejectionConfidence = 0.90;
             WeightedHyperbolicFitEnabled = true;
@@ -204,6 +206,23 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (focuserOffset != value) {
                     focuserOffset = value;
                     optionsAccessor.SetValueInt32("FocuserOffset", focuserOffset);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private int maxBlindStepsPerDirection;
+
+        public int MaxBlindStepsPerDirection {
+            get => maxBlindStepsPerDirection;
+            set {
+                if (maxBlindStepsPerDirection != value) {
+                    if (value < 0) {
+                        throw new ArgumentException("MaxBlindStepsPerDirection must be non-negative", nameof(MaxBlindStepsPerDirection));
+                    }
+
+                    maxBlindStepsPerDirection = value;
+                    optionsAccessor.SetValueInt32(nameof(MaxBlindStepsPerDirection), maxBlindStepsPerDirection);
                     RaisePropertyChanged();
                 }
             }

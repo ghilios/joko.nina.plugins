@@ -69,6 +69,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
             options.HyperbolicFitModel = snapshot.HyperbolicFitModel;
             options.FitRejectionCriterion = snapshot.FitRejectionCriterion;
             options.ReducedChiSquaredRejectionThreshold = snapshot.ReducedChiSquaredRejectionThreshold;
+            options.MaxBlindStepsPerDirection = snapshot.MaxBlindStepsPerDirection;
+            options.SymmetricFocusWindowEnabled = snapshot.SymmetricFocusWindowEnabled;
         }
 
         /// <summary>Captures the fit/method fields of an engine options bundle into a serializable snapshot.</summary>
@@ -92,7 +94,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
                 WeightedHyperbolicFitEnabled = options.WeightedHyperbolicFitEnabled,
                 HyperbolicFitModel = options.HyperbolicFitModel,
                 FitRejectionCriterion = options.FitRejectionCriterion,
-                ReducedChiSquaredRejectionThreshold = options.ReducedChiSquaredRejectionThreshold
+                ReducedChiSquaredRejectionThreshold = options.ReducedChiSquaredRejectionThreshold,
+                MaxBlindStepsPerDirection = options.MaxBlindStepsPerDirection,
+                SymmetricFocusWindowEnabled = options.SymmetricFocusWindowEnabled
             };
         }
 

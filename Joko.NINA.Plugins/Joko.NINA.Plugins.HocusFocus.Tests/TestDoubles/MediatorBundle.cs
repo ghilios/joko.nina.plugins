@@ -26,7 +26,10 @@ internal sealed class MediatorBundle {
     public IApplicationStatusMediator ApplicationStatusMediator { get; } = Substitute.For<IApplicationStatusMediator>();
     public IImagingMediator ImagingMediator { get; } = Substitute.For<IImagingMediator>();
     public ICameraMediator CameraMediator { get; } = Substitute.For<ICameraMediator>();
-    public IFocuserMediator FocuserMediator { get; } = Substitute.For<IFocuserMediator>();
+    public IFocuserMediator FocuserMediator { get; private set; } = Substitute.For<IFocuserMediator>();
+
+    // Set by WithMovingFocuser: the concrete state-backed focuser (exposes Position + MoveHistory for assertions).
+    public MovingFocuserMediator MovingFocuser { get; private set; }
     public IFilterWheelMediator FilterWheelMediator { get; } = Substitute.For<IFilterWheelMediator>();
     public ITelescopeMediator TelescopeMediator { get; } = Substitute.For<ITelescopeMediator>();
     public IGuiderMediator GuiderMediator { get; } = Substitute.For<IGuiderMediator>();
@@ -52,6 +55,15 @@ internal sealed class MediatorBundle {
 
     public MediatorBundle WithFocuserConnected(bool connected = true, int position = 0) {
         FocuserMediator.GetInfo().Returns(new FocuserInfo { Connected = connected, Position = position });
+        return this;
+    }
+
+    // Swaps the substitute focuser for a concrete state-backed one that actually moves (clamping to [min, max]) and
+    // records every requested target in MoveHistory — the seam the deterministic AutoFocus sweep harness drives and
+    // the trace Behavior B's reversal is asserted against.
+    public MediatorBundle WithMovingFocuser(int start, int min = int.MinValue / 2, int max = int.MaxValue / 2) {
+        MovingFocuser = new MovingFocuserMediator(start, min, max);
+        FocuserMediator = MovingFocuser;
         return this;
     }
 
