@@ -526,7 +526,7 @@
     <TextBlock x:Key="MeasurementAverage_Tooltip" Text="Controls how the average star measurement across the frame is calculated. Median is robust to outliers, and is the default." />
     <TextBlock x:Key="MaxAutoFocusOutlierRejections_Tooltip" Text="Controls the maximum number of points that can be rejected as outliers during Auto Focus curve fitting." />
     <TextBlock x:Key="MaxBlindStepsPerDirection_Tooltip" Text="Maximum number of blind AutoFocus steps attempted in each direction before reversing to try the other side. Set to 0 to disable the cap." />
-    <TextBlock x:Key="AutoFocusOutlierRejectionConfidence_Tooltip" Text="Confidence level for a two-tailed Grubbs statistical test of outliers to use during Auto Focus curve fitting. 0.90 is a reasonable default." />
+    <TextBlock x:Key="AutoFocusOutlierRejectionConfidence_Tooltip" Text="Confidence level for a two-tailed Grubbs statistical test of outliers to use during Auto Focus curve fitting. 90% is a reasonable default. Must be above 50% and below 100%." />
     <DataTemplate x:Key="HocusFocus_AutoFocus_Options">
         <Grid Margin="5" VerticalAlignment="Top">
             <Grid.Resources>
@@ -802,7 +802,9 @@
                     <Binding.ValidationRules>
                         <rules:DoubleRangeRule>
                             <rules:DoubleRangeRule.ValidRange>
-                                <rules:DoubleRangeChecker Maximum="0.9999" Minimum="0.5001" />
+                                <!-- Percent units: ValidationRules run on the typed string, before PercentageConverter
+                                     divides by 100. The model bound is (0.5, 1.0) exclusive. -->
+                                <rules:DoubleRangeChecker Maximum="99.99" Minimum="50.01" />
                             </rules:DoubleRangeRule.ValidRange>
                         </rules:DoubleRangeRule>
                     </Binding.ValidationRules>
