@@ -80,7 +80,7 @@ namespace TestApp {
             var afRun = DiagnosticUtil.GetArg(args, "--af-run");
             if (string.IsNullOrWhiteSpace(afRun)) {
                 Console.Error.WriteLine("Usage: TestApp af-fit --af-run <dir> [--profile-id <guid>] [--out <dir>]");
-                Console.Error.WriteLine("                      [--max-rejections <n>=show 0..3] [--confidence <c>=0.90]");
+                Console.Error.WriteLine("                      [--max-rejections <n>=show 0..3] [--confidence <c>=0.95]");
                 Console.Error.WriteLine("                      [--weighted true|false] [--step-size <n>]");
                 Environment.ExitCode = 2;
                 return;
@@ -97,7 +97,7 @@ namespace TestApp {
             Directory.CreateDirectory(outDir);
             Logger.SetLogLevel(LogLevelEnum.INFO);
 
-            double confidence = ParseDouble(DiagnosticUtil.GetArg(args, "--confidence"), 0.90);
+            double confidence = ParseDouble(DiagnosticUtil.GetArg(args, "--confidence"), 0.95);
             bool weighted = ParseBool(DiagnosticUtil.GetArg(args, "--weighted"), true);
 
             var frames = ParseAfRun(afRun);

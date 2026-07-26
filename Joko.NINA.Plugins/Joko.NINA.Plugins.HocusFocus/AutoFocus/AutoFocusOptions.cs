@@ -60,7 +60,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             focuserOffset = optionsAccessor.GetValueInt32("FocuserOffset", 0);
             maxBlindStepsPerDirection = optionsAccessor.GetValueInt32(nameof(MaxBlindStepsPerDirection), 8);
             maxOutlierRejections = optionsAccessor.GetValueInt32(nameof(MaxOutlierRejections), 1);
-            outlierRejectionConfidence = optionsAccessor.GetValueDouble(nameof(OutlierRejectionConfidence), 0.90);
+            outlierRejectionConfidence = optionsAccessor.GetValueDouble(nameof(OutlierRejectionConfidence), 0.95);
             weightedHyperbolicFitEnabled = optionsAccessor.GetValueBoolean(nameof(WeightedHyperbolicFitEnabled), true);
             hyperbolicFitModel = optionsAccessor.GetValueEnum(nameof(HyperbolicFitModel), HyperbolicFitModel.Hybrid);
             fitRejectionCriterion = optionsAccessor.GetValueEnum(nameof(FitRejectionCriterion), FitRejectionCriterion.RSquared);
@@ -79,7 +79,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             FocuserOffset = 0;
             MaxBlindStepsPerDirection = 8;
             MaxOutlierRejections = 1;
-            OutlierRejectionConfidence = 0.90;
+            OutlierRejectionConfidence = 0.95;
             WeightedHyperbolicFitEnabled = true;
             HyperbolicFitModel = HyperbolicFitModel.Hybrid;
             FitRejectionCriterion = FitRejectionCriterion.RSquared;
