@@ -80,6 +80,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public TimeSpan AutoFocusTimeout { get; set; }
         public double HFRImprovementThreshold { get; set; }
         public int FocuserOffset { get; set; }
+        public int MaxBlindStepsPerDirection { get; set; }
         public int MaxOutlierRejections { get; set; }
         public double OutlierRejectionConfidence { get; set; }
         public bool WeightedHyperbolicFitEnabled { get; set; }
@@ -120,6 +121,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // .StarDetectionOptions. Null = use the detector's current options (live capture and "use current settings"
         // replay). Transient/per-call; never persisted.
         public IStarDetectionOptions StarDetectionOptionsOverride { get; set; } = null;
+
+        // Internal-only test seam / safety valve for the always-on symmetric-window exclusion at the final fit
+        // (points outside minimum ± (offsetSteps+1)*stepSize are excluded from the fit but still surfaced). Hard-
+        // wired true in GetOptions; NOT a persisted IAutoFocusOptions property and NOT exposed in the UI. Tests
+        // construct options with it false to assert the byte-identical no-window control.
+        public bool SymmetricFocusWindowEnabled { get; set; } = true;
     }
 
     public interface IAutoFocusEngine {
@@ -234,6 +241,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public double EstimatedFinalFocuserPosition { get; set; }
         public double EstimatedFinalHFR { get; set; }
         public AutoFocusRegionPoint[] RejectedPoints { get; set; }
+        public AutoFocusRegionPoint[] WindowExcludedPoints { get; set; }
     }
 
     public class AutoFocusResult {
@@ -264,6 +272,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public MeasureAndError Measurement { get; set; }
         public AutoFocusFitting Fittings { get; set; }
         public AutoFocusRegionPoint[] RejectedPoints { get; set; }
+        public AutoFocusRegionPoint[] WindowExcludedPoints { get; set; }
     }
 
     public class AutoFocusSubMeasurementPointCompletedEventArgs : EventArgs {
@@ -283,6 +292,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int FinalFocuserPosition { get; set; }
         public AutoFocusFitting Fittings { get; set; }
         public AutoFocusRegionPoint[] RejectedPoints { get; set; }
+        public AutoFocusRegionPoint[] WindowExcludedPoints { get; set; }
     }
 
     public class AutoFocusFinishedEventArgsBase : EventArgs {

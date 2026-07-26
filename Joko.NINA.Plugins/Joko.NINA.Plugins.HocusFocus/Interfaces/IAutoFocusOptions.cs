@@ -22,6 +22,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool KeepFramesForReview { get; set; }
         string LastSelectedLoadPath { get; set; }
         int FocuserOffset { get; set; }
+        int MaxBlindStepsPerDirection { get; set; }
         int MaxOutlierRejections { get; set; }
         double OutlierRejectionConfidence { get; set; }
         bool WeightedHyperbolicFitEnabled { get; set; }

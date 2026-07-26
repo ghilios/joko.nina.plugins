@@ -98,6 +98,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             public ImmutableList<ScatterErrorPoint> RejectedPoints { get; private set; }
 
+            // Points excluded from the final fit because they fall outside the symmetric focus window (Behavior A).
+            // A sibling of RejectedPoints (Grubbs outliers), never reclassified as rejected. Empty until Behavior A
+            // populates it.
+            public ImmutableList<ScatterErrorPoint> WindowExcludedPoints { get; private set; }
+
             public static CurveFittingResult Calculate(
                 AutoFocusState state,
                 AFMethodEnum method,
@@ -163,7 +168,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     if (rejectedPoint == null || outlierRejectedPoints >= maxOutlierRejectedPoints) {
                         return new CurveFittingResult() {
                             Fittings = fittings,
-                            RejectedPoints = ImmutableList.CreateRange(rejectedPoints)
+                            RejectedPoints = ImmutableList.CreateRange(rejectedPoints),
+                            WindowExcludedPoints = ImmutableList<ScatterErrorPoint>.Empty
                         };
                     }
 
@@ -203,11 +209,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             public AutoFocusFitting Fittings { get; private set; } = new AutoFocusFitting();
             public Dictionary<int, MeasureAndError> RejectedPoints { get; private set; } = new Dictionary<int, MeasureAndError>();
 
+            // Points excluded from the final fit by the symmetric focus window (Behavior A), a sibling of
+            // RejectedPoints (Grubbs outliers). Stays empty until Behavior A fills it.
+            public Dictionary<int, MeasureAndError> WindowExcludedPoints { get; private set; } = new Dictionary<int, MeasureAndError>();
+
             public void ResetMeasurements() {
                 lock (SubMeasurementsLock) {
                     this.MeasurementsByFocuserPoint.Clear();
                     this.SubMeasurementsByFocuserPoints.Clear();
                     this.RejectedPoints.Clear();
+                    this.WindowExcludedPoints.Clear();
                     this.FinalHFRSubMeasurements.Clear();
                     this.FinalHFR = null;
                     this.Fittings.Reset();
@@ -254,6 +265,60 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             public void CalculateFinalFocusPoint() {
                 this.FinalFocusPoint = DetermineFinalFocusPoint();
+            }
+
+            /// <summary>
+            /// Behavior A (symmetric-window exclusion at finalization only). Excludes fit-input points that fall
+            /// outside the window <c>minimum ± (offsetSteps+0.5)*stepSize</c>, then refits on the kept subset, so a
+            /// lopsided or far-from-focus sweep does not bias the final fit. The window is centered on the FITTED
+            /// VERTEX (<see cref="DetermineFinalFocusPoint"/> — a post-Grubbs, weighted least-squares estimate), NOT
+            /// the lowest raw point, so a single spurious low-HFR far point cannot drag the center out to itself.
+            /// Bounded fit→window→refit fixed point: point removal is monotonic, so it terminates in at most
+            /// <c>offsetSteps+1</c> passes (usually 1). The kept set is never allowed below 3 valid (Y &gt; 0) points,
+            /// the floor under which <see cref="CurveFittingResult.Calculate"/> returns null. Dropped points are
+            /// recorded in <see cref="WindowExcludedPoints"/>, a sibling of the Grubbs <see cref="RejectedPoints"/>
+            /// and disjoint from it by construction (windowing runs before the fit; Grubbs runs inside the fit of the
+            /// kept subset). Refitting goes through <see cref="UpdateCurveFittings"/>, which only swaps
+            /// <c>lastValidFocusPoints</c> and the derived fittings — <see cref="MeasurementsByFocuserPoint"/> (the raw
+            /// measurements for reports/charts) is never touched. Returns true when any point was excluded. No-op
+            /// (returns false, byte-identical) when the internal <c>SymmetricFocusWindowEnabled</c> flag is off.
+            /// </summary>
+            public bool ApplyFinalSymmetricWindow(int offsetSteps, int stepSize) {
+                if (!State.Options.SymmetricFocusWindowEnabled) {
+                    return false;
+                }
+                if (lastValidFocusPoints == null) {
+                    return false;
+                }
+
+                var anyExcluded = false;
+                var maxPasses = offsetSteps + 1;
+                for (var pass = 0; pass < maxPasses; pass++) {
+                    var center = DetermineFinalFocusPoint()?.X;
+                    if (!center.HasValue) {
+                        break;
+                    }
+
+                    var (included, excluded) = PartitionByFocusWindow(lastValidFocusPoints, center.Value, offsetSteps, stepSize);
+                    if (excluded.Count == 0) {
+                        break;
+                    }
+
+                    // Never drop below the 3-valid-point floor the fit requires; if we would, keep the current fit as-is.
+                    if (included.Count(p => p.Y > 0.0) < 3) {
+                        break;
+                    }
+
+                    UpdateCurveFittings(included);
+                    lock (SubMeasurementsLock) {
+                        foreach (var ep in excluded) {
+                            var focuserPosition = (int)Math.Round(ep.X);
+                            this.WindowExcludedPoints[focuserPosition] = new MeasureAndError() { Measure = ep.Y, Stdev = ep.ErrorY };
+                        }
+                    }
+                    anyExcluded = true;
+                }
+                return anyExcluded;
             }
 
             /// <summary>
@@ -478,6 +543,28 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
             // Guard a no-op / runaway re-sweep: require a valid point that differs from the center we just swept.
             return calculatedPoint >= 0 && calculatedPoint != currentSweepCenter;
+        }
+
+        // Which way the blind sweep is stepping. Only meaningful when Behavior B (the directional bootstrap cap) is
+        // enabled; the initial seed points sit on the high side, so the pre-walk direction is treated as Right.
+        private enum WalkDirection {
+            Left,
+            Right
+        }
+
+        private static WalkDirection OppositeDirection(WalkDirection direction) {
+            return direction == WalkDirection.Left ? WalkDirection.Right : WalkDirection.Left;
+        }
+
+        // Behavior B decision (directional bootstrap cap + one-shot reversal). Pure so it is unit-testable without a
+        // full sweep harness. Reverse only when the direction we are ABOUT to step has already reached the effective
+        // cap, we have not yet formed a two-sided interior bracket, and we have not already reversed once (latch → at
+        // most one reversal per sweep, so no oscillation).
+        internal static bool ShouldReverseDirection(int stepOutsThisDir, int effectiveCap, bool bracketFormed, bool hasReversed) {
+            if (hasReversed || bracketFormed) {
+                return false;
+            }
+            return stepOutsThisDir >= effectiveCap;
         }
 
         // Builds the diagnostic explaining WHY the HFR-improvement validation rejected a region. The generic
@@ -1322,6 +1409,49 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             Logger.Info("Waiting on initial focuser move analyses");
             await Task.WhenAll(autoFocusState.AnalysisTasks);
 
+            // Behavior B (directional bootstrap cap + one-shot reversal). When the configured cap is 0 the behavior
+            // is DISABLED and the walk below is byte-identical to the original: no counter influences a decision and
+            // the TooManyFailedMeasurements throw reverts to `failureCount >= offsetSteps`. effectiveCap can never be
+            // tighter than a valid two-sided bracket needs (offsetSteps + 1). All of this is pure local state read
+            // only under the same SubMeasurementsLock trend snapshot the walk already relies on, so the reversal
+            // decision depends only on counts/trend state, not measurement completion order (replay determinism).
+            var configuredCap = autoFocusState.Options.MaxBlindStepsPerDirection;
+            var behaviorBEnabled = configuredCap > 0;
+            var effectiveCap = Math.Max(configuredCap, offsetSteps + 1);
+            var leftStepOuts = 0;
+            var rightStepOuts = 0;
+            var hasReversed = false;
+            WalkDirection? forcedDirection = null;
+            // The seed points sit on the high (right) side, so failures before the first walk step are attributed to Right.
+            var lastStepDirection = WalkDirection.Right;
+            // Failures accumulated BEFORE the (single) reversal are baselined out so the reversed direction gets a
+            // fresh TooManyFailedMeasurements budget rather than immediately re-tripping on the pre-reversal failures.
+            // Stays 0 when Behavior B is disabled, so the throw condition is byte-identical to `failureCount >= offsetSteps`.
+            var failureBaseline = 0;
+            // Lowest trend-minimum HFR seen so far. Behavior B treats a walk that keeps LOWERING this (i.e. descending
+            // toward focus) as productive and resets its step-out budget, so a far start that legitimately needs many
+            // steps to reach focus is not reversed mid-descent. Only genuine non-progress — a wrong-way HFR rise or
+            // persistent detection failure, where the minimum stops improving — accumulates toward the cap. See the
+            // reset inside the walk loop.
+            double bestMinimumHfr = double.PositiveInfinity;
+
+            // The single reversal action shared by both cap-out triggers (the failure-count throw site and the
+            // directional step cap): latch hasReversed, force the opposite direction with a fresh step-out budget,
+            // baseline out the pre-reversal failures, and physically return toward the start before exploring the
+            // other side. Only ever called when Behavior B is enabled and !hasReversed, so it fires at most once.
+            async Task ReverseWalkAsync(WalkDirection newForcedDirection, int currentFailureCount) {
+                hasReversed = true;
+                forcedDirection = newForcedDirection;
+                if (newForcedDirection == WalkDirection.Left) {
+                    leftStepOuts = 0;
+                } else {
+                    rightStepOuts = 0;
+                }
+                failureBaseline = currentFailureCount;
+                Logger.Info($"Blind AutoFocus could not bracket focus within {effectiveCap} steps going {OppositeDirection(newForcedDirection)}; returning to {initialFocusPosition} and forcing the {newForcedDirection} direction");
+                await focuserMediator.MoveFocuser(initialFocusPosition, token);
+            }
+
             while (true) {
                 token.ThrowIfCancellationRequested();
 
@@ -1334,8 +1464,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 var currentPosition = focuserMediator.GetInfo().Position;
                 var failureCount = focusPoints.Count(fp => fp.Value.Measure == 0.0);
-                if (failureCount >= offsetSteps) {
-                    throw new TooManyFailedMeasurementsException(failureCount);
+                if (failureCount - failureBaseline >= offsetSteps) {
+                    if (behaviorBEnabled && !hasReversed) {
+                        // Behavior B: the direction we've been walking piled up too many failed detections without
+                        // bracketing focus. Rather than failing the whole sweep, return to the start and try the
+                        // other direction once (reversal-aware throw). Only once BOTH directions are exhausted
+                        // (hasReversed, i.e. offsetSteps NEW failures after the reversal) do we actually throw.
+                        await ReverseWalkAsync(OppositeDirection(lastStepDirection), failureCount);
+                    } else {
+                        throw new TooManyFailedMeasurementsException(failureCount);
+                    }
                 }
 
                 // When we've reached a limit on either end of the potential minimum based on trends, then we can queue up the remaining points
@@ -1380,7 +1518,41 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     break;
                 }
 
-                if (leftTrendCount < offsetSteps) {
+                // Behavior B: choose the step direction, honoring a forced direction set by a prior reversal. When
+                // the behavior is disabled, stepLeft is exactly the original `leftTrendCount < offsetSteps` and no
+                // reversal can fire, so the branch taken (and everything inside it) is byte-identical to the original.
+                var stepLeft = leftTrendCount < offsetSteps;
+                if (behaviorBEnabled) {
+                    // A step that lowered the lowest MEASURED HFR means this direction is productively descending toward
+                    // focus — even before a two-sided bracket forms. We read the lowest measured point directly, NOT
+                    // trendlineFit.Minimum: that is the left/right trend INTERSECTION, which is null during a one-sided
+                    // descent (exactly the phase this guard exists for). Reset the step-out budget on every such
+                    // improvement so a far start is not reversed mid-descent; only genuine non-progress (a wrong-way HFR
+                    // rise or persistent detection failure, where the lowest HFR stops improving) accumulates toward the cap.
+                    var currentMinHfr = focusPoints.Values
+                        .Where(m => m.Measure > 0.0)
+                        .Select(m => m.Measure)
+                        .DefaultIfEmpty(double.PositiveInfinity)
+                        .Min();
+                    if (currentMinHfr < bestMinimumHfr - 1e-6) {
+                        bestMinimumHfr = currentMinHfr;
+                        leftStepOuts = 0;
+                        rightStepOuts = 0;
+                    }
+                    if (forcedDirection.HasValue) {
+                        stepLeft = forcedDirection.Value == WalkDirection.Left;
+                    }
+                    var bracketFormed = leftTrendCount > 0 && rightTrendCount > 0;
+                    var stepOutsThisDir = stepLeft ? leftStepOuts : rightStepOuts;
+                    if (ShouldReverseDirection(stepOutsThisDir, effectiveCap, bracketFormed, hasReversed)) {
+                        await ReverseWalkAsync(stepLeft ? WalkDirection.Right : WalkDirection.Left, failureCount);
+                        stepLeft = forcedDirection.Value == WalkDirection.Left;
+                    }
+                }
+
+                if (stepLeft) {
+                    ++leftStepOuts;
+                    lastStepDirection = WalkDirection.Left;
                     var previousTarget = leftMostPosition;
                     leftMostPosition -= stepSize;
                     var actualFocuserPosition = await focuserMediator.MoveFocuser(leftMostPosition, token);
@@ -1395,6 +1567,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     Logger.Info("Waiting on next left movement analysis");
                     await Task.WhenAll(autoFocusState.AnalysisTasks);
                 } else { // if (rightTrendCount < offsetSteps) {
+                    ++rightStepOuts;
+                    lastStepDirection = WalkDirection.Right;
                     var previousTarget = rightMostPosition;
                     rightMostPosition += stepSize;
                     var actualFocuserPosition = await focuserMediator.MoveFocuser(rightMostPosition, token);
@@ -1714,9 +1888,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         }
                     }
 
+                    // Out-of-bounds gate keeps using the FULL measured range so windowing can only reduce a
+                    // FinalPointOutOfBounds, never narrow the range and mask an extrapolating fit.
                     var min = autoFocusRegionState.MeasurementsByFocuserPoint.Min(x => x.Key);
                     var max = autoFocusRegionState.MeasurementsByFocuserPoint.Max(x => x.Key);
 
+                    // Behavior A: exclude far points outside the symmetric window (per region, around its own vertex)
+                    // and refit BEFORE model selection, so a lopsided/far-from-focus sweep does not bias the final fit.
+                    autoFocusRegionState.ApplyFinalSymmetricWindow(autoFocusState.Options.AutoFocusInitialOffsetSteps, autoFocusState.Options.AutoFocusStepSize);
                     autoFocusRegionState.SelectBestHyperbolicModel();
                     autoFocusRegionState.CalculateFinalFocusPoint();
                     autoFocusRegionState.ComputeLeaveOneOutStability();
@@ -1905,6 +2084,28 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             return positions;
         }
 
+        // Behavior A pure helpers for the final-fit symmetric window. Kept static and side-effect-free (mirroring
+        // ComputeSweepPositions) so the window membership and partition logic can be unit-tested without a full sweep
+        // harness. STRICT bounds per spec: a point exactly on minimum ± (offsetSteps+0.5)*stepSize is treated as outside.
+        internal static bool IsWithinFocusWindow(double position, double minimumX, int offsetSteps, int stepSize) {
+            return position > minimumX - (offsetSteps + 0.5) * stepSize
+                && position < minimumX + (offsetSteps + 0.5) * stepSize;
+        }
+
+        internal static (List<ScatterErrorPoint> included, List<ScatterErrorPoint> excluded) PartitionByFocusWindow(
+            IReadOnlyList<ScatterErrorPoint> points, double minimumX, int offsetSteps, int stepSize) {
+            var included = new List<ScatterErrorPoint>();
+            var excluded = new List<ScatterErrorPoint>();
+            foreach (var point in points) {
+                if (IsWithinFocusWindow(point.X, minimumX, offsetSteps, stepSize)) {
+                    included.Add(point);
+                } else {
+                    excluded.Add(point);
+                }
+            }
+            return (included, excluded);
+        }
+
         private async Task<AutoFocusResult> RunImpl(AutoFocusEngineOptions options, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress) {
             if (!TryClaimAutoFocusInProgress()) {
                 Notification.ShowError("Another AutoFocus is already in progress");
@@ -1993,7 +2194,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         EstimatedFinalFocuserPosition = rs.FinalFocusPoint?.X ?? double.NaN,
                         EstimatedFinalHFR = rs.FinalFocusPoint?.Y ?? double.NaN,
                         Fittings = rs.Fittings,
-                        RejectedPoints = rs.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
+                        RejectedPoints = rs.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray(),
+                        WindowExcludedPoints = rs.WindowExcludedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
                     }).OrderBy(r => r.RegionIndex).ToArray(),
                     SaveFolder = autoFocusState.SaveFolder
                 };
@@ -2480,6 +2682,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 await Task.WhenAll(focuserPositionTasks);
                 foreach (var regionState in state.FocusRegionStates) {
+                    // Behavior A: window each region around its own fitted vertex and refit before model selection.
+                    regionState.ApplyFinalSymmetricWindow(state.Options.AutoFocusInitialOffsetSteps, state.Options.AutoFocusStepSize);
                     regionState.SelectBestHyperbolicModel();
                     regionState.CalculateFinalFocusPoint();
                     // Mirror the live Run path: compute best-focus stability so a replayed/loaded run shows LOO in
@@ -2499,7 +2703,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         EstimatedFinalFocuserPosition = rs.FinalFocusPoint?.X ?? double.NaN,
                         EstimatedFinalHFR = rs.FinalFocusPoint?.Y ?? double.NaN,
                         Fittings = rs.Fittings,
-                        RejectedPoints = rs.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
+                        RejectedPoints = rs.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray(),
+                        WindowExcludedPoints = rs.WindowExcludedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
                     }).OrderBy(r => r.RegionIndex).ToArray(),
                     SaveFolder = state.SaveFolder
                 };
@@ -2551,7 +2756,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 FocuserPosition = imageState.FocuserPosition,
                 Measurement = measurement,
                 Fittings = regionState.Fittings.Clone(),
-                RejectedPoints = regionState.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
+                RejectedPoints = regionState.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray(),
+                WindowExcludedPoints = regionState.WindowExcludedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
             });
         }
 
@@ -2699,7 +2905,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     EstimatedFinalFocuserPosition = s.FinalFocusPoint?.X ?? double.NaN,
                     FinalFocuserPosition = (int)Math.Round(s.FinalFocusPoint?.X ?? -1),
                     Fittings = s.Fittings,
-                    RejectedPoints = s.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
+                    RejectedPoints = s.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray(),
+                    WindowExcludedPoints = s.WindowExcludedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
                 }).ToImmutableList();
             Completed?.Invoke(this, new AutoFocusCompletedEventArgs() {
                 Iteration = iteration,
@@ -2769,12 +2976,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 AutoFocusInitialOffsetSteps = profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps,
                 AutoFocusStepSize = ((savedAttempt?.StepSize != null) && (savedAttempt?.StepSize > 0)) ? savedAttempt.StepSize.Value : profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize,
                 FocuserOffset = autoFocusOptions.FocuserOffset,
+                MaxBlindStepsPerDirection = autoFocusOptions.MaxBlindStepsPerDirection,
                 MaxOutlierRejections = autoFocusOptions.MaxOutlierRejections,
                 OutlierRejectionConfidence = autoFocusOptions.OutlierRejectionConfidence,
                 WeightedHyperbolicFitEnabled = autoFocusOptions.WeightedHyperbolicFitEnabled,
                 HyperbolicFitModel = autoFocusOptions.HyperbolicFitModel,
                 FitRejectionCriterion = autoFocusOptions.FitRejectionCriterion,
                 ReducedChiSquaredRejectionThreshold = autoFocusOptions.ReducedChiSquaredRejectionThreshold,
+                // Always-on internal behavior (Behavior A). Hard-wired true; the DTO flag is a test seam only, with
+                // no persisted option or UI. Nothing consumes it yet at this checkpoint.
+                SymmetricFocusWindowEnabled = true,
             };
         }
 

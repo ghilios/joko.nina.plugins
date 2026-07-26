@@ -124,7 +124,19 @@
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <oxy:Plot
+            <DockPanel Grid.Row="0">
+                <!--  Legend for the hollow window-excluded markers, shown only once the symmetric focus window (Behavior A)
+                      actually excludes a point. ○ = a far-from-focus point dropped from the fit — deliberately NOT the app's
+                      red-cross "rejected point" language, since these points are present and valid, just outside the window.  -->
+                <TextBlock
+                    DockPanel.Dock="Bottom"
+                    Margin="6,2,0,0"
+                    HorizontalAlignment="Left"
+                    FontSize="10"
+                    Foreground="{StaticResource SecondaryBrush}"
+                    Text="&#x25CB; excluded — outside focus window"
+                    Visibility="{Binding HasWindowExcludedFocusPoints, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                <oxy:Plot
                 Background="{StaticResource BackgroundBrush}"
                 PlotAreaBackground="{StaticResource BackgroundBrush}"
                 PlotAreaBorderColor="{Binding Path=Color, Source={StaticResource BorderBrush}}"
@@ -160,13 +172,31 @@
                         TicklineColor="{Binding Path=Color, Source={StaticResource SecondaryBrush}}" />
                 </oxy:Plot.Axes>
                 <oxy:Plot.Series>
+                    <!--  Window-excluded overlay (Behavior A): sweep points outside the symmetric focus window, rendered as
+                          hollow rings (transparent fill + faint primary stroke) with a dimmed HFR error bar, so they read as
+                          "present but excluded from the fit" WITHOUT the red-cross "rejected point" language used below.
+                          Declared BEFORE the filled FocusPoints series so it draws underneath. Empty (nothing drawn) for a
+                          well-centered run, so this is inert at the baseline. Mirrors the optimizer's recovery overlay.  -->
+                    <oxy:ScatterErrorSeries
+                        DataFieldX="FocusPosition"
+                        DataFieldY="HFR"
+                        ErrorBarColor="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=100}"
+                        ErrorBarStopWidth="2"
+                        ErrorBarStrokeThickness="1"
+                        ItemsSource="{Binding PlotWindowExcludedFocusPoints}"
+                        MarkerFill="Transparent"
+                        MarkerSize="5"
+                        MarkerStroke="{Binding Path=Color, Source={StaticResource PrimaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=150}"
+                        MarkerStrokeThickness="1.5"
+                        MarkerType="Circle"
+                        TrackerFormatString="Focuser: {2:0}, HFR: {4:0.000} (excluded)" />
                     <oxy:ScatterErrorSeries
                         DataFieldX="FocusPosition"
                         DataFieldY="HFR"
                         ErrorBarColor="{Binding Path=Color, Source={StaticResource NotificationErrorBrush}}"
                         ErrorBarStopWidth="2"
                         ErrorBarStrokeThickness="2"
-                        ItemsSource="{Binding FocusPoints}"
+                        ItemsSource="{Binding PlotCoreFocusPoints}"
                         MarkerFill="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                         MarkerType="Circle" />
                     <oxy:LineSeries
@@ -371,7 +401,8 @@
                         </oxy:PointAnnotation.Stroke>
                     </oxy:PointAnnotation>
                 </oxy:Plot.Annotations>
-            </oxy:Plot>
+                </oxy:Plot>
+            </DockPanel>
             <StackPanel Grid.Row="1" Orientation="Vertical">
                 <Border
                     Margin="0,5,0,0"

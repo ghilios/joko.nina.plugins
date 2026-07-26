@@ -5,6 +5,7 @@ using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Tests.Synthetic;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
+using NINA.WPF.Base.ViewModel.AutoFocus;
 using NSubstitute;
 using NUnit.Framework;
 using OxyPlot;
@@ -12,6 +13,7 @@ using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -41,6 +43,56 @@ public class HocusFocusVMBehavioralTests {
             Assert.That(vm.LastReport, Is.Null);
             Assert.That(vm.LoadSavedAutoFocusRunCommand, Is.Not.Null);
             Assert.That(vm.CancelLoadSavedAutoFocusRunCommand, Is.Not.Null);
+        });
+    }
+
+    // Regression: window-excluded points (Behavior A) must render ONLY as hollow rings. They are added to the filled
+    // marker series (PlotCoreFocusPoints) and connecting line (PlotFocusPoints) live, then moved to the hollow overlay
+    // at finalization. If they were left in the filled series, the filled marker would draw over the ring and the
+    // excluded point would look identical to an included one (the bug this guards). FocusPoints (report/fit) stays full.
+    [Test]
+    public void ApplyWindowExclusionToDisplay_MovesExcludedToHollowOverlay_KeepsFocusPointsFull() {
+        var vm = new MediatorBundle().BuildHocusFocusVM();
+        var positions = new[] { 100, 200, 300, 400, 500 };
+        foreach (var x in positions) {
+            var p = new ScatterErrorPoint(x, 3.0, 0, 0.1);
+            vm.FocusPoints.Add(p);
+            vm.PlotCoreFocusPoints.Add(p);
+            vm.PlotFocusPoints.Add(new DataPoint(x, 3.0));
+        }
+
+        // Finalization excludes the two far points (100 and 500) from the fit window.
+        var excluded = new List<AutoFocusRegionPoint> {
+            new AutoFocusRegionPoint { FocuserPosition = 100, Measurement = new MeasureAndError { Measure = 8.0, Stdev = 0.5 } },
+            new AutoFocusRegionPoint { FocuserPosition = 500, Measurement = new MeasureAndError { Measure = 8.2, Stdev = 0.5 } },
+        };
+        vm.ApplyWindowExclusionToDisplay(excluded);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.PlotCoreFocusPoints.Select(p => (int)Math.Round(p.X)), Is.EquivalentTo(new[] { 200, 300, 400 }));
+            Assert.That(vm.PlotFocusPoints.Select(p => (int)Math.Round(p.X)), Is.EquivalentTo(new[] { 200, 300, 400 }));
+            Assert.That(vm.PlotWindowExcludedFocusPoints.Select(p => (int)Math.Round(p.X)), Is.EquivalentTo(new[] { 100, 500 }));
+            Assert.That(vm.HasWindowExcludedFocusPoints, Is.True);
+            // Full measured set is untouched, so the saved report and fit still see every point.
+            Assert.That(vm.FocusPoints.Select(p => (int)Math.Round(p.X)), Is.EquivalentTo(positions));
+        });
+    }
+
+    [Test]
+    public void ApplyWindowExclusionToDisplay_NoExclusions_LeavesFilledSeriesIntact() {
+        var vm = new MediatorBundle().BuildHocusFocusVM();
+        foreach (var x in new[] { 200, 300, 400 }) {
+            var p = new ScatterErrorPoint(x, 3.0, 0, 0.1);
+            vm.PlotCoreFocusPoints.Add(p);
+            vm.FocusPoints.Add(p);
+        }
+
+        vm.ApplyWindowExclusionToDisplay(System.Array.Empty<AutoFocusRegionPoint>());
+
+        Assert.Multiple(() => {
+            Assert.That(vm.PlotCoreFocusPoints, Has.Count.EqualTo(3));
+            Assert.That(vm.PlotWindowExcludedFocusPoints, Is.Empty);
+            Assert.That(vm.HasWindowExcludedFocusPoints, Is.False);
         });
     }
 

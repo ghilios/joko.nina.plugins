@@ -525,6 +525,7 @@
     <TextBlock x:Key="RotatedHyperbolicFit_Tooltip" Text="Allows hyperbolic fitting to rotate. This can be useful if your focus curve is asymmetrical." />
     <TextBlock x:Key="MeasurementAverage_Tooltip" Text="Controls how the average star measurement across the frame is calculated. Median is robust to outliers, and is the default." />
     <TextBlock x:Key="MaxAutoFocusOutlierRejections_Tooltip" Text="Controls the maximum number of points that can be rejected as outliers during Auto Focus curve fitting." />
+    <TextBlock x:Key="MaxBlindStepsPerDirection_Tooltip" Text="Maximum number of blind AutoFocus steps attempted in each direction before reversing to try the other side. Set to 0 to disable the cap." />
     <TextBlock x:Key="AutoFocusOutlierRejectionConfidence_Tooltip" Text="Confidence level for a two-tailed Grubbs statistical test of outliers to use during Auto Focus curve fitting. 0.90 is a reasonable default." />
     <DataTemplate x:Key="HocusFocus_AutoFocus_Options">
         <Grid Margin="5" VerticalAlignment="Top">
@@ -577,6 +578,7 @@
                 <RowDefinition />
                 <RowDefinition Style="{StaticResource ShowOnReducedChiSquaredCriterion}" />
                 <RowDefinition Style="{StaticResource ShowOnRSquaredCriterion}" />
+                <RowDefinition />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -915,6 +917,28 @@
                                 <rules:DoubleRangeChecker Maximum="1.0" Minimum="0" />
                             </rules:DoubleRangeRule.ValidRange>
                         </rules:DoubleRangeRule>
+                    </Binding.ValidationRules>
+                </Binding>
+            </ninactrl:UnitTextBox>
+
+            <TextBlock
+                Grid.Row="16"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Max Blind Steps Per Direction"
+                ToolTip="{StaticResource MaxBlindStepsPerDirection_Tooltip}" />
+            <ninactrl:UnitTextBox
+                Grid.Row="16"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ToolTip="{StaticResource MaxBlindStepsPerDirection_Tooltip}"
+                Unit="steps">
+                <Binding Path="AutoFocusOptions.MaxBlindStepsPerDirection" UpdateSourceTrigger="LostFocus">
+                    <Binding.ValidationRules>
+                        <rules:GreaterZeroRule />
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>

@@ -15,9 +15,11 @@ using NINA.Profile.Interfaces;
 using NINA.WPF.Base.ViewModel.AutoFocus;
 using NSubstitute;
 using NUnit.Framework;
+using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
@@ -503,6 +505,101 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                     AutoFocusEngine.AutoFocusFailureMode.HfrRegression, calculatedPoint: 54073, currentSweepCenter: 54073, calculatedPointRetryUsed: false), Is.False);
                 Assert.That(AutoFocusEngine.ShouldRetryFromCalculatedPoint(
                     AutoFocusEngine.AutoFocusFailureMode.FinalPointOutOfBounds, calculatedPoint: -1, currentSweepCenter: 54073, calculatedPointRetryUsed: false), Is.False);
+            });
+        }
+
+        // --- Behavior A: symmetric-window helpers (final-fit exclusion) ---
+        // The window/refit loop (ApplyFinalSymmetricWindow) needs a full region-state harness, but its geometry is
+        // factored into these pure static helpers, unit-tested directly the same way ComputeSweepPositions is.
+
+        private static ScatterErrorPoint SE(double x, double y) => new ScatterErrorPoint(x, y, 0, 0.1);
+
+        [Test]
+        public void IsWithinFocusWindow_StrictBoundaries_SymmetricMembership() {
+            // Half-width = (offsetSteps + 0.5) * stepSize = 5.5 * 5 = 27.5, so the window is the OPEN interval (9972.5, 10027.5).
+            const double min = 10000;
+            Assert.Multiple(() => {
+                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min, min, 5, 5), Is.True, "the center is inside");
+                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min - 27, min, 5, 5), Is.True, "just inside the low edge");
+                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min + 27, min, 5, 5), Is.True, "just inside the high edge");
+                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min - 27.5, min, 5, 5), Is.False, "exactly on the low edge is excluded (strict)");
+                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min + 27.5, min, 5, 5), Is.False, "exactly on the high edge is excluded (strict)");
+                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min - 28, min, 5, 5), Is.False, "outside the low edge");
+                Assert.That(AutoFocusEngine.IsWithinFocusWindow(min + 28, min, 5, 5), Is.False, "outside the high edge");
+            });
+        }
+
+        [Test]
+        public void PartitionByFocusWindow_LopsidedSplit_ExcludesFarPoints_IncludingSpuriousLowHfr() {
+            // Window (9972.5, 10027.5) around the FITTED VERTEX (10000). Points cluster far to the right, plus a
+            // spurious LOW-HFR point far to the left that a lowest-raw-point center would have chased. Because the
+            // center is the vertex (not the lowest point), the spurious point simply lands outside the window and is
+            // excluded rather than defining the minimum.
+            var points = new List<ScatterErrorPoint> {
+                SE(9500, 1.2),    // spurious low-HFR far left -> excluded
+                SE(9980, 3.0),
+                SE(10000, 2.0),
+                SE(10020, 3.1),
+                SE(10060, 6.0),   // far right -> excluded
+                SE(10090, 8.0),   // far right -> excluded
+            };
+            var (included, excluded) = AutoFocusEngine.PartitionByFocusWindow(points, minimumX: 10000, offsetSteps: 5, stepSize: 5);
+            Assert.Multiple(() => {
+                Assert.That(included.Select(p => p.X), Is.EquivalentTo(new[] { 9980.0, 10000.0, 10020.0 }));
+                Assert.That(excluded.Select(p => p.X), Is.EquivalentTo(new[] { 9500.0, 10060.0, 10090.0 }));
+            });
+        }
+
+        [Test]
+        public void PartitionByFocusWindow_AllWithinWindow_ExcludesNothing() {
+            // No point falls outside the window, so the partition is a no-op and the caller keeps the full fit.
+            var points = new List<ScatterErrorPoint> {
+                SE(9980, 3.0), SE(9990, 2.5), SE(10000, 2.0), SE(10010, 2.6), SE(10020, 3.2)
+            };
+            var (included, excluded) = AutoFocusEngine.PartitionByFocusWindow(points, 10000, 5, 5);
+            Assert.Multiple(() => {
+                Assert.That(included, Has.Count.EqualTo(5));
+                Assert.That(excluded, Is.Empty);
+            });
+        }
+
+        [Test]
+        public void PartitionByFocusWindow_WouldKeepFewerThanThree_IsDetectableSoCallerHoldsTheFloor() {
+            // The window helper only splits; the >=3-kept floor lives in ApplyFinalSymmetricWindow, which refuses to
+            // window (leaving the full fit intact) whenever fewer than 3 valid points would remain. Here only two
+            // points fall inside the window, which the caller detects via included.Count(Y>0) and declines to apply.
+            var points = new List<ScatterErrorPoint> {
+                SE(9995, 2.0), SE(10005, 2.1),                 // the only two inside (9972.5, 10027.5)
+                SE(10050, 5.0), SE(10080, 7.0), SE(10110, 9.0) // three far right
+            };
+            var (included, excluded) = AutoFocusEngine.PartitionByFocusWindow(points, 10000, 5, 5);
+            Assert.Multiple(() => {
+                Assert.That(included.Count(p => p.Y > 0.0), Is.EqualTo(2), "fewer than 3 kept -> caller must NOT window");
+                Assert.That(excluded, Has.Count.EqualTo(3));
+            });
+        }
+
+        // --- Behavior B: directional reversal decision ---
+        // The full walk needs the sweep harness, but the reverse-or-not decision is a pure helper, tested directly.
+
+        [TestCase(8, 8, false, false, true, TestName = "ShouldReverseDirection_AtCapWithoutBracket_Reverses")]
+        [TestCase(7, 8, false, false, false, TestName = "ShouldReverseDirection_BelowCap_DoesNotReverse")]
+        [TestCase(9, 8, true, false, false, TestName = "ShouldReverseDirection_WithTwoSidedBracket_DoesNotReverse")]
+        [TestCase(20, 8, false, true, false, TestName = "ShouldReverseDirection_AlreadyReversed_LatchesAgainstOscillation")]
+        public void ShouldReverseDirection_TruthTable(int stepOutsThisDir, int effectiveCap, bool bracketFormed, bool hasReversed, bool expected) {
+            Assert.That(AutoFocusEngine.ShouldReverseDirection(stepOutsThisDir, effectiveCap, bracketFormed, hasReversed), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void ShouldReverseDirection_DisabledSemantics_NeverReversesBelowTheEffectiveFloorCap() {
+            // When Behavior B is disabled (configured cap 0) the walk gates the helper away entirely, but even the
+            // effective floor cap (Math.Max(0, offsetSteps + 1)) is a valid, non-tightening bound: a walk that never
+            // reaches that many step-outs in a direction cannot reverse.
+            var effectiveCap = Math.Max(0, 5 + 1);
+            Assert.Multiple(() => {
+                Assert.That(AutoFocusEngine.ShouldReverseDirection(0, effectiveCap, bracketFormed: false, hasReversed: false), Is.False);
+                Assert.That(AutoFocusEngine.ShouldReverseDirection(effectiveCap - 1, effectiveCap, bracketFormed: false, hasReversed: false), Is.False);
+                Assert.That(AutoFocusEngine.ShouldReverseDirection(effectiveCap, effectiveCap, bracketFormed: false, hasReversed: false), Is.True);
             });
         }
 

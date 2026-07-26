@@ -162,6 +162,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
         public HyperbolicFitModel HyperbolicFitModel { get; set; }
         public FitRejectionCriterion FitRejectionCriterion { get; set; }
         public double ReducedChiSquaredRejectionThreshold { get; set; }
+        public int MaxBlindStepsPerDirection { get; set; }
+        public bool SymmetricFocusWindowEnabled { get; set; }
     }
 
     /// <summary>
