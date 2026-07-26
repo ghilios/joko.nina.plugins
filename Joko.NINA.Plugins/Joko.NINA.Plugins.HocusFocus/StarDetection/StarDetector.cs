@@ -166,6 +166,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // bloom knobs are LATE (gate-only) and are deliberately NOT listed here.
             nameof(StarDetectorParams.DefocusAwareDonutDetection),
             nameof(StarDetectorParams.DonutMorphCloseSize),
+            // Software binning resamples the frame before ANY of the above run, so it changes candidate formation
+            // outright — a context built at one factor can never be reused at another.
+            nameof(StarDetectorParams.DetectionBinning),
             nameof(StarDetectorParams.Region)
         };
 
@@ -358,6 +361,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             internal double StructureNoiseSigma;                 // K-σ on the noise-reduced structure-map source
             internal double MeasurementNoiseSigma;              // K-σ on the image actually sampled for measurement
             internal Rect? RoiRect;                              // ROI offset to add back to outputs (null if full frame)
+            // The software binning factor MeasurementImage was resampled by (1 = none). Carried here — rather than
+            // re-read from the late params — because it is an EARLY property: the late stage must scale its outputs
+            // by the factor the context was actually built at.
+            internal int Binning = 1;
             internal DebugData DebugData;
             // Early-only metric counters captured here so GateAndMeasure can seed a fresh metrics with them. These
             // are produced by the early pipeline (hotpixel filter) and the candidate flood-fill / global scan.
@@ -472,11 +479,39 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     } else {
                         debugData.DetectionROI = new System.Drawing.Rectangle(0, 0, srcImage.Width, srcImage.Height);
                     }
+
+                    // Software binning: from here the WHOLE pipeline runs in binned pixels, so every pixel-unit
+                    // param (MinHFR, MinimumStarBoundingBoxSize, NoiseReductionRadius, ...) stays in the range it
+                    // was calibrated for regardless of the rig's pixel scale. GateAndMeasureInternal scales every
+                    // pixel-space output back to source pixels before returning, so callers never see binned units.
+                    //
+                    // The hotpixel filter is hoisted ABOVE the bin: a hot pixel averaged into its block is no longer
+                    // a single-pixel outlier at a recognizable amplitude, so it has to die at native resolution.
+                    // Step 1 below is then told it has already run. (Bayered frames already get their CFA hotpixel
+                    // pass at native resolution in PrepareSrcImageFromRenderedImage, so both paths agree.)
+                    var binning = Math.Max(1, p.DetectionBinning);
+                    if (binning > 1) {
+                        if (!hotpixelFilterAlreadyApplied && (p.HotpixelFiltering || (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled))) {
+                            metrics.HotpixelCount = ApplyHotpixelFilter(srcImage, p);
+                            hotpixelFilterAlreadyApplied = true;
+                        }
+
+                        var binnedImage = CvImageUtility.BinMean(srcImage, binning);
+                        srcImage.Dispose();
+                        srcImage = binnedImage;
+                        // Same ownership handoff as the ROI clone above: this Mat is ours on BOTH paths (the
+                        // incoming one was just disposed), so adopt it as the live owned Mat.
+                        liveOwnedImage = binnedImage;
+                    }
+
                     MaybeSaveIntermediateImage(srcImage, p, "01-source.tif");
 
                     if (p.StoreStructureMap) {
-                        debugData.StructureMap = new byte[debugData.DetectionROI.Width * debugData.DetectionROI.Height];
+                        // Sized from the image actually analyzed. With binning on, the structure map is a BINNED
+                        // raster — DebugData.Binning tells the annotator how many display pixels each entry covers.
+                        debugData.StructureMap = new byte[srcImage.Width * srcImage.Height];
                     }
+                    debugData.Binning = binning;
 
                     stopWatch.RecordEntry("LoadImage");
 
@@ -684,6 +719,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     var context = new DetectionContext {
                         MeasurementImage = srcImage,
                         FullImageSize = fullImageSize,
+                        Binning = binning,
                         Candidates = candidates,
                         StructureNoiseSigma = noiseReducedImageNoise.Sigma,
                         MeasurementNoiseSigma = measurementImageNoise.Sigma,
@@ -763,6 +799,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 int rejected = totalCandidates - accepted;
                 var rejectionLog = $"Star detection complete: Found={accepted}, Rejected={rejected}, TooSmall={metrics.TooSmall}, OnBorder={metrics.OnBorder}, TooFlat={metrics.TooFlat}, TooDistorted={metrics.TooDistorted}, Saturated(masked)={metrics.Saturated}, LowSensitivity={metrics.LowSensitivity}, OffCenter={metrics.NotCentered}, HFRFailed={metrics.HFRAnalysisFailed}, PSFFailed={metrics.PSFFitFailed}, Degenerate={metrics.Degenerate}, TooLowHFR={metrics.TooLowHFR}, ContaminationSuspected={metrics.ContaminationSuspected}";
                 Logger.Debug(rejectionLog);
+                // Leave binned pixel space BEFORE the ROI offset is applied: the ROI was cropped at native
+                // resolution, so its offset is already in source pixels, while everything measured here is in
+                // binned pixels of that crop. Scale first, then translate.
+                var binning = Math.Max(1, ctx.Binning);
+                if (binning > 1) {
+                    stars = stars.Select(s => s.ScaleToSourcePixels(binning)).ToList();
+                    metrics.ScaleBounds(binning);
+                }
+
                 if (roiRect.HasValue) {
                     // Apply correction for the ROI
                     stars = stars.Select(s => s.AddOffset(xOffset: roiRect.Value.Left, yOffset: roiRect.Value.Top)).ToList();
@@ -774,6 +819,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 List<ContaminationDiagnosticRecord> contaminationDiagnostics = null;
                 if (contaminationDiagnosticsBag != null) {
                     contaminationDiagnostics = contaminationDiagnosticsBag.ToList();
+                    if (binning > 1) {
+                        // Same scale-then-translate order as the stars above. Intensity-valued fields (background,
+                        // sigmas, sector residual medians) carry over: mean binning preserves the level.
+                        foreach (var rec in contaminationDiagnostics) {
+                            var centerShift = (binning - 1) / 2.0;
+                            rec.CenterX = rec.CenterX * binning + centerShift;
+                            rec.CenterY = rec.CenterY * binning + centerShift;
+                            rec.Hfr *= binning;
+                            rec.GradientSlope /= binning;
+                        }
+                    }
                     if (roiRect.HasValue) {
                         foreach (var rec in contaminationDiagnostics) {
                             rec.CenterX += roiRect.Value.Left;
@@ -789,6 +845,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 List<RejectedCandidateRecord> rejectedCandidates = null;
                 if (rejectedCandidatesBag != null) {
                     rejectedCandidates = rejectedCandidatesBag.ToList();
+                    if (binning > 1) {
+                        // Geometry moves to source pixels; MeasuredValue/ThresholdValue deliberately do NOT. Those
+                        // two are the gate's own comparison pair, and the thresholds are binned-space params — the
+                        // recommender inverts one against the other, so they must stay in the same space.
+                        foreach (var rec in rejectedCandidates) {
+                            var centerShift = (binning - 1) / 2.0;
+                            rec.Bounds = new Rect(rec.Bounds.X * binning, rec.Bounds.Y * binning, rec.Bounds.Width * binning, rec.Bounds.Height * binning);
+                            rec.CenterX = rec.CenterX * binning + centerShift;
+                            rec.CenterY = rec.CenterY * binning + centerShift;
+                            rec.CandidateSize *= binning;
+                            rec.Hfr *= binning;
+                        }
+                    }
                     if (roiRect.HasValue) {
                         foreach (var rec in rejectedCandidates) {
                             rec.Bounds = new Rect(rec.Bounds.Location + new Point(roiRect.Value.Left, roiRect.Value.Top), rec.Bounds.Size);
@@ -803,6 +872,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 return new HocusFocusStarDetectorResult() {
                     DetectedStars = stars,
                     Metrics = metrics,
+                    DetectionBinning = binning,
                     DebugData = ctx.DebugData,
                     ContaminationDiagnostics = contaminationDiagnostics,
                     RejectedCandidates = rejectedCandidates,

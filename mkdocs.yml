@@ -99,6 +99,7 @@ nav:
       - Adaptive Binarization: settings/adaptive-binarization.md
       - Donut-Aware Settings: settings/donut-aware.md
       - Preprocessing & Noise: settings/preprocessing.md
+      - Detection Binning: settings/detection-binning.md
       - Structure & Detection: settings/structure-detection.md
       - Star Acceptance Gates: settings/acceptance-gates.md
       - Hot Pixels & Saturation: settings/hotpixel-saturation.md

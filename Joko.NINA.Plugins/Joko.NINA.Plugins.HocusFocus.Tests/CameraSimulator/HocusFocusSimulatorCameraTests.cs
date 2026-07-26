@@ -1,7 +1,8 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NINA.Core.Enum;
@@ -511,7 +512,7 @@ public class HocusFocusSimulatorCameraTests {
             Assert.That(camera.Id, Is.EqualTo("HocusFocus_SimulatorCamera"));
             Assert.That(camera.CanGetGain, Is.True);
             Assert.That(camera.CanSetGain, Is.True);
-            Assert.That(camera.BinningModes, Has.Count.EqualTo(1));
+            Assert.That(camera.BinningModes, Has.Count.EqualTo(HocusFocusSimulatorCamera.MaxBinning));
         });
     }
 
@@ -713,5 +714,114 @@ public class HocusFocusSimulatorCameraTests {
         var ex = Assert.ThrowsAsync<CameraExposureFailedException>(() => camera.DownloadExposure(CancellationToken.None));
         Assert.That(ex.Message, Does.Contain("no focuser is connected"), "the descriptive guard must survive prefetching");
         Assert.That(compositor.RenderCount, Is.Zero, "a frame nobody can use must never be rendered");
+    }
+
+    // ---- Hardware binning -------------------------------------------------------------------------------
+
+    [Test]
+    public void Binning_OffersEverySymmetricModeUpToTheMaximum() {
+        var camera = BuildCamera(BuildOptions());
+        Assert.Multiple(() => {
+            Assert.That(camera.MaxBinX, Is.EqualTo((short)HocusFocusSimulatorCamera.MaxBinning));
+            Assert.That(camera.MaxBinY, Is.EqualTo((short)HocusFocusSimulatorCamera.MaxBinning));
+            Assert.That(camera.BinningModes.Select(m => m.X), Is.EqualTo(new short[] { 1, 2, 3, 4 }));
+            Assert.That(camera.BinningModes.Select(m => m.Y), Is.EqualTo(new short[] { 1, 2, 3, 4 }));
+        });
+    }
+
+    [Test]
+    public void SetBinning_ClampsOutOfRangeRequests() {
+        var camera = BuildCamera(BuildOptions());
+        camera.SetBinning(9, 9);
+        Assert.That(camera.BinX, Is.EqualTo((short)HocusFocusSimulatorCamera.MaxBinning));
+        camera.SetBinning(0, 0);
+        Assert.That(camera.BinX, Is.EqualTo((short)1));
+    }
+
+    [Test]
+    public async Task DownloadExposure_Binned_DeliversTheBinnedGeometryAndStampsTheMetadata() {
+        var options = BuildOptions();
+        options.SensorModel = SonySensorModel.IMX533;   // 3008², 14-bit
+
+        var pixels = new ushort[3008 * 3008];
+        var compositor = Substitute.For<IStarFieldCompositor>();
+        compositor.Render(Arg.Any<RenderRequest>(), Arg.Any<CancellationToken>()).Returns(pixels);
+        var exposureDataFactory = Substitute.For<IExposureDataFactory>();
+
+        var camera = BuildCameraWithCompositor(options, compositor, exposureDataFactory, FocuserAt(5000), ConnectedTelescope());
+        await camera.Connect(CancellationToken.None);
+        camera.SetBinning(2, 2);
+        camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+
+        await camera.DownloadExposure(CancellationToken.None);
+
+        // The compositor always renders full resolution; the download bins it, so the exposure data is half-size.
+        // CameraXSize/CameraYSize stay full-sensor (NINA's convention for the unbinned sensor dimensions).
+        exposureDataFactory.Received(1).CreateImageArrayExposureData(
+            Arg.Is<ushort[]>(a => a.Length == 1504 * 1504), 1504, 1504, 14, false,
+            Arg.Is<ImageMetaData>(m => m.Camera.BinX == 2 && m.Camera.BinY == 2));
+        Assert.That(camera.CameraXSize, Is.EqualTo(3008));
+    }
+
+    [Test]
+    public async Task DownloadExposure_BinningChangedAfterStart_UsesTheExposuresOwnFactor() {
+        var options = BuildOptions();
+        options.SensorModel = SonySensorModel.IMX533;
+
+        var pixels = new ushort[3008 * 3008];
+        var compositor = Substitute.For<IStarFieldCompositor>();
+        compositor.Render(Arg.Any<RenderRequest>(), Arg.Any<CancellationToken>()).Returns(pixels);
+        var exposureDataFactory = Substitute.For<IExposureDataFactory>();
+
+        var camera = BuildCameraWithCompositor(options, compositor, exposureDataFactory, FocuserAt(5000), ConnectedTelescope());
+        await camera.Connect(CancellationToken.None);
+        camera.SetBinning(2, 2);
+        camera.StartExposure(new CaptureSequence { ExposureTime = 0.0 });
+        camera.SetBinning(4, 4);   // NINA reconfiguring for the NEXT exposure must not resize this one
+
+        await camera.DownloadExposure(CancellationToken.None);
+
+        exposureDataFactory.Received(1).CreateImageArrayExposureData(
+            Arg.Any<ushort[]>(), 1504, 1504, 14, false,
+            Arg.Is<ImageMetaData>(m => m.Camera.BinX == 2));
+    }
+
+    [Test]
+    public void BinFrame_SumsEachBlockAndClipsAtFullScale() {
+        // 4x4 ramp: value = x + 10*y. Block (0,0) = {0,1,10,11} -> 22.
+        var pixels = new ushort[16];
+        for (var y = 0; y < 4; ++y) {
+            for (var x = 0; x < 4; ++x) {
+                pixels[y * 4 + x] = (ushort)(x + 10 * y);
+            }
+        }
+
+        var binned = HocusFocusSimulatorCamera.BinFrame(pixels, 4, 4, 2, bitDepth: 16);
+
+        Assert.Multiple(() => {
+            Assert.That(binned, Has.Length.EqualTo(4));
+            Assert.That(binned[0], Is.EqualTo(22));   // 0+1+10+11
+            Assert.That(binned[1], Is.EqualTo(30));   // 2+3+12+13
+            Assert.That(binned[2], Is.EqualTo(102));  // 20+21+30+31
+            Assert.That(binned[3], Is.EqualTo(110));  // 22+23+32+33
+        });
+
+        // Binning sums charge, but the ADC range does not grow: a bright block saturates instead of wrapping.
+        var hot = new ushort[] { 16000, 16000, 16000, 16000 };
+        var clipped = HocusFocusSimulatorCamera.BinFrame(hot, 2, 2, 2, bitDepth: 14);
+        Assert.That(clipped[0], Is.EqualTo(16383), "clipped at 14-bit full scale, not wrapped");
+    }
+
+    [Test]
+    public void BinFrame_DropsTrailingRowsAndColumnsThatDoNotFillABlock() {
+        var pixels = new ushort[9];   // 3x3
+        for (var i = 0; i < pixels.Length; ++i) {
+            pixels[i] = (ushort)(i + 1);
+        }
+
+        var binned = HocusFocusSimulatorCamera.BinFrame(pixels, 3, 3, 2, bitDepth: 16);
+
+        Assert.That(binned, Has.Length.EqualTo(1));
+        Assert.That(binned[0], Is.EqualTo(1 + 2 + 4 + 5));
     }
 }

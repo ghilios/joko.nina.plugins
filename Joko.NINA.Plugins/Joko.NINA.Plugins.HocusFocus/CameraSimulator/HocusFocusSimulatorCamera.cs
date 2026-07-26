@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -28,6 +28,7 @@ using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Profile.Interfaces;
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -72,8 +73,14 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         private readonly IList<string> readoutModes = new List<string> { "Default" };
         // Empty = no discrete gain steps; NINA falls back to the GainMin..GainMax slider (the ASI/QHY convention).
         private readonly IList<int> gains = new List<int>();
+        // Symmetric binning modes only (1x1 .. MaxBinning). Real cameras also offer asymmetric modes, but nothing
+        // in the auto-focus/star-detection path asks for one, and the renderer bins square.
         private readonly AsyncObservableCollection<BinningMode> binningModes =
-            new AsyncObservableCollection<BinningMode> { new BinningMode(1, 1) };
+            new AsyncObservableCollection<BinningMode>(
+                Enumerable.Range(1, MaxBinning).Select(b => new BinningMode((short)b, (short)b)));
+
+        /// <summary>The largest symmetric binning the simulated sensor offers.</summary>
+        public const int MaxBinning = 4;
 
         public HocusFocusSimulatorCamera(
             IProfileService profileService,
@@ -343,14 +350,23 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             }
         }
 
-        public short MaxBinX => 1;
-        public short MaxBinY => 1;
+        public short MaxBinX => MaxBinning;
+        public short MaxBinY => MaxBinning;
         public AsyncObservableCollection<BinningMode> BinningModes => binningModes;
 
         public void SetBinning(short x, short y) {
-            BinX = x;
-            BinY = y;
+            BinX = ClampBinning(x);
+            BinY = ClampBinning(y);
         }
+
+        private static short ClampBinning(short value) => value < 1 ? (short)1 : (value > MaxBinning ? (short)MaxBinning : value);
+
+        /// <summary>
+        /// The symmetric factor the frame is binned by. The renderer always produces a full-resolution frame and
+        /// the download bins it, so an asymmetric request (which nothing in NINA's auto-focus path makes) is
+        /// resolved to the smaller of the two axes rather than silently rendering the wrong geometry.
+        /// </summary>
+        private int EffectiveBinning => Math.Max(1, Math.Min((int)binX, (int)binY));
 
         #endregion Binning
 
@@ -465,7 +481,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         /// <see cref="RenderTask"/>/<see cref="Cts"/> are null exactly when the prefetch was skipped for a
         /// missing device — the case <see cref="DownloadExposure"/>'s guards reject.
         /// </summary>
-        private sealed record PendingExposure(RenderRequest Request, Task<ushort[]> RenderTask, CancellationTokenSource Cts);
+        private sealed record PendingExposure(RenderRequest Request, Task<ushort[]> RenderTask, CancellationTokenSource Cts, int Binning);
 
         private PendingExposure pending;
         private DateTime exposureStartTime;
@@ -503,8 +519,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             }
 
             // Published as one reference, only once the request/task/cts are all built, so a download can never
-            // observe a half-built exposure or mix two of them.
-            pending = new PendingExposure(request, renderTask, cts);
+            // observe a half-built exposure or mix two of them. Binning travels with them for the same reason the
+            // record exists: the download sizes and bins the frame, so it must use THIS exposure's factor even if
+            // NINA sets a different one before the download runs.
+            pending = new PendingExposure(request, renderTask, cts, EffectiveBinning);
 
             CameraState = CameraStates.Exposing;
         }
@@ -597,8 +615,12 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 // request.SensorModel, so reading width/height/bit-depth from the live CameraXSize/CameraYSize/BitDepth
                 // (which follow options.SensorModel) would desync the array from its declared dimensions.
                 var snapshotSensor = SensorRegistry.Get(request.SensorModel);
-                var width = snapshotSensor.Width;
-                var height = snapshotSensor.Height;
+                // The compositor always renders at native resolution; binning is applied to the finished frame
+                // below, so the declared geometry is the BINNED geometry (CameraXSize/CameraYSize stay full-sensor,
+                // per NINA's convention that those describe the unbinned sensor).
+                var binning = Math.Max(1, snapshot.Binning);
+                var width = snapshotSensor.Width / binning;
+                var height = snapshotSensor.Height / binning;
                 var bitDepth = snapshotSensor.BitDepth;
                 // Running since StartExposure. RenderTask is non-null by construction here: StartExposure gates the
                 // prefetch on the very FocuserConnected/TelescopeConnected fields the guards above just tested, on
@@ -611,8 +633,16 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                     pixels = await snapshot.RenderTask.ConfigureAwait(false);
                 }
 
+                if (binning > 1) {
+                    pixels = BinFrame(pixels, snapshotSensor.Width, snapshotSensor.Height, binning, bitDepth);
+                }
+
                 var metaData = new ImageMetaData();
                 metaData.FromCamera(this);
+                // FromCamera reads the LIVE BinX/BinY; stamp this exposure's factor so the metadata always
+                // describes the pixels actually handed over (star detection derives pixel scale from it).
+                metaData.Camera.BinX = binning;
+                metaData.Camera.BinY = binning;
                 metaData.Image.SetExposureTimes(exposureStartTime, DateTime.UtcNow);
                 var exposureData = exposureDataFactory.CreateImageArrayExposureData(
                     pixels, width, height, bitDepth, isBayered: false, metaData);
@@ -630,6 +660,34 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 CameraState = CameraStates.Error;
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Sums each <paramref name="binning"/>×<paramref name="binning"/> block of the rendered frame, which is
+        /// what hardware binning does: charge from the binned pixels is combined, so a binned pixel collects the
+        /// whole block's signal (and read noise is paid once instead of <c>binning²</c> times). The sum is clipped
+        /// at the ADC's full scale for <paramref name="bitDepth"/>, so a bright star saturates rather than
+        /// wrapping — a binned pixel has more signal but the same output range. Trailing rows/columns that do not
+        /// fill a whole block are dropped, matching the declared binned geometry (integer division).
+        /// </summary>
+        internal static ushort[] BinFrame(ushort[] pixels, int width, int height, int binning, int bitDepth) {
+            var fullScale = (1 << bitDepth) - 1;
+            var binnedWidth = width / binning;
+            var binnedHeight = height / binning;
+            var result = new ushort[binnedWidth * binnedHeight];
+            for (var by = 0; by < binnedHeight; ++by) {
+                for (var bx = 0; bx < binnedWidth; ++bx) {
+                    var sum = 0;
+                    for (var dy = 0; dy < binning; ++dy) {
+                        var rowStart = (by * binning + dy) * width + bx * binning;
+                        for (var dx = 0; dx < binning; ++dx) {
+                            sum += pixels[rowStart + dx];
+                        }
+                    }
+                    result[by * binnedWidth + bx] = (ushort)Math.Min(sum, fullScale);
+                }
+            }
+            return result;
         }
 
         /// <summary>

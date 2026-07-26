@@ -22,8 +22,10 @@ using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Core.Utility;
+using NINA.Core.Utility.Notification;
 using NINA.Core.Utility.WindowService;
 using NINA.Plugin;
+using MyMessageBox = NINA.Core.MyMessageBox.MyMessageBox;
 using NINA.Plugin.Interfaces;
 using NINA.Profile.Interfaces;
 using System.ComponentModel.Composition;
@@ -134,6 +136,24 @@ namespace NINA.Joko.Plugins.HocusFocus {
                 var dllPath = Path.Combine(thisAssemblyFileInfo.Directory.FullName, "dll", archFolder);
                 OpenCvSharp.Internal.WindowsLibraryLoader.Instance.AdditionalPaths.Add(dllPath);
             }
+            // Wired after ApplicationDispatcher exists. The options object raises the conflict; the dialog lives
+            // here so the options stay UI-free (and silent in tests/headless tooling, where the handler is null).
+            // Posted rather than dispatched synchronously: this fires from inside a property setter driven by a
+            // WPF binding, so the binding must complete before a modal dialog takes over the thread.
+            StarDetectionOptions.AutoFocusBinningConflictHandler = (conflict, detectionBinning) => {
+                ApplicationDispatcher.PostSynchronizationContext(() => {
+                    var answer = MyMessageBox.Show(
+                        conflict.Describe(detectionBinning),
+                        "Auto Focus Binning",
+                        System.Windows.MessageBoxButton.YesNo,
+                        System.Windows.MessageBoxResult.No);
+                    if (answer == System.Windows.MessageBoxResult.Yes) {
+                        conflict.ResetToUnbinned(profileService);
+                        Notification.ShowInformation("Auto Focus Binning set back to 1x1. Hocus Focus detection binning is unchanged.");
+                    }
+                });
+            };
+
             if (PerFilterStarDetection == null) {
                 // Constructed after the options singletons: ProfileChanged handlers run in subscription order,
                 // so the store (and the binder below) re-read a new profile only after StarDetectionOptions has

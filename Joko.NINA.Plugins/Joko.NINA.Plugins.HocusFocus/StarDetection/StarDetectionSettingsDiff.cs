@@ -53,6 +53,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             (nameof(IStarDetectionOptions.Simple_NoiseLevel), "Noise Level"),
             (nameof(IStarDetectionOptions.Simple_PixelScale), "Pixel Scale"),
             (nameof(IStarDetectionOptions.Simple_FocusRange), "Focus Range"),
+            (nameof(IStarDetectionOptions.DetectionBinning), "Detection Binning"),
             (nameof(IStarDetectionOptions.UseOptimizedSettings), "Use Optimized Settings"),
             (nameof(IStarDetectionOptions.HotpixelThresholdingEnabled), "Use Hotpixel Thresholding"),
             (nameof(IStarDetectionOptions.UseAutoFocusCrop), "Use AutoFocus Crop"),

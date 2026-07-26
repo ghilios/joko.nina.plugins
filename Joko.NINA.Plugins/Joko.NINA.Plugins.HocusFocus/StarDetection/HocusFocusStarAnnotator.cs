@@ -259,12 +259,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             if (structureMapData != null) {
                                 var minStructureMapValue = StarAnnotatorOptions.ShowStructureMap == Interfaces.ShowStructureMapEnum.Dilated ? 1 : 2;
                                 var structureMapColor = StarAnnotatorOptions.StructureMapColor.ToDrawingColor();
+                                // The structure map is a raster of the image detection actually analyzed, which is
+                                // the ROI downsampled by the software binning factor. Walk it in ITS resolution and
+                                // paint the binning x binning display block each entry stands for.
+                                var binning = Math.Max(1, hfResult.DebugData.Binning);
+                                var mapWidth = hfResult.DebugData.DetectionROI.Width / binning;
+                                var mapHeight = hfResult.DebugData.DetectionROI.Height / binning;
                                 int i = 0;
-                                for (int y = 0; y < hfResult.DebugData.DetectionROI.Height; ++y) {
-                                    for (int x = 0; x < hfResult.DebugData.DetectionROI.Width; ++x) {
+                                for (int y = 0; y < mapHeight; ++y) {
+                                    for (int x = 0; x < mapWidth; ++x) {
                                         var structureMapPixel = structureMapData[i++];
-                                        if (structureMapPixel >= minStructureMapValue) {
-                                            newBitmap.BlendPixel(x, y, structureMapColor);
+                                        if (structureMapPixel < minStructureMapValue) {
+                                            continue;
+                                        }
+                                        for (int dy = 0; dy < binning; ++dy) {
+                                            for (int dx = 0; dx < binning; ++dx) {
+                                                newBitmap.BlendPixel(x * binning + dx, y * binning + dy, structureMapColor);
+                                            }
                                         }
                                     }
                                 }

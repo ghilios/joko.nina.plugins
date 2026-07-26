@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -42,6 +42,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
         public NoiseLevelEnum Simple_NoiseLevel { get; set; }
         public PixelScaleEnum Simple_PixelScale { get; set; }
         public FocusRangeEnum Simple_FocusRange { get; set; }
+        public DetectionBinningEnum DetectionBinning { get; set; } = DetectionBinningEnum.Auto;
         public bool HotpixelFiltering { get; set; }
         public bool HotpixelThresholdingEnabled { get; set; }
         public bool UseAutoFocusCrop { get; set; }
@@ -131,6 +132,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
                 Simple_NoiseLevel = o.Simple_NoiseLevel,
                 Simple_PixelScale = o.Simple_PixelScale,
                 Simple_FocusRange = o.Simple_FocusRange,
+                DetectionBinning = o.DetectionBinning,
                 HotpixelFiltering = o.HotpixelFiltering,
                 HotpixelThresholdingEnabled = o.HotpixelThresholdingEnabled,
                 UseAutoFocusCrop = o.UseAutoFocusCrop,

@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -15,6 +15,7 @@ using NINA.Core.Model;
 using NINA.Core.Model.Equipment;
 using NINA.Core.MyMessageBox;
 using NINA.Core.Utility;
+using NINA.Core.Utility.Notification;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Image.FileFormat.FITS;
 using NINA.Image.FileFormat.XISF;
@@ -107,6 +108,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public int CurrentStepSize { get; set; }
         public int CurrentOffsetSteps { get; set; }
         public bool ImprovedOverSeed { get; set; }
+
+        /// <summary>The software detection binning this run actually analyzed at.</summary>
+        public int CurrentDetectionBinning { get; set; } = 1;
+
+        /// <summary>The factor the MEASURED in-focus HFR implies, via the same target the Auto rule uses. Unlike
+        /// the options-page hint (which assumes a seeing figure), this one is derived from the sweep's own fitted
+        /// curve, so it is the better answer whenever a run exists.</summary>
+        public int RecommendedDetectionBinning { get; set; } = 1;
+
+        /// <summary>Fitted minimum (in-focus) HFR from the run's CURRENT-settings curve, in captured pixels.
+        /// NaN when the baseline fit was degenerate, which suppresses the recommendation entirely.</summary>
+        public double MeasuredInFocusHfr { get; set; } = double.NaN;
+
+        /// <summary>True when the measured curve implies a different detection binning than the run used — i.e.
+        /// there is something worth telling the user about.</summary>
+        public bool DetectionBinningChanged =>
+            double.IsFinite(MeasuredInFocusHfr) && RecommendedDetectionBinning != CurrentDetectionBinning;
+
+        /// <summary>Plain-language readout, e.g. "1x → 2x (measured in-focus HFR 5.4 px)".</summary>
+        public string DetectionBinningText =>
+            !double.IsFinite(MeasuredInFocusHfr)
+                ? $"{CurrentDetectionBinning}x"
+                : DetectionBinningChanged
+                    ? $"{CurrentDetectionBinning}x → {RecommendedDetectionBinning}x (measured in-focus HFR {MeasuredInFocusHfr:F1} px)"
+                    : $"{CurrentDetectionBinning}x (unchanged; measured in-focus HFR {MeasuredInFocusHfr:F1} px)";
 
         /// <summary>For the feedback variant only: σ(focus) of the optimized-WITHOUT-feedback result, so the
         /// results header can show how much the feedback round tightened focus relative to the plain optimization.
@@ -516,6 +542,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             StartCommand = new AsyncRelayCommand(() => StartAsync(CancellationToken.None), CanStart);
             CancelCommand = new RelayCommand(Cancel);
             AcceptCommand = new RelayCommand(Accept, CanAccept);
+            ApplyDetectionBinningCommand = new RelayCommand(ApplyRecommendedDetectionBinning, () => HasDetectionBinningRecommendation && !IsBusy);
             BackCommand = new RelayCommand(Back, () => CurrentStep == WizardStep.Summary && !IsBusy);
             CloseCommand = new RelayCommand(() => RequestClose?.Invoke(this, EventArgs.Empty));
             ReviewCommand = new AsyncRelayCommand(EnterReviewAsync, CanEnterReview);
@@ -795,6 +822,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
+        /// <summary>The Hocus Focus software binning detection will run at, which is applied ON TOP of the camera
+        /// binning above. Auto shows the factor it resolves to for this rig, since that is what the run will
+        /// actually use. Held fixed for the whole search — it is a property of the optics, not a tunable.</summary>
+        public string SweepDetectionBinning {
+            get {
+                var setting = EffectiveDetectionOptions.DetectionBinning;
+                var resolved = DetectionBinningResolver.Resolve(setting, SweepPixelScaleArcsecPerPixel);
+                return setting == DetectionBinningEnum.Auto ? $"{resolved}x (Auto)" : $"{resolved}x";
+            }
+        }
+
+        /// <summary>The pixel scale the sweep frames will come back at: the profile's optics scaled by the AF
+        /// capture binning. Matches what <c>HocusFocusStarDetection.ApplyDetectionImageContext</c> will compute
+        /// from the captured frames' own metadata, so the readout above agrees with the run.</summary>
+        private double SweepPixelScaleArcsecPerPixel {
+            get {
+                var profile = profileService.ActiveProfile;
+                var captureBinning = Math.Max((short)1, profile.FocuserSettings.AutoFocusBinning);
+                return MathUtility.ArcsecPerPixel(profile.CameraSettings.PixelSize, profile.TelescopeSettings.FocalLength) * captureBinning;
+            }
+        }
+
         /// <summary>The gain the sweep will actually expose with: the AF filter's gain when filter-wheel offsets
         /// designate one with an explicit gain, otherwise the connected camera's current gain.</summary>
         public string SweepGain {
@@ -852,6 +901,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(SweepEffectiveOffsetSteps));
             RaisePropertyChanged(nameof(SweepPointCount));
             RaisePropertyChanged(nameof(SweepBinning));
+            RaisePropertyChanged(nameof(SweepDetectionBinning));
             RaisePropertyChanged(nameof(SweepFilterName));
             RaisePropertyChanged(nameof(SweepGain));
             RaisePropertyChanged(nameof(SweepEstimatedFrames));
@@ -1419,6 +1469,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(HasFeedback));
             RaisePropertyChanged(nameof(ApplyRecommendedStepSize));
             RaisePropertyChanged(nameof(CanApplyRecommendedStepSize));
+            RaisePropertyChanged(nameof(HasDetectionBinningRecommendation));
+            RaisePropertyChanged(nameof(DetectionBinningRecommendationText));
+            ApplyDetectionBinningCommand.NotifyCanExecuteChanged();
             RaisePropertyChanged(nameof(CanApplyExposureTime));
             RaisePropertyChanged(nameof(SweepExposureChangeText));
             RaisePropertyChanged(nameof(ChangedParametersDisplay));
@@ -1473,6 +1526,37 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// recommended step size and/or offset steps actually differ from the current profile values. The
         /// checkbox binds its IsEnabled here so an unchanged recommendation can't be "applied".</summary>
         public bool CanApplyRecommendedStepSize => (Summary?.StepSizeOrOffsetChanged ?? false) || ExposureChangedForLiveRun;
+
+        /// <summary>Whether the summary shows the detection-binning advisory: only when the run's own measured
+        /// in-focus HFR implies a different factor than the run analyzed at.</summary>
+        public bool HasDetectionBinningRecommendation => SelectedSummary?.DetectionBinningChanged ?? false;
+
+        /// <summary>The detection-binning row's readout (measured HFR and the implied factor).</summary>
+        public string DetectionBinningRecommendationText => SelectedSummary?.DetectionBinningText ?? string.Empty;
+
+        /// <summary>
+        /// Applies the measured detection-binning recommendation to the Star Detector options, deliberately as a
+        /// SEPARATE action from Accept: the settings this run just produced were tuned at the OLD factor, so
+        /// changing it invalidates them and the wizard should be re-run. Says so, rather than quietly re-tuning.
+        ///
+        /// <para>Writes the live options even in per-filter mode. Detection binning follows the optics, so it is the
+        /// same for every filter — unlike the tuned knobs, which the per-filter path routes to the target filter.</para>
+        /// </summary>
+        private void ApplyRecommendedDetectionBinning() {
+            var summary = SelectedSummary;
+            if (summary == null || !summary.DetectionBinningChanged) {
+                return;
+            }
+            var setting = DetectionBinningResolver.ToSetting(summary.RecommendedDetectionBinning);
+            starDetectionOptions.DetectionBinning = setting;
+            Logger.Info($"Applied recommended detection binning {summary.RecommendedDetectionBinning}x (measured in-focus HFR {summary.MeasuredInFocusHfr:F2} px, was {summary.CurrentDetectionBinning}x)");
+            Notification.ShowInformation(
+                $"Detection binning set to {summary.RecommendedDetectionBinning}x. The settings from this run were tuned at {summary.CurrentDetectionBinning}x, so re-run the optimizer to tune for the new resolution.");
+            RaisePropertyChanged(nameof(HasDetectionBinningRecommendation));
+            RaisePropertyChanged(nameof(DetectionBinningRecommendationText));
+            RaisePropertyChanged(nameof(SweepDetectionBinning));
+            ApplyDetectionBinningCommand.NotifyCanExecuteChanged();
+        }
 
         // Snapshotted when a Live sweep captures: the exposure it used (for the summary write-back) and a flag that a
         // live capture happened (gates the exposure write-back offer). A fresh Replay run clears the flag.
@@ -1628,6 +1712,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public AsyncRelayCommand StartCommand { get; }
         public RelayCommand CancelCommand { get; }
         public RelayCommand AcceptCommand { get; }
+
+        /// <summary>Summary page: apply the measured detection-binning recommendation to the Star Detector
+        /// options. Separate from Accept on purpose — see <see cref="ApplyRecommendedDetectionBinning"/>.</summary>
+        public RelayCommand ApplyDetectionBinningCommand { get; }
         public RelayCommand BackCommand { get; }
         public RelayCommand CloseCommand { get; }
 
@@ -2359,6 +2447,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             double baselineSigmaSum = 0.0, bestSigmaSum = 0.0;
             var baselineSigmaCount = 0; var bestSigmaCount = 0;
             AlglibHyperbolicFitting representativeBestFit = null;
+            // The CURRENT-settings fit minimum from the representative run: the measured in-focus HFR the detection
+            // binning recommendation is derived from. Detection reports HFR in captured pixels regardless of the
+            // binning it analyzed at, so this needs no rescaling.
+            var measuredInFocusHfr = double.NaN;
             OptimizationCurve currentCurveLocal = null, optimizedCurveLocal = null;
             for (var i = 0; i < runs.Count; i++) {
                 token.ThrowIfCancellationRequested();
@@ -2368,6 +2460,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (double.IsFinite(bestEval.Metrics.SigmaFocus)) { bestSigmaSum += bestEval.Metrics.SigmaFocus; bestSigmaCount++; }
                 if (i == 0) {
                     representativeBestFit = bestEval.BestFit;
+                    measuredInFocusHfr = baselineEval.BestFit?.Minimum.Y ?? double.NaN;
                     var (baselineCore, baselineRecovery) = PartitionRecoveryPoints(baselineEval);
                     var (bestCore, bestRecovery) = PartitionRecoveryPoints(bestEval);
                     currentCurveLocal = new OptimizationCurve {
@@ -2400,7 +2493,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RecommendedOffsetSteps = recommendation.OffsetSteps,
                 CurrentStepSize = currentStepSize,
                 CurrentOffsetSteps = currentOffsetSteps,
-                ImprovedOverSeed = res.ImprovedOverSeed
+                ImprovedOverSeed = res.ImprovedOverSeed,
+                CurrentDetectionBinning = Math.Max(1, baseline.DetectionBinning),
+                MeasuredInFocusHfr = measuredInFocusHfr,
+                RecommendedDetectionBinning = DetectionBinningResolver.RecommendFromHfr(measuredInFocusHfr)
             };
             return (summary, currentCurveLocal, optimizedCurveLocal);
         }
@@ -2423,7 +2519,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RecommendedOffsetSteps = optimized.CurrentOffsetSteps,
                 CurrentStepSize = optimized.CurrentStepSize,
                 CurrentOffsetSteps = optimized.CurrentOffsetSteps,
-                ImprovedOverSeed = false
+                ImprovedOverSeed = false,
+                // The binning recommendation is a property of the FRAMES, not of the detector settings variant, so
+                // it carries over verbatim to the Current view.
+                CurrentDetectionBinning = optimized.CurrentDetectionBinning,
+                MeasuredInFocusHfr = optimized.MeasuredInFocusHfr,
+                RecommendedDetectionBinning = optimized.RecommendedDetectionBinning
             };
         }
 

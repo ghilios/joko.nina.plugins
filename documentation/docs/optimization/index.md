@@ -49,6 +49,14 @@ The high-level loop has three steps:
 
 *The summary shows the resulting focus curve, focus precision, and a recommended autofocus step size.*
 
+The summary may also carry a **detection binning** advisory. The wizard holds
+[Detection Binning](../settings/detection-binning.md) fixed at your setting for the whole search, since it
+describes the optics rather than being something to tune, but it reads the fitted in-focus HFR off your own
+focus curve and reports the factor that measurement implies. That is a better answer than the pixel-scale
+estimate the option page shows, because it is measured rather than assumed. **Apply detection binning** is a
+separate button from **Accept**, on purpose: the parameters the run just produced were tuned at the old
+factor, so changing it means running the wizard again.
+
 Optionally, you can label a handful of hard frames (missed stars, false positives) to add a
 **recall/precision** term to the score (recall = the fraction of real stars recovered; precision = the
 fraction of accepted detections that are real). This term is decisive for dim or bloated, out-of-focus
@@ -93,7 +101,9 @@ A live run goes like this:
 2. Choose **Live Auto-Focus**, set the **Exposure**, and choose the folder to **Save captured frames
    to**. The camera and focuser must be connected, and **Start** stays disabled until you pick a save
    folder. The panel also shows the step size, number of points, binning, filter, and gain the sweep
-   will use; these come from your profile's auto-focus settings.
+   will use; these come from your profile's auto-focus settings. A **Detection binning** line reports the
+   software binning detection will run at, which is applied on top of the camera binning above (see
+   [Detection Binning](../settings/detection-binning.md)).
 3. Press **Start** and confirm the telescope is roughly focused when prompted. The wizard moves the
    focuser out and steps back across the range set by your profile's auto-focus step size and offset
    steps, saves a frame at each point, then returns the focuser to where it started. The sweep does not

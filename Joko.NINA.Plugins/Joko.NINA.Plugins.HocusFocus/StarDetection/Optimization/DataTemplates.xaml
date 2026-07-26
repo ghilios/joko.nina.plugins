@@ -491,6 +491,10 @@
                             <TextBlock VerticalAlignment="Center" Text="{Binding SweepBinning}" />
                         </StackPanel>
                         <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <TextBlock Width="200" VerticalAlignment="Center" Text="Detection binning" />
+                            <TextBlock VerticalAlignment="Center" Text="{Binding SweepDetectionBinning}" />
+                        </StackPanel>
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
                             <TextBlock Width="200" VerticalAlignment="Center" Text="Filter" />
                             <TextBlock VerticalAlignment="Center" Text="{Binding SweepFilterName}" />
                         </StackPanel>
@@ -752,6 +756,32 @@
                                 IsEnabled="{Binding CanApplyRecommendedStepSize}"
                                 Text="Apply these auto-focus settings to my profile when I click Accept"
                                 ToolTip="{StaticResource SDOpt_ApplyStepSize_Tooltip}" />
+                        </StackPanel>
+
+                        <!--  Detection-binning advisory: shown only when the run's own measured in-focus HFR implies
+                              a different software binning than it analyzed at. Deliberately its own button rather
+                              than part of Accept — changing the factor invalidates the settings just produced.  -->
+                        <StackPanel
+                            Margin="0,4,0,8"
+                            Visibility="{Binding HasDetectionBinningRecommendation, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <TextBlock Margin="0,0,0,2" FontWeight="Bold" Text="Detection binning" />
+                            <TextBlock
+                                Margin="0,0,0,4"
+                                MaxWidth="560"
+                                HorizontalAlignment="Left"
+                                Text="{Binding DetectionBinningRecommendationText, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                            <TextBlock
+                                Margin="0,0,0,4"
+                                MaxWidth="560"
+                                HorizontalAlignment="Left"
+                                FontStyle="Italic"
+                                Opacity="0.8"
+                                Text="Star detection works best when in-focus stars are about 2 to 4 pixels across. Applying this changes the Star Detector option only; the settings from this run were tuned at the current factor, so re-run the optimizer afterwards."
+                                TextWrapping="Wrap" />
+                            <Button HorizontalAlignment="Left" Command="{Binding ApplyDetectionBinningCommand}">
+                                <TextBlock Margin="12,6" Text="Apply detection binning" />
+                            </Button>
                         </StackPanel>
 
                         <!--  Changed parameters table  -->

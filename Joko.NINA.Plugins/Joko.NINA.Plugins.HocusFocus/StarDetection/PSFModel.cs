@@ -84,6 +84,34 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// </summary>
         public double Beta { get; private set; }
 
+        /// <summary>
+        /// This model re-expressed in SOURCE pixels after star detection ran on a software-binned frame: every
+        /// length (offsets, sigmas, FWHM) grows by <paramref name="factor"/>, and the pixel scale shrinks by the
+        /// same factor so <see cref="FWHMArcsecs"/> — which was already physical — is preserved exactly.
+        /// Amplitudes, orientation, eccentricity and the fit statistics are scale-invariant and carry over.
+        /// </summary>
+        public PSFModel ScaledToSourcePixels(int factor) {
+            if (factor <= 1) {
+                return this;
+            }
+            var pixelScale = FWHMPixels > 0.0 ? FWHMArcsecs / FWHMPixels : 0.0;
+            return new PSFModel(
+                PSFType,
+                OffsetX * factor,
+                OffsetY * factor,
+                Peak,
+                Background,
+                SigmaX * factor,
+                SigmaY * factor,
+                FWHMx * factor,
+                FWHMy * factor,
+                ThetaRadians,
+                RSquared,
+                pixelScale / factor,
+                ReducedChiSquared,
+                Beta);
+        }
+
         public override string ToString() {
             return $"{{{nameof(PSFType)}={PSFType.ToString()}, {nameof(OffsetX)}={OffsetX.ToString()}, {nameof(OffsetY)}={OffsetY.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(SigmaX)}={SigmaX.ToString()}, {nameof(SigmaY)}={SigmaY.ToString()}, {nameof(Sigma)}={Sigma.ToString()}, {nameof(FWHMx)}={FWHMx.ToString()}, {nameof(FWHMy)}={FWHMy.ToString()}, {nameof(ThetaRadians)}={ThetaRadians.ToString()}, {nameof(FWHMPixels)}={FWHMPixels.ToString()}, {nameof(FWHMArcsecs)}={FWHMArcsecs.ToString()}, {nameof(Eccentricity)}={Eccentricity.ToString()}, {nameof(RSquared)}={RSquared.ToString()}, {nameof(ReducedChiSquared)}={ReducedChiSquared.ToString()}, {nameof(Beta)}={Beta.ToString()}}}";
         }
