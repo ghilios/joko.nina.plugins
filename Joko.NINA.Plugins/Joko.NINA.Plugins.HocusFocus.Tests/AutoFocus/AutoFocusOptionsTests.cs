@@ -33,7 +33,7 @@ public class AutoFocusOptionsTests {
             Assert.That(options.LastSelectedLoadPath, Is.EqualTo(""));
             Assert.That(options.FocuserOffset, Is.EqualTo(0));
             Assert.That(options.MaxOutlierRejections, Is.EqualTo(1));
-            Assert.That(options.OutlierRejectionConfidence, Is.EqualTo(0.90));
+            Assert.That(options.OutlierRejectionConfidence, Is.EqualTo(0.95));
             Assert.That(options.WeightedHyperbolicFitEnabled, Is.True);
         });
     }
@@ -51,7 +51,7 @@ public class AutoFocusOptionsTests {
         options.LastSelectedLoadPath = @"C:\AF\last";
         options.FocuserOffset = -10;
         options.MaxOutlierRejections = 3;
-        options.OutlierRejectionConfidence = 0.95;
+        options.OutlierRejectionConfidence = 0.93;
         options.WeightedHyperbolicFitEnabled = false;
 
         Assert.Multiple(() => {
@@ -65,7 +65,7 @@ public class AutoFocusOptionsTests {
             Assert.That(store.Snapshot["LastSelectedLoadPath"], Is.EqualTo(@"C:\AF\last"));
             Assert.That(store.Snapshot["FocuserOffset"], Is.EqualTo(-10));
             Assert.That(store.Snapshot[nameof(AutoFocusOptions.MaxOutlierRejections)], Is.EqualTo(3));
-            Assert.That(store.Snapshot[nameof(AutoFocusOptions.OutlierRejectionConfidence)], Is.EqualTo(0.95));
+            Assert.That(store.Snapshot[nameof(AutoFocusOptions.OutlierRejectionConfidence)], Is.EqualTo(0.93));
             Assert.That(store.Snapshot[nameof(AutoFocusOptions.WeightedHyperbolicFitEnabled)], Is.False);
         });
     }
@@ -78,6 +78,7 @@ public class AutoFocusOptionsTests {
         options.Save = true;
         options.KeepFramesForReview = true;
         options.MaxOutlierRejections = 4;
+        options.OutlierRejectionConfidence = 0.80;
 
         options.ResetDefaults();
 
@@ -87,7 +88,7 @@ public class AutoFocusOptionsTests {
             Assert.That(options.Save, Is.False);
             Assert.That(options.KeepFramesForReview, Is.False);
             Assert.That(options.MaxOutlierRejections, Is.EqualTo(1));
-            Assert.That(options.OutlierRejectionConfidence, Is.EqualTo(0.90));
+            Assert.That(options.OutlierRejectionConfidence, Is.EqualTo(0.95));
             Assert.That(options.WeightedHyperbolicFitEnabled, Is.True);
         });
     }
@@ -102,7 +103,7 @@ public class AutoFocusOptionsTests {
     [TestCase(nameof(AutoFocusOptions.LastSelectedLoadPath), "y")]
     [TestCase(nameof(AutoFocusOptions.FocuserOffset), 5)]
     [TestCase(nameof(AutoFocusOptions.MaxOutlierRejections), 2)]
-    [TestCase(nameof(AutoFocusOptions.OutlierRejectionConfidence), 0.95)]
+    [TestCase(nameof(AutoFocusOptions.OutlierRejectionConfidence), 0.93)]
     [TestCase(nameof(AutoFocusOptions.WeightedHyperbolicFitEnabled), false)]
     public void Setter_RaisesPropertyChanged(string propertyName, object newValue) {
         var (options, _, _) = Build();
