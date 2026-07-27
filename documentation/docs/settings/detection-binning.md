@@ -26,18 +26,20 @@ Advanced mode.
 
 **Default:** `1x1 (Off)` &nbsp;•&nbsp; **Range:** 1x1 (Off), 2x2, 3x3, 4x4.
 
-Nothing chooses the factor for you. Beside the dropdown, a short line reports what your rig actually measures
-and what that implies:
+Nothing chooses the factor for you. A line appears under the dropdown **only when it has something to ask
+for** — either a first measurement, or a factor change:
 
 ```
-Measured in-focus HFR 3.6 px - 1x1 is right
+Run an auto-focus to get a recommendation
 Measured in-focus HFR 6.1 px - 2x2 recommended
 ```
 
-Before anything has been measured it says `Run an auto-focus to get a recommendation`. Hover for the
-reasoning, including when the measurement was taken. The line is drawn in the secondary text color while it
-agrees with your setting and in the primary color when it does not, so a mismatch is visible without being
-alarming. Disagreeing with it is a legitimate choice.
+Once your setting matches what the measurement calls for, the line disappears: there is nothing to act on.
+Hover it for the reasoning, including when the measurement was taken. In the
+[Optimization Wizard](../optimization/index.md) the same line sits to the right of its dropdown, under the
+same rule.
+
+Disagreeing with the recommendation is a legitimate choice; nothing enforces it.
 
 !!! note "Why there is no Auto"
     An automatic factor would change how frames are analyzed the moment the plugin updated, and every

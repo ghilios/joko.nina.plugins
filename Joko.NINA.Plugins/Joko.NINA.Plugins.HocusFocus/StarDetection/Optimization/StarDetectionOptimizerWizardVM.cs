@@ -912,6 +912,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public bool SweepDetectionBinningDiffersFromRecommendation => DetectionBinningResolver.DiffersFromRecommendation(
             DetectionBinningResolver.ToFactor(starDetectionOptions.DetectionBinning), MeasuredInFocusHfrPixels);
 
+        /// <summary>Whether to show the recommendation beside the dropdown at all — only when it asks for
+        /// something. Hidden once the setting matches the measurement.</summary>
+        public bool SweepDetectionBinningRecommendationVisible => DetectionBinningResolver.ShouldShowRecommendation(
+            DetectionBinningResolver.ToFactor(starDetectionOptions.DetectionBinning), MeasuredInFocusHfrPixels);
+
         /// <summary>The last measured in-focus HFR, in captured pixels. NaN before anything has been measured.</summary>
         private double MeasuredInFocusHfrPixels => getMeasuredInFocusHfr?.Invoke() ?? double.NaN;
 
@@ -920,6 +925,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(SweepDetectionBinningRecommendation));
             RaisePropertyChanged(nameof(SweepDetectionBinningRecommendationDetail));
             RaisePropertyChanged(nameof(SweepDetectionBinningDiffersFromRecommendation));
+            RaisePropertyChanged(nameof(SweepDetectionBinningRecommendationVisible));
         }
 
         /// <summary>The gain the sweep will actually expose with: the AF filter's gain when filter-wheel offsets

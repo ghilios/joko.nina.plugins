@@ -115,6 +115,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
         }
 
         [Test]
+        public void ShouldShowRecommendation_OnlyWhenItAsksForSomething() {
+            Assert.Multiple(() => {
+                // Nothing measured: it asks for an auto-focus, so it is worth a line.
+                Assert.That(DetectionBinningResolver.ShouldShowRecommendation(1, double.NaN), Is.True);
+                // Measured and disagrees: it asks for a factor change.
+                Assert.That(DetectionBinningResolver.ShouldShowRecommendation(1, 6.1), Is.True);
+                // Measured and agrees: nothing to ask for. A line that only confirms the current setting is
+                // noise, and it trains the eye to skip the line that matters.
+                Assert.That(DetectionBinningResolver.ShouldShowRecommendation(2, 6.1), Is.False);
+                Assert.That(DetectionBinningResolver.ShouldShowRecommendation(1, 3.6), Is.False);
+            });
+        }
+
+        [Test]
         public void DiffersFromRecommendation_IsFalseWithoutAMeasurement() {
             // No measurement means no advice, so nothing to disagree with — the UI must not highlight a mismatch
             // it cannot justify.

@@ -528,6 +528,7 @@
           decision, not an error.  -->
     <Style x:Key="HF_DetectionBinningRecommendation" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
         <Style.Triggers>
             <DataTrigger Binding="{Binding StarDetectionOptions.DetectionBinningDiffersFromRecommendation}" Value="True">
                 <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
@@ -993,6 +994,16 @@
             d:DataContext="{d:DesignInstance sd:StarDetectionOptionsVM,
                                              IsDesignTimeCreatable=False}">
             <Grid.Resources>
+                <!--  The detection-binning recommendation only occupies a row when it asks for something: a first
+                      auto-focus, or a factor change. Once the setting matches the measurement the row collapses.  -->
+                <Style x:Key="ShowOnDetectionBinningRecommendation" TargetType="{x:Type RowDefinition}">
+                    <Setter Property="Height" Value="0" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding StarDetectionOptions.DetectionBinningRecommendationVisible}" Value="True">
+                            <Setter Property="Height" Value="Auto" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
                 <Style x:Key="ShowOnUseAdvanced" TargetType="{x:Type RowDefinition}">
                     <Setter Property="Height" Value="0" />
                     <Style.Triggers>
@@ -1161,9 +1172,10 @@
                 <!--  52: Locally Adaptive Binarization toggle (advanced-only); 53: its block-size knob (advanced-only).  -->
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
-                <!--  54: Detection Binning (always visible - it applies in both Simple and Advanced mode). The
-                      recommendation shares this row with the dropdown rather than taking one of its own.  -->
+                <!--  54: Detection Binning (always visible - it applies in both Simple and Advanced mode);
+                      55: its recommendation, which takes a row only while it has something to ask for.  -->
                 <RowDefinition />
+                <RowDefinition Style="{StaticResource ShowOnDetectionBinningRecommendation}" />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -1891,12 +1903,14 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
-            <!--  Column 2, not column 1: col1 is Auto with SharedSizeGroup HF_SDCol1, so putting this beside the
-                  dropdown in col1 would widen the shared value column and shift every other row in the pane.  -->
+            <!--  Below the selector, spanning from the value column so a longer line has room. The row itself
+                  collapses when there is nothing to recommend, so this costs no vertical space at rest.  -->
             <TextBlock
-                Grid.Row="54"
-                Grid.Column="2"
-                Margin="10,5,0,0"
+                Grid.Row="55"
+                Grid.Column="1"
+                Grid.ColumnSpan="2"
+                MaxWidth="560"
+                Margin="5,2,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 Style="{StaticResource HF_DetectionBinningRecommendation}"

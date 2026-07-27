@@ -101,6 +101,24 @@ because the frames were already binned when it was measured.
 | 7.5–10.5 px | 3×3 |
 | ≥ 10.5 px | 4×4 |
 
+#### Showing it
+
+The recommendation is shown **only when it asks for something**: a first auto-focus, or a factor change. Once
+the setting matches the measurement it is hidden entirely — on the options page its grid row collapses to zero
+height. A line that merely confirms the current setting costs space to say nothing, and trains the eye to skip
+the line that matters.
+
+Placement differs by surface because the constraints do. On the Star Detector options page it sits on its own
+row under the dropdown, where a longer line has room and the collapsing row keeps it free at rest; it cannot
+share the dropdown's row, because that column is `Auto` with a `SharedSizeGroup` and a long string there would
+widen the shared value column and shift every other row in the pane. In the optimization wizard's confirmation
+panel it sits to the right of the dropdown, which is a plain horizontal row with no such constraint.
+
+Emphasis comes from the theme's own text brushes — `SecondaryBrush` for the no-measurement prompt,
+`PrimaryBrush` when the factor disagrees — and explicitly NOT from `Opacity`. Dimming toward the background is
+illegible on NINA's dark theme. It is not a warning color either: overriding the recommendation is a
+legitimate choice, not an error.
+
 #### Why not estimate from pixel scale
 
 The first version did: `HFR ≈ assumedFwhm / (2 · pixelScale)` with `assumedFwhm = 3.0″`. That cannot work.

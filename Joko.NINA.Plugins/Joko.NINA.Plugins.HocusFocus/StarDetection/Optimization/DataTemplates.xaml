@@ -484,7 +484,8 @@
                                 VerticalAlignment="Center"
                                 Style="{StaticResource HF_SweepDetectionBinningRecommendation}"
                                 Text="{Binding SweepDetectionBinningRecommendation}"
-                                ToolTip="{Binding SweepDetectionBinningRecommendationDetail}" />
+                                ToolTip="{Binding SweepDetectionBinningRecommendationDetail}"
+                                Visibility="{Binding SweepDetectionBinningRecommendationVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                         </StackPanel>
                     </StackPanel>
 
@@ -568,7 +569,8 @@
                                 VerticalAlignment="Center"
                                 Style="{StaticResource HF_SweepDetectionBinningRecommendation}"
                                 Text="{Binding SweepDetectionBinningRecommendation}"
-                                ToolTip="{Binding SweepDetectionBinningRecommendationDetail}" />
+                                ToolTip="{Binding SweepDetectionBinningRecommendationDetail}"
+                                Visibility="{Binding SweepDetectionBinningRecommendationVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                         </StackPanel>
                         <StackPanel Margin="0,2" Orientation="Horizontal">
                             <TextBlock Width="200" VerticalAlignment="Center" Text="Filter" />

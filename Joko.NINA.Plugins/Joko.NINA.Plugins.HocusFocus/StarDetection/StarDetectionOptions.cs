@@ -66,6 +66,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             RaisePropertyChanged(nameof(DetectionBinningHint));
             RaisePropertyChanged(nameof(DetectionBinningHintDetail));
             RaisePropertyChanged(nameof(DetectionBinningDiffersFromRecommendation));
+            RaisePropertyChanged(nameof(DetectionBinningRecommendationVisible));
         }
 
         private static IPluginOptionsAccessor CreateDefaultAccessor(IProfileService profileService) {
@@ -526,6 +527,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// as something to act on rather than as a confirmation.</summary>
         [JsonIgnore]
         public bool DetectionBinningDiffersFromRecommendation => DetectionBinningResolver.DiffersFromRecommendation(
+            DetectionBinningResolver.ToFactor(detectionBinning), inFocusHfr.HfrPixels);
+
+        /// <summary>Whether to show the recommendation line at all — only when it asks for something (a first
+        /// auto-focus, or a factor change). It is hidden once the setting matches the measurement.</summary>
+        [JsonIgnore]
+        public bool DetectionBinningRecommendationVisible => DetectionBinningResolver.ShouldShowRecommendation(
             DetectionBinningResolver.ToFactor(detectionBinning), inFocusHfr.HfrPixels);
 
         /// <summary>

@@ -111,6 +111,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             => IsUsableHfr(measuredHfrPixels) && Clamp(currentFactor) != RecommendFromHfr(measuredHfrPixels);
 
         /// <summary>
+        /// Whether the recommendation is worth showing at all: only when it asks for something. That is either
+        /// "run an auto-focus so there is something to recommend from", or "the factor you have is not the one
+        /// your measurement calls for". A recommendation that merely confirms the current setting is noise —
+        /// it occupies a row to say nothing, and trains the eye to skip the line that matters.
+        /// </summary>
+        public static bool ShouldShowRecommendation(int currentFactor, double measuredHfrPixels)
+            => !IsUsableHfr(measuredHfrPixels) || DiffersFromRecommendation(currentFactor, measuredHfrPixels);
+
+        /// <summary>
         /// Re-stamps an already-built parameter bundle onto a different binning factor, keeping
         /// <see cref="StarDetectorParams.PixelScale"/> consistent (it carries the factor, see
         /// <c>HocusFocusStarDetection.ApplyDetectionImageContext</c>). Used by the optimization wizard to run a
