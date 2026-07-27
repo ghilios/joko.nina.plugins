@@ -851,7 +851,7 @@
                             <Button
                                 HorizontalAlignment="Left"
                                 Command="{Binding OptimizeAgainAtRecommendedBinningCommand}"
-                                Visibility="{Binding CanOptimizeAgainAtRecommendedBinning, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                Visibility="{Binding ShowOptimizeAgainAtRecommendedBinning, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                                 <TextBlock Margin="12,6" Text="{Binding OptimizeAgainAtRecommendedBinningText}" />
                             </Button>
                         </StackPanel>
@@ -870,21 +870,37 @@
                             Visibility="{Binding HasRoundsSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                         <!--  The value column shows the full path "current → optimized" (and, after Continue, the
                               per-round trajectory "current → R1 → R2 → …") via the row's arrow-joined Trajectory.  -->
+                        <!--  Sized to CONTENT: the summary already scrolls, so a MaxHeight here only produced a
+                              nested scrollbar and a band of dead viewport under the last row. RowHeight + the
+                              centred element styles keep the rows compact and the text on the row's centre line
+                              (the default cell padding top-justifies it, which reads as ragged).  -->
                         <DataGrid
                             AutoGenerateColumns="False"
                             CanUserAddRows="False"
+                            GridLinesVisibility="Horizontal"
                             HeadersVisibility="Column"
                             IsReadOnly="True"
                             ItemsSource="{Binding ChangedParametersDisplay}"
-                            MaxHeight="180">
+                            RowHeight="26"
+                            VerticalScrollBarVisibility="Disabled">
+                            <DataGrid.Resources>
+                                <!--  Applied per column below rather than as a DataGridCell style, so NINA's own
+                                      cell theming (selection, gridlines, brushes) is left intact.  -->
+                                <Style x:Key="HF_ChangedParamCellText" TargetType="TextBlock">
+                                    <Setter Property="VerticalAlignment" Value="Center" />
+                                    <Setter Property="Margin" Value="4,0" />
+                                </Style>
+                            </DataGrid.Resources>
                             <DataGrid.Columns>
                                 <DataGridTextColumn
                                     Width="2*"
                                     Binding="{Binding Name}"
+                                    ElementStyle="{StaticResource HF_ChangedParamCellText}"
                                     Header="Parameter" />
                                 <DataGridTextColumn
                                     Width="3*"
                                     Binding="{Binding Trajectory}"
+                                    ElementStyle="{StaticResource HF_ChangedParamCellText}"
                                     Header="Current → Optimized" />
                             </DataGrid.Columns>
                         </DataGrid>

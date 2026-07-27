@@ -1647,13 +1647,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public string DetectionBinningRecommendationText => SelectedSummary?.DetectionBinningText ?? string.Empty;
 
         /// <summary>
-        /// Whether to offer "Optimize again at NxN": the measured curve calls for a different factor, this is an
-        /// Optimize-mode run (a use-current run has nothing tuned to re-tune), and there are frames on disk to
-        /// re-read.
+        /// Whether the "Optimize again at NxN" button is SHOWN: the measured curve calls for a different factor and
+        /// this is an Optimize-mode run (a use-current run has nothing tuned to re-tune).
+        ///
+        /// <para>Deliberately the same condition the body copy uses to promise the button. They were separate once,
+        /// and the copy then described an action whose control was hidden — the worst of both. Whether the action
+        /// can actually RUN is <see cref="CanOptimizeAgainAtRecommendedBinning"/>, which the command's CanExecute
+        /// uses, so an unavailable action shows as a disabled button rather than as nothing at all.</para>
         /// </summary>
+        public bool ShowOptimizeAgainAtRecommendedBinning =>
+            (SelectedSummary?.DetectionBinningDiffers ?? false) && !IsUseCurrentMode;
+
+        /// <summary>Whether the re-run can actually proceed: it reloads the run's frames from disk, so it needs the
+        /// folders that were loaded. Drives the button's enabled state.</summary>
         public bool CanOptimizeAgainAtRecommendedBinning =>
-            (SelectedSummary?.DetectionBinningDiffers ?? false)
-            && !IsUseCurrentMode
+            ShowOptimizeAgainAtRecommendedBinning
             && reoptimizeRunFolders != null && reoptimizeRunFolders.Count > 0;
 
         /// <summary>Button label, e.g. "Optimize again at 2x2" — the consequence lives in the label.</summary>
@@ -1688,12 +1696,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
                 var run = summary.RunDetectionBinning;
                 var rec = summary.RecommendedDetectionBinning;
+                var preamble = $"Star detection is calibrated for in-focus stars of about 2 to 4 pixels; this run measured {summary.MeasuredInFocusHfr:F1} px. ";
                 if (IsUseCurrentMode) {
-                    return $"Star detection is calibrated for in-focus stars of about 2 to 4 pixels; this run measured {summary.MeasuredInFocusHfr:F1} px. To change the factor, run this wizard in Optimize mode; settings must be re-tuned for a new factor.";
+                    return preamble + "To change the factor, run this wizard in Optimize mode; settings must be re-tuned for a new factor.";
                 }
-                return $"Star detection is calibrated for in-focus stars of about 2 to 4 pixels; this run measured {summary.MeasuredInFocusHfr:F1} px. "
-                     + $"Every setting above was tuned at {run}x{run} and is only valid there, so changing the factor means optimizing again. "
-                     + $"Optimize again at {rec}x{rec} repeats the search on the frames already captured; nothing is saved until you Accept the new result.";
+                var consequence = $"Every setting above was tuned at {run}x{run} and is only valid there, so changing the factor means optimizing again. ";
+                // Only promise the button when it can actually run. The frames are reloaded from disk, so a run
+                // whose folders are gone can show the recommendation but not act on it.
+                return CanOptimizeAgainAtRecommendedBinning
+                    ? preamble + consequence + $"Optimize again at {rec}x{rec} repeats the search on the frames already captured; nothing is saved until you Accept the new result."
+                    : preamble + consequence + $"The frames from this run are no longer available to re-read, so start the wizard again with detection binning set to {rec}x{rec}.";
             }
         }
 
@@ -1706,6 +1718,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(HasDetectionBinningBody));
             RaisePropertyChanged(nameof(DetectionBinningRecommendationText));
             RaisePropertyChanged(nameof(DetectionBinningBodyText));
+            RaisePropertyChanged(nameof(ShowOptimizeAgainAtRecommendedBinning));
             RaisePropertyChanged(nameof(CanOptimizeAgainAtRecommendedBinning));
             RaisePropertyChanged(nameof(OptimizeAgainAtRecommendedBinningText));
             OptimizeAgainAtRecommendedBinningCommand?.NotifyCanExecuteChanged();

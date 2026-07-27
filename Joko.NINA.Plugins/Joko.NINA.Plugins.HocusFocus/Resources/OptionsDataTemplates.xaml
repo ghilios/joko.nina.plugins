@@ -2367,7 +2367,7 @@
                   Binding paths (PerFilterStore.*, PerFilterEditBinder.*, CopyStarDetectionFromFilterCommand)
                   resolve on BOTH hosts: HocusFocusPlugin (plugin options page) and StarDetectionOptionsVM
                   (Imaging dockable) expose identically-named instance properties.  -->
-            <Grid Margin="5,10,5,0" HorizontalAlignment="Left">
+            <Grid Margin="5,2,5,0" HorizontalAlignment="Left">
                 <Grid.Resources>
                     <Style x:Key="ShowOnPerFilterEnabled" TargetType="{x:Type RowDefinition}">
                         <Setter Property="Height" Value="0" />

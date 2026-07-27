@@ -2215,6 +2215,23 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
+    public async Task OptimizeAgainButton_IsShownWheneverTheBodyCopyPromisesIt() {
+        // The body copy and the button were gated on different conditions once, so the summary could describe an
+        // action whose control was hidden. They must agree: whenever the copy names "Optimize again", the button
+        // is on screen (disabled if the frames can no longer be re-read, never absent).
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var vm = NewVM(LoaderReturning(GoodRun()), options);
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        var promisesTheButton = vm.DetectionBinningBodyText.Contains("Optimize again at");
+        Assert.That(vm.ShowOptimizeAgainAtRecommendedBinning, Is.EqualTo(promisesTheButton),
+            "the button must be visible exactly when the copy promises it");
+    }
+
+    [Test]
     public async Task OptimizeAgainAtRecommendedBinning_IsOnlyOfferedWhenTheMeasurementDisagrees() {
         var options = Substitute.For<IStarDetectionOptions>();
         options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
