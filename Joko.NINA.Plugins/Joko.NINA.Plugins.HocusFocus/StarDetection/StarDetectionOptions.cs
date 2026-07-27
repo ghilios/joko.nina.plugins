@@ -65,7 +65,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         private void RaiseDetectionBinningRecommendationChanged() {
             RaisePropertyChanged(nameof(DetectionBinningHint));
             RaisePropertyChanged(nameof(DetectionBinningHintDetail));
-            RaisePropertyChanged(nameof(DetectionBinningDiffersFromRecommendation));
             RaisePropertyChanged(nameof(DetectionBinningRecommendationVisible));
         }
 
@@ -522,12 +521,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         [JsonIgnore]
         public string DetectionBinningHintDetail => DetectionBinningResolver.DescribeRecommendationDetail(
             DetectionBinningResolver.ToFactor(detectionBinning), inFocusHfr.HfrPixels, inFocusHfr.MeasuredAtUtc);
-
-        /// <summary>True when the current factor is not what the measurement calls for, so the UI presents the line
-        /// as something to act on rather than as a confirmation.</summary>
-        [JsonIgnore]
-        public bool DetectionBinningDiffersFromRecommendation => DetectionBinningResolver.DiffersFromRecommendation(
-            DetectionBinningResolver.ToFactor(detectionBinning), inFocusHfr.HfrPixels);
 
         /// <summary>Whether to show the recommendation line at all — only when it asks for something (a first
         /// auto-focus, or a factor change). It is hidden once the setting matches the measurement.</summary>

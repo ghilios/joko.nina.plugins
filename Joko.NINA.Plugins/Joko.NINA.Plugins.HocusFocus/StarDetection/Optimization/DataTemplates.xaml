@@ -15,18 +15,6 @@
     </ResourceDictionary.MergedDictionaries>
 
     <!--  Tooltips  -->
-    <!--  Recommendation shown beside the wizard's Detection binning dropdown. Same treatment as the options
-          page: contrast from the theme's text brushes rather than Opacity, secondary while it confirms the
-          current factor and primary when it disagrees.  -->
-    <Style x:Key="HF_SweepDetectionBinningRecommendation" TargetType="TextBlock">
-        <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
-        <Style.Triggers>
-            <DataTrigger Binding="{Binding SweepDetectionBinningDiffersFromRecommendation}" Value="True">
-                <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
-            </DataTrigger>
-        </Style.Triggers>
-    </Style>
-
     <TextBlock x:Key="SDOpt_SourceMode_Tooltip" Text="Replay optimizes against a saved auto-focus run (recommended). Live triggers a fresh auto-focus that saves its frames, then optimizes against those." />
     <TextBlock x:Key="SDOpt_OptimizeMode_Tooltip" Text="Optimize runs the parameter search and recommends improved settings. Use current settings skips the search entirely and jumps straight to a summary built from your current settings, so you can review (and label) today's detection without an optimization pass. Either way, after reviewing you can still run Optimize with feedback to recover the stars you labeled." />
     <TextBlock x:Key="SDOpt_StartFromCurrent_Tooltip" Text="When checked, the optimizer SEEDS from your current settings instead of the fully-default settings, so it refines your existing setup rather than re-deriving from scratch. Useful when you've already hand-tuned detection and want incremental improvement. The search still only accepts changes that improve on your current settings, and improvement is reported against them. Leave unchecked to explore from the defaults (recommended for a first run). Only applies in Optimize mode." />
@@ -482,7 +470,6 @@
                             <TextBlock
                                 Margin="10,0,0,0"
                                 VerticalAlignment="Center"
-                                Style="{StaticResource HF_SweepDetectionBinningRecommendation}"
                                 Text="{Binding SweepDetectionBinningRecommendation}"
                                 ToolTip="{Binding SweepDetectionBinningRecommendationDetail}"
                                 Visibility="{Binding SweepDetectionBinningRecommendationVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
@@ -567,7 +554,6 @@
                             <TextBlock
                                 Margin="10,0,0,0"
                                 VerticalAlignment="Center"
-                                Style="{StaticResource HF_SweepDetectionBinningRecommendation}"
                                 Text="{Binding SweepDetectionBinningRecommendation}"
                                 ToolTip="{Binding SweepDetectionBinningRecommendationDetail}"
                                 Visibility="{Binding SweepDetectionBinningRecommendationVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />

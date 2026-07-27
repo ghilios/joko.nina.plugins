@@ -60,8 +60,10 @@ from the truth. When the fit's R² falls below 0.9 the recommendation is withhel
 curve is already visible on the chart.
 
 If the measurement disagrees with the factor the run used, the only action offered is **Optimize again at
-NxN**. It repeats the search on the frames already captured, at the new factor; nothing is written until you
-accept that result, and then the factor and the settings tuned at it are applied together. There is
+NxN**. It confirms first, explaining that every setting the run produced was tuned at the old factor and so the
+search has to run again, then repeats the search on the frames already captured — no new exposures and no
+focuser movement — and lands back on the summary. Nothing is written until you accept that result, and then
+the factor and the settings tuned at it are applied together. There is
 deliberately no way to apply the factor by itself: every parameter above was measured in the old factor's
 pixels, so pairing them with a new factor would produce a combination the optimizer never evaluated. Ignoring
 the recommendation and accepting the run as it stands is always available.

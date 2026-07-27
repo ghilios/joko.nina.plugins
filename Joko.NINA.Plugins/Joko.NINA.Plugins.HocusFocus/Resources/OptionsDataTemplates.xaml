@@ -521,21 +521,6 @@
     <TextBlock x:Key="SimpleNoiseLevel_Tooltip" Text="Controls the amount of blurring done on the source image before beginning the star detection process. Increase this if you have a particularly noisy sensor or shoot at a very high focal ratio" />
     <TextBlock x:Key="SimpleFocusRange_Tooltip" Text="As you get further from critical focus, stars become large donuts. Star detection will typically consider them too large to be stars when you're far enough from focus. Enabling a wide range increases the number of layers considered for star detection" />
     <TextBlock x:Key="SimplePixelScale_Tooltip" Text="At high focal lengths, pixel scale decreases and apparent star size (in pixels) increases. Setting this to a higher focal length increases the number of layers considered for star detection, which could increase false positives due from nebulosity" />
-    <!--  Recommendation shown beside a Detection Binning dropdown. Contrast comes from the theme's own text
-          brushes, NOT from Opacity: dimming toward the background is illegible on the dark theme. Secondary
-          while it merely confirms the current factor, primary when it disagrees, so a mismatch reads as
-          something to act on. Deliberately not a warning color — choosing a different factor is a legitimate
-          decision, not an error.  -->
-    <Style x:Key="HF_DetectionBinningRecommendation" TargetType="TextBlock">
-        <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
-        <Setter Property="TextWrapping" Value="Wrap" />
-        <Style.Triggers>
-            <DataTrigger Binding="{Binding StarDetectionOptions.DetectionBinningDiffersFromRecommendation}" Value="True">
-                <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
-            </DataTrigger>
-        </Style.Triggers>
-    </Style>
-
     <TextBlock x:Key="DetectionBinning_Tooltip" Text="Software binning applied to the frame for star detection only. Star detection is calibrated for stars whose in-focus HFR is roughly 2 to 4 pixels. At long focal lengths stars are much larger than that, which puts every pixel-based setting out of range and leaves detection slower and noisier than it needs to be. Binning the frame for detection brings star size back into range and improves signal to noise per pixel. It does not change the image you see or the HFR values reported: those stay at the resolution the camera captured. The line beside it reports the in-focus HFR your last auto-focus run actually measured, and the factor that measurement calls for. This is not the same as NINA's Auto Focus Binning, which changes how the camera captures the auto-focus frames and should match the binning you image at. The two multiply" />
     <TextBlock x:Key="UsePSFAbsoluteDeviation_Tooltip" Text="Enables an experimental PSF fitting approach that is more robust to noise and outlier pixels. This should more closely mimic PixInsight PSF fitting logic" />
     <TextBlock x:Key="RotatedHyperbolicFit_Tooltip" Text="Allows hyperbolic fitting to rotate. This can be useful if your focus curve is asymmetrical." />
@@ -994,16 +979,6 @@
             d:DataContext="{d:DesignInstance sd:StarDetectionOptionsVM,
                                              IsDesignTimeCreatable=False}">
             <Grid.Resources>
-                <!--  The detection-binning recommendation only occupies a row when it asks for something: a first
-                      auto-focus, or a factor change. Once the setting matches the measurement the row collapses.  -->
-                <Style x:Key="ShowOnDetectionBinningRecommendation" TargetType="{x:Type RowDefinition}">
-                    <Setter Property="Height" Value="0" />
-                    <Style.Triggers>
-                        <DataTrigger Binding="{Binding StarDetectionOptions.DetectionBinningRecommendationVisible}" Value="True">
-                            <Setter Property="Height" Value="Auto" />
-                        </DataTrigger>
-                    </Style.Triggers>
-                </Style>
                 <Style x:Key="ShowOnUseAdvanced" TargetType="{x:Type RowDefinition}">
                     <Setter Property="Height" Value="0" />
                     <Style.Triggers>
@@ -1172,10 +1147,9 @@
                 <!--  52: Locally Adaptive Binarization toggle (advanced-only); 53: its block-size knob (advanced-only).  -->
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
-                <!--  54: Detection Binning (always visible - it applies in both Simple and Advanced mode);
-                      55: its recommendation, which takes a row only while it has something to ask for.  -->
+                <!--  54: Detection Binning (always visible - it applies in both Simple and Advanced mode). Its
+                      recommendation lives OUTSIDE this grid, just below it — see the note there.  -->
                 <RowDefinition />
-                <RowDefinition Style="{StaticResource ShowOnDetectionBinningRecommendation}" />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -1903,20 +1877,6 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
-            <!--  Below the selector, spanning from the value column so a longer line has room. The row itself
-                  collapses when there is nothing to recommend, so this costs no vertical space at rest.  -->
-            <TextBlock
-                Grid.Row="55"
-                Grid.Column="1"
-                Grid.ColumnSpan="2"
-                MaxWidth="560"
-                Margin="5,2,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                Style="{StaticResource HF_DetectionBinningRecommendation}"
-                Text="{Binding StarDetectionOptions.DetectionBinningHint}"
-                ToolTip="{Binding StarDetectionOptions.DetectionBinningHintDetail}" />
-
             <TextBlock
                 Grid.Row="19"
                 Grid.Column="0"
@@ -2386,6 +2346,20 @@
                 IsChecked="{Binding StarDetectionOptions.SaveIntermediateImages}"
                 ToolTip="{StaticResource SaveIntermediateFiles_Tooltip}" />
         </Grid>
+            <!--  Detection-binning recommendation. Sits directly below the settings grid (Detection Binning is
+                  that grid's last row), NOT inside it: a wrapping TextBlock in a shared-size grid cell can fail
+                  to converge its measure when UI Automation forces a re-measure, pegging the UI thread — see
+                  OptionsDataTemplatesLayoutTests. Outside the grid it can wrap freely and cannot widen the
+                  shared label/value columns. Hidden unless it has something to ask for.  -->
+            <TextBlock
+                MaxWidth="560"
+                Margin="10,4,5,0"
+                HorizontalAlignment="Left"
+                Text="{Binding StarDetectionOptions.DetectionBinningHint}"
+                TextWrapping="Wrap"
+                ToolTip="{Binding StarDetectionOptions.DetectionBinningHintDetail}"
+                Visibility="{Binding StarDetectionOptions.DetectionBinningRecommendationVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+
             <!--  Per-filter star detection: master toggle (always visible) + the editing-filter selector and
                   copy-from row (shown only while the feature is on, via the RowDefinition-style pattern). A
                   separate grid BELOW the settings grid and above Import/Export, sharing the settings grid's

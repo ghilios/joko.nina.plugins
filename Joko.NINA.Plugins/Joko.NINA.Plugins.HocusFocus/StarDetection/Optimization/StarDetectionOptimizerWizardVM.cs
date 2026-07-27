@@ -395,6 +395,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // (production shows an OK/Cancel dialog; tests default to confirmed). currentFilterName/currentGain report the
         // actual filter and gain the sweep will expose with (from the filter wheel / camera), for the confirmation panel.
         private readonly Func<bool> confirmRoughFocus;
+
+        // Confirms re-running the search at a different detection binning factor. Takes (from, to) so the dialog can
+        // name both. Defaults to "yes" so tests and headless paths are not blocked.
+        private readonly Func<int, int, bool> confirmReoptimizeAtBinning;
         private readonly Func<string> currentFilterName;
         private readonly Func<int?> currentGain;
 
@@ -537,7 +541,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     binder.MutateFilterSettings(name, o => o.DefocusAwareDonutDetection = value);
                 },
                 getMeasuredInFocusHfr: () => HocusFocusPlugin.InFocusHfr?.HfrPixels ?? double.NaN,
-                recordMeasuredInFocusHfr: hfr => HocusFocusPlugin.InFocusHfr?.Record(hfr, DateTime.UtcNow, "optimization wizard live sweep")) {
+                recordMeasuredInFocusHfr: hfr => HocusFocusPlugin.InFocusHfr?.Record(hfr, DateTime.UtcNow, "optimization wizard live sweep"),
+                // Applying a different factor means every tuned setting above was measured in the wrong units, so
+                // the search has to run again. Say that before spending the user's time on it.
+                confirmReoptimizeAtBinning: (from, to) => MyMessageBox.Show(
+                    $"Detection binning {from}x{from} \u2192 {to}x{to}.\n\n"
+                    + $"Every setting this run produced was tuned at {from}x{from} and is only valid there, so the search has to run again at {to}x{to}. "
+                    + "That re-runs on the frames already captured - no new exposures, no focuser movement - and lands back on this summary.\n\n"
+                    + $"Nothing is saved until you Accept the new result, and Accept then applies the settings and {to}x{to} together.\n\n"
+                    + "Optimize again now?",
+                    "Detection Binning",
+                    System.Windows.MessageBoxButton.YesNo,
+                    System.Windows.MessageBoxResult.Yes) == System.Windows.MessageBoxResult.Yes) {
         }
 
         /// <summary>
@@ -556,6 +571,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             Func<bool> isFocuserConnected = null,
             IAutoFocusOptions autoFocusOptions = null,
             Func<bool> confirmRoughFocus = null,
+            Func<int, int, bool> confirmReoptimizeAtBinning = null,
             Func<string> currentFilterName = null,
             Func<int?> currentGain = null,
             Func<bool> perFilterEnabled = null,
@@ -585,6 +601,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // Live-sweep collaborators (delegates so the VM stays mediator-free/testable). Default confirm to true so
             // tests and headless callers proceed without a dialog.
             this.confirmRoughFocus = confirmRoughFocus ?? (() => true);
+            this.confirmReoptimizeAtBinning = confirmReoptimizeAtBinning ?? ((from, to) => true);
             this.currentFilterName = currentFilterName;
             this.currentGain = currentGain;
             this.perFilterEnabled = perFilterEnabled ?? (() => false);
@@ -925,11 +942,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public string SweepDetectionBinningRecommendationDetail => DetectionBinningResolver.DescribeRecommendationDetail(
             DetectionBinningResolver.ToFactor(starDetectionOptions.DetectionBinning), MeasuredInFocusHfrPixels, null);
 
-        /// <summary>Drives the recommendation line's emphasis: dimmed when it confirms the current factor, plain
-        /// when it disagrees.</summary>
-        public bool SweepDetectionBinningDiffersFromRecommendation => DetectionBinningResolver.DiffersFromRecommendation(
-            DetectionBinningResolver.ToFactor(starDetectionOptions.DetectionBinning), MeasuredInFocusHfrPixels);
-
         /// <summary>Whether to show the recommendation beside the dropdown at all — only when it asks for
         /// something. Hidden once the setting matches the measurement.</summary>
         public bool SweepDetectionBinningRecommendationVisible => DetectionBinningResolver.ShouldShowRecommendation(
@@ -942,7 +954,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(SweepDetectionBinning));
             RaisePropertyChanged(nameof(SweepDetectionBinningRecommendation));
             RaisePropertyChanged(nameof(SweepDetectionBinningRecommendationDetail));
-            RaisePropertyChanged(nameof(SweepDetectionBinningDiffersFromRecommendation));
             RaisePropertyChanged(nameof(SweepDetectionBinningRecommendationVisible));
         }
 
@@ -3294,6 +3305,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
 
             var target = SelectedSummary.RecommendedDetectionBinning;
+            if (!confirmReoptimizeAtBinning(SelectedSummary.RunDetectionBinning, target)) {
+                Interlocked.Exchange(ref running, 0);
+                return;
+            }
             var previous = pendingDetectionBinning;
             pendingDetectionBinning = target;
 

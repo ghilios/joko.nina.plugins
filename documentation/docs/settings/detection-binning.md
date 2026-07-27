@@ -37,7 +37,7 @@ Measured in-focus HFR 6.1 px - 2x2 recommended
 Once your setting matches what the measurement calls for, the line disappears: there is nothing to act on.
 Hover it for the reasoning, including when the measurement was taken. In the
 [Optimization Wizard](../optimization/index.md) the same line sits to the right of its dropdown, under the
-same rule.
+same rule, and its summary offers to re-run the search at the recommended factor.
 
 Disagreeing with the recommendation is a legitimate choice; nothing enforces it.
 

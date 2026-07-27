@@ -108,16 +108,22 @@ the setting matches the measurement it is hidden entirely — on the options pag
 height. A line that merely confirms the current setting costs space to say nothing, and trains the eye to skip
 the line that matters.
 
-Placement differs by surface because the constraints do. On the Star Detector options page it sits on its own
-row under the dropdown, where a longer line has room and the collapsing row keeps it free at rest; it cannot
-share the dropdown's row, because that column is `Auto` with a `SharedSizeGroup` and a long string there would
-widen the shared value column and shift every other row in the pane. In the optimization wizard's confirmation
-panel it sits to the right of the dropdown, which is a plain horizontal row with no such constraint.
+Placement differs by surface because the constraints do. On the Star Detector options page it sits directly
+below the settings grid — Detection Binning is that grid's last row — and deliberately **outside** it. It
+cannot go in a grid cell: the columns carry `SharedSizeGroup`s, so a long string would widen the shared value
+column and shift every other row, and a *wrapping* TextBlock in a shared-size cell can fail to converge its
+measure when UI Automation forces a re-measure, pegging the UI thread (there is a repo guard for exactly this,
+`OptionsDataTemplatesLayoutTests`). Outside the grid it wraps freely and affects nothing. In the optimization
+wizard's confirmation panel it sits to the right of the dropdown, which is a plain horizontal row with no such
+constraint.
 
-Emphasis comes from the theme's own text brushes — `SecondaryBrush` for the no-measurement prompt,
-`PrimaryBrush` when the factor disagrees — and explicitly NOT from `Opacity`. Dimming toward the background is
-illegible on NINA's dark theme. It is not a warning color either: overriding the recommendation is a
-legitimate choice, not an error.
+It is rendered as **ordinary text**, with no de-emphasis at all. Two earlier attempts got this wrong. `Opacity`
+dims toward the background and is illegible on NINA's dark theme. `SecondaryBrush` is worse: NINA's
+`SecondaryColor` is an accent/structural color, not a text color, and on several shipped schemas it is
+essentially the background (`#1D2731` text on a `#263238` background; `#1B2A41` on `#02010A`) — the line
+rendered invisibly and read as an unexplained gap in the options pane. Since the line now appears only when it
+has something to ask for, there is nothing left to de-emphasize: it inherits the same foreground as every
+other label.
 
 #### Why not estimate from pixel scale
 
