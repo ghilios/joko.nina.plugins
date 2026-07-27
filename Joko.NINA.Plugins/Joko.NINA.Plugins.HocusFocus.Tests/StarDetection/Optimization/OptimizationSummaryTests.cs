@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection.Optimization;
@@ -192,6 +193,32 @@ public class OptimizationSummaryTests {
             Assert.That(s.HasDetectionBinningMeasurement, Is.False);
             Assert.That(s.DetectionBinningDiffers, Is.False);
             Assert.That(s.DetectionBinningPendingApply, Is.False);
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_FollowsTheVariantsOwnCurve_NotTheBaseline() {
+        // Regression: a run whose OPTIMIZED curve bottomed at 5.1 px reported "measured in-focus HFR 4.3 px, 1x1
+        // unchanged", because the number came from the current-settings curve while the chart showed the optimized
+        // one. The current-settings curve is exactly the one not to trust here — that run's focus precision went
+        // 45.88 -> 6.64 by switching off it.
+        var optimized = new OptimizationSummary {
+            RunDetectionBinning = 1, PersistedDetectionBinning = 1,
+            MeasuredInFocusHfr = 5.1, FitRSquared = 0.99,
+            BaselineMeasuredInFocusHfr = 4.3, BaselineFitRSquared = 0.98,
+            RecommendedDetectionBinning = DetectionBinningResolver.RecommendFromHfr(5.1)
+        };
+        var current = StarDetectionOptimizerWizardVM.BuildCurrentSummary(optimized);
+
+        Assert.Multiple(() => {
+            Assert.That(optimized.MeasuredInFocusHfr, Is.EqualTo(5.1), "the Optimized view reports the optimized curve");
+            Assert.That(optimized.RecommendedDetectionBinning, Is.EqualTo(2), "5.1 px calls for 2x2");
+            Assert.That(optimized.DetectionBinningDiffers, Is.True);
+
+            // The Current view keeps the current settings, so it reports what THOSE measure.
+            Assert.That(current.MeasuredInFocusHfr, Is.EqualTo(4.3));
+            Assert.That(current.RecommendedDetectionBinning, Is.EqualTo(1), "4.3 px is still in range");
+            Assert.That(current.DetectionBinningDiffers, Is.False);
         });
     }
 

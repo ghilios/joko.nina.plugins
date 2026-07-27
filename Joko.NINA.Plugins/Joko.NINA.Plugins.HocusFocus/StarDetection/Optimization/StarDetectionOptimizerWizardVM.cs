@@ -123,13 +123,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// it is the better answer whenever a run exists.</summary>
         public int RecommendedDetectionBinning { get; set; } = 1;
 
-        /// <summary>Fitted minimum (in-focus) HFR from the run's CURRENT-settings curve, in captured pixels.
-        /// NaN when the baseline fit was degenerate, which suppresses the whole block.</summary>
+        /// <summary>
+        /// Fitted minimum (in-focus) HFR for THIS VARIANT's settings, in captured pixels — the optimized settings
+        /// on the Optimized/Feedback views, the current ones on the Current view. It must follow the variant,
+        /// because the variant is what Accept applies and what the chart above is showing: reading it from the
+        /// current-settings curve while displaying the optimized one produced a recommendation that contradicted
+        /// the graph (a run whose optimized curve bottomed at 5.1 px reported 4.3 px and asked for no change).
+        /// NaN when that variant's fit was degenerate.
+        /// </summary>
         public double MeasuredInFocusHfr { get; set; } = double.NaN;
 
-        /// <summary>R² of the CURRENT-settings focus-curve fit that <see cref="MeasuredInFocusHfr"/> came from.
-        /// NaN when no fit was produced.</summary>
+        /// <summary>R² of the focus-curve fit <see cref="MeasuredInFocusHfr"/> came from. NaN when no fit.</summary>
         public double FitRSquared { get; set; } = double.NaN;
+
+        /// <summary>The CURRENT-settings equivalents, carried so the Current variant's summary can be built from
+        /// this one (see <c>BuildCurrentSummary</c>) without re-evaluating the runs.</summary>
+        public double BaselineMeasuredInFocusHfr { get; set; } = double.NaN;
+
+        public double BaselineFitRSquared { get; set; } = double.NaN;
 
         /// <summary>
         /// Minimum fit quality before the fitted curve minimum may be used as an in-focus HFR.
@@ -2601,6 +2612,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // binning recommendation is derived from. Detection reports HFR in captured pixels regardless of the
             // binning it analyzed at, so this needs no rescaling.
             var measuredInFocusHfr = double.NaN;
+            var measuredFitRSquared = double.NaN;
+            var baselineInFocusHfr = double.NaN;
             var baselineFitRSquared = double.NaN;
             OptimizationCurve currentCurveLocal = null, optimizedCurveLocal = null;
             for (var i = 0; i < runs.Count; i++) {
@@ -2611,7 +2624,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (double.IsFinite(bestEval.Metrics.SigmaFocus)) { bestSigmaSum += bestEval.Metrics.SigmaFocus; bestSigmaCount++; }
                 if (i == 0) {
                     representativeBestFit = bestEval.BestFit;
-                    measuredInFocusHfr = baselineEval.BestFit?.Minimum.Y ?? double.NaN;
+                    // This summary describes the OPTIMIZED variant, so its in-focus HFR comes from the optimized
+                    // curve — the one plotted above it and the one Accept puts into service. The current-settings
+                    // numbers are carried alongside for BuildCurrentSummary.
+                    measuredInFocusHfr = bestEval.BestFit?.Minimum.Y ?? double.NaN;
+                    measuredFitRSquared = bestEval.Metrics?.RSquared ?? double.NaN;
+                    baselineInFocusHfr = baselineEval.BestFit?.Minimum.Y ?? double.NaN;
                     baselineFitRSquared = baselineEval.Metrics?.RSquared ?? double.NaN;
                     var (baselineCore, baselineRecovery) = PartitionRecoveryPoints(baselineEval);
                     var (bestCore, bestRecovery) = PartitionRecoveryPoints(bestEval);
@@ -2649,16 +2667,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RunDetectionBinning = Math.Max(1, baseline.DetectionBinning),
                 PersistedDetectionBinning = DetectionBinningResolver.ToFactor(starDetectionOptions.DetectionBinning),
                 MeasuredInFocusHfr = measuredInFocusHfr,
-                FitRSquared = baselineFitRSquared,
+                FitRSquared = measuredFitRSquared,
+                BaselineMeasuredInFocusHfr = baselineInFocusHfr,
+                BaselineFitRSquared = baselineFitRSquared,
                 RecommendedDetectionBinning = DetectionBinningResolver.RecommendFromHfr(measuredInFocusHfr)
             };
-            // Publish this run's measured in-focus HFR so the options page agrees with the wizard — but only from a
-            // LIVE sweep, whose frames were captured on THIS rig just now. Replaying a saved run (possibly from
-            // another scope, or another night) must not overwrite the rig's measurement.
-            if (lastRunWasLive && summary.HasDetectionBinningMeasurement) {
-                recordMeasuredInFocusHfr?.Invoke(summary.MeasuredInFocusHfr);
-            }
-
             return (summary, currentCurveLocal, optimizedCurveLocal);
         }
 
@@ -2668,7 +2681,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// current profile values (so the apply-step-size toggle is disabled). Used so toggling to "Current" shows a
         /// truthful "no changes" summary alongside the current curve.
         /// </summary>
-        private static OptimizationSummary BuildCurrentSummary(OptimizationSummary optimized) {
+        internal static OptimizationSummary BuildCurrentSummary(OptimizationSummary optimized) {
             return new OptimizationSummary {
                 ChangedParameters = Array.Empty<ChangedParameterRow>(),
                 SeedJ = optimized.SeedJ,
@@ -2681,13 +2694,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 CurrentStepSize = optimized.CurrentStepSize,
                 CurrentOffsetSteps = optimized.CurrentOffsetSteps,
                 ImprovedOverSeed = false,
-                // The binning recommendation is a property of the FRAMES, not of the detector settings variant, so
-                // it carries over verbatim to the Current view.
                 RunDetectionBinning = optimized.RunDetectionBinning,
                 PersistedDetectionBinning = optimized.PersistedDetectionBinning,
-                MeasuredInFocusHfr = optimized.MeasuredInFocusHfr,
-                FitRSquared = optimized.FitRSquared,
-                RecommendedDetectionBinning = optimized.RecommendedDetectionBinning
+                // The Current view keeps the current detector settings, so its in-focus HFR is the one THOSE
+                // settings measure, not the optimized run's.
+                MeasuredInFocusHfr = optimized.BaselineMeasuredInFocusHfr,
+                FitRSquared = optimized.BaselineFitRSquared,
+                BaselineMeasuredInFocusHfr = optimized.BaselineMeasuredInFocusHfr,
+                BaselineFitRSquared = optimized.BaselineFitRSquared,
+                RecommendedDetectionBinning = DetectionBinningResolver.RecommendFromHfr(optimized.BaselineMeasuredInFocusHfr)
             };
         }
 
@@ -2772,6 +2787,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
             } else {
                 Logger.Info("Keeping current star-detection settings (the optimizer did not beat them); applying the recommended auto-focus settings only.");
+            }
+
+            // Publish the ACCEPTED variant's measured in-focus HFR so the options page agrees with what is now in
+            // service — only from a LIVE sweep, whose frames were captured on this rig just now (replaying a saved
+            // run, possibly from another scope or another night, must not overwrite the rig's measurement), and
+            // only on Accept, keeping the wizard's contract that Accept is the only thing that writes.
+            if (lastRunWasLive && summary.HasDetectionBinningMeasurement) {
+                recordMeasuredInFocusHfr?.Invoke(summary.MeasuredInFocusHfr);
             }
 
             // The single "Apply these auto-focus settings" toggle writes the recommended step size / offset, and for a

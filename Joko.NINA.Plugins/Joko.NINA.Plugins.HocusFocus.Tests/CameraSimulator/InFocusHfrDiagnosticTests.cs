@@ -2,6 +2,7 @@
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
 using OxyPlot.Series;
@@ -207,6 +208,46 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 DetectionBinningResolver.RecommendFromHfr(minMeasured),
                 DetectionBinningResolver.RecommendFromHfr(nearestToFitX),
                 DetectionBinningResolver.RecommendFromHfr(truth.HfrMinPixels)));
+            Assert.Pass("diagnostic output only");
+        }
+
+        /// <summary>
+        /// DIAGNOSTIC for "the recommended step size looks far off". StepSizeRecommender sizes the step from the
+        /// half-width of the band where HFR climbs from its minimum to 3x that minimum. On a SHALLOW sweep — one
+        /// whose ends only reach a fraction of 3x — that half-width is not in the data at all; it comes from
+        /// extrapolating the fitted hyperbola past the outermost sampled point. This prints how far.
+        /// </summary>
+        [TestCase(1.20)]
+        [TestCase(1.36)]   // the reported run: HFR ~5.1 at the vertex, ~6.9 at the sweep ends
+        [TestCase(2.00)]
+        [TestCase(3.00)]
+        public void Diagnostic_StepSizeRecommendation_ExtrapolationBeyondTheSampledSweep(double edgeHfrRatio) {
+            // A synthetic hyperbola with exactly the physics the AF curve follows: HFR = sqrt(min^2 + (k*dx)^2).
+            const double minHfr = 5.1;
+            const int centre = 25150;
+            const int stepSize = 524;
+            const int offsetSteps = 4;
+            var halfSpan = stepSize * offsetSteps;
+            // Choose k so the sweep's outermost point lands at edgeHfrRatio x the minimum.
+            var k = Math.Sqrt(edgeHfrRatio * edgeHfrRatio - 1.0) * minHfr / halfSpan;
+
+            var points = new List<ScatterErrorPoint>();
+            for (var i = -offsetSteps; i <= offsetSteps; i++) {
+                var dx = i * stepSize;
+                points.Add(new ScatterErrorPoint(centre + dx, Math.Sqrt(minHfr * minHfr + k * dx * k * dx), 0, 0.01));
+            }
+
+            AlglibHyperbolicFitting.SelectBestModel(
+                new AlglibAPI(), points, stepSize, useWeights: false, maxOutlierRejections: 0, rejectionConfidence: 0.0,
+                out var bestFit, out _);
+            var recommendation = StepSizeRecommender.Recommend(bestFit, stepSize);
+
+            // Where the 3x band actually sits, from the same physics that generated the points.
+            var trueHalfWidth = Math.Sqrt(9.0 - 1.0) * minHfr / k;
+            TestContext.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                "edge {0:F2}x min | sampled half-span {1} | 3x half-width {2:F0} ({3:F1}x the sampled half-span) | recommended step {4} -> sweep +/-{5}",
+                edgeHfrRatio, halfSpan, trueHalfWidth, trueHalfWidth / halfSpan,
+                recommendation.StepSize, recommendation.StepSize * recommendation.OffsetSteps));
             Assert.Pass("diagnostic output only");
         }
 
