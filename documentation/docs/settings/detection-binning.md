@@ -27,13 +27,15 @@ Advanced mode.
 
 **Default:** `1x1 (Off)` &nbsp;•&nbsp; **Range:** 1x1 (Off), 2x2, 3x3, 4x4.
 
-Nothing chooses the factor for you. Under the dropdown, a line recommends one and shows the reasoning:
+Nothing chooses the factor for you. Beside the dropdown, a short line recommends one:
 
 ```
-Recommended: 2x2 (currently 1x1) - 0.28"/px, est. in-focus HFR ~5.4 px -> ~2.7 px at 2x2
+Recommended: 2x2
 ```
 
-The line is dimmed while it agrees with your setting and plain when it does not, so a mismatch is visible
+It reads *Recommended: 2x2 (current)* once you have selected it. Hover for the reasoning: the pixel scale,
+the star size it implies, and where that size lands once binned. The line is drawn in the secondary text
+color while it agrees with your setting and in the primary color when it does not, so a mismatch is visible
 without being alarming. Disagreeing with it is a legitimate choice.
 
 !!! note "Why there is no Auto"

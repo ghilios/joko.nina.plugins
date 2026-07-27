@@ -102,32 +102,43 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         }
 
         /// <summary>
-        /// The one-line recommendation shown under the setting on the options page AND in the optimization
-        /// wizard's confirmation panel, e.g.
-        /// <c>Recommended: 2x2 (currently 1x1) - 0.28"/px, est. in-focus HFR ~5.4 px -&gt; ~2.7 px at 2x2</c>.
-        /// It always names the RECOMMENDED factor and the numbers behind it; the current factor appears in
-        /// parentheses so the user can see at a glance whether they already match. Purely advisory — see the
-        /// class remarks for why nothing here applies itself.
+        /// The recommendation shown beside the setting: short enough to sit on the same row as the dropdown, so
+        /// it costs no vertical space. Just the factor and whether it is already selected — e.g.
+        /// <c>Recommended: 2x2</c>, or <c>Recommended: 2x2 (current)</c>. The reasoning lives in
+        /// <see cref="DescribeRecommendationDetail"/>, shown on hover.
         /// </summary>
         public static string DescribeRecommendation(int currentFactor, double pixelScaleArcsecPerPixel) {
             if (!IsUsablePixelScale(pixelScaleArcsecPerPixel)) {
-                return "No recommendation - pixel scale unknown, set pixel size and focal length in NINA's Options";
+                return "No recommendation";
+            }
+            var current = Clamp(currentFactor);
+            var recommended = RecommendFromPixelScale(pixelScaleArcsecPerPixel);
+            return current == recommended
+                ? string.Format(CultureInfo.CurrentCulture, "Recommended: {0}x{0} (current)", recommended)
+                : string.Format(CultureInfo.CurrentCulture, "Recommended: {0}x{0}", recommended);
+        }
+
+        /// <summary>
+        /// The reasoning behind <see cref="DescribeRecommendation"/>, for its tooltip: the pixel scale, the star
+        /// size that implies, and where that size lands once binned.
+        /// </summary>
+        public static string DescribeRecommendationDetail(int currentFactor, double pixelScaleArcsecPerPixel) {
+            if (!IsUsablePixelScale(pixelScaleArcsecPerPixel)) {
+                return "Pixel scale is unknown, so there is nothing to recommend from. Set pixel size and focal length in NINA's Options.";
             }
 
-            var current = Clamp(currentFactor);
             var recommended = RecommendFromPixelScale(pixelScaleArcsecPerPixel);
             var hfr = EstimateInFocusHfrPixels(pixelScaleArcsecPerPixel);
             var ci = CultureInfo.CurrentCulture;
-            var state = current == recommended ? "current" : string.Format(ci, "currently {0}x{0}", current);
+            var reasoning = recommended > 1
+                ? string.Format(ci, "At {0:0.00}\"/px an in-focus star is about {1:0.0} px across, which is bigger than star detection is calibrated for. Binning {2}x{2} brings that to about {3:0.0} px.",
+                    pixelScaleArcsecPerPixel, hfr, recommended, hfr / recommended)
+                : string.Format(ci, "At {0:0.00}\"/px an in-focus star is about {1:0.0} px across, which is already in the range star detection is calibrated for, so binning is not needed.",
+                    pixelScaleArcsecPerPixel, hfr);
 
-            // At 1x1 the tail explains why no binning is called for; above it, the tail justifies the factor by
-            // showing where the star size lands once the frame is binned.
-            var tail = recommended > 1
-                ? string.Format(ci, "est. in-focus HFR ~{0:0.0} px -> ~{1:0.0} px at {2}x{2}", hfr, hfr / recommended, recommended)
-                : string.Format(ci, "est. in-focus HFR ~{0:0.0} px, {1}", hfr,
-                    current == 1 ? "already in the detector's range" : "binning is not needed");
-
-            return string.Format(ci, "Recommended: {0}x{0} ({1}) - {2:0.00}\"/px, {3}", recommended, state, pixelScaleArcsecPerPixel, tail);
+            return reasoning
+                + $" The target is roughly 2 to 4 px, from an assumed {AssumedFwhmArcsec:0.0}\" seeing figure."
+                + " The Optimization Wizard recommends from your measured focus curve instead, which is the better answer once you have run it.";
         }
 
         /// <summary>True when <paramref name="currentFactor"/> is not what this pixel scale calls for, so the UI

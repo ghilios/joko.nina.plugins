@@ -15,16 +15,14 @@
     </ResourceDictionary.MergedDictionaries>
 
     <!--  Tooltips  -->
-    <!--  Recommendation line under the wizard's Detection binning control. Same two-state treatment as the
-          options page: dimmed while it confirms the current factor, plain when it disagrees.  -->
+    <!--  Recommendation shown beside the wizard's Detection binning dropdown. Same treatment as the options
+          page: contrast from the theme's text brushes rather than Opacity, secondary while it confirms the
+          current factor and primary when it disagrees.  -->
     <Style x:Key="HF_SweepDetectionBinningRecommendation" TargetType="TextBlock">
-        <Setter Property="FontStyle" Value="Italic" />
-        <Setter Property="Opacity" Value="0.7" />
-        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
         <Style.Triggers>
             <DataTrigger Binding="{Binding SweepDetectionBinningDiffersFromRecommendation}" Value="True">
-                <Setter Property="FontStyle" Value="Normal" />
-                <Setter Property="Opacity" Value="1.0" />
+                <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
             </DataTrigger>
         </Style.Triggers>
     </Style>
@@ -481,14 +479,13 @@
                                     </DataTemplate>
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
+                            <TextBlock
+                                Margin="10,0,0,0"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource HF_SweepDetectionBinningRecommendation}"
+                                Text="{Binding SweepDetectionBinningRecommendation}"
+                                ToolTip="{Binding SweepDetectionBinningRecommendationDetail}" />
                         </StackPanel>
-                        <TextBlock
-                            MaxWidth="360"
-                            Margin="200,2,0,0"
-                            HorizontalAlignment="Left"
-                            Style="{StaticResource HF_SweepDetectionBinningRecommendation}"
-                            Text="{Binding SweepDetectionBinningRecommendation}"
-                            ToolTip="{StaticResource DetectionBinning_Tooltip}" />
                     </StackPanel>
 
                     <!--  Live sweep confirmation (Live source only). The sweep is centered on the current focuser
@@ -566,14 +563,13 @@
                                     </DataTemplate>
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
+                            <TextBlock
+                                Margin="10,0,0,0"
+                                VerticalAlignment="Center"
+                                Style="{StaticResource HF_SweepDetectionBinningRecommendation}"
+                                Text="{Binding SweepDetectionBinningRecommendation}"
+                                ToolTip="{Binding SweepDetectionBinningRecommendationDetail}" />
                         </StackPanel>
-                        <TextBlock
-                            MaxWidth="360"
-                            Margin="200,2,0,0"
-                            HorizontalAlignment="Left"
-                            Style="{StaticResource HF_SweepDetectionBinningRecommendation}"
-                            Text="{Binding SweepDetectionBinningRecommendation}"
-                            ToolTip="{StaticResource DetectionBinning_Tooltip}" />
                         <StackPanel Margin="0,2" Orientation="Horizontal">
                             <TextBlock Width="200" VerticalAlignment="Center" Text="Filter" />
                             <TextBlock VerticalAlignment="Center" Text="{Binding SweepFilterName}" />

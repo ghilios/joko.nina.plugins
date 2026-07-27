@@ -107,9 +107,14 @@ Worked examples on a 3.76 µm sensor:
 | 3910 mm | 0.20″/px | 7.6 px | 3×3 | 2.5 px |
 | 5600 mm | 0.14″/px | 10.8 px | 4×4 | 2.7 px |
 
-The recommendation line names the recommended factor and the numbers behind it, with the current factor in
-parentheses so a mismatch is visible at a glance. It is dimmed while it agrees and plain when it does not —
-attention without alarm, because disagreeing with an assumed seeing figure is a legitimate choice.
+The recommendation sits on the SAME row as the dropdown, so the option costs no extra vertical space, and is
+correspondingly terse: `Recommended: 2x2`, or `Recommended: 2x2 (current)` when it is already selected. The
+pixel scale, the implied star size, and where that size lands once binned go in its tooltip.
+
+Emphasis comes from the theme's own text brushes — `SecondaryBrush` while it merely confirms the current
+factor, `PrimaryBrush` when it disagrees — and explicitly NOT from `Opacity`. Dimming toward the background is
+illegible on NINA's dark theme. It is not a warning color either: disagreeing with an assumed seeing figure is
+a legitimate choice, not an error.
 
 ### Optimization: recommend from measurement, and re-run rather than re-label
 

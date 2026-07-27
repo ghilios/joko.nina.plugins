@@ -79,6 +79,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         private void RaiseDetectionBinningRecommendationChanged() {
             RaisePropertyChanged(nameof(DetectionBinningHint));
+            RaisePropertyChanged(nameof(DetectionBinningHintDetail));
             RaisePropertyChanged(nameof(DetectionBinningDiffersFromRecommendation));
         }
 
@@ -525,12 +526,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         /// <summary>
-        /// The one-line recommendation shown under the option: the factor this rig's pixel scale calls for, and
-        /// the numbers behind it. Advice only — nothing changes the setting but the user. Derived from the
-        /// profile, never persisted.
+        /// The short recommendation shown beside the dropdown ("Recommended: 2x2"). Advice only — nothing changes
+        /// the setting but the user. Derived from the profile, never persisted.
         /// </summary>
         [JsonIgnore]
         public string DetectionBinningHint => DetectionBinningResolver.DescribeRecommendation(
+            DetectionBinningResolver.ToFactor(detectionBinning), DetectionBinningResolver.PixelScaleFromProfile(profileService));
+
+        /// <summary>The reasoning behind <see cref="DetectionBinningHint"/>, shown as its tooltip.</summary>
+        [JsonIgnore]
+        public string DetectionBinningHintDetail => DetectionBinningResolver.DescribeRecommendationDetail(
             DetectionBinningResolver.ToFactor(detectionBinning), DetectionBinningResolver.PixelScaleFromProfile(profileService));
 
         /// <summary>True when the current factor is not the recommended one, so the UI presents the line as

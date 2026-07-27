@@ -114,31 +114,35 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
         }
 
         [Test]
-        public void DescribeRecommendation_AboveOne_NamesTheFactorAndWhereStarSizeLands() {
-            // Differs from the current factor: the current one is called out so the mismatch is visible at a glance.
-            var differs = DetectionBinningResolver.DescribeRecommendation(1, PixelScale(2800));
-            Assert.That(differs, Is.EqualTo("Recommended: 2x2 (currently 1x1) - 0.28\"/px, est. in-focus HFR ~5.4 px -> ~2.7 px at 2x2"));
-
-            // Already matching: same numbers, but it reads as a confirmation.
-            var matches = DetectionBinningResolver.DescribeRecommendation(2, PixelScale(2800));
-            Assert.That(matches, Is.EqualTo("Recommended: 2x2 (current) - 0.28\"/px, est. in-focus HFR ~5.4 px -> ~2.7 px at 2x2"));
-        }
-
-        [Test]
-        public void DescribeRecommendation_AtOne_SaysWhyBinningIsNotCalledFor() {
-            var matches = DetectionBinningResolver.DescribeRecommendation(1, PixelScale(910));
-            Assert.That(matches, Is.EqualTo("Recommended: 1x1 (current) - 0.85\"/px, est. in-focus HFR ~1.8 px, already in the detector's range"));
-
-            var differs = DetectionBinningResolver.DescribeRecommendation(2, PixelScale(910));
-            Assert.That(differs, Is.EqualTo("Recommended: 1x1 (currently 2x2) - 0.85\"/px, est. in-focus HFR ~1.8 px, binning is not needed"));
-        }
-
-        [Test]
-        public void DescribeRecommendation_UnknownPixelScale_OffersNoRecommendation() {
-            var text = DetectionBinningResolver.DescribeRecommendation(1, double.NaN);
+        public void DescribeRecommendation_IsShortEnoughToSitBesideTheDropdown() {
+            // It shares a row with the control, so it says the factor and nothing else. The reasoning is in the
+            // tooltip; anything longer would cost the vertical space this layout exists to save.
             Assert.Multiple(() => {
-                Assert.That(text, Is.EqualTo("No recommendation - pixel scale unknown, set pixel size and focal length in NINA's Options"));
-                Assert.That(text, Does.Not.Contain("NaN"));
+                Assert.That(DetectionBinningResolver.DescribeRecommendation(1, PixelScale(2800)), Is.EqualTo("Recommended: 2x2"));
+                Assert.That(DetectionBinningResolver.DescribeRecommendation(2, PixelScale(2800)), Is.EqualTo("Recommended: 2x2 (current)"));
+                Assert.That(DetectionBinningResolver.DescribeRecommendation(1, PixelScale(910)), Is.EqualTo("Recommended: 1x1 (current)"));
+                Assert.That(DetectionBinningResolver.DescribeRecommendation(2, PixelScale(910)), Is.EqualTo("Recommended: 1x1"));
+                Assert.That(DetectionBinningResolver.DescribeRecommendation(1, double.NaN), Is.EqualTo("No recommendation"));
+            });
+        }
+
+        [Test]
+        public void DescribeRecommendationDetail_CarriesTheReasoningAndNoRawNaN() {
+            var above = DetectionBinningResolver.DescribeRecommendationDetail(1, PixelScale(2800));
+            Assert.Multiple(() => {
+                Assert.That(above, Does.Contain("0.28\"/px"));
+                Assert.That(above, Does.Contain("5.4 px"));
+                Assert.That(above, Does.Contain("2.7 px"), "it must say where binning lands the star size");
+                Assert.That(above, Does.Contain("2 to 4 px"));
+            });
+
+            var atOne = DetectionBinningResolver.DescribeRecommendationDetail(1, PixelScale(910));
+            Assert.That(atOne, Does.Contain("binning is not needed"));
+
+            var unknown = DetectionBinningResolver.DescribeRecommendationDetail(1, double.NaN);
+            Assert.Multiple(() => {
+                Assert.That(unknown, Does.Contain("pixel size and focal length"));
+                Assert.That(unknown, Does.Not.Contain("NaN"));
             });
         }
 

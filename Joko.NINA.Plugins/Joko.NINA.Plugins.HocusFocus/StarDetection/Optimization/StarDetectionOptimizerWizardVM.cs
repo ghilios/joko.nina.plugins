@@ -867,9 +867,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
-        /// <summary>The same recommendation line the Star Detector options page shows, from the same function, so
-        /// the two surfaces can never print different numbers.</summary>
+        /// <summary>The same short recommendation the Star Detector options page shows, from the same function, so
+        /// the two surfaces can never disagree.</summary>
         public string SweepDetectionBinningRecommendation => DetectionBinningResolver.DescribeRecommendation(
+            DetectionBinningResolver.ToFactor(starDetectionOptions.DetectionBinning), SweepPixelScaleArcsecPerPixel);
+
+        /// <summary>The reasoning behind it, shown as the recommendation's tooltip.</summary>
+        public string SweepDetectionBinningRecommendationDetail => DetectionBinningResolver.DescribeRecommendationDetail(
             DetectionBinningResolver.ToFactor(starDetectionOptions.DetectionBinning), SweepPixelScaleArcsecPerPixel);
 
         /// <summary>Drives the recommendation line's emphasis: dimmed when it confirms the current factor, plain
@@ -880,6 +884,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private void RaiseSweepDetectionBinningChanged() {
             RaisePropertyChanged(nameof(SweepDetectionBinning));
             RaisePropertyChanged(nameof(SweepDetectionBinningRecommendation));
+            RaisePropertyChanged(nameof(SweepDetectionBinningRecommendationDetail));
             RaisePropertyChanged(nameof(SweepDetectionBinningDiffersFromRecommendation));
         }
 

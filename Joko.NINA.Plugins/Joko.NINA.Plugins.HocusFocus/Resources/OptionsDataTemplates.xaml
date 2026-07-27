@@ -521,17 +521,16 @@
     <TextBlock x:Key="SimpleNoiseLevel_Tooltip" Text="Controls the amount of blurring done on the source image before beginning the star detection process. Increase this if you have a particularly noisy sensor or shoot at a very high focal ratio" />
     <TextBlock x:Key="SimpleFocusRange_Tooltip" Text="As you get further from critical focus, stars become large donuts. Star detection will typically consider them too large to be stars when you're far enough from focus. Enabling a wide range increases the number of layers considered for star detection" />
     <TextBlock x:Key="SimplePixelScale_Tooltip" Text="At high focal lengths, pixel scale decreases and apparent star size (in pixels) increases. Setting this to a higher focal length increases the number of layers considered for star detection, which could increase false positives due from nebulosity" />
-    <!--  Recommendation line under a Detection Binning control. Dimmed while it confirms the current factor;
-          plain (full opacity, upright) when it disagrees, so a mismatch reads as something to act on. Deliberately
-          NOT a warning color: choosing a different factor is a legitimate decision, not an error.  -->
+    <!--  Recommendation shown beside a Detection Binning dropdown. Contrast comes from the theme's own text
+          brushes, NOT from Opacity: dimming toward the background is illegible on the dark theme. Secondary
+          while it merely confirms the current factor, primary when it disagrees, so a mismatch reads as
+          something to act on. Deliberately not a warning color — choosing a different factor is a legitimate
+          decision, not an error.  -->
     <Style x:Key="HF_DetectionBinningRecommendation" TargetType="TextBlock">
-        <Setter Property="FontStyle" Value="Italic" />
-        <Setter Property="Opacity" Value="0.7" />
-        <Setter Property="TextWrapping" Value="Wrap" />
+        <Setter Property="Foreground" Value="{StaticResource SecondaryBrush}" />
         <Style.Triggers>
             <DataTrigger Binding="{Binding StarDetectionOptions.DetectionBinningDiffersFromRecommendation}" Value="True">
-                <Setter Property="FontStyle" Value="Normal" />
-                <Setter Property="Opacity" Value="1.0" />
+                <Setter Property="Foreground" Value="{StaticResource PrimaryBrush}" />
             </DataTrigger>
         </Style.Triggers>
     </Style>
@@ -1162,9 +1161,8 @@
                 <!--  52: Locally Adaptive Binarization toggle (advanced-only); 53: its block-size knob (advanced-only).  -->
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
-                <!--  54: Detection Binning (always visible - it applies in both Simple and Advanced mode);
-                      55: its resolved-factor readout.  -->
-                <RowDefinition />
+                <!--  54: Detection Binning (always visible - it applies in both Simple and Advanced mode). The
+                      recommendation shares this row with the dropdown rather than taking one of its own.  -->
                 <RowDefinition />
             </Grid.RowDefinitions>
             <TextBlock
@@ -1893,16 +1891,17 @@
                     </DataTemplate>
                 </ComboBox.ItemTemplate>
             </ComboBox>
+            <!--  Column 2, not column 1: col1 is Auto with SharedSizeGroup HF_SDCol1, so putting this beside the
+                  dropdown in col1 would widen the shared value column and shift every other row in the pane.  -->
             <TextBlock
-                Grid.Row="55"
-                Grid.Column="1"
-                MaxWidth="560"
-                Margin="5,2,0,0"
+                Grid.Row="54"
+                Grid.Column="2"
+                Margin="10,5,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
                 Style="{StaticResource HF_DetectionBinningRecommendation}"
                 Text="{Binding StarDetectionOptions.DetectionBinningHint}"
-                ToolTip="{StaticResource DetectionBinning_Tooltip}" />
+                ToolTip="{Binding StarDetectionOptions.DetectionBinningHintDetail}" />
 
             <TextBlock
                 Grid.Row="19"
