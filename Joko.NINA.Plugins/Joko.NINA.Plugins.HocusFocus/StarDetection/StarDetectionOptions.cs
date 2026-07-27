@@ -17,6 +17,7 @@ using NINA.Core.Utility;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
 using System;
+using System.ComponentModel;
 using System.IO;
 using System.Collections.Generic;
 using Newtonsoft.Json;
@@ -41,7 +42,44 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             this.profileService = profileService;
             profileService.ProfileChanged += ProfileService_ProfileChanged;
             this.PropertyChanged += StarDetectionOptions_PropertyChanged;
+            // The detection-binning recommendation is derived from the profile's optics, so it goes stale the
+            // moment those change. Advice the user cannot trust is worse than no advice, so track them.
+            opticsChangedHandler = (s, e) => {
+                if (e.PropertyName == nameof(ITelescopeSettings.FocalLength)
+                    || e.PropertyName == nameof(ICameraSettings.PixelSize)
+                    || e.PropertyName == nameof(IFocuserSettings.AutoFocusBinning)) {
+                    RaiseDetectionBinningRecommendationChanged();
+                }
+            };
+            HookActiveProfileOptics();
             InitializeOptions();
+        }
+
+        // The settings objects currently subscribed for the recommendation refresh. Tracked so in-place edits
+        // refresh it and a profile swap re-hooks cleanly (mirrors CameraSimulatorOptions' telescope hook).
+        private readonly PropertyChangedEventHandler opticsChangedHandler;
+        private ITelescopeSettings hookedTelescopeSettings;
+        private ICameraSettings hookedCameraSettings;
+        private IFocuserSettings hookedFocuserSettings;
+
+        private void HookActiveProfileOptics() {
+            if (hookedTelescopeSettings != null) { hookedTelescopeSettings.PropertyChanged -= opticsChangedHandler; }
+            if (hookedCameraSettings != null) { hookedCameraSettings.PropertyChanged -= opticsChangedHandler; }
+            if (hookedFocuserSettings != null) { hookedFocuserSettings.PropertyChanged -= opticsChangedHandler; }
+
+            var profile = profileService?.ActiveProfile;
+            hookedTelescopeSettings = profile?.TelescopeSettings;
+            hookedCameraSettings = profile?.CameraSettings;
+            hookedFocuserSettings = profile?.FocuserSettings;
+
+            if (hookedTelescopeSettings != null) { hookedTelescopeSettings.PropertyChanged += opticsChangedHandler; }
+            if (hookedCameraSettings != null) { hookedCameraSettings.PropertyChanged += opticsChangedHandler; }
+            if (hookedFocuserSettings != null) { hookedFocuserSettings.PropertyChanged += opticsChangedHandler; }
+        }
+
+        private void RaiseDetectionBinningRecommendationChanged() {
+            RaisePropertyChanged(nameof(DetectionBinningHint));
+            RaisePropertyChanged(nameof(DetectionBinningDiffersFromRecommendation));
         }
 
         private static IPluginOptionsAccessor CreateDefaultAccessor(IProfileService profileService) {
@@ -73,6 +111,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         private void ProfileService_ProfileChanged(object sender, EventArgs e) {
+            HookActiveProfileOptics();
             InitializeOptions();
             RaiseAllPropertiesChanged();
         }
@@ -232,7 +271,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             simple_NoiseLevel = optionsAccessor.GetValueEnum<NoiseLevelEnum>("Simple_NoiseLevel", NoiseLevelEnum.Typical);
             simple_PixelScale = optionsAccessor.GetValueEnum<PixelScaleEnum>("Simple_PixelScale", PixelScaleEnum.Typical);
             simple_FocusRange = optionsAccessor.GetValueEnum<FocusRangeEnum>("Simple_FocusRange", FocusRangeEnum.Typical);
-            detectionBinning = optionsAccessor.GetValueEnum<DetectionBinningEnum>(nameof(DetectionBinning), DetectionBinningEnum.Auto);
+            // Default OFF, and clamped on read: an out-of-range persisted value (including the removed Auto = 0)
+            // must never silently bin a user's frames after an upgrade.
+            detectionBinning = DetectionBinningResolver.ToSetting((int)optionsAccessor.GetValueEnum<DetectionBinningEnum>(nameof(DetectionBinning), DetectionBinningEnum.Bin1));
             hotpixelFiltering = optionsAccessor.GetValueBoolean("HotpixelFiltering", true);
             hotpixelThresholdingEnabled = optionsAccessor.GetValueBoolean(nameof(HotpixelThresholdingEnabled), true);
             useAutoFocusCrop = optionsAccessor.GetValueBoolean("UseAutoFocusCrop", true);
@@ -314,7 +355,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             Simple_NoiseLevel = NoiseLevelEnum.Typical;
             Simple_PixelScale = PixelScaleEnum.Typical;
             Simple_FocusRange = FocusRangeEnum.Typical;
-            DetectionBinning = DetectionBinningEnum.Auto;
+            DetectionBinning = DetectionBinningEnum.Bin1;
             HotpixelFiltering = true;
             HotpixelThresholdingEnabled = true;
             UseAutoFocusCrop = true;
@@ -477,33 +518,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     detectionBinning = value;
                     optionsAccessor.SetValueEnum<DetectionBinningEnum>(nameof(DetectionBinning), value);
                     RaisePropertyChanged();
-                    RaisePropertyChanged(nameof(DetectionBinningHint));
+                    RaiseDetectionBinningRecommendationChanged();
                     MaybeWarnAboutAutoFocusBinning();
                 }
             }
         }
 
         /// <summary>
-        /// The one-line readout shown under the option: which factor the current setting resolves to, and the
-        /// pixel scale and estimated in-focus HFR behind it. Derived from the profile, never persisted.
+        /// The one-line recommendation shown under the option: the factor this rig's pixel scale calls for, and
+        /// the numbers behind it. Advice only — nothing changes the setting but the user. Derived from the
+        /// profile, never persisted.
         /// </summary>
         [JsonIgnore]
-        public string DetectionBinningHint => DetectionBinningResolver.DescribeResolution(detectionBinning, ProfilePixelScaleArcsecPerPixel());
+        public string DetectionBinningHint => DetectionBinningResolver.DescribeRecommendation(
+            DetectionBinningResolver.ToFactor(detectionBinning), DetectionBinningResolver.PixelScaleFromProfile(profileService));
 
-        /// <summary>
-        /// The pixel scale the options UI reasons about: the profile's optics scaled by the AF capture binning
-        /// NINA is configured for. The detection path uses the ACTUAL captured frame's BinX instead (see
-        /// <c>HocusFocusStarDetection.ApplyDetectionImageContext</c>); this is the best estimate available before
-        /// a frame exists. NaN when focal length or pixel size is unset, which the hint reports as such.
-        /// </summary>
-        private double ProfilePixelScaleArcsecPerPixel() {
-            var profile = profileService?.ActiveProfile;
-            if (profile == null) {
-                return double.NaN;
-            }
-            var captureBinning = Math.Max((short)1, profile.FocuserSettings.AutoFocusBinning);
-            return MathUtility.ArcsecPerPixel(profile.CameraSettings.PixelSize, profile.TelescopeSettings.FocalLength) * captureBinning;
-        }
+        /// <summary>True when the current factor is not the recommended one, so the UI presents the line as
+        /// something to act on rather than as a confirmation.</summary>
+        [JsonIgnore]
+        public bool DetectionBinningDiffersFromRecommendation => DetectionBinningResolver.DiffersFromRecommendation(
+            DetectionBinningResolver.ToFactor(detectionBinning), DetectionBinningResolver.PixelScaleFromProfile(profileService));
 
         /// <summary>
         /// Raises the NINA-AF-binning conflict with whoever installed <see cref="AutoFocusBinningConflictHandler"/>
@@ -516,7 +550,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             if (handler == null || suppressInteractivePrompts || !PersistToProfile) {
                 return;
             }
-            var resolved = DetectionBinningResolver.Resolve(detectionBinning, ProfilePixelScaleArcsecPerPixel());
+            var resolved = DetectionBinningResolver.ToFactor(detectionBinning);
             if (resolved <= 1) {
                 return;
             }

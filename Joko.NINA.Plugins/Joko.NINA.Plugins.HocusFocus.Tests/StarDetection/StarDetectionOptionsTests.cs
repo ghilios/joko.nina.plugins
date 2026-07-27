@@ -31,6 +31,9 @@ public class StarDetectionOptionsTests {
             Assert.That(options.Simple_NoiseLevel, Is.EqualTo(NoiseLevelEnum.Typical));
             Assert.That(options.Simple_PixelScale, Is.EqualTo(PixelScaleEnum.Typical));
             Assert.That(options.Simple_FocusRange, Is.EqualTo(FocusRangeEnum.Typical));
+            // Detection binning defaults OFF. It must never turn itself on: an upgrade that started binning
+            // frames would silently invalidate detection settings the user had already tuned.
+            Assert.That(options.DetectionBinning, Is.EqualTo(DetectionBinningEnum.Bin1));
             Assert.That(options.HotpixelFiltering, Is.True);
             Assert.That(options.HotpixelThresholdingEnabled, Is.True);
             Assert.That(options.UseAutoFocusCrop, Is.True);

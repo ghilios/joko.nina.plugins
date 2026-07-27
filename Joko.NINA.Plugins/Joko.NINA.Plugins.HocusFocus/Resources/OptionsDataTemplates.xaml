@@ -521,7 +521,22 @@
     <TextBlock x:Key="SimpleNoiseLevel_Tooltip" Text="Controls the amount of blurring done on the source image before beginning the star detection process. Increase this if you have a particularly noisy sensor or shoot at a very high focal ratio" />
     <TextBlock x:Key="SimpleFocusRange_Tooltip" Text="As you get further from critical focus, stars become large donuts. Star detection will typically consider them too large to be stars when you're far enough from focus. Enabling a wide range increases the number of layers considered for star detection" />
     <TextBlock x:Key="SimplePixelScale_Tooltip" Text="At high focal lengths, pixel scale decreases and apparent star size (in pixels) increases. Setting this to a higher focal length increases the number of layers considered for star detection, which could increase false positives due from nebulosity" />
-    <TextBlock x:Key="DetectionBinning_Tooltip" Text="Software binning applied to the frame for star detection only. Star detection is calibrated for stars whose in-focus HFR is roughly 2 to 4 pixels. At long focal lengths stars are much larger than that, which puts every pixel-based setting out of range and leaves detection slower and noisier than it needs to be. Binning the frame for detection brings star size back into range and improves signal to noise per pixel. It does not change the image you see or the HFR values reported: those stay at the resolution the camera captured. Auto picks a factor from your pixel scale, and already accounts for any camera binning. This is not the same as NINA's Auto Focus Binning, which changes the capture itself and should match the binning you image at" />
+    <!--  Recommendation line under a Detection Binning control. Dimmed while it confirms the current factor;
+          plain (full opacity, upright) when it disagrees, so a mismatch reads as something to act on. Deliberately
+          NOT a warning color: choosing a different factor is a legitimate decision, not an error.  -->
+    <Style x:Key="HF_DetectionBinningRecommendation" TargetType="TextBlock">
+        <Setter Property="FontStyle" Value="Italic" />
+        <Setter Property="Opacity" Value="0.7" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding StarDetectionOptions.DetectionBinningDiffersFromRecommendation}" Value="True">
+                <Setter Property="FontStyle" Value="Normal" />
+                <Setter Property="Opacity" Value="1.0" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
+    <TextBlock x:Key="DetectionBinning_Tooltip" Text="Software binning applied to the frame for star detection only. Star detection is calibrated for stars whose in-focus HFR is roughly 2 to 4 pixels. At long focal lengths stars are much larger than that, which puts every pixel-based setting out of range and leaves detection slower and noisier than it needs to be. Binning the frame for detection brings star size back into range and improves signal to noise per pixel. It does not change the image you see or the HFR values reported: those stay at the resolution the camera captured. The line below recommends a factor from your pixel scale, which already accounts for any camera binning; the Optimization Wizard recommends one from your measured focus curve, which is the better answer once you have run it. This is not the same as NINA's Auto Focus Binning, which changes how the camera captures the auto-focus frames and should match the binning you image at. The two multiply" />
     <TextBlock x:Key="UsePSFAbsoluteDeviation_Tooltip" Text="Enables an experimental PSF fitting approach that is more robust to noise and outlier pixels. This should more closely mimic PixInsight PSF fitting logic" />
     <TextBlock x:Key="RotatedHyperbolicFit_Tooltip" Text="Allows hyperbolic fitting to rotate. This can be useful if your focus curve is asymmetrical." />
     <TextBlock x:Key="MeasurementAverage_Tooltip" Text="Controls how the average star measurement across the frame is calculated. Median is robust to outliers, and is the default." />
@@ -1881,11 +1896,11 @@
             <TextBlock
                 Grid.Row="55"
                 Grid.Column="1"
+                MaxWidth="560"
                 Margin="5,2,0,0"
                 HorizontalAlignment="Left"
                 VerticalAlignment="Center"
-                FontStyle="Italic"
-                Opacity="0.7"
+                Style="{StaticResource HF_DetectionBinningRecommendation}"
                 Text="{Binding StarDetectionOptions.DetectionBinningHint}"
                 ToolTip="{StaticResource DetectionBinning_Tooltip}" />
 

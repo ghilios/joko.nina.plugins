@@ -1,4 +1,4 @@
-using NINA.Core.Model.Equipment;
+﻿using NINA.Core.Model.Equipment;
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
@@ -144,15 +144,13 @@ public class AutoFocusBinningConflictTests {
     }
 
     [Test]
-    public void AutoResolvingAboveOne_RaisesThePrompt() {
-        // 3.76 µm at 2800 mm with camera binning 2 gives 0.55"/px, so Auto resolves to 1x and must stay silent...
-        var (quiet, quietPrompts) = BuildOptions(BuildProfile(2, ("L", 1)));
-        quiet.DetectionBinning = DetectionBinningEnum.Auto;
-        Assert.That(quietPrompts, Is.Empty, "Auto backs off when the camera is already binning");
-
-        // ...but an explicit factor on the same profile does stack, and does warn.
-        quiet.DetectionBinning = DetectionBinningEnum.Bin3;
-        Assert.That(quietPrompts, Has.Count.EqualTo(1));
+    public void ThePromptCarriesTheFactorTheUserActuallyChose() {
+        // The warning is about STACKING, so it must quote the factor that will stack, not a derived one.
+        var (options, prompts) = BuildOptions(BuildProfile(2, ("L", 1)));
+        options.DetectionBinning = DetectionBinningEnum.Bin3;
+        Assert.That(prompts, Has.Count.EqualTo(1));
+        Assert.That(prompts[0].binning, Is.EqualTo(3));
+        Assert.That(prompts[0].conflict.Describe(prompts[0].binning), Does.Contain("6x the native pixel size"));
     }
 
     [Test]

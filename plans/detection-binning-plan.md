@@ -2,6 +2,21 @@
 
 Design spec: [`docs/detection-binning-design.md`](../docs/detection-binning-design.md).
 
+## Revision (2026-07-27)
+
+This plan was executed as written, then revised on review. Three changes supersede what is below; the design
+spec `docs/detection-binning-design.md` reflects the current state:
+
+1. **`Auto` was removed.** A factor that resolved itself would change detection behavior on upgrade and
+   invalidate already-tuned settings. The setting is now explicit (default `1x1`), and the UI **recommends** a
+   factor in text instead.
+2. **The wizard's "Binning" readout is now "Capture binning"**, and **Detection binning is settable** beside it
+   (Live and Replay).
+3. **The summary's binning advisory became a first-class recommendation** with a single action, *Optimize
+   again at NxN*: it re-runs the search on the already-captured frames at the new factor and writes nothing.
+   Accept then applies the factor and the settings tuned at it together. Applying the factor alone is not
+   offered at all, because those two are only valid as a pair.
+
 ## Context
 
 Hocus Focus has **no software binning today**. The only binning in the codebase is NINA's

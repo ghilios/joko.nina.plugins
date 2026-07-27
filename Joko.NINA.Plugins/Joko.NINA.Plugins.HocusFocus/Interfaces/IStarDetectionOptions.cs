@@ -70,15 +70,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     /// <summary>
     /// The software binning factor star detection resamples the frame by BEFORE analyzing it. Detection-only:
     /// the image NINA displays, and every HFR/position Hocus Focus reports, stay at the resolution the camera
-    /// delivered. <see cref="Auto"/> derives the factor from the profile's pixel scale (see
-    /// <c>DetectionBinningResolver</c>) so in-focus HFR lands near the detector's calibrated 2-4 px band.
-    /// The underlying values ARE the factors, so a resolved factor round-trips through this enum.
+    /// delivered. The underlying values ARE the factors, so a factor round-trips through this enum.
+    ///
+    /// <para>There is deliberately NO "Auto" member. A factor that resolved itself from the profile would change
+    /// detection behavior the moment a user upgraded, silently invalidating settings they had already tuned.
+    /// <c>DetectionBinningResolver</c> instead RECOMMENDS a factor in the UI and leaves the choice explicit.</para>
     /// </summary>
     [TypeConverter(typeof(EnumStaticDescriptionConverter))]
     public enum DetectionBinningEnum {
-
-        [Description("Auto")]
-        Auto = 0,
 
         [Description("1x1 (Off)")]
         Bin1 = 1,

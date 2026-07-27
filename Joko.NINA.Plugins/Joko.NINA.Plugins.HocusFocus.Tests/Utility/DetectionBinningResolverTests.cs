@@ -1,4 +1,4 @@
-using NINA.Joko.Plugins.HocusFocus.Interfaces;
+﻿using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
 
@@ -12,13 +12,31 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
         private static double PixelScale(double focalLengthMm) => MathUtility.ArcsecPerPixel(3.76, focalLengthMm);
 
         [Test]
-        public void Resolve_ExplicitSettings_PassThrough() {
+        public void ToFactor_MapsTheSettingToItsInteger() {
             Assert.Multiple(() => {
-                Assert.That(DetectionBinningResolver.Resolve(DetectionBinningEnum.Bin1, PixelScale(5600)), Is.EqualTo(1));
-                Assert.That(DetectionBinningResolver.Resolve(DetectionBinningEnum.Bin2, PixelScale(910)), Is.EqualTo(2));
-                Assert.That(DetectionBinningResolver.Resolve(DetectionBinningEnum.Bin3, double.NaN), Is.EqualTo(3));
-                Assert.That(DetectionBinningResolver.Resolve(DetectionBinningEnum.Bin4, PixelScale(910)), Is.EqualTo(4));
+                Assert.That(DetectionBinningResolver.ToFactor(DetectionBinningEnum.Bin1), Is.EqualTo(1));
+                Assert.That(DetectionBinningResolver.ToFactor(DetectionBinningEnum.Bin2), Is.EqualTo(2));
+                Assert.That(DetectionBinningResolver.ToFactor(DetectionBinningEnum.Bin3), Is.EqualTo(3));
+                Assert.That(DetectionBinningResolver.ToFactor(DetectionBinningEnum.Bin4), Is.EqualTo(4));
             });
+        }
+
+        [Test]
+        public void ToFactor_ClampsAnOutOfRangeValue() {
+            // A persisted value from an older build (including the removed Auto = 0) must never bin a user's
+            // frames by an unsupported factor, and must never resolve to "off by accident" above the maximum.
+            Assert.Multiple(() => {
+                Assert.That(DetectionBinningResolver.ToFactor((DetectionBinningEnum)0), Is.EqualTo(1));
+                Assert.That(DetectionBinningResolver.ToFactor((DetectionBinningEnum)(-3)), Is.EqualTo(1));
+                Assert.That(DetectionBinningResolver.ToFactor((DetectionBinningEnum)9), Is.EqualTo(4));
+            });
+        }
+
+        [Test]
+        public void NoAutoMemberExists() {
+            // The setting is explicit by design: a factor that resolved itself would change detection behavior on
+            // upgrade and invalidate settings the user had already tuned.
+            Assert.That(System.Enum.GetNames(typeof(DetectionBinningEnum)), Does.Not.Contain("Auto"));
         }
 
         // The worked-example table: a 3.76 µm sensor across the focal lengths the documentation cites.
@@ -28,17 +46,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
         [TestCase(3910.0, 3)]
         [TestCase(5600.0, 4)]
         [TestCase(12000.0, 4)]   // clamped at the maximum
-        public void Resolve_Auto_MatchesTheDocumentedTable(double focalLengthMm, int expected) {
-            Assert.That(DetectionBinningResolver.Resolve(DetectionBinningEnum.Auto, PixelScale(focalLengthMm)), Is.EqualTo(expected));
+        public void RecommendFromPixelScale_MatchesTheDocumentedTable(double focalLengthMm, int expected) {
+            Assert.That(DetectionBinningResolver.RecommendFromPixelScale(PixelScale(focalLengthMm)), Is.EqualTo(expected));
         }
 
         [Test]
-        public void Resolve_Auto_LandsInFocusHfrInsideTheCalibratedBand() {
+        public void RecommendFromPixelScale_LandsInFocusHfrInsideTheCalibratedBand() {
             // The point of the rule: whatever the pixel scale, the binned in-focus HFR should end up near the
             // detector's 2-4 px band.
             for (var focalLength = 500.0; focalLength <= 6000.0; focalLength += 100.0) {
                 var pixelScale = PixelScale(focalLength);
-                var factor = DetectionBinningResolver.Resolve(DetectionBinningEnum.Auto, pixelScale);
+                var factor = DetectionBinningResolver.RecommendFromPixelScale(pixelScale);
                 var binnedHfr = DetectionBinningResolver.EstimateInFocusHfrPixels(pixelScale) / factor;
                 Assert.That(binnedHfr, Is.LessThanOrEqualTo(4.5),
                     $"at {focalLength}mm the binned in-focus HFR should not exceed the calibrated band (factor {factor})");
@@ -46,23 +64,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
         }
 
         [Test]
-        public void Resolve_Auto_UnusablePixelScale_FallsBackToUnbinned() {
+        public void RecommendFromPixelScale_UnusablePixelScale_RecommendsUnbinned() {
             Assert.Multiple(() => {
-                Assert.That(DetectionBinningResolver.Resolve(DetectionBinningEnum.Auto, double.NaN), Is.EqualTo(1));
-                Assert.That(DetectionBinningResolver.Resolve(DetectionBinningEnum.Auto, 0.0), Is.EqualTo(1));
-                Assert.That(DetectionBinningResolver.Resolve(DetectionBinningEnum.Auto, double.PositiveInfinity), Is.EqualTo(1));
+                Assert.That(DetectionBinningResolver.RecommendFromPixelScale(double.NaN), Is.EqualTo(1));
+                Assert.That(DetectionBinningResolver.RecommendFromPixelScale(0.0), Is.EqualTo(1));
+                Assert.That(DetectionBinningResolver.RecommendFromPixelScale(double.PositiveInfinity), Is.EqualTo(1));
             });
         }
 
         [Test]
-        public void Resolve_Auto_BacksOffWhenTheCameraIsAlreadyBinning() {
+        public void RecommendFromPixelScale_BacksOffWhenTheCameraIsAlreadyBinning() {
             // The caller passes a pixel scale that ALREADY includes camera binning, so hardware 2x2 halves the
-            // software factor rather than stacking on top of it.
+            // recommended software factor rather than stacking on top of it.
             var native = PixelScale(5600);
             Assert.Multiple(() => {
-                Assert.That(DetectionBinningResolver.Resolve(DetectionBinningEnum.Auto, native), Is.EqualTo(4));
-                Assert.That(DetectionBinningResolver.Resolve(DetectionBinningEnum.Auto, native * 2), Is.EqualTo(2));
-                Assert.That(DetectionBinningResolver.Resolve(DetectionBinningEnum.Auto, native * 4), Is.EqualTo(1));
+                Assert.That(DetectionBinningResolver.RecommendFromPixelScale(native), Is.EqualTo(4));
+                Assert.That(DetectionBinningResolver.RecommendFromPixelScale(native * 2), Is.EqualTo(2));
+                Assert.That(DetectionBinningResolver.RecommendFromPixelScale(native * 4), Is.EqualTo(1));
             });
         }
 
@@ -86,34 +104,72 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
         }
 
         [Test]
-        public void ToSetting_RoundTripsAResolvedFactor() {
+        public void ToSetting_RoundTripsAFactor() {
             for (var factor = 1; factor <= DetectionBinningResolver.MaxBinningFactor; ++factor) {
                 var setting = DetectionBinningResolver.ToSetting(factor);
-                Assert.That(DetectionBinningResolver.Resolve(setting, double.NaN), Is.EqualTo(factor));
+                Assert.That(DetectionBinningResolver.ToFactor(setting), Is.EqualTo(factor));
             }
             Assert.That(DetectionBinningResolver.ToSetting(99), Is.EqualTo(DetectionBinningEnum.Bin4));
             Assert.That(DetectionBinningResolver.ToSetting(0), Is.EqualTo(DetectionBinningEnum.Bin1));
         }
 
         [Test]
-        public void DescribeResolution_ReportsTheFactorAndItsReasoning() {
-            var text = DetectionBinningResolver.DescribeResolution(DetectionBinningEnum.Auto, PixelScale(2800));
-            Assert.Multiple(() => {
-                Assert.That(text, Does.StartWith("Resolved: 2x"));
-                Assert.That(text, Does.Contain("/px"));
-                Assert.That(text, Does.Contain("HFR"));
-            });
+        public void DescribeRecommendation_AboveOne_NamesTheFactorAndWhereStarSizeLands() {
+            // Differs from the current factor: the current one is called out so the mismatch is visible at a glance.
+            var differs = DetectionBinningResolver.DescribeRecommendation(1, PixelScale(2800));
+            Assert.That(differs, Is.EqualTo("Recommended: 2x2 (currently 1x1) - 0.28\"/px, est. in-focus HFR ~5.4 px -> ~2.7 px at 2x2"));
 
-            var explicitText = DetectionBinningResolver.DescribeResolution(DetectionBinningEnum.Bin3, PixelScale(2800));
-            Assert.That(explicitText, Does.StartWith("Using: 3x"));
+            // Already matching: same numbers, but it reads as a confirmation.
+            var matches = DetectionBinningResolver.DescribeRecommendation(2, PixelScale(2800));
+            Assert.That(matches, Is.EqualTo("Recommended: 2x2 (current) - 0.28\"/px, est. in-focus HFR ~5.4 px -> ~2.7 px at 2x2"));
         }
 
         [Test]
-        public void DescribeResolution_UnknownPixelScale_SaysSoInsteadOfPrintingNaN() {
-            var text = DetectionBinningResolver.DescribeResolution(DetectionBinningEnum.Auto, double.NaN);
+        public void DescribeRecommendation_AtOne_SaysWhyBinningIsNotCalledFor() {
+            var matches = DetectionBinningResolver.DescribeRecommendation(1, PixelScale(910));
+            Assert.That(matches, Is.EqualTo("Recommended: 1x1 (current) - 0.85\"/px, est. in-focus HFR ~1.8 px, already in the detector's range"));
+
+            var differs = DetectionBinningResolver.DescribeRecommendation(2, PixelScale(910));
+            Assert.That(differs, Is.EqualTo("Recommended: 1x1 (currently 2x2) - 0.85\"/px, est. in-focus HFR ~1.8 px, binning is not needed"));
+        }
+
+        [Test]
+        public void DescribeRecommendation_UnknownPixelScale_OffersNoRecommendation() {
+            var text = DetectionBinningResolver.DescribeRecommendation(1, double.NaN);
             Assert.Multiple(() => {
-                Assert.That(text, Does.Contain("pixel scale unknown"));
+                Assert.That(text, Is.EqualTo("No recommendation - pixel scale unknown, set pixel size and focal length in NINA's Options"));
                 Assert.That(text, Does.Not.Contain("NaN"));
+            });
+        }
+
+        [Test]
+        public void DiffersFromRecommendation_IsFalseWithoutAPixelScale() {
+            // No pixel scale means no advice, so nothing to disagree with — the UI must not highlight a mismatch
+            // it cannot justify.
+            Assert.Multiple(() => {
+                Assert.That(DetectionBinningResolver.DiffersFromRecommendation(4, double.NaN), Is.False);
+                Assert.That(DetectionBinningResolver.DiffersFromRecommendation(1, PixelScale(2800)), Is.True);
+                Assert.That(DetectionBinningResolver.DiffersFromRecommendation(2, PixelScale(2800)), Is.False);
+            });
+        }
+
+        [Test]
+        public void ApplyFactor_KeepsPixelScaleConsistentWithTheNewFactor() {
+            // The wizard re-stamps already-built params to run at a factor the user has not committed to. PixelScale
+            // carries the factor, so it has to move with it or the arcsec-valued outputs go wrong.
+            var p = new StarDetectorParams { DetectionBinning = 2, PixelScale = 0.56 };   // 0.28"/px native
+
+            DetectionBinningResolver.ApplyFactor(p, 3);
+
+            Assert.Multiple(() => {
+                Assert.That(p.DetectionBinning, Is.EqualTo(3));
+                Assert.That(p.PixelScale, Is.EqualTo(0.84).Within(1e-12));
+            });
+
+            DetectionBinningResolver.ApplyFactor(p, 1);
+            Assert.Multiple(() => {
+                Assert.That(p.DetectionBinning, Is.EqualTo(1));
+                Assert.That(p.PixelScale, Is.EqualTo(0.28).Within(1e-12));
             });
         }
     }

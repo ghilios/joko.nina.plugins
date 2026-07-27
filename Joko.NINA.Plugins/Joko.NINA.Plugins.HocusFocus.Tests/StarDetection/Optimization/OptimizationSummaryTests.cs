@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -172,5 +172,69 @@ public class OptimizationSummaryTests {
     public void ImprovementPercent_UsesObjectiveScore() {
         var s = new OptimizationSummary { SeedJ = 1.0, BestJ = 1.2 };
         Assert.That(s.ImprovementPercent, Is.EqualTo(20.0).Within(1e-9));
+    }
+
+    // ---- Detection binning states -------------------------------------------------------------------------
+    //
+    // F = the factor this run analyzed at, P = the persisted setting, R = what the measured HFR calls for.
+
+    private static OptimizationSummary Binning(int run, int persisted, int recommended, double hfr) =>
+        new OptimizationSummary {
+            RunDetectionBinning = run, PersistedDetectionBinning = persisted,
+            RecommendedDetectionBinning = recommended, MeasuredInFocusHfr = hfr
+        };
+
+    [Test]
+    public void DetectionBinning_NoMeasuredHfr_HidesTheWholeBlock() {
+        // A degenerate baseline fit has nothing to say about binning, and the bad curve is already on the chart.
+        var s = Binning(1, 1, 1, double.NaN);
+        Assert.Multiple(() => {
+            Assert.That(s.HasDetectionBinningMeasurement, Is.False);
+            Assert.That(s.DetectionBinningDiffers, Is.False);
+            Assert.That(s.DetectionBinningPendingApply, Is.False);
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_RecommendationMatchesTheRun_ReadsAsConfirmation() {
+        var s = Binning(run: 2, persisted: 2, recommended: 2, hfr: 5.3);
+        Assert.Multiple(() => {
+            Assert.That(s.DetectionBinningDiffers, Is.False);
+            Assert.That(s.DetectionBinningPendingApply, Is.False);
+            Assert.That(s.DetectionBinningText, Is.EqualTo("2x2 (unchanged; measured in-focus HFR 5.3 px)"));
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_RecommendationDiffers_OffersTheChange() {
+        var s = Binning(run: 1, persisted: 1, recommended: 2, hfr: 6.1);
+        Assert.Multiple(() => {
+            Assert.That(s.DetectionBinningDiffers, Is.True);
+            Assert.That(s.DetectionBinningPendingApply, Is.False, "nothing has been re-run yet, so Accept writes no factor");
+            Assert.That(s.DetectionBinningText, Is.EqualTo("1x1 -> 2x2 (measured in-focus HFR 6.1 px)"));
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_AfterOptimizeAgain_IsPendingAndNamesBothFactors() {
+        // The run analyzed at 2x2 while the profile still says 1x1: Accept writes the factor WITH the settings.
+        var s = Binning(run: 2, persisted: 1, recommended: 2, hfr: 6.2);
+        Assert.Multiple(() => {
+            Assert.That(s.DetectionBinningPendingApply, Is.True);
+            Assert.That(s.DetectionBinningDiffers, Is.False, "the run already used the recommended factor");
+            Assert.That(s.DetectionBinningText, Is.EqualTo("1x1 -> 2x2 (this run; measured in-focus HFR 6.2 px)"));
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_PendingApplyWinsOverAFurtherRecommendation() {
+        // Seeing shifted and the re-run now implies 3x3. The pending 2x2 is still what Accept would write, so the
+        // row must describe that rather than silently advertising a factor nothing was measured at.
+        var s = Binning(run: 2, persisted: 1, recommended: 3, hfr: 8.4);
+        Assert.Multiple(() => {
+            Assert.That(s.DetectionBinningPendingApply, Is.True);
+            Assert.That(s.DetectionBinningDiffers, Is.True);
+            Assert.That(s.DetectionBinningText, Is.EqualTo("1x1 -> 2x2 (this run; measured in-focus HFR 8.4 px)"));
+        });
     }
 }

@@ -75,35 +75,58 @@ Placing the resample in `StarDetector` rather than in `HocusFocusStarDetection` 
 TestApp runners that call `detector.Detect(Mat, params, …)` directly get binning, and correct
 coordinates, for free.
 
-### Auto resolution
+### Choosing the factor: recommend, never resolve
 
-The factor is chosen from pixel scale by a fixed, documented formula, in one shared function so the
-options hint, detection, TestApp and the docs cannot disagree:
+The factor is **always explicit**. There is no Auto mode, and the plugin never changes the setting on its
+own. A factor that resolved itself from the profile would change how frames are analyzed the moment the
+plugin updated, silently invalidating every pixel-unit setting the user had already tuned — the exact failure
+this feature is supposed to prevent, arriving through the back door.
+
+Instead the UI **recommends** a factor, in one shared function (`DetectionBinningResolver`) that the options
+page, the optimization wizard and the documentation all cite:
 
 ```
 estimatedHfrPixels = AssumedFwhmArcsec / (2 · pixelScaleArcsecPerPixel)     // AssumedFwhmArcsec = 3.0
-bin                = clamp(round(estimatedHfrPixels / TargetHfrPixels), 1, 4)  // TargetHfrPixels = 3.0
+recommended        = clamp(round(estimatedHfrPixels / TargetHfrPixels), 1, 4)  // TargetHfrPixels = 3.0
 ```
 
-`AssumedFwhmArcsec = 3.0″` stands in for the combined seeing, optics and guiding FWHM of a typical
-night; `TargetHfrPixels = 3.0` is the center of the detector's calibrated 2–4 px band. HFR is taken as
-half the FWHM, which is exact for a Gaussian profile.
+`AssumedFwhmArcsec = 3.0″` stands in for the combined seeing, optics and guiding FWHM of a typical night;
+`TargetHfrPixels = 3.0` is the center of the detector's calibrated 2–4 px band. HFR is taken as half the FWHM,
+which is exact for a Gaussian profile.
 
-`pixelScaleArcsecPerPixel` already includes NINA AF binning, because it comes from
-`ApplyDetectionImageContext`, so Auto backs off on its own when the camera is already binning. A NaN
-pixel scale (focal length or pixel size unset) resolves to 1.
+`pixelScaleArcsecPerPixel` already includes NINA AF binning, so the recommendation backs off on its own when
+the camera is already binning. A NaN pixel scale (focal length or pixel size unset) yields no recommendation
+rather than a guess.
 
 Worked examples on a 3.76 µm sensor:
 
-| Focal length | Pixel scale | Est. in-focus HFR | Auto factor | Binned HFR |
+| Focal length | Pixel scale | Est. in-focus HFR | Recommended | Binned HFR |
 |---|---|---|---|---|
-| 910 mm | 0.85″/px | 1.8 px | 1× | 1.8 px |
-| 2800 mm | 0.28″/px | 5.4 px | 2× | 2.7 px |
-| 3910 mm | 0.20″/px | 7.6 px | 3× | 2.5 px |
-| 5600 mm | 0.14″/px | 10.8 px | 4× | 2.7 px |
+| 910 mm | 0.85″/px | 1.8 px | 1×1 | 1.8 px |
+| 2800 mm | 0.28″/px | 5.4 px | 2×2 | 2.7 px |
+| 3910 mm | 0.20″/px | 7.6 px | 3×3 | 2.5 px |
+| 5600 mm | 0.14″/px | 10.8 px | 4×4 | 2.7 px |
 
-Auto is a starting point, not a claim about the sky on a given night. The option accepts an explicit
-factor for anyone who wants to pin it.
+The recommendation line names the recommended factor and the numbers behind it, with the current factor in
+parentheses so a mismatch is visible at a glance. It is dimmed while it agrees and plain when it does not —
+attention without alarm, because disagreeing with an assumed seeing figure is a legitimate choice.
+
+### Optimization: recommend from measurement, and re-run rather than re-label
+
+The wizard holds the factor fixed for the whole search — it describes the optics, not a tunable — but it can
+do better than an assumed seeing figure: it reads the fitted in-focus HFR off the run's own curve and applies
+the same target.
+
+The consequential decision is what happens when that measurement disagrees. **Applying the factor on its own
+is not offered, in any form.** Every tuned parameter was measured in the old factor's pixels; pairing them
+with a new factor produces a combination the optimizer never evaluated, and no amount of warning copy makes
+that combination valid. So the only action is **"Optimize again at N×N"**, which re-runs the search at the new
+factor on the frames already on disk, writes nothing, and leaves the user on a summary whose Accept applies
+the factor and the settings measured at it **together**. Ignoring the recommendation and accepting the run as
+it stands stays a first-class, unpunished path.
+
+This also preserves the wizard's existing contract that Accept is the only thing that writes settings: a
+cancelled or closed wizard leaves the profile untouched, with no half-applied factor to discover later.
 
 ### Interaction with NINA's Auto Focus Binning
 
@@ -155,5 +178,5 @@ the settings it just produced were tuned at the old factor.
   best focus, but HFR values from different factors are not directly comparable and the capstone tolerance
   (20%) says so explicitly rather than hiding it. This is why applying the wizard's binning recommendation is
   a separate action that tells the user to re-run the search.
-- **Assumed seeing.** Auto uses a fixed 3.0″ FWHM. On an unusually good or bad night the factor may be
-  one step off; the wizard's measured recommendation exists precisely to correct that.
+- **Assumed seeing.** The options-page recommendation uses a fixed 3.0″ FWHM. On an unusually good or bad
+  night it may be one step off; the wizard's measured recommendation exists precisely to correct that.

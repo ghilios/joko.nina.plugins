@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -2165,6 +2165,68 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.SelectSource));
             Assert.That(vm.ErrorMessage, Does.Contain("did not produce"));
         });
+    }
+
+    // ---- Detection binning ---------------------------------------------------------------------------------
+
+    [Test]
+    public void SweepDetectionBinning_WritesThroughToThePersistedOption() {
+        // The confirmation panel edits the real setting, not a session-local copy: the search is tuned at this
+        // factor, so Accept must not be able to apply settings tuned at a factor the profile does not have.
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var vm = NewVM(LoaderReturning(GoodRun()), options);
+
+        vm.SweepDetectionBinning = DetectionBinningEnum.Bin3;
+
+        options.Received(1).DetectionBinning = DetectionBinningEnum.Bin3;
+    }
+
+    [Test]
+    public void SweepCaptureBinning_ReportsNinasAutoFocusBinning() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        focuserSettings.AutoFocusBinning.Returns((short)2);
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService);
+
+        Assert.That(vm.SweepCaptureBinning, Is.EqualTo("2x2"));
+    }
+
+    [Test]
+    public async Task Accept_WithNoPendingBinning_DoesNotTouchTheFactor() {
+        // A plain run analyzed at the persisted factor. Accept applies the tuned settings and leaves binning alone;
+        // the recommendation, if any, is advice the user did not act on.
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var vm = NewVM(LoaderReturning(GoodRun()), options);
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        Assert.That(vm.Summary.DetectionBinningPendingApply, Is.False);
+
+        options.ClearReceivedCalls();
+        vm.AcceptCommand.Execute(null);
+
+        options.DidNotReceiveWithAnyArgs().DetectionBinning = default;
+    }
+
+    [Test]
+    public async Task OptimizeAgainAtRecommendedBinning_IsOnlyOfferedWhenTheMeasurementDisagrees() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var vm = NewVM(LoaderReturning(GoodRun()), options);
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        // Whatever the synthetic run measures, the offer must agree with the summary's own verdict — and it must
+        // never be offered without frames on disk to re-read.
+        Assert.That(vm.CanOptimizeAgainAtRecommendedBinning, Is.EqualTo(vm.Summary.DetectionBinningDiffers));
+        Assert.That(vm.HasDetectionBinningBlock, Is.EqualTo(vm.Summary.HasDetectionBinningMeasurement));
     }
 
     [Test]

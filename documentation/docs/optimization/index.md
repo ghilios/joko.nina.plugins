@@ -49,13 +49,18 @@ The high-level loop has three steps:
 
 *The summary shows the resulting focus curve, focus precision, and a recommended autofocus step size.*
 
-The summary may also carry a **detection binning** advisory. The wizard holds
+The summary also reports a recommended **detection binning**. The wizard holds
 [Detection Binning](../settings/detection-binning.md) fixed at your setting for the whole search, since it
 describes the optics rather than being something to tune, but it reads the fitted in-focus HFR off your own
 focus curve and reports the factor that measurement implies. That is a better answer than the pixel-scale
-estimate the option page shows, because it is measured rather than assumed. **Apply detection binning** is a
-separate button from **Accept**, on purpose: the parameters the run just produced were tuned at the old
-factor, so changing it means running the wizard again.
+estimate the options page shows, because it is measured rather than assumed.
+
+If the measurement disagrees with the factor the run used, the only action offered is **Optimize again at
+NxN**. It repeats the search on the frames already captured, at the new factor; nothing is written until you
+accept that result, and then the factor and the settings tuned at it are applied together. There is
+deliberately no way to apply the factor by itself: every parameter above was measured in the old factor's
+pixels, so pairing them with a new factor would produce a combination the optimizer never evaluated. Ignoring
+the recommendation and accepting the run as it stands is always available.
 
 Optionally, you can label a handful of hard frames (missed stars, false positives) to add a
 **recall/precision** term to the score (recall = the fraction of real stars recovered; precision = the
@@ -100,10 +105,11 @@ A live run goes like this:
    on the current focuser position, so it has to start near focus.
 2. Choose **Live Auto-Focus**, set the **Exposure**, and choose the folder to **Save captured frames
    to**. The camera and focuser must be connected, and **Start** stays disabled until you pick a save
-   folder. The panel also shows the step size, number of points, binning, filter, and gain the sweep
-   will use; these come from your profile's auto-focus settings. A **Detection binning** line reports the
-   software binning detection will run at, which is applied on top of the camera binning above (see
-   [Detection Binning](../settings/detection-binning.md)).
+   folder. The panel also shows the step size, number of points, capture binning, filter, and gain the
+   sweep will use; these come from your profile's auto-focus settings. **Detection binning** sits right
+   below capture binning and is settable here, because the whole search is tuned at whatever factor is in
+   effect when the run starts (see [Detection Binning](../settings/detection-binning.md)). A Replay run gets
+   the same control next to its folder picker.
 3. Press **Start** and confirm the telescope is roughly focused when prompted. The wizard moves the
    focuser out and steps back across the range set by your profile's auto-focus step size and offset
    steps, saves a frame at each point, then returns the focuser to where it started. The sweep does not

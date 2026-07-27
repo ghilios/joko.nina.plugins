@@ -486,9 +486,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // (PSF.FWHMArcsecs) stay physical while the pixel-valued ones are measured in binned pixels.
         public double PixelScale { get; set; } = 1.0d;
 
-        // The integer factor star detection software-bins the frame by before analyzing it (1 = off). Always a
-        // RESOLVED factor — DetectionBinningEnum.Auto is resolved against the image's pixel scale by
-        // HocusFocusStarDetection.ApplyDetectionImageContext before it reaches here. The whole detection pipeline
+        // The integer factor star detection software-bins the frame by before analyzing it (1 = off), layered on
+        // by HocusFocusStarDetection.ApplyDetectionImageContext from the effective options. The whole detection pipeline
         // then runs in binned pixels, so every pixel-unit knob above stays in its calibrated range; the detector
         // scales every pixel-space OUTPUT back to source pixels before returning
         // (StarDetector.ScaleResultToSourcePixels). EARLY param — it changes candidate formation, so it is in

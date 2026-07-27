@@ -19,22 +19,33 @@ Advanced mode.
 > in-focus HFR is roughly 2 to 4 pixels. At long focal lengths stars are much larger than that, which puts
 > every pixel-based setting out of range and leaves detection slower and noisier than it needs to be. Binning
 > the frame for detection brings star size back into range and improves signal to noise per pixel. It does not
-> change the image you see or the HFR values reported: those stay at the resolution the camera captured. Auto
-> picks a factor from your pixel scale, and already accounts for any camera binning. This is not the same as
-> NINA's Auto Focus Binning, which changes the capture itself and should match the binning you image at
+> change the image you see or the HFR values reported: those stay at the resolution the camera captured. The
+> line below recommends a factor from your pixel scale, which already accounts for any camera binning; the
+> Optimization Wizard recommends one from your measured focus curve, which is the better answer once you have
+> run it. This is not the same as NINA's Auto Focus Binning, which changes how the camera captures the
+> auto-focus frames and should match the binning you image at. The two multiply
 
-**Default:** `Auto` &nbsp;•&nbsp; **Range:** Auto, 1x1 (Off), 2x2, 3x3, 4x4.
+**Default:** `1x1 (Off)` &nbsp;•&nbsp; **Range:** 1x1 (Off), 2x2, 3x3, 4x4.
 
-Under the dropdown, a line reports what the setting resolves to and why, for example:
+Nothing chooses the factor for you. Under the dropdown, a line recommends one and shows the reasoning:
 
 ```
-Resolved: 2x - 0.28"/px, est. in-focus HFR ~5.4 px -> ~2.7 px binned
+Recommended: 2x2 (currently 1x1) - 0.28"/px, est. in-focus HFR ~5.4 px -> ~2.7 px at 2x2
 ```
 
-## How Auto chooses
+The line is dimmed while it agrees with your setting and plain when it does not, so a mismatch is visible
+without being alarming. Disagreeing with it is a legitimate choice.
 
-Auto reads your pixel scale from the profile's pixel size and focal length, including any camera binning,
-and picks the integer factor that brings the estimated in-focus star size closest to 3 pixels:
+!!! note "Why there is no Auto"
+    An automatic factor would change how frames are analyzed the moment the plugin updated, and every
+    pixel-based setting you had already tuned would silently be measured against different pixels. The setting
+    is explicit for the same reason the wizard makes you re-optimize after changing it: the factor and the
+    settings tuned at it belong together.
+
+## How the recommendation is derived
+
+It reads your pixel scale from the profile's pixel size and focal length, including any camera binning, and
+picks the integer factor that brings the estimated in-focus star size closest to 3 pixels:
 
 ```
 estimated in-focus HFR = 3.0" / (2 x pixel scale)
@@ -44,19 +55,19 @@ factor = round(estimated HFR / 3.0), clamped to 1..4
 The 3.0″ is a stand-in for a typical night's total FWHM (seeing, optics and guiding together); HFR is half the
 FWHM, which is exact for a Gaussian star. On a 3.76 µm sensor that works out to:
 
-| Focal length | Pixel scale | Est. in-focus HFR | Factor | Binned HFR |
+| Focal length | Pixel scale | Est. in-focus HFR | Recommended | Binned HFR |
 |---|---|---|---|---|
-| 910 mm | 0.85″/px | 1.8 px | 1x | 1.8 px |
-| 2800 mm | 0.28″/px | 5.4 px | 2x | 2.7 px |
-| 3910 mm | 0.20″/px | 7.6 px | 3x | 2.5 px |
-| 5600 mm | 0.14″/px | 10.8 px | 4x | 2.7 px |
+| 910 mm | 0.85″/px | 1.8 px | 1x1 | 1.8 px |
+| 2800 mm | 0.28″/px | 5.4 px | 2x2 | 2.7 px |
+| 3910 mm | 0.20″/px | 7.6 px | 3x3 | 2.5 px |
+| 5600 mm | 0.14″/px | 10.8 px | 4x4 | 2.7 px |
 
-Auto is a starting point derived from an assumed seeing figure, not a measurement. If you want a specific
-factor, pick it from the dropdown. The [Optimization Wizard](../optimization/index.md) recommends one from
-your own measured focus curve, which is the better answer once you have run a sweep.
+This is an estimate from an assumed seeing figure, not a measurement. The
+[Optimization Wizard](../optimization/index.md) recommends a factor from your own measured focus curve, which
+is the better answer once you have run a sweep.
 
-If focal length or pixel size is not set in NINA's options, Auto reports that it cannot compute a pixel scale
-and stays at 1x1.
+If focal length or pixel size is not set in NINA's options, the line reads *No recommendation* and the setting
+stays wherever you put it.
 
 ## This is not NINA's Auto Focus Binning
 
@@ -70,13 +81,26 @@ settings). The two are different things and they multiply.
 | Effect on the displayed frame | Smaller frame, larger pixels | None |
 | Effect on reported HFR | Reported in the captured (binned) pixels | None; still reported in captured pixels |
 
-Set Auto Focus Binning to match your imaging binning, and leave Detection Binning on Auto. If you raise
-Detection Binning while Auto Focus Binning is above 1x1, Hocus Focus explains the difference and offers to
-set the NINA setting back to 1x1, listing the global value and any per-filter overrides it would clear.
-Answering **No** keeps both, and the two factors stack.
+Set Auto Focus Binning to match your imaging binning, and set Detection Binning from the recommendation. If
+you raise Detection Binning while Auto Focus Binning is above 1x1, Hocus Focus explains the difference and
+offers to set the NINA setting back to 1x1, listing the global value and any per-filter overrides it would
+clear. Answering **No** keeps both, and the two factors stack.
 
-Auto already accounts for camera binning, because the pixel scale it reads includes it. At 2800 mm with the
-camera at 2x2, Auto resolves to 1x rather than 2x.
+The recommendation already accounts for camera binning, because the pixel scale it reads includes it. At
+2800 mm with the camera at 2x2 it recommends 1x1 rather than 2x2.
+
+## Changing it in the Optimization Wizard
+
+The [Optimization Wizard](../optimization/index.md) shows **Detection binning** next to **Capture binning** on
+its confirmation panel, and it is settable there: the whole search is tuned at whatever factor is in effect
+when the run starts, so that is the last useful moment to choose it. It is the same setting as the one on the
+Star Detector tab, edited in place.
+
+After a run, the summary reports the factor your measured focus curve calls for. If it differs, the only
+action offered is **Optimize again at NxN**, which repeats the search on the frames already captured at the
+new factor. Nothing is saved until you accept that result, and then the factor and the settings tuned at it
+are applied together. There is no way to apply the factor on its own, because a factor without settings
+measured at it is a combination the optimizer never evaluated.
 
 ## What is and is not rescaled
 
@@ -101,12 +125,16 @@ right and bottom edge are dropped. Stars there would be rejected by the border g
 
 ## When to change it
 
-Leave it on **Auto**. Reasons to override:
+Follow the recommendation unless you have a reason not to, and re-check it if you change optics or camera.
+Reasons to override:
 
-- **Force 1x1** if you want detection to see every pixel — chasing a specific detection problem, comparing
-  against an older run's HFR values, or working at a pixel scale where Auto's assumed seeing is wrong.
-- **Force a higher factor** than Auto picks if your seeing is consistently worse than 3″, or if the
-  Optimization Wizard's measured recommendation says so.
+- **Stay at 1x1** if you want detection to see every pixel — chasing a specific detection problem, or
+  comparing against an older run's HFR values.
+- **Go higher than recommended** if your seeing is consistently worse than 3″, or if the Optimization
+  Wizard's measured recommendation says so.
+
+Whichever you pick, re-run the [Optimization Wizard](../optimization/index.md) afterwards. Every pixel-based
+setting is measured in binned pixels, so a factor change makes the tuned values mean something different.
 
 **Feedback:** in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel),
 a factor that suits your rig raises **Total Detected** (fainter stars clear the threshold) and cuts detection

@@ -17,8 +17,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
     /// rasters: the real <see cref="StarFieldCompositor"/> renders a star field at a given focal length, the real
     /// <see cref="StarDetector"/> reads it, and the real <see cref="DetectionBinningResolver"/> picks the factor.
     ///
-    /// <para>Each case asserts the promise of the feature: Auto picks the factor the rig needs, the injected stars
-    /// come back at their real positions in CAPTURED pixels, and the reported HFR is the same as an unbinned run's.
+    /// <para>Each case asserts the promise of the feature: the recommendation names the factor the rig needs, the
+    /// injected stars come back at their real positions in CAPTURED pixels, and the reported HFR matches an
+    /// unbinned run's.
     /// Camera binning is applied with the simulator's own <see cref="HocusFocusSimulatorCamera.BinFrame"/>, so the
     /// stacked cases exercise the same charge-summing model NINA would see from the simulated camera.</para>
     /// </summary>
@@ -26,9 +27,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
     [Category("SlowIntegration")]
     public class DetectionBinningCapstoneTests {
 
-        public sealed record Rig(string Name, double FocalLengthMm, double ApertureMm, int CameraBinning, int ExpectedAutoFactor);
+        public sealed record Rig(string Name, double FocalLengthMm, double ApertureMm, int CameraBinning, int ExpectedRecommendedFactor);
 
-        // Real-ish optical trains spanning the range the Auto rule has to cover, all on the scene's IMX533
+        // Real-ish optical trains spanning the range the recommendation rule has to cover, all on the scene's IMX533
         // (3008², 3.76 µm). Aperture tracks focal length so the frames stay realistically exposed.
         private static readonly Rig Refractor = new("130mm f/7 refractor", 910.0, 130.0, 1, 1);
         private static readonly Rig C11 = new("C11 @ f/10", 2800.0, 280.0, 1, 2);
@@ -103,18 +104,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             stars.Select(s => s.HFR).OrderBy(h => h).ElementAt(stars.Count / 2);
 
         private static IEnumerable<TestCaseData> Rigs() {
-            yield return new TestCaseData(Refractor).SetName("A_Refractor_910mm_AutoStaysUnbinned");
-            yield return new TestCaseData(C11).SetName("B_C11_2800mm_AutoPicks2x");
-            yield return new TestCaseData(LongSct).SetName("C_Sct_4500mm_AutoPicks3x");
-            yield return new TestCaseData(LongSctBinned2).SetName("D_Sct_5600mm_Camera2x_AutoAddsAnother2x");
-            yield return new TestCaseData(C11Binned2).SetName("E_C11_Camera2x_AutoBacksOff");
+            yield return new TestCaseData(Refractor).SetName("A_Refractor_910mm_RecommendsUnbinned");
+            yield return new TestCaseData(C11).SetName("B_C11_2800mm_Recommends2x");
+            yield return new TestCaseData(LongSct).SetName("C_Sct_4500mm_Recommends3x");
+            yield return new TestCaseData(LongSctBinned2).SetName("D_Sct_5600mm_Camera2x_RecommendsAnother2x");
+            yield return new TestCaseData(C11Binned2).SetName("E_C11_Camera2x_RecommendationBacksOff");
         }
 
         [TestCaseSource(nameof(Rigs))]
-        public async Task Auto_PicksTheDocumentedFactorAndPreservesEveryReportedValue(Rig rig) {
+        public async Task Recommendation_NamesTheDocumentedFactorAndDetectionPreservesEveryReportedValue(Rig rig) {
             var pixelScale = SyntheticCameraTestScene.PixelScaleArcsecPerPixel(rig.FocalLengthMm, rig.CameraBinning);
-            var factor = DetectionBinningResolver.Resolve(DetectionBinningEnum.Auto, pixelScale);
-            Assert.That(factor, Is.EqualTo(rig.ExpectedAutoFactor),
+            var factor = DetectionBinningResolver.RecommendFromPixelScale(pixelScale);
+            Assert.That(factor, Is.EqualTo(rig.ExpectedRecommendedFactor),
                 $"{rig.Name}: {pixelScale:F3}\"/px, est. in-focus HFR {DetectionBinningResolver.EstimateInFocusHfrPixels(pixelScale):F1} px");
 
             var pixels = Render(rig);
@@ -149,12 +150,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         }
 
         [Test]
-        public async Task Auto_BringsInFocusHfrIntoTheDetectorsCalibratedBand() {
+        public async Task RecommendedFactor_BringsInFocusHfrIntoTheDetectorsCalibratedBand() {
             // The reason the feature exists: at long focal length the unbinned in-focus HFR sits far above the
             // 2-4 px the pixel-unit gates are tuned for, and binning brings the ANALYZED size back into range.
             var rig = LongSct;
             var pixelScale = SyntheticCameraTestScene.PixelScaleArcsecPerPixel(rig.FocalLengthMm, rig.CameraBinning);
-            var factor = DetectionBinningResolver.Resolve(DetectionBinningEnum.Auto, pixelScale);
+            var factor = DetectionBinningResolver.RecommendFromPixelScale(pixelScale);
 
             var pixels = Render(rig);
             var unbinned = await DetectAsync(pixels, rig, Params(1, pixelScale));
@@ -171,11 +172,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         }
 
         [Test]
-        public async Task Auto_RecoversFaintStarsThatTheUnbinnedRunMisses() {
+        public async Task RecommendedFactor_RecoversFaintStarsThatTheUnbinnedRunMisses() {
             // The SNR half of the benefit: mean/summed binning lifts faint stars above the structure-map threshold.
             var rig = LongSct;
             var pixelScale = SyntheticCameraTestScene.PixelScaleArcsecPerPixel(rig.FocalLengthMm, rig.CameraBinning);
-            var factor = DetectionBinningResolver.Resolve(DetectionBinningEnum.Auto, pixelScale);
+            var factor = DetectionBinningResolver.RecommendFromPixelScale(pixelScale);
 
             var projection = SyntheticCameraTestScene.Projection(rig.FocalLengthMm);
             // Deliberately near the detection floor for this rig (see FaintOffset).

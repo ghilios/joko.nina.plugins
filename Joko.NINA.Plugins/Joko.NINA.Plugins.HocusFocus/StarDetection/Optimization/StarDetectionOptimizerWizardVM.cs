@@ -109,30 +109,52 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public int CurrentOffsetSteps { get; set; }
         public bool ImprovedOverSeed { get; set; }
 
-        /// <summary>The software detection binning this run actually analyzed at.</summary>
-        public int CurrentDetectionBinning { get; set; } = 1;
+        /// <summary>The software detection binning this run actually analyzed at ("F"). Not necessarily the
+        /// persisted setting: an "Optimize again at NxN" pass runs at a factor the user has not committed to.</summary>
+        public int RunDetectionBinning { get; set; } = 1;
 
-        /// <summary>The factor the MEASURED in-focus HFR implies, via the same target the Auto rule uses. Unlike
-        /// the options-page hint (which assumes a seeing figure), this one is derived from the sweep's own fitted
-        /// curve, so it is the better answer whenever a run exists.</summary>
+        /// <summary>The persisted Star Detector setting at the time this summary was built ("P"). When it differs
+        /// from <see cref="RunDetectionBinning"/> this summary came from an optimize-again pass, and Accept writes
+        /// the factor and the tuned settings together.</summary>
+        public int PersistedDetectionBinning { get; set; } = 1;
+
+        /// <summary>The factor the MEASURED in-focus HFR implies ("R"), via the same target the options-page
+        /// recommendation uses. Derived from the sweep's own fitted curve rather than an assumed seeing figure, so
+        /// it is the better answer whenever a run exists.</summary>
         public int RecommendedDetectionBinning { get; set; } = 1;
 
         /// <summary>Fitted minimum (in-focus) HFR from the run's CURRENT-settings curve, in captured pixels.
-        /// NaN when the baseline fit was degenerate, which suppresses the recommendation entirely.</summary>
+        /// NaN when the baseline fit was degenerate, which suppresses the whole block.</summary>
         public double MeasuredInFocusHfr { get; set; } = double.NaN;
 
-        /// <summary>True when the measured curve implies a different detection binning than the run used — i.e.
-        /// there is something worth telling the user about.</summary>
-        public bool DetectionBinningChanged =>
-            double.IsFinite(MeasuredInFocusHfr) && RecommendedDetectionBinning != CurrentDetectionBinning;
+        /// <summary>Whether there is a measurement to reason about at all. False hides the block entirely: a
+        /// degenerate curve is already visible on the chart and has nothing to say about binning.</summary>
+        public bool HasDetectionBinningMeasurement => double.IsFinite(MeasuredInFocusHfr);
 
-        /// <summary>Plain-language readout, e.g. "1x → 2x (measured in-focus HFR 5.4 px)".</summary>
-        public string DetectionBinningText =>
-            !double.IsFinite(MeasuredInFocusHfr)
-                ? $"{CurrentDetectionBinning}x"
-                : DetectionBinningChanged
-                    ? $"{CurrentDetectionBinning}x → {RecommendedDetectionBinning}x (measured in-focus HFR {MeasuredInFocusHfr:F1} px)"
-                    : $"{CurrentDetectionBinning}x (unchanged; measured in-focus HFR {MeasuredInFocusHfr:F1} px)";
+        /// <summary>True when the measured curve calls for a factor this run did NOT analyze at, so there is
+        /// something to offer.</summary>
+        public bool DetectionBinningDiffers =>
+            HasDetectionBinningMeasurement && RecommendedDetectionBinning != RunDetectionBinning;
+
+        /// <summary>True when this summary came from an optimize-again pass: the run analyzed at a factor that is
+        /// not yet persisted, so Accept has a factor to write alongside the settings.</summary>
+        public bool DetectionBinningPendingApply =>
+            HasDetectionBinningMeasurement && RunDetectionBinning != PersistedDetectionBinning;
+
+        /// <summary>The recommended-factor row, e.g. "1x1 -> 2x2 (measured in-focus HFR 6.1 px)".</summary>
+        public string DetectionBinningText {
+            get {
+                if (!HasDetectionBinningMeasurement) {
+                    return $"{RunDetectionBinning}x{RunDetectionBinning}";
+                }
+                if (DetectionBinningPendingApply) {
+                    return $"{PersistedDetectionBinning}x{PersistedDetectionBinning} -> {RunDetectionBinning}x{RunDetectionBinning} (this run; measured in-focus HFR {MeasuredInFocusHfr:F1} px)";
+                }
+                return DetectionBinningDiffers
+                    ? $"{RunDetectionBinning}x{RunDetectionBinning} -> {RecommendedDetectionBinning}x{RecommendedDetectionBinning} (measured in-focus HFR {MeasuredInFocusHfr:F1} px)"
+                    : $"{RunDetectionBinning}x{RunDetectionBinning} (unchanged; measured in-focus HFR {MeasuredInFocusHfr:F1} px)";
+            }
+        }
 
         /// <summary>For the feedback variant only: σ(focus) of the optimized-WITHOUT-feedback result, so the
         /// results header can show how much the feedback round tightened focus relative to the plain optimization.
@@ -542,7 +564,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             StartCommand = new AsyncRelayCommand(() => StartAsync(CancellationToken.None), CanStart);
             CancelCommand = new RelayCommand(Cancel);
             AcceptCommand = new RelayCommand(Accept, CanAccept);
-            ApplyDetectionBinningCommand = new RelayCommand(ApplyRecommendedDetectionBinning, () => HasDetectionBinningRecommendation && !IsBusy);
+            OptimizeAgainAtRecommendedBinningCommand = new AsyncRelayCommand(() => OptimizeAgainAtRecommendedBinningAsync(CancellationToken.None), () => CanOptimizeAgainAtRecommendedBinning && !IsBusy);
             BackCommand = new RelayCommand(Back, () => CurrentStep == WizardStep.Summary && !IsBusy);
             CloseCommand = new RelayCommand(() => RequestClose?.Invoke(this, EventArgs.Empty));
             ReviewCommand = new AsyncRelayCommand(EnterReviewAsync, CanEnterReview);
@@ -815,34 +837,56 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         public int SweepPointCount => 2 * SweepEffectiveOffsetSteps + 1;
         public int SweepFramesPerPoint => profileService.ActiveProfile.FocuserSettings.AutoFocusNumberOfFramesPerPoint;
-        public string SweepBinning {
+        /// <summary>The CAMERA binning the sweep will capture at, from NINA's Auto Focus Binning. Named "capture"
+        /// to keep it distinct from <see cref="SweepDetectionBinning"/>, which resamples the captured frame for
+        /// detection only. The two multiply.</summary>
+        public string SweepCaptureBinning {
             get {
                 var b = profileService.ActiveProfile.FocuserSettings.AutoFocusBinning;
                 return $"{b}x{b}";
             }
         }
 
-        /// <summary>The Hocus Focus software binning detection will run at, which is applied ON TOP of the camera
-        /// binning above. Auto shows the factor it resolves to for this rig, since that is what the run will
-        /// actually use. Held fixed for the whole search — it is a property of the optics, not a tunable.</summary>
-        public string SweepDetectionBinning {
-            get {
-                var setting = EffectiveDetectionOptions.DetectionBinning;
-                var resolved = DetectionBinningResolver.Resolve(setting, SweepPixelScaleArcsecPerPixel);
-                return setting == DetectionBinningEnum.Auto ? $"{resolved}x (Auto)" : $"{resolved}x";
+        /// <summary>
+        /// The Hocus Focus software binning detection will run at, applied ON TOP of
+        /// <see cref="SweepCaptureBinning"/>. Settable here because the whole search is tuned at whatever factor
+        /// is in effect when the run starts, so this is the last honest moment to choose it.
+        ///
+        /// <para>This is the PERSISTED option, edited in place — the same write the Star Detector options page
+        /// does, conflict prompt included. A session-only override would let Accept apply settings tuned at a
+        /// factor the profile does not have. Binning is global even in per-filter mode: it follows the optics,
+        /// not the filter.</para>
+        /// </summary>
+        public DetectionBinningEnum SweepDetectionBinning {
+            get => starDetectionOptions.DetectionBinning;
+            set {
+                if (starDetectionOptions.DetectionBinning != value) {
+                    starDetectionOptions.DetectionBinning = value;
+                    RaiseSweepDetectionBinningChanged();
+                }
             }
+        }
+
+        /// <summary>The same recommendation line the Star Detector options page shows, from the same function, so
+        /// the two surfaces can never print different numbers.</summary>
+        public string SweepDetectionBinningRecommendation => DetectionBinningResolver.DescribeRecommendation(
+            DetectionBinningResolver.ToFactor(starDetectionOptions.DetectionBinning), SweepPixelScaleArcsecPerPixel);
+
+        /// <summary>Drives the recommendation line's emphasis: dimmed when it confirms the current factor, plain
+        /// when it disagrees.</summary>
+        public bool SweepDetectionBinningDiffersFromRecommendation => DetectionBinningResolver.DiffersFromRecommendation(
+            DetectionBinningResolver.ToFactor(starDetectionOptions.DetectionBinning), SweepPixelScaleArcsecPerPixel);
+
+        private void RaiseSweepDetectionBinningChanged() {
+            RaisePropertyChanged(nameof(SweepDetectionBinning));
+            RaisePropertyChanged(nameof(SweepDetectionBinningRecommendation));
+            RaisePropertyChanged(nameof(SweepDetectionBinningDiffersFromRecommendation));
         }
 
         /// <summary>The pixel scale the sweep frames will come back at: the profile's optics scaled by the AF
         /// capture binning. Matches what <c>HocusFocusStarDetection.ApplyDetectionImageContext</c> will compute
         /// from the captured frames' own metadata, so the readout above agrees with the run.</summary>
-        private double SweepPixelScaleArcsecPerPixel {
-            get {
-                var profile = profileService.ActiveProfile;
-                var captureBinning = Math.Max((short)1, profile.FocuserSettings.AutoFocusBinning);
-                return MathUtility.ArcsecPerPixel(profile.CameraSettings.PixelSize, profile.TelescopeSettings.FocalLength) * captureBinning;
-            }
-        }
+        private double SweepPixelScaleArcsecPerPixel => DetectionBinningResolver.PixelScaleFromProfile(profileService);
 
         /// <summary>The gain the sweep will actually expose with: the AF filter's gain when filter-wheel offsets
         /// designate one with an explicit gain, otherwise the connected camera's current gain.</summary>
@@ -900,8 +944,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(SweepStepSize));
             RaisePropertyChanged(nameof(SweepEffectiveOffsetSteps));
             RaisePropertyChanged(nameof(SweepPointCount));
-            RaisePropertyChanged(nameof(SweepBinning));
-            RaisePropertyChanged(nameof(SweepDetectionBinning));
+            RaisePropertyChanged(nameof(SweepCaptureBinning));
+            RaiseSweepDetectionBinningChanged();
             RaisePropertyChanged(nameof(SweepFilterName));
             RaisePropertyChanged(nameof(SweepGain));
             RaisePropertyChanged(nameof(SweepEstimatedFrames));
@@ -1469,9 +1513,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(HasFeedback));
             RaisePropertyChanged(nameof(ApplyRecommendedStepSize));
             RaisePropertyChanged(nameof(CanApplyRecommendedStepSize));
-            RaisePropertyChanged(nameof(HasDetectionBinningRecommendation));
-            RaisePropertyChanged(nameof(DetectionBinningRecommendationText));
-            ApplyDetectionBinningCommand.NotifyCanExecuteChanged();
+            RaiseDetectionBinningBlockChanged();
             RaisePropertyChanged(nameof(CanApplyExposureTime));
             RaisePropertyChanged(nameof(SweepExposureChangeText));
             RaisePropertyChanged(nameof(ChangedParametersDisplay));
@@ -1488,6 +1530,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(RoundsSummaryText));
             RaisePropertyChanged(nameof(HasRoundsSummary));
             RaisePropertyChanged(nameof(FocusPrecisionText));
+            RaiseDetectionBinningBlockChanged();
             AcceptCommand.NotifyCanExecuteChanged();
             BackCommand.NotifyCanExecuteChanged();
             ContinueOptimizationCommand.NotifyCanExecuteChanged();
@@ -1527,36 +1570,83 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// checkbox binds its IsEnabled here so an unchanged recommendation can't be "applied".</summary>
         public bool CanApplyRecommendedStepSize => (Summary?.StepSizeOrOffsetChanged ?? false) || ExposureChangedForLiveRun;
 
-        /// <summary>Whether the summary shows the detection-binning advisory: only when the run's own measured
-        /// in-focus HFR implies a different factor than the run analyzed at.</summary>
-        public bool HasDetectionBinningRecommendation => SelectedSummary?.DetectionBinningChanged ?? false;
+        /// <summary>Whether the summary shows the detection-binning block at all. Hidden when the baseline fit
+        /// was degenerate: there is no measured HFR to reason from, and the bad curve is already on the chart.</summary>
+        public bool HasDetectionBinningBlock => SelectedSummary?.HasDetectionBinningMeasurement ?? false;
 
-        /// <summary>The detection-binning row's readout (measured HFR and the implied factor).</summary>
+        /// <summary>The recommended-factor row's value.</summary>
         public string DetectionBinningRecommendationText => SelectedSummary?.DetectionBinningText ?? string.Empty;
 
         /// <summary>
-        /// Applies the measured detection-binning recommendation to the Star Detector options, deliberately as a
-        /// SEPARATE action from Accept: the settings this run just produced were tuned at the OLD factor, so
-        /// changing it invalidates them and the wizard should be re-run. Says so, rather than quietly re-tuning.
-        ///
-        /// <para>Writes the live options even in per-filter mode. Detection binning follows the optics, so it is the
-        /// same for every filter — unlike the tuned knobs, which the per-filter path routes to the target filter.</para>
+        /// Whether to offer "Optimize again at NxN": the measured curve calls for a different factor, this is an
+        /// Optimize-mode run (a use-current run has nothing tuned to re-tune), and there are frames on disk to
+        /// re-read.
         /// </summary>
-        private void ApplyRecommendedDetectionBinning() {
-            var summary = SelectedSummary;
-            if (summary == null || !summary.DetectionBinningChanged) {
-                return;
+        public bool CanOptimizeAgainAtRecommendedBinning =>
+            (SelectedSummary?.DetectionBinningDiffers ?? false)
+            && !IsUseCurrentMode
+            && reoptimizeRunFolders != null && reoptimizeRunFolders.Count > 0;
+
+        /// <summary>Button label, e.g. "Optimize again at 2x2" — the consequence lives in the label.</summary>
+        public string OptimizeAgainAtRecommendedBinningText {
+            get {
+                var r = SelectedSummary?.RecommendedDetectionBinning ?? 1;
+                return $"Optimize again at {r}x{r}";
             }
-            var setting = DetectionBinningResolver.ToSetting(summary.RecommendedDetectionBinning);
-            starDetectionOptions.DetectionBinning = setting;
-            Logger.Info($"Applied recommended detection binning {summary.RecommendedDetectionBinning}x (measured in-focus HFR {summary.MeasuredInFocusHfr:F2} px, was {summary.CurrentDetectionBinning}x)");
-            Notification.ShowInformation(
-                $"Detection binning set to {summary.RecommendedDetectionBinning}x. The settings from this run were tuned at {summary.CurrentDetectionBinning}x, so re-run the optimizer to tune for the new resolution.");
-            RaisePropertyChanged(nameof(HasDetectionBinningRecommendation));
-            RaisePropertyChanged(nameof(DetectionBinningRecommendationText));
-            RaisePropertyChanged(nameof(SweepDetectionBinning));
-            ApplyDetectionBinningCommand.NotifyCanExecuteChanged();
         }
+
+        /// <summary>
+        /// The body paragraph under the recommended-factor row. Three shapes, matching the three things that can
+        /// be true; empty when the recommendation simply confirms the run's factor (the row says it all).
+        /// </summary>
+        public string DetectionBinningBodyText {
+            get {
+                var summary = SelectedSummary;
+                if (summary == null || !summary.HasDetectionBinningMeasurement) {
+                    return string.Empty;
+                }
+                if (summary.DetectionBinningPendingApply) {
+                    var f = summary.RunDetectionBinning;
+                    var text = $"This result was optimized at {f}x{f}. Accept applies these settings and sets Detection Binning to {f}x{f} together. Close discards both.";
+                    if (IsPerFilterEnabled) {
+                        var p = summary.PersistedDetectionBinning;
+                        text += $" Detection Binning is shared by all filters; settings tuned for other filters at {p}x{p} should be re-optimized as well.";
+                    }
+                    return text;
+                }
+                if (!summary.DetectionBinningDiffers) {
+                    return string.Empty;
+                }
+                var run = summary.RunDetectionBinning;
+                var rec = summary.RecommendedDetectionBinning;
+                if (IsUseCurrentMode) {
+                    return $"Star detection is calibrated for in-focus stars of about 2 to 4 pixels; this run measured {summary.MeasuredInFocusHfr:F1} px. To change the factor, run this wizard in Optimize mode; settings must be re-tuned for a new factor.";
+                }
+                return $"Star detection is calibrated for in-focus stars of about 2 to 4 pixels; this run measured {summary.MeasuredInFocusHfr:F1} px. "
+                     + $"Every setting above was tuned at {run}x{run} and is only valid there, so changing the factor means optimizing again. "
+                     + $"Optimize again at {rec}x{rec} repeats the search on the frames already captured; nothing is saved until you Accept the new result.";
+            }
+        }
+
+        /// <summary>Whether the block has a consequence paragraph to show. False when the recommendation simply
+        /// confirms the run's factor — the row already says everything.</summary>
+        public bool HasDetectionBinningBody => !string.IsNullOrEmpty(DetectionBinningBodyText);
+
+        private void RaiseDetectionBinningBlockChanged() {
+            RaisePropertyChanged(nameof(HasDetectionBinningBlock));
+            RaisePropertyChanged(nameof(HasDetectionBinningBody));
+            RaisePropertyChanged(nameof(DetectionBinningRecommendationText));
+            RaisePropertyChanged(nameof(DetectionBinningBodyText));
+            RaisePropertyChanged(nameof(CanOptimizeAgainAtRecommendedBinning));
+            RaisePropertyChanged(nameof(OptimizeAgainAtRecommendedBinningText));
+            OptimizeAgainAtRecommendedBinningCommand?.NotifyCanExecuteChanged();
+        }
+
+        // The factor an "Optimize again at NxN" pass runs at, stamped onto each reloaded run's seed + baseline.
+        // Deliberately NOT persisted: the wizard's contract is that Accept is the only thing that writes settings,
+        // and a factor applied without the settings measured at it is an invalid combination. Cleared whenever a
+        // run starts from the Select Source page.
+        private int? pendingDetectionBinning;
 
         // Snapshotted when a Live sweep captures: the exposure it used (for the summary write-back) and a flag that a
         // live capture happened (gates the exposure write-back offer). A fresh Replay run clears the flag.
@@ -1625,6 +1715,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     ? BuildTrajectoryRows()
                     : new List<ChangedParameterRow>(Summary.ChangedParameters);
                 var rows = baseRows;
+                // Detection binning first: it is the change that gives every other row its units. Shown whenever
+                // Accept will write it (an optimize-again result on a non-Current variant), so this table stays the
+                // complete manifest of what Accept does.
+                if (selectedVariant != OptimizationVariant.Current && (Summary.DetectionBinningPendingApply)) {
+                    rows.Insert(0, new ChangedParameterRow {
+                        Name = "Detection binning",
+                        SeedValue = Summary.PersistedDetectionBinning,
+                        OptimizedValue = Summary.RunDetectionBinning
+                    });
+                }
                 if (ApplyRecommendedStepSize && CanApplyRecommendedStepSize) {
                     if (Summary.RecommendedStepSize != Summary.CurrentStepSize) {
                         rows.Add(new ChangedParameterRow {
@@ -1713,9 +1813,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public RelayCommand CancelCommand { get; }
         public RelayCommand AcceptCommand { get; }
 
-        /// <summary>Summary page: apply the measured detection-binning recommendation to the Star Detector
-        /// options. Separate from Accept on purpose — see <see cref="ApplyRecommendedDetectionBinning"/>.</summary>
-        public RelayCommand ApplyDetectionBinningCommand { get; }
+        /// <summary>Summary page: re-run the search at the measured recommended factor, on the frames already on
+        /// disk. Writes nothing — see <see cref="OptimizeAgainAtRecommendedBinningAsync"/>.</summary>
+        public AsyncRelayCommand OptimizeAgainAtRecommendedBinningCommand { get; }
         public RelayCommand BackCommand { get; }
         public RelayCommand CloseCommand { get; }
 
@@ -1837,6 +1937,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
 
             ErrorMessage = null;
+            // A fresh run always uses the PERSISTED factor: any pending optimize-again factor from a previous
+            // summary was abandoned when the user came back here.
+            pendingDetectionBinning = null;
             // Pre-flight validation: Live needs the camera + focuser connected; Saved needs a distinct, non-empty
             // folder per run. On failure, surface the error and stay on SelectSource without starting a run.
             if (!ValidateSourceBeforeStart()) {
@@ -2105,6 +2208,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var loaded = await loader.LoadSavedRunAsync(folder, region, frameLabels, progress, ResolveBaselineOptionsOverride(), token).ConfigureAwait(true);
             if (loaded?.Data != null) {
                 loaded.Data.RecoveryStepsPerSide = capturedRecoveryStepsPerSide;
+            }
+            // An "Optimize again at NxN" pass analyzes at a factor the user has not committed to, so the loader
+            // (which reads the live option) built the seed and baseline at the OLD factor. Re-stamp both here,
+            // the single choke point every load goes through, so the search and its "before" comparison agree.
+            if (pendingDetectionBinning.HasValue && loaded != null) {
+                DetectionBinningResolver.ApplyFactor(loaded.Seed, pendingDetectionBinning.Value);
+                DetectionBinningResolver.ApplyFactor(loaded.Baseline, pendingDetectionBinning.Value);
             }
             return loaded;
         }
@@ -2494,7 +2604,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 CurrentStepSize = currentStepSize,
                 CurrentOffsetSteps = currentOffsetSteps,
                 ImprovedOverSeed = res.ImprovedOverSeed,
-                CurrentDetectionBinning = Math.Max(1, baseline.DetectionBinning),
+                RunDetectionBinning = Math.Max(1, baseline.DetectionBinning),
+                PersistedDetectionBinning = DetectionBinningResolver.ToFactor(starDetectionOptions.DetectionBinning),
                 MeasuredInFocusHfr = measuredInFocusHfr,
                 RecommendedDetectionBinning = DetectionBinningResolver.RecommendFromHfr(measuredInFocusHfr)
             };
@@ -2522,7 +2633,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 ImprovedOverSeed = false,
                 // The binning recommendation is a property of the FRAMES, not of the detector settings variant, so
                 // it carries over verbatim to the Current view.
-                CurrentDetectionBinning = optimized.CurrentDetectionBinning,
+                RunDetectionBinning = optimized.RunDetectionBinning,
+                PersistedDetectionBinning = optimized.PersistedDetectionBinning,
                 MeasuredInFocusHfr = optimized.MeasuredInFocusHfr,
                 RecommendedDetectionBinning = optimized.RecommendedDetectionBinning
             };
@@ -2597,6 +2709,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 } else {
                     starDetectionOptions.ApplyOptimizedSettings(dto);
                     Logger.Info($"Applied optimized star-detection settings (J {summary.SeedJ:F3} -> {summary.BestJ:F3}, {summary.RunCount} run(s))");
+                }
+
+                // The factor and the settings measured at it are written TOGETHER, and only here. Splitting them
+                // would apply a combination the optimizer never evaluated. Global even in per-filter mode: binning
+                // follows the optics, not the filter.
+                if (summary.DetectionBinningPendingApply) {
+                    var factor = summary.RunDetectionBinning;
+                    starDetectionOptions.DetectionBinning = DetectionBinningResolver.ToSetting(factor);
+                    Logger.Info($"Applied detection binning {factor}x{factor} with the settings optimized at that factor (was {summary.PersistedDetectionBinning}x{summary.PersistedDetectionBinning})");
                 }
             } else {
                 Logger.Info("Keeping current star-detection settings (the optimizer did not beat them); applying the recommended auto-focus settings only.");
@@ -3069,6 +3190,110 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         /// <summary>
+        /// Re-runs the whole optimization on the frames already on disk, at the factor this run's MEASURED in-focus
+        /// HFR calls for. Deliberately persists nothing: the new factor is stamped onto the reloaded runs only, and
+        /// is written to the profile — together with the settings tuned at it — when the user Accepts.
+        ///
+        /// <para>This is the ONLY way the wizard changes the factor, and that is the point. Applying a factor
+        /// without the settings measured at it produces a combination that was never evaluated: every pixel-unit
+        /// knob shifts meaning and measured HFR moves several percent. A checkbox or a standalone apply button
+        /// could produce exactly that, however it was worded, so neither exists.</para>
+        ///
+        /// <para>Unlike <see cref="ContinueOptimizationAsync"/> this seeds FRESH (no seed override) and resets the
+        /// round chain: the previous best was tuned in the old factor's units and is not a meaningful starting
+        /// point, nor a meaningful thing to compare against.</para>
+        /// </summary>
+        private async Task OptimizeAgainAtRecommendedBinningAsync(CancellationToken externalToken) {
+            if (!CanOptimizeAgainAtRecommendedBinning) {
+                return;
+            }
+            if (Interlocked.CompareExchange(ref running, 1, 0) != 0) {
+                return; // a Start/re-optimize/continue is already in flight
+            }
+
+            var target = SelectedSummary.RecommendedDetectionBinning;
+            var previous = pendingDetectionBinning;
+            pendingDetectionBinning = target;
+
+            ErrorMessage = null;
+            SetProgress(null, 0, 0);
+            ProgressSeedJ = 0;
+            ProgressBestJ = 0;
+            ProgressSeedSigma = double.NaN;
+            ProgressBestSigma = double.NaN;
+            IsBusy = true;
+
+            cts?.Dispose();
+            cts = CancellationTokenSource.CreateLinkedTokenSource(externalToken);
+            var token = cts.Token;
+
+            List<LoadedRun> reloaded = null;
+            var succeeded = false;
+            try {
+                CurrentStep = WizardStep.Optimize;
+                reloaded = new List<LoadedRun>(reoptimizeRunFolders.Count);
+                for (var i = 0; i < reoptimizeRunFolders.Count; i++) {
+                    token.ThrowIfCancellationRequested();
+                    SetProgress($"Re-loading frames for {target}x{target}", 0, 0);
+                    var loadProgress = new Progress<RunLoadProgress>(rp =>
+                        SetProgress($"Loading frames for {target}x{target}", rp.Current, rp.Total));
+                    reloaded.Add(await LoadRunStampedAsync(reoptimizeRunFolders[i], null, loadProgress, token).ConfigureAwait(true));
+                }
+
+                await AnalyzeWithProgressAsync(reloaded, r => r.Seed, token).ConfigureAwait(true);
+                // The "before" for this pass is the user's current settings measured AT THE NEW FACTOR — the only
+                // honest comparison, since a baseline J from the old factor is in different units.
+                currentBaselineJ = await ComputeBaselineJAsync(reloaded, token).ConfigureAwait(true);
+
+                var optimizeResult = await OptimizeAsync(reloaded, token).ConfigureAwait(true);
+                var built = await BuildSummaryAsync(reloaded, optimizeResult, token).ConfigureAwait(true);
+
+                // A fresh tuning, not another round: reset the chain so the trajectory does not splice together
+                // values measured in two different pixel scales.
+                optimizedResult = optimizeResult;
+                optimizedSummary = built.Summary;
+                optimizedCurve = built.OptimizedCurve;
+                currentCurve = built.CurrentCurve;
+                optimizedChain.Clear();
+                optimizedChain.Add(optimizeResult.BestParams);
+                optimizedRoundJ.Clear();
+                optimizedRoundJ.Add(optimizeResult.BestJ);
+                optimizedRoundCurves.Clear();
+                optimizedRoundCurves.Add(built.OptimizedCurve);
+                // The feedback variant was measured at the old factor; it cannot be compared or accepted now.
+                feedbackResult = null;
+                feedbackSummary = null;
+                feedbackCurve = null;
+                currentSummary = BuildCurrentSummary(built.Summary);
+                OptimizerImprovedOverCurrent = optimizeResult.BestJ > currentBaselineJ + ImprovementEpsilon;
+                selectedVariant = OptimizationVariant.Optimized;
+                RaiseSelectedVariantDependents();
+
+                SnapshotReviewInputs(reloaded, reoptimizeRunFolders, reoptimizeRunIds);
+                RecordRunDuration();
+                CurrentStep = WizardStep.Summary;
+                succeeded = true;
+                Logger.Info($"Re-optimized at detection binning {target}x{target} (not yet applied; Accept writes it with the settings)");
+            } catch (OperationCanceledException) {
+                Logger.Info("Re-optimize at the recommended detection binning was cancelled");
+                CurrentStep = WizardStep.Summary;
+            } catch (Exception ex) {
+                Logger.Error(ex, "Re-optimize at the recommended detection binning failed");
+                ErrorMessage = $"Optimizing at {target}x{target} failed: {ex.Message}";
+                CurrentStep = WizardStep.Summary;
+            } finally {
+                if (!succeeded) {
+                    // Cancelled or failed: drop the pending factor so nothing downstream believes this run happened
+                    // at it. Nothing was persisted, so there is no residue to undo.
+                    pendingDetectionBinning = previous;
+                }
+                DisposeLoadedRuns(reloaded);
+                IsBusy = false;
+                Interlocked.Exchange(ref running, 0);
+            }
+        }
+
+        /// <summary>
         /// Builds a positional (folder-index → labels) fallback used only when a re-loaded run's id does not match any
         /// captured-labels key. The folders are re-loaded in the same order the captured labels were produced, so the
         /// fallback pairs them by index. Captured-label values are taken in their dictionary's enumeration order.
@@ -3202,6 +3427,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         private void Back() {
             if (CurrentStep == WizardStep.Summary && !IsBusy) {
+                // Leaving the summary abandons any un-accepted optimize-again factor, so the confirmation panel
+                // and a subsequent Start both go back to the persisted value.
+                pendingDetectionBinning = null;
+                RaiseSweepDetectionBinningChanged();
                 CurrentStep = WizardStep.SelectSource;
             }
         }

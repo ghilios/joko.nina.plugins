@@ -42,9 +42,14 @@ stays in its calibrated range (in-focus HFR ~2-4 px) regardless of the rig's pix
   pick up a `(b-1)/2` half-block shift; intensities are unchanged (mean binning preserves level);
   `PSF.FWHMArcsecs` is NOT rescaled because `StarDetectorParams.PixelScale` already carries the factor.
   `HocusFocusStarDetection.SourcePixelScale` divides it back out for anything user-facing.
-- `DetectionBinningEnum.Auto` is resolved in exactly one place —
-  `HocusFocusStarDetection.ApplyDetectionImageContext`, against the captured frame's pixel scale — by
-  `Utility/DetectionBinningResolver`, the single source of truth for the rule.
+- **The factor is always explicit — there is no Auto, deliberately.** A self-resolving factor would change
+  detection behavior on upgrade and invalidate already-tuned settings. `Utility/DetectionBinningResolver`
+  RECOMMENDS one (options page + optimization wizard) and never writes the setting. `ToFactor` clamps, so an
+  out-of-range persisted value can never bin someone's frames.
+- The optimization wizard changes the factor ONLY via "Optimize again at NxN": it re-runs the search on the
+  saved frames at the new factor (stamped onto the reloaded seed/baseline in `LoadRunStampedAsync`, nothing
+  persisted) and Accept writes the factor together with the settings measured at it. Don't add an
+  apply-the-factor-alone path — that pair is only valid together.
 - **Reported HFR drifts with the factor** (+5% at 2x, +16% at 3x on the capstone frames): higher per-pixel
   SNR admits more outer flux into the measurement. Harmless for best-focus, but HFR is not comparable across
   factors — don't "fix" a test that observes this.

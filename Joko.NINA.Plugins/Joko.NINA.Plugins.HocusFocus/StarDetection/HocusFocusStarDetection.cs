@@ -552,10 +552,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Logger.Warning("Pixel Scale is NaN. Make sure pixel size and focal length are set in Options.");
             }
 
-            // This is the ONLY place Auto is resolved, and it is resolved against the CAPTURED frame's pixel scale
-            // (profile optics × the camera binning the frame actually came back at), so Auto backs off on its own
-            // when the camera is already binning.
-            var softwareBinning = DetectionBinningResolver.Resolve(detectionBinning, pixelScale);
+            // The user's explicit factor. It is never derived here: a detection binning that resolved itself would
+            // change how frames are analyzed the moment the plugin updated, silently invalidating tuned settings.
+            // The UI recommends a factor (DetectionBinningResolver) and the user chooses.
+            var softwareBinning = DetectionBinningResolver.ToFactor(detectionBinning);
             detectorParams.DetectionBinning = softwareBinning;
 
             // Detection runs in BINNED pixels, so the scale it reasons in is the binned scale. That keeps the one
