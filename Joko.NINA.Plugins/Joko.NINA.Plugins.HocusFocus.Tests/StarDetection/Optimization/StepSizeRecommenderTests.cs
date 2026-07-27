@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -43,6 +43,56 @@ public class StepSizeRecommenderTests {
         AlglibHyperbolicFitting.SelectBestModel(alglib, points, stepSize: 100, useWeights: true,
             maxOutlierRejections: 0, rejectionConfidence: 0.0, out var bestFit, out _);
         return bestFit;
+    }
+
+    /// <summary>Fits a SHALLOW sweep: one whose ends only reach <paramref name="edgeHfrRatio"/> times the minimum
+    /// HFR, so the 3x band the recommender measures lies outside the sampled range entirely.</summary>
+    private static AlglibHyperbolicFitting FitShallowHyperbola(double minHfr, double edgeHfrRatio, int stepSize, int offsetSteps) {
+        var halfSpan = stepSize * offsetSteps;
+        var b = halfSpan / (Math.Sqrt(edgeHfrRatio * edgeHfrRatio - 1.0) * minHfr);
+        var points = new List<ScatterErrorPoint>();
+        for (var i = -offsetSteps; i <= offsetSteps; i++) {
+            var dx = (i * stepSize) / b;
+            points.Add(new ScatterErrorPoint(P0 + i * stepSize, Math.Sqrt(minHfr * minHfr + dx * dx), 0, 0.02));
+        }
+        AlglibHyperbolicFitting.SelectBestModel(new AlglibAPI(), points, stepSize, useWeights: true,
+            maxOutlierRejections: 0, rejectionConfidence: 0.0, out var bestFit, out _);
+        return bestFit;
+    }
+
+    [Test]
+    public void Recommend_ShallowSweep_CapsTheExtrapolationAndSaysSo() {
+        // The reported case: HFR ~5.1 px at the vertex and only ~6.9 px at the ends of a +/-2096-step sweep. The
+        // 3x band sits ~6400 steps out — 3.1x further than anything measured — and uncapped that recommended a
+        // step of ~1838, i.e. a +/-7352 sweep derived almost entirely from extrapolating the model.
+        const int stepSize = 524;
+        const int offsetSteps = 4;
+        var fit = FitShallowHyperbola(minHfr: 5.1, edgeHfrRatio: 1.36, stepSize: stepSize, offsetSteps: offsetSteps);
+
+        var rec = StepSizeRecommender.Recommend(fit, currentStepSize: stepSize);
+
+        var sampledHalfSpan = stepSize * offsetSteps;
+        Assert.Multiple(() => {
+            Assert.That(rec.WasCapped, Is.True, "the half-width came from outside the sampled sweep");
+            Assert.That(rec.HalfWidth, Is.EqualTo(StepSizeRecommender.MaxHalfWidthSampledHalfSpanMultiple * sampledHalfSpan).Within(1.0));
+            Assert.That(rec.StepSize, Is.EqualTo(898).Within(2), "a bounded step toward the answer, not a 3x jump");
+            Assert.That(rec.StepSize * rec.OffsetSteps, Is.LessThanOrEqualTo(2 * sampledHalfSpan),
+                "the implied sweep must stay near what this run actually measured");
+        });
+    }
+
+    [Test]
+    public void Recommend_SweepThatAlreadyReachesTheBand_IsNotCapped() {
+        // A well-shaped sweep whose ends reach 3x the minimum already contains the half-width, so nothing is
+        // extrapolated and the recommendation stands on its own data.
+        var fit = FitShallowHyperbola(minHfr: 5.1, edgeHfrRatio: 3.0, stepSize: 524, offsetSteps: 4);
+
+        var rec = StepSizeRecommender.Recommend(fit, currentStepSize: 524);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.WasCapped, Is.False);
+            Assert.That(rec.StepSize, Is.EqualTo(599).Within(3));
+        });
     }
 
     [Test]

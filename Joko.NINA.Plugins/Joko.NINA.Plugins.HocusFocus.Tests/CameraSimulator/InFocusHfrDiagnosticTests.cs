@@ -245,10 +245,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             // Where the 3x band actually sits, from the same physics that generated the points.
             var trueHalfWidth = Math.Sqrt(9.0 - 1.0) * minHfr / k;
             TestContext.WriteLine(string.Format(CultureInfo.InvariantCulture,
-                "edge {0:F2}x min | sampled half-span {1} | 3x half-width {2:F0} ({3:F1}x the sampled half-span) | recommended step {4} -> sweep +/-{5}",
+                "edge {0:F2}x min | sampled half-span {1} | 3x half-width {2:F0} ({3:F1}x the sampled half-span) | recommended step {4}{5} -> sweep +/-{6}",
                 edgeHfrRatio, halfSpan, trueHalfWidth, trueHalfWidth / halfSpan,
-                recommendation.StepSize, recommendation.StepSize * recommendation.OffsetSteps));
-            Assert.Pass("diagnostic output only");
+                recommendation.StepSize, recommendation.WasCapped ? " (capped)" : "",
+                recommendation.StepSize * recommendation.OffsetSteps));
+
+            // The cap must bound the sweep the recommendation implies to something this run's data supports.
+            var impliedHalfSpan = recommendation.StepSize * recommendation.OffsetSteps;
+            Assert.That(impliedHalfSpan, Is.LessThanOrEqualTo(2.0 * halfSpan),
+                "a recommendation must not ask for a sweep several times wider than anything measured");
+            Assert.That(recommendation.WasCapped, Is.EqualTo(trueHalfWidth > StepSizeRecommender.MaxHalfWidthSampledHalfSpanMultiple * halfSpan),
+                "the capped flag must say exactly when the model was trusted past the data");
         }
 
         // The sweep the wizard captures: offsetSteps per side at stepSize, centered on focus.

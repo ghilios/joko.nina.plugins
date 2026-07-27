@@ -202,9 +202,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public bool StepSizeOrOffsetChanged =>
             RecommendedStepSize != CurrentStepSize || RecommendedOffsetSteps != CurrentOffsetSteps;
 
+        /// <summary>True when the recommended step size was capped because this sweep was too shallow to contain
+        /// the band it is measured from, so it is a partial step toward the answer (see
+        /// <see cref="StepSizeRecommender.MaxHalfWidthSampledHalfSpanMultiple"/>).</summary>
+        public bool StepSizeWasCapped { get; set; }
+
         /// <summary>Plain-language step-size readout: "{current} → {recommended}" when changed, else
-        /// "{recommended} (unchanged)".</summary>
-        public string StepSizeText => FormatRecommendation(CurrentStepSize, RecommendedStepSize);
+        /// "{recommended} (unchanged)", with a capped note when the sweep could not support the full move.</summary>
+        public string StepSizeText => StepSizeWasCapped
+            ? FormatRecommendation(CurrentStepSize, RecommendedStepSize) + " (capped by this sweep's width; re-run auto-focus to refine)"
+            : FormatRecommendation(CurrentStepSize, RecommendedStepSize);
 
         /// <summary>Plain-language offset-steps readout (same before→after / "(unchanged)" convention).</summary>
         public string OffsetStepsText => FormatRecommendation(CurrentOffsetSteps, RecommendedOffsetSteps);
@@ -2661,6 +2668,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RunCount = runs.Count,
                 RecommendedStepSize = recommendation.StepSize,
                 RecommendedOffsetSteps = recommendation.OffsetSteps,
+                StepSizeWasCapped = recommendation.WasCapped,
                 CurrentStepSize = currentStepSize,
                 CurrentOffsetSteps = currentOffsetSteps,
                 ImprovedOverSeed = res.ImprovedOverSeed,
