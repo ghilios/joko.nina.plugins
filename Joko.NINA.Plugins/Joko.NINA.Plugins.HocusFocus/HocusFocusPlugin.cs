@@ -104,8 +104,13 @@ namespace NINA.Joko.Plugins.HocusFocus {
                 Settings.Default.Save();
             }
 
+            if (InFocusHfr == null) {
+                // The measured in-focus HFR that drives the detection-binning recommendation. MUST be constructed
+                // before StarDetectionOptions, which subscribes to it for the recommendation refresh.
+                InFocusHfr = new InFocusHfrRecord(profileService);
+            }
             if (StarDetectionOptions == null) {
-                StarDetectionOptions = new StarDetectionOptions(profileService);
+                StarDetectionOptions = new StarDetectionOptions(profileService, InFocusHfr);
             }
             if (StarAnnotatorOptions == null) {
                 StarAnnotatorOptions = new StarAnnotatorOptions(profileService);
@@ -391,6 +396,10 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public static AutoFocusEngineFactory AutoFocusEngineFactory { get; private set; }
 
         public static ApplicationDispatcher ApplicationDispatcher { get; private set; }
+
+        /// <summary>The last measured in-focus HFR for the active profile. Written when an auto-focus run finishes;
+        /// read by the detection-binning recommendation on the Star Detector options page and in the wizard.</summary>
+        public static InFocusHfrRecord InFocusHfr { get; private set; }
 
         public static IAlglibAPI AlglibAPI { get; private set; }
 

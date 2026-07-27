@@ -4,6 +4,7 @@ using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
+using NINA.Profile;
 using NINA.Profile.Interfaces;
 using NSubstitute;
 using NUnit.Framework;
@@ -554,7 +555,7 @@ public class StarDetectionOptionsTests {
     [Test]
     public void Constructor_ThrowsOnNullAccessor() {
         var profile = Substitute.For<IProfileService>();
-        Assert.Throws<ArgumentNullException>(() => new StarDetectionOptions(profile, null));
+        Assert.Throws<ArgumentNullException>(() => new StarDetectionOptions(profile, (IPluginOptionsAccessor)null));
     }
 
     // ---- Optimized settings snapshot + "Use Optimized Settings" toggle (T1) ----

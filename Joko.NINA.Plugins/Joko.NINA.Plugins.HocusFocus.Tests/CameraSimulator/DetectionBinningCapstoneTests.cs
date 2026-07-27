@@ -33,8 +33,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         // (3008², 3.76 µm). Aperture tracks focal length so the frames stay realistically exposed.
         private static readonly Rig Refractor = new("130mm f/7 refractor", 910.0, 130.0, 1, 1);
         private static readonly Rig C11 = new("C11 @ f/10", 2800.0, 280.0, 1, 2);
-        private static readonly Rig LongSct = new("SCT @ 4500mm", 4500.0, 320.0, 1, 3);
-        private static readonly Rig LongSctBinned2 = new("SCT @ 5600mm, camera 2x2", 5600.0, 356.0, 2, 2);
+        // 5600mm, not 4500mm: at 4500mm the detector MEASURES 6.92 px in focus, which the rule puts at 2x2. The old
+        // pixel-scale estimate claimed 8.7 px there and asked for 3x3 — the inflation this change removes. Paired
+        // with LongSctBinned2 below (same optics, camera binning on) to show the back-off.
+        private static readonly Rig LongSct = new("SCT @ 5600mm", 5600.0, 380.0, 1, 3);
+        private static readonly Rig LongSctBinned2 = new("SCT @ 5600mm, camera 2x2", 5600.0, 380.0, 2, 2);
         private static readonly Rig C11Binned2 = new("C11 @ f/10, camera 2x2", 2800.0, 280.0, 2, 1);
 
         // Bright enough to be unambiguous on every rig here, spread clear of the borders.
@@ -106,7 +109,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         private static IEnumerable<TestCaseData> Rigs() {
             yield return new TestCaseData(Refractor).SetName("A_Refractor_910mm_RecommendsUnbinned");
             yield return new TestCaseData(C11).SetName("B_C11_2800mm_Recommends2x");
-            yield return new TestCaseData(LongSct).SetName("C_Sct_4500mm_Recommends3x");
+            yield return new TestCaseData(LongSct).SetName("C_Sct_5600mm_Recommends3x");
             yield return new TestCaseData(LongSctBinned2).SetName("D_Sct_5600mm_Camera2x_RecommendsAnother2x");
             yield return new TestCaseData(C11Binned2).SetName("E_C11_Camera2x_RecommendationBacksOff");
         }
@@ -114,9 +117,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         [TestCaseSource(nameof(Rigs))]
         public async Task Recommendation_NamesTheDocumentedFactorAndDetectionPreservesEveryReportedValue(Rig rig) {
             var pixelScale = SyntheticCameraTestScene.PixelScaleArcsecPerPixel(rig.FocalLengthMm, rig.CameraBinning);
-            var factor = DetectionBinningResolver.RecommendFromPixelScale(pixelScale);
-            Assert.That(factor, Is.EqualTo(rig.ExpectedRecommendedFactor),
-                $"{rig.Name}: {pixelScale:F3}\"/px, est. in-focus HFR {DetectionBinningResolver.EstimateInFocusHfrPixels(pixelScale):F1} px");
+            var factor = rig.ExpectedRecommendedFactor;
 
             var pixels = Render(rig);
             var unbinned = await DetectAsync(pixels, rig, Params(1, pixelScale));
@@ -140,12 +141,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 // HFR is reported in CAPTURED pixels at every factor, which is what keeps auto-focus curves
                 // comparable. It is not IDENTICAL across factors, and the tolerance says so: binning raises the
                 // per-pixel SNR, so more of each star's outer flux clears the measurement threshold and the
-                // flux-weighted mean radius creeps up with the factor (~5% at 2x, ~16% at 3x on these frames).
+                // flux-weighted mean radius creeps up with the factor (~5% at 2x, ~21% at 3x on these frames).
                 // The shift is a scale factor across the whole curve, so it does not move best focus - but HFR
                 // values are not comparable BETWEEN factors, which is why changing the factor asks for a re-tune.
-                Assert.That(binnedHfr, Is.EqualTo(unbinnedHfr).Within(0.20 * unbinnedHfr),
+                Assert.That(binnedHfr, Is.EqualTo(unbinnedHfr).Within(0.25 * unbinnedHfr),
                     "the reported HFR must stay the star's real size in captured pixels, within the documented drift");
                 Assert.That(binned.DetectionBinning, Is.EqualTo(factor));
+                // The recommendation rule, end to end on rendered frames: the factor is derived from what the
+                // detector MEASURED at 1x1, never from pixel scale under an assumed seeing figure. (That
+                // assumption is what told a user with 3.6 px stars to bin 2x2.)
+                Assert.That(DetectionBinningResolver.RecommendFromHfr(unbinnedHfr), Is.EqualTo(factor),
+                    $"{rig.Name}: measured {unbinnedHfr:F2} px unbinned at {pixelScale:F3}\"/px");
             });
         }
 
@@ -155,7 +161,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             // 2-4 px the pixel-unit gates are tuned for, and binning brings the ANALYZED size back into range.
             var rig = LongSct;
             var pixelScale = SyntheticCameraTestScene.PixelScaleArcsecPerPixel(rig.FocalLengthMm, rig.CameraBinning);
-            var factor = DetectionBinningResolver.RecommendFromPixelScale(pixelScale);
+            var factor = rig.ExpectedRecommendedFactor;
 
             var pixels = Render(rig);
             var unbinned = await DetectAsync(pixels, rig, Params(1, pixelScale));
@@ -176,7 +182,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             // The SNR half of the benefit: mean/summed binning lifts faint stars above the structure-map threshold.
             var rig = LongSct;
             var pixelScale = SyntheticCameraTestScene.PixelScaleArcsecPerPixel(rig.FocalLengthMm, rig.CameraBinning);
-            var factor = DetectionBinningResolver.RecommendFromPixelScale(pixelScale);
+            var factor = rig.ExpectedRecommendedFactor;
 
             var projection = SyntheticCameraTestScene.Projection(rig.FocalLengthMm);
             // Deliberately near the detection floor for this rig (see FaintOffset).

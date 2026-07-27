@@ -20,23 +20,24 @@ Advanced mode.
 > every pixel-based setting out of range and leaves detection slower and noisier than it needs to be. Binning
 > the frame for detection brings star size back into range and improves signal to noise per pixel. It does not
 > change the image you see or the HFR values reported: those stay at the resolution the camera captured. The
-> line below recommends a factor from your pixel scale, which already accounts for any camera binning; the
-> Optimization Wizard recommends one from your measured focus curve, which is the better answer once you have
-> run it. This is not the same as NINA's Auto Focus Binning, which changes how the camera captures the
-> auto-focus frames and should match the binning you image at. The two multiply
+> line beside it reports the in-focus HFR your last auto-focus run actually measured, and the factor that
+> measurement calls for. This is not the same as NINA's Auto Focus Binning, which changes how the camera
+> captures the auto-focus frames and should match the binning you image at. The two multiply
 
 **Default:** `1x1 (Off)` &nbsp;•&nbsp; **Range:** 1x1 (Off), 2x2, 3x3, 4x4.
 
-Nothing chooses the factor for you. Beside the dropdown, a short line recommends one:
+Nothing chooses the factor for you. Beside the dropdown, a short line reports what your rig actually measures
+and what that implies:
 
 ```
-Recommended: 2x2
+Measured in-focus HFR 3.6 px - 1x1 is right
+Measured in-focus HFR 6.1 px - 2x2 recommended
 ```
 
-It reads *Recommended: 2x2 (current)* once you have selected it. Hover for the reasoning: the pixel scale,
-the star size it implies, and where that size lands once binned. The line is drawn in the secondary text
-color while it agrees with your setting and in the primary color when it does not, so a mismatch is visible
-without being alarming. Disagreeing with it is a legitimate choice.
+Before anything has been measured it says `Run an auto-focus to get a recommendation`. Hover for the
+reasoning, including when the measurement was taken. The line is drawn in the secondary text color while it
+agrees with your setting and in the primary color when it does not, so a mismatch is visible without being
+alarming. Disagreeing with it is a legitimate choice.
 
 !!! note "Why there is no Auto"
     An automatic factor would change how frames are analyzed the moment the plugin updated, and every
@@ -44,32 +45,29 @@ without being alarming. Disagreeing with it is a legitimate choice.
     is explicit for the same reason the wizard makes you re-optimize after changing it: the factor and the
     settings tuned at it belong together.
 
-## How the recommendation is derived
+## Where the recommendation comes from
 
-It reads your pixel scale from the profile's pixel size and focal length, including any camera binning, and
-picks the integer factor that brings the estimated in-focus star size closest to 3 pixels:
+It is **measured, not estimated**. The number is the final HFR of your last auto-focus run: a real exposure
+taken at the focuser position the run settled on. A live sweep in the
+[Optimization Wizard](../optimization/index.md) updates it too. The factor is then whichever brings that
+measurement closest to 3 px:
 
-```
-estimated in-focus HFR = 3.0" / (2 x pixel scale)
-factor = round(estimated HFR / 3.0), clamped to 1..4
-```
+| Measured in-focus HFR | Recommended |
+|---|---|
+| below 4.5 px | 1x1 (off) |
+| 4.5 to 7.5 px | 2x2 |
+| 7.5 to 10.5 px | 3x3 |
+| 10.5 px and above | 4x4 |
 
-The 3.0″ is a stand-in for a typical night's total FWHM (seeing, optics and guiding together); HFR is half the
-FWHM, which is exact for a Gaussian star. On a 3.76 µm sensor that works out to:
+!!! warning "Pixel scale cannot answer this"
+    An earlier version estimated star size from pixel scale under an assumed 3&Prime; seeing. That does not
+    work. Plausible seeing spans roughly 1.5&Prime; to 4&Prime;, a factor of 2.7, which is wider than the whole
+    1x1-versus-2x2 decision margin. On a 0.28&Prime;/px rig the answer flips at about 2.3&Prime; of seeing, so
+    the assumed figure decided the recommendation rather than the rig did. It told users with 3.6 px stars to
+    bin 2x2 when 3.6 px was already in range.
 
-| Focal length | Pixel scale | Est. in-focus HFR | Recommended | Binned HFR |
-|---|---|---|---|---|
-| 910 mm | 0.85″/px | 1.8 px | 1x1 | 1.8 px |
-| 2800 mm | 0.28″/px | 5.4 px | 2x2 | 2.7 px |
-| 3910 mm | 0.20″/px | 7.6 px | 3x3 | 2.5 px |
-| 5600 mm | 0.14″/px | 10.8 px | 4x4 | 2.7 px |
-
-This is an estimate from an assumed seeing figure, not a measurement. The
-[Optimization Wizard](../optimization/index.md) recommends a factor from your own measured focus curve, which
-is the better answer once you have run a sweep.
-
-If focal length or pixel size is not set in NINA's options, the line reads *No recommendation* and the setting
-stays wherever you put it.
+Re-run an auto-focus after changing optics, cameras or filters, so the recommendation reflects the current
+rig rather than the previous one. The tooltip shows the measurement date for exactly this reason.
 
 ## This is not NINA's Auto Focus Binning
 
@@ -88,8 +86,9 @@ you raise Detection Binning while Auto Focus Binning is above 1x1, Hocus Focus e
 offers to set the NINA setting back to 1x1, listing the global value and any per-filter overrides it would
 clear. Answering **No** keeps both, and the two factors stack.
 
-The recommendation already accounts for camera binning, because the pixel scale it reads includes it. At
-2800 mm with the camera at 2x2 it recommends 1x1 rather than 2x2.
+The recommendation accounts for camera binning automatically, because the HFR it reads was measured on
+frames the camera had already binned. On one simulated 5600 mm rig it asks for 3x3 unbinned and 2x2 with the
+camera at 2x2.
 
 ## Changing it in the Optimization Wizard
 
@@ -118,7 +117,7 @@ Two consequences worth knowing:
   centroids, so this does not affect focus accuracy.
 - **HFR is not identical between factors.** Binning raises the signal-to-noise per pixel, so more of each
   star's outer flux clears the measurement threshold and the measured half-flux radius creeps up: on
-  synthetic frames, about 5% at 2x and 15% at 3x. That is a scale factor across the whole focus curve, so it
+  synthetic frames, about 5% at 2x and 21% at 3x. That is a scale factor across the whole focus curve, so it
   does not move best focus, but HFR numbers from different factors are not directly comparable. Changing the
   factor is a good moment to re-run the Optimization Wizard.
 
@@ -127,13 +126,13 @@ right and bottom edge are dropped. Stars there would be rejected by the border g
 
 ## When to change it
 
-Follow the recommendation unless you have a reason not to, and re-check it if you change optics or camera.
-Reasons to override:
+Follow the recommendation unless you have a reason not to, and re-run an auto-focus after changing optics so
+it stays current. Reasons to override:
 
 - **Stay at 1x1** if you want detection to see every pixel — chasing a specific detection problem, or
   comparing against an older run's HFR values.
-- **Go higher than recommended** if your seeing is consistently worse than 3″, or if the Optimization
-  Wizard's measured recommendation says so.
+- **Go higher than recommended** if you routinely image in worse seeing than the night the measurement was
+  taken, since the measurement is one night's answer rather than a long-run average.
 
 Whichever you pick, re-run the [Optimization Wizard](../optimization/index.md) afterwards. Every pixel-based
 setting is measured in binned pixels, so a factor change makes the tuned values mean something different.

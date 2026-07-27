@@ -31,10 +31,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         private readonly IProfileService profileService;
 
         public StarDetectionOptions(IProfileService profileService)
-            : this(profileService, CreateDefaultAccessor(profileService)) {
+            : this(profileService, CreateDefaultAccessor(profileService), inFocusHfr: null) {
         }
 
-        internal StarDetectionOptions(IProfileService profileService, IPluginOptionsAccessor optionsAccessor) {
+        public StarDetectionOptions(IProfileService profileService, InFocusHfrRecord inFocusHfr)
+            : this(profileService, CreateDefaultAccessor(profileService), inFocusHfr) {
+        }
+
+        internal StarDetectionOptions(IProfileService profileService, IPluginOptionsAccessor optionsAccessor)
+            : this(profileService, optionsAccessor, inFocusHfr: null) {
+        }
+
+        internal StarDetectionOptions(IProfileService profileService, IPluginOptionsAccessor optionsAccessor, InFocusHfrRecord inFocusHfr) {
             if (optionsAccessor == null) {
                 throw new ArgumentNullException(nameof(optionsAccessor));
             }
@@ -42,40 +50,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             this.profileService = profileService;
             profileService.ProfileChanged += ProfileService_ProfileChanged;
             this.PropertyChanged += StarDetectionOptions_PropertyChanged;
-            // The detection-binning recommendation is derived from the profile's optics, so it goes stale the
-            // moment those change. Advice the user cannot trust is worse than no advice, so track them.
-            opticsChangedHandler = (s, e) => {
-                if (e.PropertyName == nameof(ITelescopeSettings.FocalLength)
-                    || e.PropertyName == nameof(ICameraSettings.PixelSize)
-                    || e.PropertyName == nameof(IFocuserSettings.AutoFocusBinning)) {
-                    RaiseDetectionBinningRecommendationChanged();
-                }
-            };
-            HookActiveProfileOptics();
+            // The recommendation follows the last MEASURED in-focus HFR, so it refreshes when a new measurement
+            // lands (an auto-focus run finishing), not when the profile's optics change.
+            this.inFocusHfr = inFocusHfr ?? new InFocusHfrRecord(profileService);
+            this.inFocusHfr.Changed += (s, e) => RaiseDetectionBinningRecommendationChanged();
             InitializeOptions();
         }
 
-        // The settings objects currently subscribed for the recommendation refresh. Tracked so in-place edits
-        // refresh it and a profile swap re-hooks cleanly (mirrors CameraSimulatorOptions' telescope hook).
-        private readonly PropertyChangedEventHandler opticsChangedHandler;
-        private ITelescopeSettings hookedTelescopeSettings;
-        private ICameraSettings hookedCameraSettings;
-        private IFocuserSettings hookedFocuserSettings;
+        private readonly InFocusHfrRecord inFocusHfr;
 
-        private void HookActiveProfileOptics() {
-            if (hookedTelescopeSettings != null) { hookedTelescopeSettings.PropertyChanged -= opticsChangedHandler; }
-            if (hookedCameraSettings != null) { hookedCameraSettings.PropertyChanged -= opticsChangedHandler; }
-            if (hookedFocuserSettings != null) { hookedFocuserSettings.PropertyChanged -= opticsChangedHandler; }
-
-            var profile = profileService?.ActiveProfile;
-            hookedTelescopeSettings = profile?.TelescopeSettings;
-            hookedCameraSettings = profile?.CameraSettings;
-            hookedFocuserSettings = profile?.FocuserSettings;
-
-            if (hookedTelescopeSettings != null) { hookedTelescopeSettings.PropertyChanged += opticsChangedHandler; }
-            if (hookedCameraSettings != null) { hookedCameraSettings.PropertyChanged += opticsChangedHandler; }
-            if (hookedFocuserSettings != null) { hookedFocuserSettings.PropertyChanged += opticsChangedHandler; }
-        }
+        /// <summary>The measured in-focus HFR the detection-binning recommendation reads (read-only here).</summary>
+        internal InFocusHfrRecord InFocusHfr => inFocusHfr;
 
         private void RaiseDetectionBinningRecommendationChanged() {
             RaisePropertyChanged(nameof(DetectionBinningHint));
@@ -112,7 +97,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         private void ProfileService_ProfileChanged(object sender, EventArgs e) {
-            HookActiveProfileOptics();
             InitializeOptions();
             RaiseAllPropertiesChanged();
         }
@@ -526,23 +510,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         /// <summary>
-        /// The short recommendation shown beside the dropdown ("Recommended: 2x2"). Advice only — nothing changes
-        /// the setting but the user. Derived from the profile, never persisted.
+        /// The short recommendation shown beside the dropdown, from the last MEASURED in-focus HFR. Advice only —
+        /// nothing changes the setting but the user.
         /// </summary>
         [JsonIgnore]
         public string DetectionBinningHint => DetectionBinningResolver.DescribeRecommendation(
-            DetectionBinningResolver.ToFactor(detectionBinning), DetectionBinningResolver.PixelScaleFromProfile(profileService));
+            DetectionBinningResolver.ToFactor(detectionBinning), inFocusHfr.HfrPixels);
 
         /// <summary>The reasoning behind <see cref="DetectionBinningHint"/>, shown as its tooltip.</summary>
         [JsonIgnore]
         public string DetectionBinningHintDetail => DetectionBinningResolver.DescribeRecommendationDetail(
-            DetectionBinningResolver.ToFactor(detectionBinning), DetectionBinningResolver.PixelScaleFromProfile(profileService));
+            DetectionBinningResolver.ToFactor(detectionBinning), inFocusHfr.HfrPixels, inFocusHfr.MeasuredAtUtc);
 
-        /// <summary>True when the current factor is not the recommended one, so the UI presents the line as
-        /// something to act on rather than as a confirmation.</summary>
+        /// <summary>True when the current factor is not what the measurement calls for, so the UI presents the line
+        /// as something to act on rather than as a confirmation.</summary>
         [JsonIgnore]
         public bool DetectionBinningDiffersFromRecommendation => DetectionBinningResolver.DiffersFromRecommendation(
-            DetectionBinningResolver.ToFactor(detectionBinning), DetectionBinningResolver.PixelScaleFromProfile(profileService));
+            DetectionBinningResolver.ToFactor(detectionBinning), inFocusHfr.HfrPixels);
 
         /// <summary>
         /// Raises the NINA-AF-binning conflict with whoever installed <see cref="AutoFocusBinningConflictHandler"/>

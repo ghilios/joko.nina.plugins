@@ -51,9 +51,13 @@ The high-level loop has three steps:
 
 The summary also reports a recommended **detection binning**. The wizard holds
 [Detection Binning](../settings/detection-binning.md) fixed at your setting for the whole search, since it
-describes the optics rather than being something to tune, but it reads the fitted in-focus HFR off your own
-focus curve and reports the factor that measurement implies. That is a better answer than the pixel-scale
-estimate the options page shows, because it is measured rather than assumed.
+describes the optics rather than being something to tune, but it reads the in-focus HFR off your own fitted
+focus curve and reports the factor that implies.
+
+It only does so when the fit is sound. A sweep that runs far enough out that the detector stops resolving the
+defocused donuts reports a few compact noise blobs instead, and those points drag the fitted minimum well away
+from the truth. When the fit's R² falls below 0.9 the recommendation is withheld rather than guessed at; a bad
+curve is already visible on the chart.
 
 If the measurement disagrees with the factor the run used, the only action offered is **Optimize again at
 NxN**. It repeats the search on the frames already captured, at the new factor; nothing is written until you

@@ -75,63 +75,61 @@ Placing the resample in `StarDetector` rather than in `HocusFocusStarDetection` 
 TestApp runners that call `detector.Detect(Mat, params, …)` directly get binning, and correct
 coordinates, for free.
 
-### Choosing the factor: recommend, never resolve
+### Choosing the factor: recommend from measurement, never resolve
 
 The factor is **always explicit**. There is no Auto mode, and the plugin never changes the setting on its
 own. A factor that resolved itself from the profile would change how frames are analyzed the moment the
-plugin updated, silently invalidating every pixel-unit setting the user had already tuned — the exact failure
-this feature is supposed to prevent, arriving through the back door.
+plugin updated, silently invalidating every pixel-unit setting the user had already tuned.
 
-Instead the UI **recommends** a factor, in one shared function (`DetectionBinningResolver`) that the options
-page, the optimization wizard and the documentation all cite:
+The recommendation is built from a **measurement**, in one shared function (`DetectionBinningResolver`) the
+options page, the optimization wizard and the documentation all cite:
 
 ```
-estimatedHfrPixels = AssumedFwhmArcsec / (2 · pixelScaleArcsecPerPixel)     // AssumedFwhmArcsec = 3.0
-recommended        = clamp(round(estimatedHfrPixels / TargetHfrPixels), 1, 4)  // TargetHfrPixels = 3.0
+recommended = clamp(round(measuredInFocusHfrPixels / TargetHfrPixels), 1, 4)   // TargetHfrPixels = 3.0
 ```
 
-`AssumedFwhmArcsec = 3.0″` stands in for the combined seeing, optics and guiding FWHM of a typical night;
-`TargetHfrPixels = 3.0` is the center of the detector's calibrated 2–4 px band. HFR is taken as half the FWHM,
-which is exact for a Gaussian profile.
+The measurement is the auto-focus run's **final HFR** — a real exposure at the position the run settled on —
+recorded per profile in `InFocusHfrRecord` and refreshed by every auto-focus run and by a live wizard sweep.
+It is in captured pixels at every binning factor (the detector scales its outputs back), so the rule is
+independent of the factor the measurement was taken at, and camera binning is accounted for automatically
+because the frames were already binned when it was measured.
 
-`pixelScaleArcsecPerPixel` already includes NINA AF binning, so the recommendation backs off on its own when
-the camera is already binning. A NaN pixel scale (focal length or pixel size unset) yields no recommendation
-rather than a guess.
+| Measured in-focus HFR | Recommended |
+|---|---|
+| < 4.5 px | 1×1 |
+| 4.5–7.5 px | 2×2 |
+| 7.5–10.5 px | 3×3 |
+| ≥ 10.5 px | 4×4 |
 
-Worked examples on a 3.76 µm sensor:
+#### Why not estimate from pixel scale
 
-| Focal length | Pixel scale | Est. in-focus HFR | Recommended | Binned HFR |
-|---|---|---|---|---|
-| 910 mm | 0.85″/px | 1.8 px | 1×1 | 1.8 px |
-| 2800 mm | 0.28″/px | 5.4 px | 2×2 | 2.7 px |
-| 3910 mm | 0.20″/px | 7.6 px | 3×3 | 2.5 px |
-| 5600 mm | 0.14″/px | 10.8 px | 4×4 | 2.7 px |
+The first version did: `HFR ≈ assumedFwhm / (2 · pixelScale)` with `assumedFwhm = 3.0″`. That cannot work.
+Plausible seeing spans roughly 1.5″–4″, a factor of 2.7, which is **wider than the entire 1×1-vs-2×2 decision
+margin**. On a 0.28″/px rig the answer flips at about 2.3″ of seeing — inside ordinary night-to-night
+variation — so the assumed figure decided the recommendation rather than the rig did. It told a user whose
+stars measured 3.6 px to bin 2×2, when 3.6 px was already inside the calibrated band.
 
-The recommendation sits on the SAME row as the dropdown, so the option costs no extra vertical space, and is
-correspondingly terse: `Recommended: 2x2`, or `Recommended: 2x2 (current)` when it is already selected. The
-pixel scale, the implied star size, and where that size lands once binned go in its tooltip.
+The simulator confirms the same inflation further out: at 4500 mm the estimate claimed 8.7 px and asked for
+3×3, while the detector actually measures 6.92 px there, which is 2×2.
 
-Emphasis comes from the theme's own text brushes — `SecondaryBrush` while it merely confirms the current
-factor, `PrimaryBrush` when it disagrees — and explicitly NOT from `Opacity`. Dimming toward the background is
-illegible on NINA's dark theme. It is not a warning color either: disagreeing with an assumed seeing figure is
-a legitimate choice, not an error.
+#### Why not the fitted curve minimum
 
-### Optimization: recommend from measurement, and re-run rather than re-label
+The wizard's measured recommendation reads the fitted focus curve's vertex, and that is only trustworthy while
+the fit is. Measured on the simulator at 2800 mm across sweep widths:
 
-The wizard holds the factor fixed for the whole search — it describes the optics, not a tunable — but it can
-do better than an assumed seeing figure: it reads the fitted in-focus HFR off the run's own curve and applies
-the same target.
+| Sweep (±4 steps of) | Fit R² | Fitted vertex | Optics truth |
+|---|---|---|---|
+| 10 | 0.9984 | 4.71 px | 4.87 px |
+| 40 | 0.9992 | 4.73 px | 4.87 px |
+| 80 | 0.9999 | 4.65 px | 4.87 px |
+| 160 | −0.21 | 5.95 px | 4.87 px |
+| 320 | −0.34 | **2.16 px** | 4.87 px |
 
-The consequential decision is what happens when that measurement disagrees. **Applying the factor on its own
-is not offered, in any form.** Every tuned parameter was measured in the old factor's pixels; pairing them
-with a new factor produces a combination the optimizer never evaluated, and no amount of warning copy makes
-that combination valid. So the only action is **"Optimize again at N×N"**, which re-runs the search at the new
-factor on the frames already on disk, writes nothing, and leaves the user on a summary whose Accept applies
-the factor and the settings measured at it **together**. Ignoring the recommendation and accepting the run as
-it stands stays a first-class, unpunished path.
-
-This also preserves the wizard's existing contract that Accept is the only thing that writes settings: a
-cancelled or closed wizard leaves the profile untouched, with no half-applied factor to discover later.
+Past roughly 22 px of defocus the detector stops resolving the donuts and reports a handful of compact ~2 px
+noise blobs instead; those points drag the vertex far off. No estimator survives that — the smallest measured
+point and the point nearest best focus were equally wrong — so the wizard **gates its recommendation on fit
+quality** (R² ≥ 0.9) and says nothing when the curve cannot support one. The options page is unaffected: it
+reads the auto-focus final HFR, which is a direct measurement rather than a fit.
 
 ### Interaction with NINA's Auto Focus Binning
 
@@ -177,7 +175,7 @@ the settings it just produced were tuned at the old factor.
 - **Sub-pixel centroids.** Centroid precision in capture pixels is coarser by roughly `b`, which is the
   price of the SNR gain. For auto-focus, HFR precision is what matters and it improves.
 - **HFR is not identical between factors** (measured, not predicted). On the capstone frames the reported
-  in-focus HFR creeps up with the factor: +5% at 2× (4.77 → 5.03 px) and +16% at 3× (6.92 → 8.03 px). The
+  in-focus HFR creeps up with the factor: +5% at 2× (4.77 → 5.03 px) and +21% at 3× (7.46 → 9.02 px). The
   cause is the SNR gain itself — more of each star's outer flux clears the measurement threshold, so the
   flux-weighted mean radius grows. It is a scale factor across the whole focus curve, so it does not move
   best focus, but HFR values from different factors are not directly comparable and the capstone tolerance

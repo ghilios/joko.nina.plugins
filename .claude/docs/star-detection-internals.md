@@ -46,6 +46,16 @@ stays in its calibrated range (in-focus HFR ~2-4 px) regardless of the rig's pix
   detection behavior on upgrade and invalidate already-tuned settings. `Utility/DetectionBinningResolver`
   RECOMMENDS one (options page + optimization wizard) and never writes the setting. `ToFactor` clamps, so an
   out-of-range persisted value can never bin someone's frames.
+- **The recommendation comes from a MEASUREMENT, never from pixel scale.** `InFocusHfrRecord` holds the last
+  auto-focus run's FINAL HFR (a real exposure at the settled position), written from
+  `AutoFocusEngine.OnCompleted` and by a live wizard sweep. Do NOT reintroduce an assumed-seeing estimate:
+  plausible seeing spans ~1.5-4", wider than the whole 1x-vs-2x margin, and the old estimate told a user with
+  3.6 px stars to bin 2x2.
+- **Never read the in-focus HFR off the fitted curve vertex without checking the fit.** Past ~22 px of defocus
+  the detector loses the donuts and reports ~2 px noise blobs; those points drag the vertex to 2.16 px against
+  a 4.87 px truth, with R2 negative. The wizard gates on R2 >= 0.9
+  (`OptimizationSummary.MinRSquaredForBinningRecommendation`). Evidence:
+  `Tests/CameraSimulator/InFocusHfrDiagnosticTests`.
 - The optimization wizard changes the factor ONLY via "Optimize again at NxN": it re-runs the search on the
   saved frames at the new factor (stamped onto the reloaded seed/baseline in `LoadRunStampedAsync`, nothing
   persisted) and Accept writes the factor together with the settings measured at it. Don't add an

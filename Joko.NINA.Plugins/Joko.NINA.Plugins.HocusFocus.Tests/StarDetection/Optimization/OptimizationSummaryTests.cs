@@ -178,10 +178,10 @@ public class OptimizationSummaryTests {
     //
     // F = the factor this run analyzed at, P = the persisted setting, R = what the measured HFR calls for.
 
-    private static OptimizationSummary Binning(int run, int persisted, int recommended, double hfr) =>
+    private static OptimizationSummary Binning(int run, int persisted, int recommended, double hfr, double rSquared = 0.99) =>
         new OptimizationSummary {
             RunDetectionBinning = run, PersistedDetectionBinning = persisted,
-            RecommendedDetectionBinning = recommended, MeasuredInFocusHfr = hfr
+            RecommendedDetectionBinning = recommended, MeasuredInFocusHfr = hfr, FitRSquared = rSquared
         };
 
     [Test]
@@ -192,6 +192,40 @@ public class OptimizationSummaryTests {
             Assert.That(s.HasDetectionBinningMeasurement, Is.False);
             Assert.That(s.DetectionBinningDiffers, Is.False);
             Assert.That(s.DetectionBinningPendingApply, Is.False);
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_PoorFit_SuppressesTheRecommendationEntirely() {
+        // The in-focus HFR is read off the fitted focus curve. When a sweep runs past the point where the
+        // detector can still measure the defocused donuts, those frames report a couple of compact noise blobs
+        // instead, the fit is dragged wildly off, and R2 goes negative. Measured on the simulator at 2800mm: a
+        // +/-320-step sweep put the fitted minimum at 2.16 px against an optics truth of 4.87 px, with
+        // R2 = -0.34. No estimator recovers from that - the underlying curve is junk - so the only honest answer
+        // is to not offer a recommendation at all.
+        var junk = Binning(run: 1, persisted: 1, recommended: 1, hfr: 2.16, rSquared: -0.34);
+        Assert.Multiple(() => {
+            Assert.That(junk.HasDetectionBinningMeasurement, Is.False, "a curve this bad cannot support a recommendation");
+            Assert.That(junk.DetectionBinningDiffers, Is.False);
+            Assert.That(junk.DetectionBinningPendingApply, Is.False);
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_MissingFitQuality_SuppressesTheRecommendation() {
+        // No fit at all (too few points, degenerate curve) leaves R2 NaN. Same rule: say nothing.
+        var noFit = Binning(run: 1, persisted: 1, recommended: 2, hfr: 6.1, rSquared: double.NaN);
+        Assert.That(noFit.HasDetectionBinningMeasurement, Is.False);
+    }
+
+    [Test]
+    public void DetectionBinning_GoodFit_IsAccepted() {
+        // The sound regime the same experiment measured: R2 >= 0.998 at every sweep width where the detector
+        // still tracked the donuts, and the fitted minimum agreed with the optics truth to within 5%.
+        var sound = Binning(run: 1, persisted: 1, recommended: 2, hfr: 4.71, rSquared: 0.9984);
+        Assert.Multiple(() => {
+            Assert.That(sound.HasDetectionBinningMeasurement, Is.True);
+            Assert.That(sound.DetectionBinningDiffers, Is.True);
         });
     }
 
