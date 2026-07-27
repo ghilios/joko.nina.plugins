@@ -973,8 +973,11 @@
                         TextWrapping="Wrap" />
                 </Button>
             </Grid>
+            <!--  No bottom margin: the per-filter grid below adds none either, so the seam between the
+                  two is exactly one control's 5px top margin - the same spacing as any row inside this
+                  grid. They used to stack (5 + 10 + 5) and read as an unexplained band.  -->
         <Grid
-            Margin="5"
+            Margin="5,5,5,0"
             VerticalAlignment="Top"
             d:DataContext="{d:DesignInstance sd:StarDetectionOptionsVM,
                                              IsDesignTimeCreatable=False}">
@@ -2367,7 +2370,7 @@
                   Binding paths (PerFilterStore.*, PerFilterEditBinder.*, CopyStarDetectionFromFilterCommand)
                   resolve on BOTH hosts: HocusFocusPlugin (plugin options page) and StarDetectionOptionsVM
                   (Imaging dockable) expose identically-named instance properties.  -->
-            <Grid Margin="5,2,5,0" HorizontalAlignment="Left">
+            <Grid Margin="5,0,5,0" HorizontalAlignment="Left">
                 <Grid.Resources>
                     <Style x:Key="ShowOnPerFilterEnabled" TargetType="{x:Type RowDefinition}">
                         <Setter Property="Height" Value="0" />
