@@ -2357,20 +2357,38 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
-    public async Task OptimizeAgainButton_IsShownWheneverTheBodyCopyPromisesIt() {
+    public async Task OptimizeAgainButton_AndItsBodyCopy_AppearTogether() {
         // The body copy and the button were gated on different conditions once, so the summary could describe an
-        // action whose control was hidden. They must agree: whenever the copy names "Optimize again", the button
-        // is on screen (disabled if the frames can no longer be re-read, never absent).
-        var options = Substitute.For<IStarDetectionOptions>();
-        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
-        var vm = NewVM(LoaderReturning(GoodRun()), options);
-        vm.SourcePaths[0] = @"C:\fake\attempt";
+        // action whose control was hidden. They must appear and disappear together: body copy with no button
+        // describes an action the user cannot take, and a button with no copy leaves the consequence unstated.
+        //
+        // This deliberately does NOT sniff the copy for the button's name. The earlier version did, and matched
+        // only because the fixture produced empty copy - it passed for a run where neither appeared, which is the
+        // one case that proves nothing.
+        async Task<StarDetectionOptimizerWizardVM> RunWith(LoadedRun run) {
+            var options = Substitute.For<IStarDetectionOptions>();
+            options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+            var vm = NewVM(LoaderReturning(run), options);
+            vm.SourcePaths[0] = @"C:\fake\attempt";
+            await vm.StartAsync(CancellationToken.None);
+            return vm;
+        }
 
-        await vm.StartAsync(CancellationToken.None);
+        // 5 px stars at 1x1: the measurement calls for a different factor, so both must appear.
+        var differs = await RunWith(LargeStarRun());
+        Assert.Multiple(() => {
+            Assert.That(differs.ShowOptimizeAgainAtRecommendedBinning, Is.True);
+            Assert.That(differs.HasDetectionBinningBody, Is.True);
+            Assert.That(differs.DetectionBinningBodyText, Does.Contain("2x2"),
+                "the copy must name the factor the button would switch to");
+        });
 
-        var promisesTheButton = vm.DetectionBinningBodyText.Contains("Optimize again at");
-        Assert.That(vm.ShowOptimizeAgainAtRecommendedBinning, Is.EqualTo(promisesTheButton),
-            "the button must be visible exactly when the copy promises it");
+        // 1.5 px stars at 1x1: the run's factor is already right, so neither must appear.
+        var agrees = await RunWith(GoodRun());
+        Assert.Multiple(() => {
+            Assert.That(agrees.ShowOptimizeAgainAtRecommendedBinning, Is.False);
+            Assert.That(agrees.HasDetectionBinningBody, Is.False);
+        });
     }
 
     [Test]

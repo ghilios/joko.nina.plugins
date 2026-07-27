@@ -73,9 +73,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// </summary>
         public string Describe(int detectionBinning) {
             var sb = new StringBuilder();
-            sb.AppendLine($"NINA's Auto Focus Binning is set above 1x1, and Hocus Focus detection binning is now {detectionBinning}x.");
+            sb.AppendLine($"NINA's Auto Focus Binning is set above 1x1, and Hocus Focus detection binning is now {detectionBinning}x{detectionBinning}.");
             sb.AppendLine();
-            sb.AppendLine("These are different settings. Auto Focus Binning changes how the camera captures the auto-focus frames, so it should match the binning you image at - that way focus is found for the frames you actually shoot. Hocus Focus detection binning does not touch the capture: it resamples the frame for star detection only, to bring star sizes into the range the detector is tuned for. The image you see and the HFR values reported stay at the captured resolution.");
+            sb.AppendLine("These are different settings. Auto Focus Binning changes how the camera captures the auto-focus frames; it should match the binning you image at. Detection binning resamples the captured frame for star detection only.");
             sb.AppendLine();
             sb.AppendLine($"The two multiply, so detection would currently run at {EffectiveFactorDescription(detectionBinning)}.");
             sb.AppendLine();
@@ -84,7 +84,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 sb.AppendLine($"  - Auto Focus Binning (all filters): {GlobalBinning}x{GlobalBinning}");
             }
             foreach (var filterName in FilterNames) {
-                sb.AppendLine($"  - Filter \"{filterName}\" auto-focus binning override");
+                sb.AppendLine($"  - Filter \"{filterName}\" Auto Focus Binning override");
             }
             sb.AppendLine();
             sb.Append("Set these back to 1x1?");

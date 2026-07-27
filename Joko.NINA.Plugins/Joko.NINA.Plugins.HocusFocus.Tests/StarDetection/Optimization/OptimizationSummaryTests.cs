@@ -283,7 +283,7 @@ public class OptimizationSummaryTests {
         Assert.Multiple(() => {
             Assert.That(s.DetectionBinningPendingApply, Is.True);
             Assert.That(s.DetectionBinningDiffers, Is.False, "the run already used the recommended factor");
-            Assert.That(s.DetectionBinningText, Is.EqualTo("1x1 -> 2x2 (this run; measured in-focus HFR 6.2 px)"));
+            Assert.That(s.DetectionBinningText, Is.EqualTo("1x1 -> 2x2 (applied on Accept; measured in-focus HFR 6.2 px)"));
         });
     }
 
@@ -295,7 +295,7 @@ public class OptimizationSummaryTests {
         Assert.Multiple(() => {
             Assert.That(s.DetectionBinningPendingApply, Is.True);
             Assert.That(s.DetectionBinningDiffers, Is.True);
-            Assert.That(s.DetectionBinningText, Is.EqualTo("1x1 -> 2x2 (this run; measured in-focus HFR 8.4 px)"));
+            Assert.That(s.DetectionBinningText, Is.EqualTo("1x1 -> 2x2 (applied on Accept; measured in-focus HFR 8.4 px)"));
         });
     }
 }

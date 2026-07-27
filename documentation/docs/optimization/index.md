@@ -49,24 +49,19 @@ The high-level loop has three steps:
 
 *The summary shows the resulting focus curve, focus precision, and a recommended autofocus step size.*
 
-The summary also reports a recommended **detection binning**. The wizard holds
-[Detection Binning](../settings/detection-binning.md) fixed at your setting for the whole search, since it
-describes the optics rather than being something to tune, but it reads the in-focus HFR off your own fitted
+The summary also reports a recommended **detection binning**. The search holds
+[Detection Binning](../settings/detection-binning.md) fixed, but it reads the in-focus HFR off your fitted
 focus curve and reports the factor that implies.
 
-It only does so when the fit is sound. A sweep that runs far enough out that the detector stops resolving the
-defocused donuts reports a few compact noise blobs instead, and those points drag the fitted minimum well away
-from the truth. When the fit's R² falls below 0.9 the recommendation is withheld rather than guessed at; a bad
-curve is already visible on the chart.
+The recommendation only appears when the fit is sound (R² of at least 0.9). A sweep that runs far enough out
+that the detector loses the defocused donuts reports compact noise blobs instead, and those drag the fitted
+minimum well away from the truth.
 
-If the measurement disagrees with the factor the run used, the only action offered is **Optimize again at
-NxN**. It confirms first, explaining that every setting the run produced was tuned at the old factor and so the
-search has to run again, then repeats the search on the frames already captured — no new exposures and no
-focuser movement — and lands back on the summary. Nothing is written until you accept that result, and then
-the factor and the settings tuned at it are applied together. There is
-deliberately no way to apply the factor by itself: every parameter above was measured in the old factor's
-pixels, so pairing them with a new factor would produce a combination the optimizer never evaluated. Ignoring
-the recommendation and accepting the run as it stands is always available.
+If the measurement calls for a different factor, the only action offered is **Optimize again at NxN**. It
+repeats the search at that factor on the frames already captured, with no new exposures and no focuser
+movement. Nothing is written until you **Accept** the new result, which applies the factor and the settings
+tuned at it together; the factor is never applied on its own, because settings tuned at one factor are not
+valid at another. You can always accept the run as it stands instead.
 
 Optionally, you can label a handful of hard frames (missed stars, false positives) to add a
 **recall/precision** term to the score (recall = the fraction of real stars recovered; precision = the
@@ -112,10 +107,9 @@ A live run goes like this:
 2. Choose **Live Auto-Focus**, set the **Exposure**, and choose the folder to **Save captured frames
    to**. The camera and focuser must be connected, and **Start** stays disabled until you pick a save
    folder. The panel also shows the step size, number of points, capture binning, filter, and gain the
-   sweep will use; these come from your profile's auto-focus settings. **Detection binning** sits right
-   below capture binning and is settable here, because the whole search is tuned at whatever factor is in
-   effect when the run starts (see [Detection Binning](../settings/detection-binning.md)). A Replay run gets
-   the same control next to its folder picker.
+   sweep will use; these come from your profile's auto-focus settings. **Detection binning** can also be
+   changed here; the whole search is tuned at whatever factor is in effect when the run starts (see
+   [Detection Binning](../settings/detection-binning.md)). A Replay run has the same control.
 3. Press **Start** and confirm the telescope is roughly focused when prompted. The wizard moves the
    focuser out and steps back across the range set by your profile's auto-focus step size and offset
    steps, saves a frame at each point, then returns the focuser to where it started. The sweep does not

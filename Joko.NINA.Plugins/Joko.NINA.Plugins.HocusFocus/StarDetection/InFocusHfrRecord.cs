@@ -26,11 +26,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     /// 1x1-vs-2x2 decision margin. On a 0.28"/px rig the recommendation flips at about 2.3" of seeing — inside
     /// ordinary night-to-night variation — so an assumed figure decides the answer rather than the rig does.</para>
     ///
-    /// <para>The value written here is the auto-focus run's FINAL HFR: a real exposure taken at the focuser
-    /// position the run settled on, not the fitted curve minimum. The fit's vertex is unreliable for this purpose
-    /// — on a sweep wide enough that the detector loses the defocused donuts, the outer frames report a couple of
-    /// compact noise blobs and drag the vertex far below truth (measured on the simulator: 2.16 px against a
-    /// 4.87 px optics truth, with R² negative).</para>
+    /// <para>Two writers, and they do NOT agree on provenance. An auto-focus run writes its FINAL HFR: a real
+    /// exposure taken at the focuser position the run settled on. Accepting a live sweep in the optimization
+    /// wizard writes that run's FITTED curve minimum instead, gated on R² ≥ 0.9. The gate is the reason the
+    /// second source is admissible at all: on a sweep wide enough that the detector loses the defocused donuts,
+    /// the outer frames report a couple of compact noise blobs and drag the vertex far below truth (measured on
+    /// the simulator: 2.16 px against a 4.87 px optics truth, with R² negative). A real exposure needs no such
+    /// gate, so prefer it — never relax the R² gate to make the wizard path fire more often.</para>
     ///
     /// <para>Profile-scoped, like every other plugin option. Detection binning follows the optics, so a single
     /// value per profile is the right granularity.</para>

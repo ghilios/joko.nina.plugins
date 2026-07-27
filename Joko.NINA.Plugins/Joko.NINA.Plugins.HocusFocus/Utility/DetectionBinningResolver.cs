@@ -85,17 +85,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         /// <summary>The reasoning behind <see cref="DescribeRecommendation"/>, for its tooltip.</summary>
         public static string DescribeRecommendationDetail(int currentFactor, double measuredHfrPixels, DateTime? measuredAtUtc) {
             if (!IsUsableHfr(measuredHfrPixels)) {
-                return "Nothing measured yet. Run an auto-focus, or the Star Detection Optimization wizard, and the "
-                     + "measured in-focus HFR will appear here with a recommendation. It is measured rather than "
-                     + "estimated because pixel scale alone cannot tell you how big your stars are - seeing varies "
-                     + "more than the difference between one binning factor and the next.";
+                return "Nothing measured yet. Run an auto-focus, or a live sweep in the Star Detection Optimization "
+                     + "wizard, and the measured in-focus HFR will appear here with a recommendation. Pixel scale "
+                     + "alone cannot predict star size: seeing varies more than the margin between binning factors.";
             }
 
             var recommended = RecommendFromHfr(measuredHfrPixels);
             var ci = CultureInfo.CurrentCulture;
+            // "from your last auto-focus" covers both writers: an AF run's final exposure and an accepted live
+            // wizard sweep's fitted minimum (see InFocusHfrRecord). Do not narrow it back to "at the end of a run".
             var when = measuredAtUtc.HasValue
-                ? $"Measured {measuredAtUtc.Value.ToLocalTime():g} at the end of an auto-focus run, in captured pixels."
-                : "Measured at the end of an auto-focus run, in captured pixels.";
+                ? $"Measured {measuredAtUtc.Value.ToLocalTime():g} from your last auto-focus, in captured pixels."
+                : "Measured from your last auto-focus, in captured pixels.";
             var reasoning = recommended > 1
                 ? string.Format(ci, " Star detection is calibrated for in-focus stars of roughly 2 to 4 px; at {0:0.0} px, binning {1}x{1} for detection brings that to about {2:0.0} px.",
                     measuredHfrPixels, recommended, measuredHfrPixels / recommended)

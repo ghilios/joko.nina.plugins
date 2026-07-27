@@ -176,7 +176,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     return $"{RunDetectionBinning}x{RunDetectionBinning}";
                 }
                 if (DetectionBinningPendingApply) {
-                    return $"{PersistedDetectionBinning}x{PersistedDetectionBinning} -> {RunDetectionBinning}x{RunDetectionBinning} (this run; measured in-focus HFR {MeasuredInFocusHfr:F1} px)";
+                    return $"{PersistedDetectionBinning}x{PersistedDetectionBinning} -> {RunDetectionBinning}x{RunDetectionBinning} (applied on Accept; measured in-focus HFR {MeasuredInFocusHfr:F1} px)";
                 }
                 return DetectionBinningDiffers
                     ? $"{RunDetectionBinning}x{RunDetectionBinning} -> {RecommendedDetectionBinning}x{RecommendedDetectionBinning} (measured in-focus HFR {MeasuredInFocusHfr:F1} px)"
@@ -542,13 +542,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 },
                 getMeasuredInFocusHfr: () => HocusFocusPlugin.InFocusHfr?.HfrPixels ?? double.NaN,
                 recordMeasuredInFocusHfr: hfr => HocusFocusPlugin.InFocusHfr?.Record(hfr, DateTime.UtcNow, "optimization wizard live sweep"),
-                // Applying a different factor means every tuned setting above was measured in the wrong units, so
-                // the search has to run again. Say that before spending the user's time on it.
+                // The summary already gave the reason and the button named the action, so this only has to cover what
+                // the click costs and what it commits to. Confirming at all is worth it because the search re-runs.
                 confirmReoptimizeAtBinning: (from, to) => MyMessageBox.Show(
                     $"Detection binning {from}x{from} \u2192 {to}x{to}.\n\n"
-                    + $"Every setting this run produced was tuned at {from}x{from} and is only valid there, so the search has to run again at {to}x{to}. "
-                    + "That re-runs on the frames already captured - no new exposures, no focuser movement - and lands back on this summary.\n\n"
-                    + $"Nothing is saved until you Accept the new result, and Accept then applies the settings and {to}x{to} together.\n\n"
+                    + $"This re-runs the search at {to}x{to} on the frames already captured (no new exposures, no focuser movement). "
+                    + "Nothing is saved until you Accept the new result.\n\n"
                     + "Optimize again now?",
                     "Detection Binning",
                     System.Windows.MessageBoxButton.YesNo,
@@ -1691,10 +1690,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
                 if (summary.DetectionBinningPendingApply) {
                     var f = summary.RunDetectionBinning;
-                    var text = $"This result was optimized at {f}x{f}. Accept applies these settings and sets Detection Binning to {f}x{f} together. Close discards both.";
+                    var text = $"This result was optimized at {f}x{f}. Accept applies these settings and Detection Binning {f}x{f} together; Close discards both.";
                     if (IsPerFilterEnabled) {
                         var p = summary.PersistedDetectionBinning;
-                        text += $" Detection Binning is shared by all filters; settings tuned for other filters at {p}x{p} should be re-optimized as well.";
+                        text += $" Detection Binning is shared by all filters; re-optimize settings tuned for other filters at {p}x{p} as well.";
                     }
                     return text;
                 }
@@ -1703,16 +1702,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
                 var run = summary.RunDetectionBinning;
                 var rec = summary.RecommendedDetectionBinning;
-                var preamble = $"Star detection is calibrated for in-focus stars of about 2 to 4 pixels; this run measured {summary.MeasuredInFocusHfr:F1} px. ";
                 if (IsUseCurrentMode) {
-                    return preamble + "To change the factor, run this wizard in Optimize mode; settings must be re-tuned for a new factor.";
+                    return "To change the factor, run this wizard in Optimize mode; settings must be re-tuned for a new factor.";
                 }
-                var consequence = $"Every setting above was tuned at {run}x{run} and is only valid there, so changing the factor means optimizing again. ";
-                // Only promise the button when it can actually run. The frames are reloaded from disk, so a run
+                // The row above already gives the measurement and the factors, the tooltip carries the 2-4 px
+                // background, and the button is directly below. All this has to add is why the button exists.
+                // Only promise the re-run when it can actually happen: the frames are reloaded from disk, so a run
                 // whose folders are gone can show the recommendation but not act on it.
                 return CanOptimizeAgainAtRecommendedBinning
-                    ? preamble + consequence + $"Optimize again at {rec}x{rec} repeats the search on the frames already captured; nothing is saved until you Accept the new result."
-                    : preamble + consequence + $"The frames from this run are no longer available to re-read, so start the wizard again with detection binning set to {rec}x{rec}.";
+                    ? $"These settings were tuned at {run}x{run}, so using {rec}x{rec} means optimizing again on the frames already captured."
+                    : $"These settings were tuned at {run}x{run}, and this run's frames are no longer available to re-optimize. Start a new run with Detection Binning set to {rec}x{rec}.";
             }
         }
 

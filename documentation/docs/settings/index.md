@@ -48,7 +48,7 @@ Internally, this preset chooses the noise-reduction radius, whether measurement-
 
 `WideField` removes a structure layer and shrinks the minimum bounding box; `LongFocalLength` adds a layer, grows the minimum box, and increases sensitivity. See [Structure & Detection](structure-detection.md) and [Star Acceptance Gates](acceptance-gates.md).
 
-This preset compensates for pixel scale by nudging a few knobs. [Detection Binning](detection-binning.md) attacks the same problem directly, by resampling the frame so star size lands back in the range the defaults were built for. It defaults to **Auto** and works in both modes.
+This preset compensates for pixel scale by nudging a few knobs. [Detection Binning](detection-binning.md) attacks the same problem directly, by resampling the frame so star size lands back in the range the defaults were built for. It defaults to **1x1 (Off)** and applies in both Simple and Advanced mode.
 
 **Focus Range** — tooltip:
 

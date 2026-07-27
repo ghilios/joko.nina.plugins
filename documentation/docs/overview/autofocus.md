@@ -95,8 +95,7 @@ All tooltips below are quoted verbatim from the plugin UI.
 
 ## Binning during autofocus
 
-Two separate settings decide how many pixels an autofocus frame ends up being measured on, and it is worth
-keeping them straight.
+Two separate settings decide how many pixels an autofocus frame is measured on.
 
 **NINA's Auto Focus Binning** (Options → Focuser, and per filter in the filter wheel settings) changes the
 capture: the camera returns a smaller frame with larger pixels. Set it to the binning you image at, so focus
@@ -106,7 +105,7 @@ pixel scale.
 **Hocus Focus Detection Binning** (Star Detector tab, default **1x1**) does not touch the capture. It
 resamples the frame for star detection only, to bring star sizes into the range the detector is tuned for,
 and every HFR it reports comes back in the captured frame's pixels. It never changes itself: a line under the
-setting recommends a factor from your pixel scale, and you choose. See
+setting recommends a factor from your last measured in-focus HFR, and you choose. See
 [Detection Binning](../settings/detection-binning.md).
 
 The two multiply. If you raise Detection Binning while Auto Focus Binning is above 1x1, Hocus Focus explains

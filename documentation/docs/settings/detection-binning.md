@@ -15,19 +15,17 @@ at the resolution the camera captured.
 Find it in the **Star Detector** tab, below the other detection settings. It applies in both Simple and
 Advanced mode.
 
-> Software binning applied to the frame for star detection only. Star detection is calibrated for stars whose
-> in-focus HFR is roughly 2 to 4 pixels. At long focal lengths stars are much larger than that, which puts
-> every pixel-based setting out of range and leaves detection slower and noisier than it needs to be. Binning
-> the frame for detection brings star size back into range and improves signal to noise per pixel. It does not
-> change the image you see or the HFR values reported: those stay at the resolution the camera captured. The
-> line beside it reports the in-focus HFR your last auto-focus run actually measured, and the factor that
-> measurement calls for. This is not the same as NINA's Auto Focus Binning, which changes how the camera
-> captures the auto-focus frames and should match the binning you image at. The two multiply
+> Software binning applied to the frame for star detection only. Star detection is calibrated for in-focus
+> stars of roughly 2 to 4 pixels; at long focal lengths stars are much larger than that, which puts the
+> pixel-based settings out of range. Binning the frame for detection brings star size back into range and
+> improves signal to noise per pixel. The image you see and the HFR values reported stay at the resolution the
+> camera captured. This is not NINA's Auto Focus Binning, which changes how the camera captures the auto-focus
+> frames and should match the binning you image at; the two multiply
 
 **Default:** `1x1 (Off)` &nbsp;•&nbsp; **Range:** 1x1 (Off), 2x2, 3x3, 4x4.
 
-Nothing chooses the factor for you. A line appears under the dropdown **only when it has something to ask
-for** — either a first measurement, or a factor change:
+Nothing chooses the factor for you. A line appears under the dropdown only when there is something to act on:
+no measurement yet, or a factor change:
 
 ```
 Run an auto-focus to get a recommendation
@@ -39,7 +37,7 @@ Hover it for the reasoning, including when the measurement was taken. In the
 [Optimization Wizard](../optimization/index.md) the same line sits to the right of its dropdown, under the
 same rule, and its summary offers to re-run the search at the recommended factor.
 
-Disagreeing with the recommendation is a legitimate choice; nothing enforces it.
+The recommendation is advisory; nothing enforces it.
 
 !!! note "Why there is no Auto"
     An automatic factor would change how frames are analyzed the moment the plugin updated, and every
@@ -50,9 +48,9 @@ Disagreeing with the recommendation is a legitimate choice; nothing enforces it.
 ## Where the recommendation comes from
 
 It is **measured, not estimated**. The number is the final HFR of your last auto-focus run: a real exposure
-taken at the focuser position the run settled on. A live sweep in the
-[Optimization Wizard](../optimization/index.md) updates it too. The factor is then whichever brings that
-measurement closest to 3 px:
+taken at the focuser position the run settled on. Accepting a live sweep in the
+[Optimization Wizard](../optimization/index.md) updates it too, from the sweep's fitted curve. The factor is
+then whichever brings that measurement closest to 3 px:
 
 | Measured in-focus HFR | Recommended |
 |---|---|
@@ -62,11 +60,10 @@ measurement closest to 3 px:
 | 10.5 px and above | 4x4 |
 
 !!! warning "Pixel scale cannot answer this"
-    An earlier version estimated star size from pixel scale under an assumed 3&Prime; seeing. That does not
-    work. Plausible seeing spans roughly 1.5&Prime; to 4&Prime;, a factor of 2.7, which is wider than the whole
-    1x1-versus-2x2 decision margin. On a 0.28&Prime;/px rig the answer flips at about 2.3&Prime; of seeing, so
-    the assumed figure decided the recommendation rather than the rig did. It told users with 3.6 px stars to
-    bin 2x2 when 3.6 px was already in range.
+    The recommendation is never derived from pixel scale and an assumed seeing figure. Plausible seeing spans
+    roughly 1.5&Prime; to 4&Prime;, a factor of 2.7, which is wider than the whole 1x1-versus-2x2 decision
+    margin: on a 0.28&Prime;/px rig the answer flips at about 2.3&Prime; of seeing. An assumed figure would
+    decide the recommendation, not your rig.
 
 Re-run an auto-focus after changing optics, cameras or filters, so the recommendation reflects the current
 rig rather than the previous one. The tooltip shows the measurement date for exactly this reason.
@@ -101,9 +98,9 @@ Star Detector tab, edited in place.
 
 After a run, the summary reports the factor your measured focus curve calls for. If it differs, the only
 action offered is **Optimize again at NxN**, which repeats the search on the frames already captured at the
-new factor. Nothing is saved until you accept that result, and then the factor and the settings tuned at it
-are applied together. There is no way to apply the factor on its own, because a factor without settings
-measured at it is a combination the optimizer never evaluated.
+new factor. Nothing is saved until you **Accept** that result; the factor and the settings tuned at it
+are then applied together. The factor is never applied on its own, because settings tuned at one factor are
+not valid at another.
 
 ## What is and is not rescaled
 
@@ -112,7 +109,7 @@ the detector. So HFR, star positions, bounding boxes, PSF sigma and the rejected
 annotation overlay are all in the frame's own coordinates, and the auto-focus curve means the same thing at
 any factor.
 
-Two consequences worth knowing:
+Two consequences:
 
 - **Star centers are coarser.** A star's position in captured pixels is quantized to roughly the binning
   factor. That is the trade for the signal-to-noise gain. Auto-focus depends on HFR, not on sub-pixel
