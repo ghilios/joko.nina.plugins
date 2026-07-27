@@ -2286,6 +2286,77 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
+    public async Task AfterARun_TheOptimizeAgainCommandIsToldItCanRun() {
+        // Regression, and NOT the same bug as the test above. That one was about stale run folders; this one is
+        // about IsBusy. The command's CanExecute is a superset of the property - "CanOptimizeAgainAtRecommendedBinning
+        // && !IsBusy" - and the only moment it was ever asked was from inside the run's try block, where IsBusy is
+        // true by construction. IsBusy = false in the finally then notified six other commands but not this one, so
+        // the button stayed disabled forever, underneath body copy (a plain property, no IsBusy term) cheerfully
+        // promising that clicking it would re-run on the captured frames.
+        //
+        // Asserting CanExecute() after the run passes either way - IsBusy is false by then. Only the last value the
+        // UI was NOTIFIED of distinguishes the two.
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var vm = NewVM(LoaderReturning(LargeStarRun()), options);
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        bool? lastNotifiedCanExecute = null;
+        vm.OptimizeAgainAtRecommendedBinningCommand.CanExecuteChanged +=
+            (s, e) => lastNotifiedCanExecute = vm.OptimizeAgainAtRecommendedBinningCommand.CanExecute(null);
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.ShowOptimizeAgainAtRecommendedBinning, Is.True,
+            "fixture guard: this run's 5 px stars must make the recommendation differ, or the assertion below is vacuous");
+        Assert.That(lastNotifiedCanExecute, Is.True,
+            "the last thing the button was told must be that it can run - it is on screen and the frames are on disk");
+    }
+
+    [Test]
+    public async Task EveryCommandDependingOnIsBusy_IsNotifiedWhenIsBusyChanges() {
+        // The general form of the bug above: IsBusy's setter hand-lists the commands it notifies, so a command added
+        // later silently misses out and freezes in whatever state it was last asked about. Rather than re-listing
+        // them here (which would rot the same way), toggle IsBusy and catch any command whose CanExecute VALUE moved
+        // without a CanExecuteChanged to tell the UI about it.
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var vm = NewVM(LoaderReturning(LargeStarRun()), options);
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+        await vm.StartAsync(CancellationToken.None);
+        Assume.That(vm.IsBusy, Is.False, "the run must have settled before the toggle means anything");
+
+        var commands = typeof(StarDetectionOptimizerWizardVM)
+            .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+            .Where(p => typeof(System.Windows.Input.ICommand).IsAssignableFrom(p.PropertyType))
+            .Select(p => new { p.Name, Command = (System.Windows.Input.ICommand)p.GetValue(vm) })
+            .Where(c => c.Command != null)
+            .ToList();
+        Assert.That(commands.Count, Is.GreaterThan(5),
+            $"only {commands.Count} commands were discovered - the reflection walk is broken, not the VM");
+
+        var notified = new HashSet<string>();
+        foreach (var c in commands) {
+            var name = c.Name;
+            c.Command.CanExecuteChanged += (s, e) => notified.Add(name);
+        }
+        var before = commands.ToDictionary(c => c.Name, c => c.Command.CanExecute(null));
+
+        typeof(StarDetectionOptimizerWizardVM).GetProperty(nameof(StarDetectionOptimizerWizardVM.IsBusy))
+            .GetSetMethod(nonPublic: true).Invoke(vm, new object[] { true });
+
+        var moved = commands.Where(c => c.Command.CanExecute(null) != before[c.Name]).Select(c => c.Name).ToList();
+        Assert.That(moved, Is.Not.Empty,
+            "no command changed state across the toggle - the guard would pass no matter what IsBusy forgot to notify");
+
+        var silent = moved.Where(name => !notified.Contains(name)).ToList();
+        Assert.That(silent, Is.Empty,
+            "these commands change their enabled state with IsBusy but IsBusy's setter never tells the UI, so their\n" +
+            "buttons freeze in whatever state they were last asked about:\n  " + string.Join("\n  ", silent) + "\n" +
+            "Fix: add a NotifyCanExecuteChanged() call for each in the IsBusy setter.");
+    }
+
+    [Test]
     public async Task OptimizeAgainButton_IsShownWheneverTheBodyCopyPromisesIt() {
         // The body copy and the button were gated on different conditions once, so the summary could describe an
         // action whose control was hidden. They must agree: whenever the copy names "Optimize again", the button

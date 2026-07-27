@@ -1080,6 +1080,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     BackToSummaryCommand.NotifyCanExecuteChanged();
                     ReOptimizeCommand.NotifyCanExecuteChanged();
                     ContinueOptimizationCommand.NotifyCanExecuteChanged();
+                    // Every command whose CanExecute names IsBusy must be listed here. This one was missed, and the
+                    // shape of the resulting bug is worth remembering: the run snapshots its folders (and raises the
+                    // binning block) INSIDE the try, while IsBusy is still true, so the button evaluated to disabled
+                    // at the only moment it was asked - and then nothing ever asked again. The body copy beside it,
+                    // being a plain property, read CanOptimizeAgainAtRecommendedBinning alone and correctly said the
+                    // frames were there. A disabled button under copy promising it works.
+                    OptimizeAgainAtRecommendedBinningCommand.NotifyCanExecuteChanged();
                     RaisePropertyChanged(nameof(CanContinueOptimization));
                 }
             }
