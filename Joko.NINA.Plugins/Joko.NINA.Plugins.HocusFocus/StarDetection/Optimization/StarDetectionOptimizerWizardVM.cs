@@ -2870,6 +2870,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // Snapshot the per-run RunIds (same load order) so re-optimize matches labels by id without a probe load.
             reoptimizeRunIds = sourceRunIds?.ToList() ?? new List<string>();
             ReviewCommand.NotifyCanExecuteChanged();
+            // The detection-binning block reads reoptimizeRunFolders to decide whether the re-run can proceed, and
+            // every run path raises its dependents (RaiseSelectedVariantDependents) BEFORE reaching here — so
+            // without this the block is computed against the previous run's (empty) folders and never refreshed.
+            // The button then sits permanently disabled under copy claiming the frames are gone, while they are on
+            // disk exactly where this method just recorded them.
+            RaiseDetectionBinningBlockChanged();
         }
 
         /// <summary>

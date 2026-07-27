@@ -88,6 +88,39 @@ public class StarDetectionOptimizerWizardVMTests {
         };
     }
 
+    // Same curve shape, but with an in-focus HFR of 5 px instead of 1.5 — big enough that the detection-binning
+    // rule asks for 2x2 while the run analyzed at 1x1. Needed by any test of the recommendation's ACTIONS: with
+    // the standard fixture the recommendation matches the run, so every gate is false and such a test is vacuous.
+    private const double LargeStarHyperbolaA = 5.0;
+
+    // Flatter than HyperbolaB so the sweep spans a realistic 5.0 -> ~9.4 px rather than 5 -> 50; the seed guard
+    // rejects a curve that steep as unusable.
+    private const double LargeStarHyperbolaB = 50.0;
+
+    private static double LargeStarHfr(int pos) {
+        var dx = (pos - HyperbolaP0) / LargeStarHyperbolaB;
+        return Math.Sqrt(LargeStarHyperbolaA * LargeStarHyperbolaA + dx * dx);
+    }
+
+    private static LoadedRun LargeStarRun(string id = "largestars", double optSensitivity = 10.0) {
+        Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect = (image, p, token) => {
+            var pos = (int)image;
+            var dist = Math.Abs(p.Sensitivity - optSensitivity);
+            return Task.FromResult(new FrameDetectionResult {
+                AverageHFR = LargeStarHfr(pos),
+                HFRStdDev = 0.05,
+                StarCount = (int)Math.Max(10, Math.Round(22 - 1.5 * dist)),
+                StarCenters = Array.Empty<(double X, double Y)>()
+            });
+        };
+        var data = new RunEvaluationData(id, NineFrames(), detect, NewAlglib(), DefaultFitConfig());
+        return new LoadedRun {
+            Data = data,
+            Seed = new StarDetectorParams { Sensitivity = 2, StarClippingMultiplier = 2.0 },
+            AfOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 }
+        };
+    }
+
     private static LoadedRun GoodRun(string id = "good", double optSensitivity = 10.0, int seedSensitivity = 2) {
         var data = new RunEvaluationData(id, NineFrames(), OptimizableDetect(optSensitivity), NewAlglib(), DefaultFitConfig());
         var seed = new StarDetectorParams { Sensitivity = seedSensitivity, StarClippingMultiplier = 2.0 };
@@ -2212,6 +2245,44 @@ public class StarDetectionOptimizerWizardVMTests {
         vm.AcceptCommand.Execute(null);
 
         options.DidNotReceiveWithAnyArgs().DetectionBinning = default;
+    }
+
+    [Test]
+    public async Task AfterARun_TheBinningBlockIsToldTheFramesAreAvailable() {
+        // Regression: every run path raises the summary's dependents BEFORE SnapshotReviewInputs records the run
+        // folders, so the detection-binning block was last NOTIFIED while those folders were still empty. The
+        // button sat permanently disabled under copy claiming "the frames from this run are no longer available
+        // to re-read" - while they were on disk exactly where the snapshot had just put them.
+        //
+        // This has to assert on what the UI was TOLD, not on the property's value afterwards: these are computed
+        // properties, so by the time a test reads them the folders are populated and the stale notification is
+        // invisible. Bindings only re-read on notification, which is precisely what was missing.
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var vm = NewVM(LoaderReturning(LargeStarRun()), options);
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        bool? lastNotifiedCanReOptimize = null;
+        string lastNotifiedBody = null;
+        vm.PropertyChanged += (s, e) => {
+            if (e.PropertyName == nameof(vm.CanOptimizeAgainAtRecommendedBinning)) {
+                lastNotifiedCanReOptimize = vm.CanOptimizeAgainAtRecommendedBinning;
+            } else if (e.PropertyName == nameof(vm.DetectionBinningBodyText)) {
+                lastNotifiedBody = vm.DetectionBinningBodyText;
+            }
+        };
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        Assert.That(vm.ShowOptimizeAgainAtRecommendedBinning, Is.True,
+            "fixture guard: this run's 5 px stars must make the recommendation differ, or the assertions below are vacuous");
+        Assert.Multiple(() => {
+            Assert.That(lastNotifiedCanReOptimize, Is.True,
+                "the last thing the UI was told must be that the re-run can proceed - the frames are on disk");
+            Assert.That(lastNotifiedBody ?? string.Empty, Does.Not.Contain("no longer available"),
+                "a run that just recorded its folders must never tell the user its frames are gone");
+        });
     }
 
     [Test]
