@@ -123,6 +123,25 @@ public class ExposureRecommenderTests {
         });
     }
 
+    [Test]
+    public void Recommend_EmptyFrameEntry_IsTreatedAsNoDataForThatFrame_NotAsZeroStars() {
+        // The RunEvaluationLoader convention (see the FrameStarSnrs doc comment in OptimizationObjective.cs): a
+        // producer that never populated a frame's per-star SNRs leaves that frame's entry EMPTY, which is NOT
+        // proof the frame had zero accepted stars. An empty entry must contribute nothing -- it must NOT be
+        // counted toward UsableFrameCount/ShortFrameCount, and it must not act like a "0" that would drag the
+        // median down (if it were misread as a zero-star frame, a naive implementation might either count it as
+        // a fourth (very weak) usable frame or otherwise skew MeasuredSnr away from 6.0).
+        var metrics = BuildMetrics(new[] { Frame(5.0), Frame(6.0), Frame(7.0), Frame(/* empty: no data for this frame */) });
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 1.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.UsableFrameCount, Is.EqualTo(3), "the empty-data frame must not be counted as usable");
+            Assert.That(rec.ShortFrameCount, Is.EqualTo(3), "only the 3 real frames are short; the empty one is neither");
+            Assert.That(rec.MeasuredSnr, Is.EqualTo(6.0), "median of {5, 6, 7} -- the empty frame contributes nothing");
+        });
+    }
+
     // ── Median across frames, not the worst frame ──────────────────────────────────────────────────────────
 
     [Test]
