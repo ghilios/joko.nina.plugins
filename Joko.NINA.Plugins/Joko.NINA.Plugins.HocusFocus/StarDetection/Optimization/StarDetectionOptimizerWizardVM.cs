@@ -1033,9 +1033,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     saveFolderPath = value;
                     RaisePropertyChanged();
                     StartCommand.NotifyCanExecuteChanged();
-                    // The summary's capture action saves to the same folder, so it is gated on this too.
+                    // The summary's capture action saves to the same folder, so it is gated on this too. Unguarded,
+                    // like the StartCommand line above: the constructor seeds the FIELD, so this setter is only
+                    // ever reached after both commands exist.
                     RaisePropertyChanged(nameof(CanCaptureNewSweep));
-                    CaptureNewSweepCommand?.NotifyCanExecuteChanged();
+                    CaptureNewSweepCommand.NotifyCanExecuteChanged();
                 }
             }
         }
@@ -1761,6 +1763,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // Current must see the gate THOSE settings use, not the one the previous variant reported.
             // (This call replaced a second, redundant RaiseDetectionBinningBlockChanged() that sat here.)
             RaiseExposureBlockChanged();
+            // The capture box is re-seeded HERE, with the block it belongs to, and not merely once per run: the
+            // recommended-exposure ROW follows the selected variant, so a box that did not would disagree with the
+            // row printed directly above it. That is reachable and expensive — when the optimizer cannot beat the
+            // current settings the page OPENS on Current (whose healthy gate hides the block, leaving the box on
+            // its fallback), and the user then clicks Optimized to find the row asking for 11 s beside a box still
+            // reading 5 s. Clicking would spend a whole sweep at the exposure that just starved.
+            // The trade: a manual edit made BEFORE a variant switch is discarded. That is the correct side to err
+            // on — the recommendation the edit was relative to has itself changed.
+            SeedRecaptureExposure();
             AcceptCommand.NotifyCanExecuteChanged();
             BackCommand.NotifyCanExecuteChanged();
             ContinueOptimizationCommand.NotifyCanExecuteChanged();
@@ -1943,6 +1954,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (recaptureExposureSeconds != value) {
                     recaptureExposureSeconds = value;
                     RaisePropertyChanged();
+                    // The capture refuses to run at a non-positive exposure, so the button follows this box.
+                    RaisePropertyChanged(nameof(CanCaptureNewSweep));
+                    CaptureNewSweepCommand.NotifyCanExecuteChanged();
                 }
             }
         }
@@ -1967,6 +1981,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// with nothing on screen explaining why; the body copy names the mode to switch to instead (see
         /// <see cref="StarSignalCopy.DescribeExposureRecommendation"/>). Only conditions that can CHANGE while the
         /// user reads the summary belong in <c>Can</c>.</para>
+        ///
+        /// <para><b>One deliberate asymmetry with the copy, which otherwise tracks this property exactly.</b> When
+        /// a detection-binning change is ALSO on offer, <c>RemedyFor</c>'s top-ranked remedy displaces the capture
+        /// sentence with "change the factor first and let the next run re-measure the exposure" — while this stays
+        /// true, so the capture button remains on screen with no sentence naming it. That is intentional, and it is
+        /// NOT the failure mode the house rule above guards against (copy promising an action whose control is
+        /// hidden — the reverse). Both buttons are visible in that state and the paragraph says which to use first,
+        /// so the user keeps the choice; hiding the capture action instead would silently overrule a user who has
+        /// reason to re-expose before touching the factor.</para>
         /// </summary>
         public bool ShowCaptureNewSweep =>
             HasExposureBlock
@@ -1981,9 +2004,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// change while the user reads the summary. That transience is exactly what earns them a place here rather
         /// than in <see cref="ShowCaptureNewSweep"/>: a disabled button that comes back to life when the camera
         /// reconnects is informative, whereas one that can never come back is just a dead control.
+        ///
+        /// <para>The exposure is checked HERE rather than trusted from the UI, for the same reason
+        /// <see cref="DescribeCaptureNewSweep"/> guards its own divisor: the XAML
+        /// <c>GreaterThanZeroRule</c> only refuses to push a bad value to the source — it cannot stop
+        /// <see cref="RecaptureExposureSeconds"/> being set to zero from anywhere else, and this is the command
+        /// that spends real sky time. A zero-second sweep is the one failure this must not merely log.</para>
         /// </summary>
         public bool CanCaptureNewSweep =>
             ShowCaptureNewSweep
+            && RecaptureExposureSeconds > 0.0
             && autoFocusEngine != null
             && isCameraConnected()
             && isFocuserConnected()
@@ -1991,9 +2021,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         /// <summary>
         /// Pre-fills <see cref="RecaptureExposureSeconds"/> from the SELECTED variant's recommendation. Called from
-        /// <see cref="SnapshotReviewInputs"/> — the one point every successful run path reaches after its variants
-        /// and selection have settled, so the box always reflects the summary now on screen (including after a
-        /// capture-and-re-optimize, whose fresh run may still be starved and want more).
+        /// <see cref="RaiseSelectedVariantDependents"/>, which is the single point that both every run path and
+        /// every variant switch pass through once the selection has settled — so the box tracks the row it sits
+        /// under, rather than only the run it was produced by. (Seeding once per run was not enough: see the call
+        /// site for the Current-then-Optimized route that left a stale 5 s in the box beside a row asking for 11.)
         ///
         /// <para>Falls back to the exposure the run was captured with when there is no derived number, so the box
         /// never shows a bare 0 in the window between the block appearing and the user typing.</para>
@@ -3240,6 +3271,78 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // ---- Review step (optional, post-Summary) ----------------------------------------------------------
 
         /// <summary>
+        /// Installs the result of a pass that RE-TUNED FROM SCRATCH — "Optimize again at NxN" and "Capture a new
+        /// sweep" — as the Optimized variant, and selects it.
+        ///
+        /// <para>Distinct from <see cref="ContinueOptimizationAsync"/>'s adoption, which APPENDS a stage: both
+        /// callers here seeded fresh, so the round chain is RESET to a single stage rather than extended. Splicing
+        /// either onto the previous trajectory would render a per-round path whose stages were measured in
+        /// different units — a different pixel scale for the binning pass, a different exposure for the capture —
+        /// and the numbers would look comparable when they are not.</para>
+        ///
+        /// <para>The feedback variant is dropped for the same reason: it was measured under the superseded
+        /// conditions, so it can neither be compared against this result nor accepted alongside it.</para>
+        ///
+        /// <para><b>What it deliberately does NOT do is touch the review snapshot</b> (<c>capturedLabels</c>,
+        /// <see cref="ReviewVM"/>, <c>reviewFrames</c>, <c>reviewParams</c>, <see cref="Recommendation"/>). The two
+        /// callers differ there and must: the binning pass re-reads the SAME files, so its RunIds and the labels
+        /// keyed by them still line up, and silently discarding a user's labelling work would be a regression. The
+        /// capture pass replaces the frames outright and so calls <see cref="DiscardReviewSnapshot"/> itself. Any
+        /// third caller has to make that decision explicitly, which is why it is not folded in here.</para>
+        /// </summary>
+        private void AdoptFreshTuning(
+            OptimizationResult optimizeResult,
+            (OptimizationSummary Summary, OptimizationCurve CurrentCurve, OptimizationCurve OptimizedCurve) built) {
+            optimizedResult = optimizeResult;
+            optimizedSummary = built.Summary;
+            optimizedCurve = built.OptimizedCurve;
+            currentCurve = built.CurrentCurve;
+            optimizedChain.Clear();
+            optimizedChain.Add(optimizeResult.BestParams);
+            optimizedRoundJ.Clear();
+            optimizedRoundJ.Add(optimizeResult.BestJ);
+            optimizedRoundCurves.Clear();
+            optimizedRoundCurves.Add(built.OptimizedCurve);
+            feedbackResult = null;
+            feedbackSummary = null;
+            feedbackCurve = null;
+            currentSummary = BuildCurrentSummary(built.Summary);
+            OptimizerImprovedOverCurrent = optimizeResult.BestJ > currentBaselineJ + ImprovementEpsilon;
+            selectedVariant = OptimizationVariant.Optimized;
+            RaiseSelectedVariantDependents();
+        }
+
+        /// <summary>
+        /// Drops the whole review snapshot — the built <see cref="ReviewVM"/> and its subscription, the in-memory
+        /// labels, the detected frames and the params they were detected at, and the label→gate recommendation —
+        /// exactly as <see cref="StartAsync"/> does when a fresh run begins, and for exactly the same reason: the
+        /// images those labels were drawn on are no longer the images this result describes.
+        ///
+        /// <para>Called by the capture path only. It is NOT enough to null the feedback variant: the labels
+        /// themselves drive <see cref="ShowReoptimizePrompt"/> and re-enable <see cref="ReOptimizeCommand"/>, so
+        /// leaving them behind puts a "you labeled stars — re-run optimization" prompt on a summary built from
+        /// frames those labels never saw.</para>
+        ///
+        /// <para><c>reviewDescriptors</c> / <c>reviewLabelsDir</c> / the re-optimize folders are NOT cleared here:
+        /// every caller re-establishes them from the new runs via <see cref="SnapshotReviewInputs"/> on the very
+        /// next line, and clearing them first would only widen the window in which they are inconsistent.</para>
+        /// </summary>
+        private void DiscardReviewSnapshot() {
+            if (ReviewVM != null) {
+                ReviewVM.PropertyChanged -= OnReviewLabelsChanged;
+            }
+            ReviewVM = null;
+            capturedLabels = null;
+            reviewFrames = null;
+            reviewParams = null;
+            Recommendation = null;
+            RaisePropertyChanged(nameof(HasLabels));
+            RaisePropertyChanged(nameof(ShowReoptimizePrompt));
+            RaisePropertyChanged(nameof(ShowFeedbackPanel));
+            ReOptimizeCommand.NotifyCanExecuteChanged();
+        }
+
+        /// <summary>
         /// Captures the Mat-free inputs the optional Review step needs, snapshotted while <paramref name="runs"/> is
         /// still alive (StartAsync disposes the source Mats right after). For each run we keep its per-frame
         /// descriptors (paths + positions + runId); the labels dir is derived from the FIRST run's source folder
@@ -3265,12 +3368,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // The button then sits permanently disabled under copy claiming the frames are gone, while they are on
             // disk exactly where this method just recorded them.
             RaiseDetectionBinningBlockChanged();
-            // Pre-fill the capture action's exposure box from THIS run's recommendation. Here, because this is the
-            // one point every successful path reaches after its variants and selection have settled — seeding it
-            // any earlier would read the previous run's summary. Re-seeded on every run, so a capture-and-optimize
-            // whose fresh frames are still starved comes back asking for more rather than re-offering the exposure
-            // that just fell short.
-            SeedRecaptureExposure();
             // The Star signal block is refreshed at the same point, for the same structural reason: this is where a
             // run's post-success state finally settles, AFTER every path has already raised the summary's
             // dependents. Its inputs are all fixed by BuildSummaryAsync today, so this is currently belt-and-braces
@@ -3767,25 +3864,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 var built = await BuildSummaryAsync(reloaded, optimizeResult, token).ConfigureAwait(true);
 
                 // A fresh tuning, not another round: reset the chain so the trajectory does not splice together
-                // values measured in two different pixel scales.
-                optimizedResult = optimizeResult;
-                optimizedSummary = built.Summary;
-                optimizedCurve = built.OptimizedCurve;
-                currentCurve = built.CurrentCurve;
-                optimizedChain.Clear();
-                optimizedChain.Add(optimizeResult.BestParams);
-                optimizedRoundJ.Clear();
-                optimizedRoundJ.Add(optimizeResult.BestJ);
-                optimizedRoundCurves.Clear();
-                optimizedRoundCurves.Add(built.OptimizedCurve);
-                // The feedback variant was measured at the old factor; it cannot be compared or accepted now.
-                feedbackResult = null;
-                feedbackSummary = null;
-                feedbackCurve = null;
-                currentSummary = BuildCurrentSummary(built.Summary);
-                OptimizerImprovedOverCurrent = optimizeResult.BestJ > currentBaselineJ + ImprovementEpsilon;
-                selectedVariant = OptimizationVariant.Optimized;
-                RaiseSelectedVariantDependents();
+                // values measured in two different pixel scales. The frames themselves are unchanged, so unlike the
+                // capture path this deliberately KEEPS the review snapshot — see AdoptFreshTuning.
+                AdoptFreshTuning(optimizeResult, built);
 
                 SnapshotReviewInputs(reloaded, reoptimizeRunFolders, reoptimizeRunIds);
                 RecordRunDuration();
@@ -3884,6 +3965,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // The freshly captured folders/ids REPLACE the previous run's, in capture order, exactly as
                 // AcquireAsync fills them on a Start — SnapshotReviewInputs below hands them on to every path that
                 // re-reads this run from disk.
+                //
+                // Cleared inside the try with NO rollback, deliberately: nothing reads these two except
+                // SnapshotReviewInputs (which only runs on the success path below), and both of their writers —
+                // StartAsync and this method — clear before filling. So a capture that fails halfway leaves them
+                // half-populated but unread, and the previous run's re-optimize/review inputs are unaffected
+                // because those live in reoptimizeRunFolders/Ids, which only SnapshotReviewInputs writes.
                 loadedRunFolders.Clear();
                 loadedRunIds.Clear();
                 captured = new List<LoadedRun>(RunCount);
@@ -3920,25 +4007,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
                 // A fresh tuning on fresh frames, not another round: reset the chain rather than splicing a
                 // trajectory across two different sets of exposures.
-                optimizedResult = optimizeResult;
-                optimizedSummary = built.Summary;
-                optimizedCurve = built.OptimizedCurve;
-                currentCurve = built.CurrentCurve;
-                optimizedChain.Clear();
-                optimizedChain.Add(optimizeResult.BestParams);
-                optimizedRoundJ.Clear();
-                optimizedRoundJ.Add(optimizeResult.BestJ);
-                optimizedRoundCurves.Clear();
-                optimizedRoundCurves.Add(built.OptimizedCurve);
-                // The feedback variant was measured on the OLD frames; it cannot be compared or accepted now, and
-                // the labels behind it were drawn on images that no longer describe this result.
-                feedbackResult = null;
-                feedbackSummary = null;
-                feedbackCurve = null;
-                currentSummary = BuildCurrentSummary(built.Summary);
-                OptimizerImprovedOverCurrent = optimizeResult.BestJ > currentBaselineJ + ImprovementEpsilon;
-                selectedVariant = OptimizationVariant.Optimized;
-                RaiseSelectedVariantDependents();
+                AdoptFreshTuning(optimizeResult, built);
+                // …and, UNLIKE the binning path, throw away the review with it. That path re-reads the very same
+                // files, so its RunIds — and therefore its labels — still line up. This one replaced the frames, so
+                // the captured labels describe images that no longer exist here. Keeping them would leave
+                // ShowReoptimizePrompt true on the new summary, and "Optimize with feedback" would then miss on
+                // every runId and fall through to ResolveLabelsForRun's POSITIONAL fallback, applying star boxes
+                // hand-drawn on the old sweep to the new sweep's frames behind nothing but a Logger.Warning.
+                // Success path only: a failed or cancelled capture leaves the previous run — and its review —
+                // entirely intact.
+                DiscardReviewSnapshot();
 
                 SnapshotReviewInputs(captured, loadedRunFolders, loadedRunIds);
                 RecordRunDuration();

@@ -2986,19 +2986,25 @@ public class StarDetectionOptimizerWizardVMTests {
     // plain arithmetic rather than a property of the fixture's ordering.
     private static LoadedRun StarvedRun(
         string id = "starved", double starSnr = 7.0, int starsPerFrame = 30, double capturedExposureSeconds = 3.0,
-        bool largeStars = false, double baselineSensitivity = 10.0) {
+        bool largeStars = false, double baselineSensitivity = 10.0, double snrAtHealthyGate = double.NaN) {
         Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect = (image, p, token) => {
             var pos = (int)image;
+            // snrAtHealthyGate models the real relationship the flat default hides: a HIGH gate admits only the
+            // brighter stars, so the NTarget-th-brightest SURVIVOR measures higher there than at a floored gate.
+            // Off by default (NaN) so every existing expectation keeps its plain arithmetic; the variant-tracking
+            // test needs it, because with a flat SNR both variants derive the identical exposure and the test
+            // cannot tell a box that tracks the variant from one that is simply stuck.
+            var snr = double.IsFinite(snrAtHealthyGate) && p.Sensitivity >= 5.0 ? snrAtHealthyGate : starSnr;
             return Task.FromResult(new FrameDetectionResult {
                 // largeStars swaps in the 5 px in-focus curve so a starved run can ALSO carry a detection-binning
                 // recommendation — the only way to exercise how a pending "Optimize again at 2x2" interacts with a
                 // fresh capture. The gate still floors either way: the curve is identical at every Sensitivity, so
-                // J responds to the star count alone.
+                // J responds to the star count alone (StarSnrs never enter the objective).
                 AverageHFR = largeStars ? LargeStarHfr(pos) : Hfr(pos),
                 HFRStdDev = 0.05,
                 StarCount = (int)Math.Max(6, Math.Round(26.0 - 2.0 * p.Sensitivity)),
                 StarCenters = Array.Empty<(double X, double Y)>(),
-                StarSnrs = Enumerable.Repeat(starSnr, starsPerFrame).ToList()
+                StarSnrs = Enumerable.Repeat(snr, starsPerFrame).ToList()
             });
         };
         var data = new RunEvaluationData(id, NineFrames(), detect, NewAlglib(), DefaultFitConfig());
@@ -3193,9 +3199,11 @@ public class StarDetectionOptimizerWizardVMTests {
         }
     }
 
-    private static ProducingLoader StarvedLoader(bool largeStars = false, double baselineSensitivity = 10.0) =>
+    private static ProducingLoader StarvedLoader(
+        bool largeStars = false, double baselineSensitivity = 10.0, double snrAtHealthyGate = double.NaN) =>
         new ProducingLoader(folder => StarvedRun(
-            id: "starved::" + folder, largeStars: largeStars, baselineSensitivity: baselineSensitivity));
+            id: "starved::" + folder, largeStars: largeStars,
+            baselineSensitivity: baselineSensitivity, snrAtHealthyGate: snrAtHealthyGate));
 
     // A Live, signal-starved wizard sitting on the Summary: SweepExposureSeconds 5 s and a measured S/N of 7 make
     // the recommendation 5 x (10/7)^2 = 10.2 s, rounded up the 10-30 s ladder to 11 s — a genuine increase, so the
@@ -3203,8 +3211,9 @@ public class StarDetectionOptimizerWizardVMTests {
     private static StarDetectionOptimizerWizardVM NewStarvedLiveVM(
         IAutoFocusEngine engine, IRunEvaluationLoader loader,
         IStarDetectionOptions options = null, IProfileService profileService = null,
-        Func<double, double, bool> confirmCaptureNewSweep = null) {
-        var vm = NewVM(loader, options, profileService,
+        Func<double, double, bool> confirmCaptureNewSweep = null,
+        Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, IProgress<RunLoadProgress>, CancellationToken, Task<List<FrameReview>>> frameReviewBuilder = null) {
+        var vm = NewVM(loader, options, profileService, frameReviewBuilder: frameReviewBuilder,
             isCameraConnected: () => true, isFocuserConnected: () => true,
             autoFocusEngine: engine, confirmCaptureNewSweep: confirmCaptureNewSweep);
         vm.SourceMode = SourceMode.Live;
@@ -3246,12 +3255,19 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
-    public async Task CaptureNewSweep_Declined_CapturesNothingAndLeavesTheSweepExposureAlone() {
+    public async Task CaptureNewSweep_Declined_CapturesNothing_AndLeavesTheActionUsableAfterwards() {
         // The dialog is the last chance to back out of minutes of sky time, so declining must be inert - in
         // particular it must NOT leave LiveExposureSeconds armed at the recommendation for some later sweep.
+        //
+        // The second half is what makes this test worth writing. Declining returns BEFORE IsBusy is ever set, so
+        // asserting `IsBusy == false` afterwards proves nothing: it was never true. The only observable trace of a
+        // leaked `running` interlock on this path is that every SUBSEQUENT capture silently no-ops - permanently,
+        // for the life of the wizard - so the delegate flips and the action is exercised again for real. (Verified
+        // by mutation: deleting the Interlocked.Exchange on the declined path leaves the first half green.)
         var captures = 0;
+        var allow = false;
         var engine = LiveEngine(_ => { captures++; return SweptOk(captures); });
-        var vm = NewStarvedLiveVM(engine, StarvedLoader(), confirmCaptureNewSweep: (from, to) => false);
+        var vm = NewStarvedLiveVM(engine, StarvedLoader(), confirmCaptureNewSweep: (from, to) => allow);
 
         await vm.StartAsync(CancellationToken.None);
         Assert.That(vm.ShowCaptureNewSweep, Is.True, "fixture guard");
@@ -3265,7 +3281,16 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(vm.LiveExposureSeconds, Is.EqualTo(5.0), "and must not arm the sweep exposure");
             Assert.That(vm.Summary, Is.SameAs(summaryAfterStart), "nor disturb the summary");
             Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
-            Assert.That(vm.IsBusy, Is.False, "the interlock must be released on the declined path too");
+        });
+
+        allow = true;
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(captures, Is.EqualTo(capturesAfterStart + 1),
+                "the declined attempt must have released the interlock - otherwise this capture never runs");
+            Assert.That(vm.LiveExposureSeconds, Is.EqualTo(11.0), "and this one really did arm the new exposure");
+            Assert.That(vm.Summary, Is.Not.SameAs(summaryAfterStart));
         });
     }
 
@@ -3289,6 +3314,70 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(captured[1].SavePath, Is.EqualTo(@"C:\live"));
             Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
         });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_ExposureBox_TracksTheSelectedVariant() {
+        // The ROW follows the selected variant, so the BOX must too - they sit two lines apart and would otherwise
+        // disagree. The route that makes this expensive: when the optimizer cannot beat the current settings the
+        // page OPENS on Current, whose healthy gate hides the block and leaves the box on its fallback; the user
+        // clicks Optimized, the row asks for 11 s, and a box seeded once per run still reads 5 s. Clicking would
+        // spend a whole sweep at the exposure that just starved.
+        //
+        // snrAtHealthyGate is what makes this test able to fail: with the flat default both variants derive the
+        // same 11 s, so a box that never re-seeds is indistinguishable from one that does.
+        var engine = LiveEngine(_ => SweptOk());
+        var vm = NewStarvedLiveVM(engine, StarvedLoader(snrAtHealthyGate: 17.0));
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Optimized), "fixture guard");
+        Assert.Multiple(() => {
+            Assert.That(vm.RecaptureExposureSeconds, Is.EqualTo(11.0), "the floored gate measured S/N 7 => 11 s");
+            Assert.That(vm.RecommendedExposureText, Does.Contain("11 s"), "and the row agrees");
+        });
+
+        vm.SelectedVariant = OptimizationVariant.Current;
+        Assert.Multiple(() => {
+            Assert.That(vm.HasExposureBlock, Is.False, "the user's own gate is healthy, so the block hides here");
+            // At the healthy gate only the brighter stars survive, so S/N 17 already clears the target and the
+            // recommendation collapses onto the exposure the run used.
+            Assert.That(vm.RecaptureExposureSeconds, Is.EqualTo(5.0), "the box re-seeds from the variant on screen");
+        });
+
+        vm.SelectedVariant = OptimizationVariant.Optimized;
+        Assert.Multiple(() => {
+            Assert.That(vm.RecaptureExposureSeconds, Is.EqualTo(11.0),
+                "switching back must restore the recommendation the row beside it is printing");
+            Assert.That(vm.RecommendedExposureText, Does.Contain("11 s"));
+            Assert.That(vm.CanCaptureNewSweep, Is.True);
+        });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_NonPositiveExposure_CannotRun() {
+        // Positivity is NOT left to the XAML GreaterThanZeroRule: that only declines to push a bad value to the
+        // source, and the property is public and settable from anywhere. This is the command that spends real sky
+        // time, and DescribeCaptureNewSweep already guards its own divisor on exactly this reasoning.
+        var captures = 0;
+        var engine = LiveEngine(_ => { captures++; return SweptOk(captures); });
+        var vm = NewStarvedLiveVM(engine, StarvedLoader());
+
+        await vm.StartAsync(CancellationToken.None);
+        var capturesAfterStart = captures;
+
+        vm.RecaptureExposureSeconds = 0.0;
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ShowCaptureNewSweep, Is.True, "the row stays - the user can still type a real value");
+            Assert.That(vm.CanCaptureNewSweep, Is.False);
+            Assert.That(vm.CaptureNewSweepCommand.CanExecute(null), Is.False);
+        });
+
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+        Assert.That(captures, Is.EqualTo(capturesAfterStart), "and a direct invocation captures nothing either");
+
+        vm.RecaptureExposureSeconds = 12.0;
+        Assert.That(vm.CanCaptureNewSweep, Is.True, "typing a real value re-enables it");
     }
 
     [Test]
@@ -3497,10 +3586,12 @@ public class StarDetectionOptimizerWizardVMTests {
         Assert.That(vm.RoundsCompleted, Is.EqualTo(2), "fixture guard: a second round is on the chain");
 
         // Building a REAL feedback variant needs a full Review round-trip with labels; the reset is what is under
-        // test, so the variant is planted directly.
-        typeof(StarDetectionOptimizerWizardVM)
-            .GetField("feedbackResult", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-            .SetValue(vm, new OptimizationResult { BestParams = new StarDetectorParams(), BestJ = 0.5, SeedJ = 0.5 });
+        // test, so all THREE fields are planted directly. Planting only feedbackResult would under-test it:
+        // HasFeedback reads that one field, so nulling it alone makes the variant unreachable and the two the
+        // chart and the summary actually read (feedbackCurve, feedbackSummary) could survive unnoticed.
+        var plantedSummary = new OptimizationSummary { BestJ = 0.5, SeedJ = 0.5 };
+        var plantedCurve = new OptimizationCurve { Label = "planted feedback" };
+        PlantFeedbackVariant(vm, plantedSummary, plantedCurve);
         Assert.That(vm.HasFeedback, Is.True, "fixture guard");
 
         await vm.CaptureNewSweepCommand.ExecuteAsync(null);
@@ -3511,6 +3602,143 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(vm.HasFeedback, Is.False, "the feedback variant was measured on the discarded frames");
             Assert.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Optimized));
             Assert.That(vm.HasRoundsSummary, Is.False, "no multi-round header to splice");
+            Assert.That(vm.Summary, Is.Not.SameAs(plantedSummary));
+            Assert.That(vm.SelectedCurve, Is.Not.SameAs(plantedCurve));
+            // All three fields, read back: the two above are only observable through the variant, which is already
+            // unreachable once feedbackResult is null, so nothing else can distinguish "dropped" from "orphaned".
+            Assert.That(FeedbackField(vm, "feedbackResult"), Is.Null);
+            Assert.That(FeedbackField(vm, "feedbackSummary"), Is.Null);
+            Assert.That(FeedbackField(vm, "feedbackCurve"), Is.Null);
+        });
+
+        vm.SelectedVariant = OptimizationVariant.Feedback;
+        Assert.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Optimized),
+            "and the dropped variant cannot be selected back into view");
+    }
+
+    private static void PlantFeedbackVariant(
+        StarDetectionOptimizerWizardVM vm, OptimizationSummary summary, OptimizationCurve curve) {
+        SetPrivate(vm, "feedbackResult", new OptimizationResult { BestParams = new StarDetectorParams(), BestJ = 0.5, SeedJ = 0.5 });
+        SetPrivate(vm, "feedbackSummary", summary);
+        SetPrivate(vm, "feedbackCurve", curve);
+    }
+
+    private static void SetPrivate(object target, string field, object value) =>
+        target.GetType()
+            .GetField(field, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            .SetValue(target, value);
+
+    private static object FeedbackField(StarDetectionOptimizerWizardVM vm, string field) =>
+        typeof(StarDetectionOptimizerWizardVM)
+            .GetField(field, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            .GetValue(vm);
+
+    [Test]
+    public async Task CaptureNewSweep_DropsTheReviewSnapshot_SoOldLabelsCannotReachTheNewFrames() {
+        // CRITICAL. The labels were hand-drawn on the OLD sweep's images. The fresh capture writes to a new folder,
+        // so every re-loaded run gets a new RunId, the runId->labels lookup misses, and ResolveLabelsForRun's
+        // POSITIONAL fallback would then apply those star boxes to the new frames behind a Logger.Warning - and the
+        // resulting feedback variant is selectable and Accept-able. Nulling the feedback variant is NOT enough:
+        // HasLabels drives ShowReoptimizePrompt and re-enables ReOptimizeCommand, so the prompt would render on a
+        // summary built from frames those labels never saw. The whole review snapshot goes.
+        var fake = new FakeReviewBuilder();
+        var engine = LiveEngine(_ => SweptOk());
+        var vm = NewStarvedLiveVM(engine, StarvedLoader(), frameReviewBuilder: fake.Build);
+
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        LabelAStar(vm);
+        vm.BackToSummaryCommand.Execute(null);
+        Assert.Multiple(() => {
+            Assert.That(vm.HasLabels, Is.True, "fixture guard: the user really labelled something");
+            Assert.That(vm.ShowReoptimizePrompt, Is.True, "fixture guard: the prompt is on screen before the capture");
+            Assert.That(vm.ReOptimizeCommand.CanExecute(null), Is.True, "fixture guard");
+        });
+
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.HasLabels, Is.False, "labels drawn on the replaced frames must not survive the capture");
+            Assert.That(vm.ShowReoptimizePrompt, Is.False, "so the re-run prompt cannot appear on the new summary");
+            Assert.That(vm.ReOptimizeCommand.CanExecute(null), Is.False,
+                "and the command that would positionally mis-apply them cannot run");
+            Assert.That(vm.ReviewVM, Is.Null, "the built review described the old images");
+            Assert.That(vm.Recommendation, Is.Null, "as did the label->gate breakdown");
+            Assert.That(vm.HasRecommendation, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_FailedCapture_LeavesTheReviewSnapshotIntact() {
+        // The companion to the above, and the reason the discard lives in the success block: a capture that never
+        // produced frames has replaced nothing, so the previous run - and the labelling work done on it - stands.
+        var fake = new FakeReviewBuilder();
+        var fail = false;
+        var engine = LiveEngine(_ => fail ? throw new InvalidOperationException("focuser exploded") : SweptOk());
+        var vm = NewStarvedLiveVM(engine, StarvedLoader(), frameReviewBuilder: fake.Build);
+
+        await vm.StartAsync(CancellationToken.None);
+        await vm.ReviewCommand.ExecuteAsync(null);
+        LabelAStar(vm);
+        vm.BackToSummaryCommand.Execute(null);
+        var reviewBefore = vm.ReviewVM;
+
+        fail = true;
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Does.Contain("focuser exploded"));
+            Assert.That(vm.HasLabels, Is.True, "the frames were never replaced, so the labels still describe them");
+            Assert.That(vm.ShowReoptimizePrompt, Is.True);
+            Assert.That(vm.ReOptimizeCommand.CanExecute(null), Is.True);
+            Assert.That(vm.ReviewVM, Is.SameAs(reviewBefore), "and the review the user built is still theirs");
+        });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_FailedCapture_StillReleasesTheCapturedFramesMats() {
+        // A partial capture is where a Mat leak is most likely - the loop can abort with runs already loaded, each
+        // pinning multi-GB source Mats - and the finally is the only thing that frees them. No sibling asserts this,
+        // so this is not a regression guard; it pins the one path where it would hurt most.
+        //
+        // The sweep is failed on the FOURTH call, not the first: with RunCount = 2, Start takes sweeps 1-2 and the
+        // capture takes 3-4, so failing at 4 leaves the capture holding one fully-loaded run when it unwinds. Fail
+        // at the first sweep instead and nothing is ever loaded, which would assert only that Start cleaned up.
+        var sweeps = 0;
+        var engine = LiveEngine(_ => {
+            sweeps++;
+            return sweeps == 4 ? throw new InvalidOperationException("focuser exploded") : SweptOk(sweeps);
+        });
+        var loader = StarvedLoader();
+        var vm = NewStarvedLiveVM(engine, loader);
+        vm.RunCount = 2;
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(loader.Produced, Has.Count.EqualTo(2), "fixture guard: Start loaded both runs");
+
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.That(vm.ErrorMessage, Does.Contain("focuser exploded"));
+        Assert.That(loader.Produced, Has.Count.EqualTo(3),
+            "fixture guard: the capture loaded run 1 before the second sweep failed - otherwise nothing was at risk");
+        // Everything the run ever loaded, including the previous run's (disposed by its own finally).
+        var undisposed = loader.Produced
+            .Where(r => !(bool)r.Data.GetType()
+                .GetField("disposed", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+                .GetValue(r.Data))
+            .ToList();
+        Assert.That(undisposed, Is.Empty,
+            $"{undisposed.Count} of {loader.Produced.Count} loaded runs still pin their source Mats");
+    }
+
+    /// <summary>Marks one star as missed on the in-focus frame — the minimum that makes HasLabels true. Mutates the
+    /// in-memory model the wizard holds, which is exactly what the StarReviewVM does as the user draws.</summary>
+    private static void LabelAStar(StarDetectionOptimizerWizardVM vm) {
+        var labels = vm.CapturedLabels.Values.First();
+        labels.Positions.Add(new StarReviewPositionLabels {
+            FocuserPosition = HyperbolaP0,
+            Missed = new List<StarReviewLabelBox> { new StarReviewLabelBox(100, 100, 10, 10) }
         });
     }
 

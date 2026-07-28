@@ -161,16 +161,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
             }
 
+            // Replay's reassurance: a page carrying a warning has to say that Accept is still a legitimate choice,
+            // and Replay is the mode with no action of its own to take. It comes BEFORE the remedy when there is
+            // one, and stands alone when there is not — which is the whole of its placement rule, so it is emitted
+            // once here rather than once per branch of the remedy test.
+            if (!lastRunWasLive) {
+                text += " You can still accept these settings; they are the best fit for frames like these.";
+            }
             var remedy = RemedyFor(summary, advice, lastRunWasLive, isUseCurrentMode);
             if (!string.IsNullOrEmpty(remedy)) {
-                // Replay's reassurance rides with the remedy: a page carrying a warning has to say that Accept is
-                // still a legitimate choice, and Replay is the mode with no action of its own to take.
-                if (!lastRunWasLive) {
-                    text += " You can still accept these settings; they are the best fit for frames like these.";
-                }
                 text += " " + remedy;
-            } else if (!lastRunWasLive) {
-                text += " You can still accept these settings; they are the best fit for frames like these.";
             }
             return text;
         }
