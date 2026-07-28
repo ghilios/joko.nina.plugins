@@ -470,6 +470,8 @@
                             <TextBlock
                                 Margin="10,0,0,0"
                                 VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Foreground="{StaticResource PrimaryBrush}"
                                 Text="{Binding SweepDetectionBinningRecommendation}"
                                 ToolTip="{Binding SweepDetectionBinningRecommendationDetail}"
                                 Visibility="{Binding SweepDetectionBinningRecommendationVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
@@ -554,6 +556,8 @@
                             <TextBlock
                                 Margin="10,0,0,0"
                                 VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Foreground="{StaticResource PrimaryBrush}"
                                 Text="{Binding SweepDetectionBinningRecommendation}"
                                 ToolTip="{Binding SweepDetectionBinningRecommendationDetail}"
                                 Visibility="{Binding SweepDetectionBinningRecommendationVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />

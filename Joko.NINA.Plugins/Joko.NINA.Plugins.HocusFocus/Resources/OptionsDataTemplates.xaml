@@ -2358,6 +2358,8 @@
                 MaxWidth="560"
                 Margin="10,4,5,0"
                 HorizontalAlignment="Left"
+                FontStyle="Italic"
+                Foreground="{StaticResource PrimaryBrush}"
                 Text="{Binding StarDetectionOptions.DetectionBinningHint}"
                 TextWrapping="Wrap"
                 ToolTip="{Binding StarDetectionOptions.DetectionBinningHintDetail}"
