@@ -2986,7 +2986,7 @@ public class StarDetectionOptimizerWizardVMTests {
     // plain arithmetic rather than a property of the fixture's ordering.
     private static LoadedRun StarvedRun(
         string id = "starved", double starSnr = 7.0, int starsPerFrame = 30, double capturedExposureSeconds = 3.0,
-        bool largeStars = false) {
+        bool largeStars = false, double baselineSensitivity = 10.0) {
         Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect = (image, p, token) => {
             var pos = (int)image;
             return Task.FromResult(new FrameDetectionResult {
@@ -3005,9 +3005,12 @@ public class StarDetectionOptimizerWizardVMTests {
         return new LoadedRun {
             Data = data,
             // Seed AND baseline start at the healthy default gate, so the Current variant stays healthy while the
-            // optimized one floors — which is what makes the follows-the-variant test below non-vacuous.
+            // optimized one floors — which is what makes the follows-the-variant test below non-vacuous. Lowering
+            // baselineSensitivity models a user who hand-set their OWN gate to the floor, the only way to reach a
+            // floored block in "use current settings" mode (which never runs the search, so the Current variant's
+            // own gate is all there is).
             Seed = new StarDetectorParams { Sensitivity = 10, StarClippingMultiplier = 2.0 },
-            Baseline = new StarDetectorParams { Sensitivity = 10, StarClippingMultiplier = 2.0 },
+            Baseline = new StarDetectorParams { Sensitivity = baselineSensitivity, StarClippingMultiplier = 2.0 },
             AfOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 },
             CapturedExposureSeconds = capturedExposureSeconds
         };
@@ -3190,8 +3193,9 @@ public class StarDetectionOptimizerWizardVMTests {
         }
     }
 
-    private static ProducingLoader StarvedLoader(bool largeStars = false) =>
-        new ProducingLoader(folder => StarvedRun(id: "starved::" + folder, largeStars: largeStars));
+    private static ProducingLoader StarvedLoader(bool largeStars = false, double baselineSensitivity = 10.0) =>
+        new ProducingLoader(folder => StarvedRun(
+            id: "starved::" + folder, largeStars: largeStars, baselineSensitivity: baselineSensitivity));
 
     // A Live, signal-starved wizard sitting on the Summary: SweepExposureSeconds 5 s and a measured S/N of 7 make
     // the recommendation 5 x (10/7)^2 = 10.2 s, rounded up the 10-30 s ladder to 11 s — a genuine increase, so the
@@ -3587,6 +3591,44 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(vm.ShowCaptureNewSweep, Is.True, "the row stays visible");
             Assert.That(vm.CanCaptureNewSweep, Is.False, "but the action cannot run");
             Assert.That(vm.CaptureNewSweepCommand.CanExecute(null), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_Live_UseCurrentMode_IsHiddenNotDisabled_AndTheCopyNamesTheModeInstead() {
+        // The state is genuinely reachable: BuildSummaryAsync derives ExposureAdvice regardless of OptimizeMode, so
+        // a Live use-current run whose OWN hand-set gate is floored lands on a Summary with a real increase on
+        // offer. Use-current is chosen on the Select Source step and is FIXED for the life of this Summary, so a
+        // button disabled by it would sit dead for the whole run with nothing on screen saying why — it is hidden,
+        // and the body names the mode to switch to. (An earlier revision had it in CanCaptureNewSweep, which is
+        // exactly the dead-button outcome; no test covered this combination, which is why nothing caught it.)
+        var engine = LiveEngine(_ => SweptOk());
+        // The user's OWN gate sits at the floor: use-current never runs the search, so the Current variant's gate
+        // is the only one there is, and a healthy one would hide the whole block.
+        var loader = StarvedLoader(baselineSensitivity: 0.5);
+        var vm = NewVM(loader, isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.OptimizeMode = WizardOptimizeMode.UseCurrentSettings;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 5.0;
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        Assert.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Current), "fixture guard: use-current never optimizes");
+        Assert.That(vm.HasExposureBlock, Is.True,
+            "fixture guard: the user's own gate must be floored, or there is no block to hang the action off");
+        Assert.That(vm.Summary.ExposureAdvice.IncreasesExposure, Is.True,
+            "fixture guard: there must really be a longer exposure on offer, or the row would be hidden anyway");
+        Assert.Multiple(() => {
+            Assert.That(vm.ShowCaptureNewSweep, Is.False, "hidden, not disabled - the mode cannot change from here");
+            Assert.That(vm.CanCaptureNewSweep, Is.False);
+            Assert.That(vm.CaptureNewSweepCommand.CanExecute(null), Is.False);
+            Assert.That(vm.ExposureBodyText, Does.Not.Contain("Capture a new sweep at the longer exposure to re-tune"),
+                "the copy must not name a button that is not on screen");
+            Assert.That(vm.ExposureBodyText, Does.Contain("run this wizard in Optimize mode"),
+                "it names the mode to switch to instead - the binning block's use-current branch");
+            Assert.That(vm.AcceptCommand.CanExecute(null), Is.True);
         });
     }
 

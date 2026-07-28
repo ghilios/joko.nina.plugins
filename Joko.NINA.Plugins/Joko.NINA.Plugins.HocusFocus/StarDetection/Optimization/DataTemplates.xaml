@@ -842,12 +842,15 @@
                                 TextWrapping="Wrap"
                                 Visibility="{Binding HasExposureBody, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             <!--  The action: capture a fresh sweep at a longer exposure and re-optimize on it. The
-                                  WHOLE ROW is hidden on Replay (ShowCaptureNewSweep), where re-capturing is
-                                  mode-inapplicable — the same branch the detection-binning block takes for
-                                  "use current settings". Everything that is merely unavailable (disconnected
-                                  camera/focuser, no save folder) leaves the button visible and DISABLED via the
-                                  command's CanExecute, so the body copy above never describes a control that is not
-                                  on screen.
+                                  WHOLE ROW is hidden (ShowCaptureNewSweep) whenever the MODE makes re-capturing
+                                  inapplicable — Replay, which has no rig to capture from, and "use current
+                                  settings", which has nothing to re-tune. Both are chosen on the Select Source step
+                                  and are fixed for the life of this Summary, so a button disabled by either would
+                                  sit dead for the whole run; the body copy above names the mode to switch to
+                                  instead. This is the branch the detection-binning block takes for use-current too.
+                                  Only TRANSIENT unavailability (disconnected camera/focuser, no save folder) leaves
+                                  the button visible and DISABLED via the command's CanExecute — there the control
+                                  can come back, so the copy that names it still has a referent.
                                   The box is editable and LostFocus-bound, so THE BUTTON LABEL DELIBERATELY CARRIES
                                   NO NUMBER: a numbered label goes stale the instant the user starts typing and then
                                   contradicts the box beside it. Consequence in the label, value in the box — do not

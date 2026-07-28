@@ -189,8 +189,10 @@ public class StarSignalCopyTests {
     // that has accumulated into self-contradiction, which is exactly how the first version shipped six sentences
     // offering three mutually exclusive remedies.
 
-    private static string Body(OptimizationSummary s, bool live) =>
-        StarSignalCopy.DescribeExposureRecommendation(s, live);
+    // useCurrent defaults to false because Optimize is the wizard's default mode and all but one case below runs
+    // in it; the use-current cases pass it explicitly so they read as the exception they are.
+    private static string Body(OptimizationSummary s, bool live, bool useCurrent = false) =>
+        StarSignalCopy.DescribeExposureRecommendation(s, live, useCurrent);
 
     private static string Detail(OptimizationSummary s) =>
         StarSignalCopy.DescribeExposureDerivation(s);
@@ -218,6 +220,46 @@ public class StarSignalCopyTests {
             Assert.That(text, Does.Not.Contain("optimizer"));
             Assert.That(text, Does.Not.Contain("NINA's focuser options"), "that is Replay's instruction");
         });
+    }
+
+    [Test]
+    public void ExposureCopy_Live_UseCurrentMode_NamesTheModeBecauseTheButtonIsHidden() {
+        // GOLDEN. ShowCaptureNewSweep HIDES the capture row in use-current mode — there is nothing to re-tune, and
+        // unlike a disconnected camera the mode is fixed for the life of the Summary, so a disabled button would
+        // sit dead for the whole run with nothing explaining why. The copy must therefore not name that button;
+        // it names the mode to switch to, exactly as the binning block's own use-current branch does.
+        var text = Body(Starved(advice: Advice(3, 12, 4.1)), live: true, useCurrent: true);
+        Assert.That(text, Is.EqualTo(
+            LowSignalOpening
+            + " To capture a new sweep at the longer exposure, run this wizard in Optimize mode; settings must be re-tuned for the new frames."));
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Not.Contain("Capture a new sweep at the longer exposure to re-tune"),
+                "the instruction that names the button must not appear while the button is hidden");
+            Assert.That(text, Does.Not.Contain("12 s"), "the number still lives in the row, not the paragraph");
+            Assert.That(text, Does.Not.Contain("You can still accept"), "that reassurance is Replay's");
+        });
+    }
+
+    [Test]
+    public void ExposureCopy_Live_UseCurrentMode_AbsoluteCap_StillCarriesTheNarrowbandRider() {
+        // The rider belongs to the instruction, not to any one mode's phrasing of it: the cap trimmed the number,
+        // so the fix is partial however the user goes about getting the longer frames. One instruction either way.
+        var advice = Advice(10, 30, 5.0, raw: 40.0, wasCapped: true, cappedByAbsoluteLimit: true);
+        var text = Body(Starved(advice: advice, offsetSteps: 5), live: true, useCurrent: true);
+        Assert.That(text, Is.EqualTo(
+            LowSignalOpening
+            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so the recommendation above stops at 30 s."
+            + " To capture a new sweep at the longer exposure, run this wizard in Optimize mode; settings must be re-tuned for the new frames"
+            + "; if you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead."));
+    }
+
+    [Test]
+    public void ExposureCopy_Replay_UseCurrentMode_IsUnaffected() {
+        // Replay's instruction names a NINA setting and a mode to re-run in, not a control on this page, so it
+        // stays true in either optimize mode — the use-current branch is Live's alone.
+        var optimize = Body(Starved(advice: Advice(3, 12, 4.1)), live: false);
+        var useCurrent = Body(Starved(advice: Advice(3, 12, 4.1)), live: false, useCurrent: true);
+        Assert.That(useCurrent, Is.EqualTo(optimize));
     }
 
     [Test]

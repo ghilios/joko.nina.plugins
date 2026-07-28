@@ -845,6 +845,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     RaisePropertyChanged();
                     RaisePropertyChanged(nameof(IsOptimizeMode));
                     RaisePropertyChanged(nameof(IsUseCurrentMode));
+                    // Both recommendation blocks branch on the mode — the binning block's button visibility and
+                    // body, and the Star signal block's capture row and body. The radio buttons live on the Select
+                    // Source step, so today the mode cannot change while a Summary is on screen and these are
+                    // re-raised on the way back anyway; that is an ordering accident, and an un-notified dependency
+                    // on a mutable field is the bug class the variant-switch notification test exists to catch.
+                    RaiseDetectionBinningBlockChanged();
+                    RaiseExposureBlockChanged();
                 }
             }
         }
@@ -1905,7 +1912,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public bool HasRecommendedExposure => !string.IsNullOrEmpty(RecommendedExposureText);
 
         /// <summary>The body paragraph under the recommended-exposure row.</summary>
-        public string ExposureBodyText => StarSignalCopy.DescribeExposureRecommendation(SelectedSummary, lastRunWasLive);
+        public string ExposureBodyText => StarSignalCopy.DescribeExposureRecommendation(SelectedSummary, lastRunWasLive, IsUseCurrentMode);
 
         /// <summary>The recommended-exposure row's TOOLTIP: the arithmetic behind the number, and which cap (if
         /// any) trimmed it. Background belongs in a tooltip, not in the paragraph — the sibling detection-binning
@@ -1952,26 +1959,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// absolute cap keeps <c>HasRecommendation</c> true while the recommendation collapses onto the current
         /// value, and re-capturing at the exposure you just used is a no-op that costs a sweep.</para>
         ///
-        /// <para>Hidden rather than disabled on REPLAY, matching the binning block's use-current branch: there is
-        /// no rig to re-capture from, so the action is mode-inapplicable rather than temporarily unavailable.
-        /// Everything that is merely unavailable (no engine, a disconnected camera or focuser, no save folder,
-        /// use-current mode) lives in <see cref="CanCaptureNewSweep"/> and renders as a disabled button.</para>
+        /// <para>The two MODE conditions are here rather than in <see cref="CanCaptureNewSweep"/>, matching
+        /// <see cref="ShowOptimizeAgainAtRecommendedBinning"/>. REPLAY has no rig to re-capture from. "Use current
+        /// settings" has nothing to re-tune — it skips the search entirely, so a fresh sweep would spend the sky
+        /// time and land back on the same current settings. Both are decided on the Select Source step and are
+        /// FIXED for the life of this Summary, so a button disabled by either would sit dead for the whole run
+        /// with nothing on screen explaining why; the body copy names the mode to switch to instead (see
+        /// <see cref="StarSignalCopy.DescribeExposureRecommendation"/>). Only conditions that can CHANGE while the
+        /// user reads the summary belong in <c>Can</c>.</para>
         /// </summary>
         public bool ShowCaptureNewSweep =>
-            HasExposureBlock && lastRunWasLive && (SelectedSummary?.ExposureAdvice?.IncreasesExposure ?? false);
+            HasExposureBlock
+            && lastRunWasLive
+            && !IsUseCurrentMode
+            && (SelectedSummary?.ExposureAdvice?.IncreasesExposure ?? false);
 
         /// <summary>
         /// Whether the capture can actually proceed. It drives a real auto-focus sweep, so it needs an engine, a
         /// connected camera and focuser, and somewhere to save the frames — the same pre-flight
-        /// <see cref="ValidateSourceBeforeStart"/> applies to a Live Start, re-checked here because a device can
-        /// disconnect while the user reads the summary.
-        ///
-        /// <para>"Use current settings" is excluded because there is nothing to re-tune: that mode skips the search
-        /// entirely, so a fresh sweep would spend the sky time and land on the same current settings.</para>
+        /// <see cref="ValidateSourceBeforeStart"/> applies to a Live Start, re-checked here because any of them can
+        /// change while the user reads the summary. That transience is exactly what earns them a place here rather
+        /// than in <see cref="ShowCaptureNewSweep"/>: a disabled button that comes back to life when the camera
+        /// reconnects is informative, whereas one that can never come back is just a dead control.
         /// </summary>
         public bool CanCaptureNewSweep =>
             ShowCaptureNewSweep
-            && !IsUseCurrentMode
             && autoFocusEngine != null
             && isCameraConnected()
             && isFocuserConnected()

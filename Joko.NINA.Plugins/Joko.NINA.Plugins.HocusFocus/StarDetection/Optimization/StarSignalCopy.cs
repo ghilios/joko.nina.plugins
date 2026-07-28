@@ -110,7 +110,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// already ran, and was measured, at the factor Accept will write, so its SNRs are already in the space the
         /// user is about to commit to.</para>
         /// </summary>
-        internal static string DescribeExposureRecommendation(OptimizationSummary summary, bool lastRunWasLive) {
+        internal static string DescribeExposureRecommendation(OptimizationSummary summary, bool lastRunWasLive, bool isUseCurrentMode) {
             if (summary == null || !summary.HasLowStarSignal) {
                 return string.Empty;
             }
@@ -161,7 +161,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
             }
 
-            var remedy = RemedyFor(summary, advice, lastRunWasLive);
+            var remedy = RemedyFor(summary, advice, lastRunWasLive, isUseCurrentMode);
             if (!string.IsNullOrEmpty(remedy)) {
                 // Replay's reassurance rides with the remedy: a page carrying a warning has to say that Accept is
                 // still a legitimate choice, and Replay is the mode with no action of its own to take.
@@ -196,22 +196,37 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// improvement sitting in the row), and offering the filter route "instead" there advises against the
         /// offer directly above it while suppressing the only sentence that says where to apply it.</item>
         /// <item><b>Get frames at the longer exposure.</b> The one remaining instruction, and it is the SAME
-        /// instruction in both modes — only the way to carry it out differs, so the two share this slot rather than
-        /// competing for it. LIVE names the capture action that sits directly below the paragraph: as with the
-        /// binning block, the body's only job is to say why that button exists, since the row already carries the
-        /// number and the tooltip the derivation. REPLAY has no capture action and no write-back for the exposure
-        /// (<see cref="StarDetectionOptimizerWizardVM.CanApplyExposureTime"/> is false), so if its sentence does not say where to set the value by
-        /// hand, nothing does. Both carry the narrowband suggestion as a RIDER when the absolute cap trimmed the
-        /// number, so that hint survives without becoming a competing instruction.
+        /// instruction in all three of its shapes — only the way to carry it out differs, so they share this slot
+        /// rather than competing for it. Each carries the narrowband suggestion as a RIDER when the absolute cap
+        /// trimmed the number, so that hint survives without becoming a competing instruction.
         ///
-        /// <para>Gated on <see cref="ExposureRecommendation.IncreasesExposure"/>, which is exactly the condition
-        /// <see cref="StarDetectionOptimizerWizardVM.ShowCaptureNewSweep"/> uses — so the Live sentence and the control it describes appear and
-        /// disappear together (the house rule at <see cref="StarDetectionOptimizerWizardVM.ShowOptimizeAgainAtRecommendedBinning"/>). When the
-        /// capture is merely UNAVAILABLE (no engine, a disconnected camera, no save folder, use-current mode) the
-        /// button renders disabled rather than vanishing, so the sentence still has a referent.</para></item>
+        /// <list type="bullet">
+        /// <item>LIVE + Optimize names the capture action that sits directly below the paragraph: as with the
+        /// binning block, the body's only job is to say why that button exists, since the row already carries the
+        /// number and the tooltip the derivation. It quotes no seconds — the editable box beside the button is the
+        /// authority on the value.</item>
+        /// <item>LIVE + "use current settings" names the MODE to switch to, because
+        /// <see cref="StarDetectionOptimizerWizardVM.ShowCaptureNewSweep"/> HIDES the button there (a use-current
+        /// run has nothing to re-tune, and the mode is fixed for the life of the Summary, so a disabled button
+        /// would sit dead for the whole run with no explanation). This mirrors the binning block's own
+        /// use-current branch exactly.</item>
+        /// <item>REPLAY has no capture action and no write-back for the exposure
+        /// (<see cref="StarDetectionOptimizerWizardVM.CanApplyExposureTime"/> is false), so if its sentence does
+        /// not say where to set the value by hand, nothing does.</item>
+        /// </list>
+        ///
+        /// <para>The whole slot is gated on <see cref="ExposureRecommendation.IncreasesExposure"/>, and the Live
+        /// branches split on exactly the remaining term of
+        /// <see cref="StarDetectionOptimizerWizardVM.ShowCaptureNewSweep"/> — so the sentence that names the button
+        /// and the button itself appear and disappear together (the house rule at
+        /// <see cref="StarDetectionOptimizerWizardVM.ShowOptimizeAgainAtRecommendedBinning"/>). What remains in
+        /// <see cref="StarDetectionOptimizerWizardVM.CanCaptureNewSweep"/> is only the TRANSIENT unavailability (no
+        /// engine, a disconnected camera or focuser, no save folder), which renders the button disabled rather than
+        /// hidden — so the sentence still has a referent, and the referent can come back.</para></item>
         /// </list>
         /// </summary>
-        private static string RemedyFor(OptimizationSummary summary, ExposureRecommendation advice, bool lastRunWasLive) {
+        private static string RemedyFor(
+            OptimizationSummary summary, ExposureRecommendation advice, bool lastRunWasLive, bool isUseCurrentMode) {
             var increases = advice != null && advice.IncreasesExposure;
             if (summary.DetectionBinningDiffers && increases) {
                 return "The detection binning change recommended below also raises measured star signal, so the two are not additive: change the factor first and let the next run re-measure the exposure.";
@@ -220,12 +235,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return "If you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead.";
             }
             if (increases) {
-                // Live acts on the rig it is attached to; Replay can only tell the user where the setting lives. The
-                // Live sentence quotes no seconds: the editable box beside the button is the authority on the value,
-                // and the row above already printed the recommendation (see the button's label comment in the XAML).
-                var text = lastRunWasLive
-                    ? "Capture a new sweep at the longer exposure to re-tune these settings on frames that have real signal."
-                    : $"For a more reliable tune, raise your auto-focus exposure to about {advice.RecommendedSeconds:0.##} s in NINA's focuser options and run this wizard again in Live mode.";
+                // Live acts on the rig it is attached to; Replay can only tell the user where the setting lives; a
+                // use-current run can do neither until it is re-run in Optimize mode, which is where its button went.
+                string text;
+                if (!lastRunWasLive) {
+                    text = $"For a more reliable tune, raise your auto-focus exposure to about {advice.RecommendedSeconds:0.##} s in NINA's focuser options and run this wizard again in Live mode.";
+                } else if (isUseCurrentMode) {
+                    text = "To capture a new sweep at the longer exposure, run this wizard in Optimize mode; settings must be re-tuned for the new frames.";
+                } else {
+                    text = "Capture a new sweep at the longer exposure to re-tune these settings on frames that have real signal.";
+                }
                 if (advice.CappedByAbsoluteLimit) {
                     // The cap trimmed the number, so this is a partial fix in either mode. The filter route rides
                     // along as an alternative rather than replacing it — same sentence, so "one instruction" holds.
