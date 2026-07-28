@@ -699,10 +699,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// exact scalar the Sensitivity gate compared this star against: <c>NormalizedBrightness / σ</c>, or — when
         /// <see cref="StarDetectorParams.DefocusAwareDonutDetection"/> admits the integrated-flux path for an
         /// extended candidate — the larger of that and the donut integrated-flux SNR (whichever the gate actually
-        /// used). Dimensionless (a ratio of two intensities / a ratio of flux to noise), so it needs no rescaling
-        /// under detection binning
-        /// (<see cref="NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility.ScaleToSourcePixels(Star, int)"/>) or an
-        /// ROI offset (<see cref="NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility.AddOffset"/>).
+        /// used). These are two DIFFERENT statistics with different scalings (a per-pixel peak-vs-noise ratio vs. a
+        /// matched-filter <c>TotalFlux / (σ√N)</c>) — a caller cannot tell which one a given value is, so treat
+        /// entries as belonging to a single scalar "the gate's verdict", not something to pool or threshold as one
+        /// physical quantity.
+        /// <para>
+        /// Carried through detection binning
+        /// (<see cref="NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility.ScaleToSourcePixels(Star, int)"/>) and an
+        /// ROI offset (<see cref="NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility.AddOffset"/>) WITHOUT rescaling
+        /// — not because binning "preserves the level" (it does not: the σ denominator is measured on the
+        /// already-binned image, so it shrinks by ~<c>DetectionBinning</c> while the numerator does not), but
+        /// because this is the gate's own comparison pair with <see cref="StarDetectorParams.Sensitivity"/> (a
+        /// binned-space param compared BEFORE the rescale) — both must stay in the same space, exactly like
+        /// <c>RejectedCandidateRecord.MeasuredValue</c>. Consequence: values are NOT comparable across different
+        /// <see cref="StarDetectorParams.DetectionBinning"/> factors (roughly 2x larger at 2x binning for the same
+        /// star).
+        /// </para>
         /// <see cref="double.NaN"/> at every legacy construction site that doesn't set it. Feeds a later
         /// exposure-time recommendation when the optimizer floors the Sensitivity gate.
         /// </summary>

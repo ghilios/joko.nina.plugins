@@ -273,10 +273,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 var hfrs = result.StarList == null
                     ? (IReadOnlyList<double>)Array.Empty<double>()
                     : result.StarList.Select(s => s.HFR).ToList();
-                // Per-star measured Sensitivity-gate SNRs, PARALLEL to centers (same StarList; see StarSnrs) —
-                // inert data for a later exposure-recommendation feature. StarList is built by a single ordered
+                // Per-star measured Sensitivity-gate SNRs, PARALLEL to centers (same StarList; see StarSnrs, and
+                // Star.MeasuredSensitivity for the binned-space / two-different-statistics caveats) — inert data for
+                // a later exposure-recommendation feature. StarList is built by a single ordered
                 // .Select(ToDetectedStar) (HocusFocusStarDetection.BuildStarDetectionResult), so centers/HFRs/SNRs
-                // all derive from that one list and stay parallel. A failed cast surfaces as NaN, not silently 0.
+                // all derive from that one list and stay parallel WITH EACH OTHER. StarCount (== result.DetectedStars)
+                // is a SEPARATE snapshot taken before the brightest-N trim (HocusFocusStarDetection.cs, `result.
+                // DetectedStars = starList.Count`), which would disagree with these lengths if the trim ran — it
+                // only agrees here because hocusParams above pins NumberOfAFStars = 0, so the trim block never runs
+                // and StarCount's snapshot and StarList are counting the same untrimmed list. A failed cast surfaces
+                // as NaN, not silently 0.
                 var snrs = result.StarList == null
                     ? (IReadOnlyList<double>)Array.Empty<double>()
                     : result.StarList.Select(s => (s as HocusFocusDetectedStar)?.MeasuredSensitivity ?? double.NaN).ToList();

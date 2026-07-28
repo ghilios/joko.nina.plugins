@@ -741,8 +741,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return new Accord.Point(x: (float)point.X, y: (float)point.Y);
         }
 
-        // NOTE: this helper currently drops RelaxationAdmitted (not carried into the returned Star) — a known gap,
-        // tracked as a separate follow-up task. Not fixed here.
+        // NOTE: this helper currently drops RelaxationAdmitted (not carried into the returned Star, unlike
+        // ScaleToSourcePixels below, which does carry it). Concrete consequence: on ANY run with an ROI configured,
+        // every star returned by StarDetector.GateAndMeasureInternal has already been through this AddOffset (the
+        // ROI-offset step), so its RelaxationAdmitted resets to the Star default (false) — HocusFocusStarDetection's
+        // re-tally (`starDetectorResult.Metrics.RelaxationAdmittedCount = starList.Count(s => s.RelaxationAdmitted)`,
+        // HocusFocusStarDetection.cs ~:763) then always counts 0, so the optimizer's SDefocusPrecision sub-score
+        // silently reads as if nothing was ever relaxation-admitted. NOT a drive-by fix here: restoring it would
+        // change J for any ROI + defocus-aware-gates run (currently under-penalized), which is exactly the kind of
+        // behavior change this task (an inert plumbing change) must not make. Tracked separately as Task 6 in
+        // plans/optimizer-exposure-recommendation-plan.md.
         public static Star AddOffset(this Star star, int xOffset, int yOffset) {
             return new Star() {
                 Center = star.Center.Add(new Point2d(xOffset, yOffset)),
@@ -806,8 +814,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 PSF = star.PSF?.ScaledToSourcePixels(factor),
                 StarContaminationSuspected = star.StarContaminationSuspected,
                 RelaxationAdmitted = star.RelaxationAdmitted,
-                // A ratio of two intensities (like MeanBrightness/PeakBrightness above) — mean binning preserves
-                // level for both the numerator and the denominator, so this needs no rescaling.
+                // Deliberately NOT rescaled — same reasoning as RejectedCandidateRecord.MeasuredValue
+                // (StarDetector.cs, binning-rescale block): this is the gate's own comparison pair
+                // (StarDetectorParams.Sensitivity is compared against it in EvaluateStarCandidate, BEFORE this
+                // rescale runs, in binned pixel space), so both must stay in the same space. NOT a case of binning
+                // preserving level: the denominator (MeasurementNoiseSigma) is measured on the ALREADY-BINNED image
+                // (StarDetector.cs computes KappaSigmaNoiseEstimate(srcImage, ...) after the bin), so it shrinks by
+                // ~factor while the numerator does not — MeasuredSensitivity at DetectionBinning=2 is roughly 2x a
+                // same-star native-resolution value. NOT comparable across binning factors.
                 MeasuredSensitivity = star.MeasuredSensitivity
             };
         }

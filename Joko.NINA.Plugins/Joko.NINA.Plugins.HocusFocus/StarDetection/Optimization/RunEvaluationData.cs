@@ -41,10 +41,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public IReadOnlyList<double> StarHFRs { get; set; }
 
         /// <summary>Accepted-star measured Sensitivity-gate SNRs (PARALLEL to <see cref="StarCenters"/>; same
-        /// surviving set, same order) — i.e. <see cref="Star.MeasuredSensitivity"/> carried through. INERT DATA: no
-        /// sub-score or objective term reads this yet; it exists so a later exposure-recommendation feature can read
-        /// the measured per-star SNR without re-plumbing. NaN entries where the caller can't determine it (e.g. a
-        /// failed cast to the concrete star type).</summary>
+        /// surviving set, same order) — i.e. <see cref="Star.MeasuredSensitivity"/> carried through (see that
+        /// property's doc comment for the full explanation of what it is and its caveats). INERT DATA: no sub-score
+        /// or objective term reads this yet; it exists so a later exposure-recommendation feature can read the
+        /// measured per-star SNR without re-plumbing. NaN entries where the caller can't determine it (e.g. a
+        /// failed cast to the concrete star type).
+        /// <para>
+        /// TWO CAVEATS a consumer must respect (both inherited from <see cref="Star.MeasuredSensitivity"/>):
+        /// (1) values are in BINNED-PIXEL space when <c>StarDetectorParams.DetectionBinning &gt; 1</c> — NOT
+        /// comparable across frames/runs detected at different binning factors; (2) each entry is EITHER the
+        /// per-pixel <c>NormalizedBrightness / σ</c> OR the donut matched-filter <c>TotalFlux / (σ√N)</c>, depending
+        /// on <c>StarDetectorParams.DefocusAwareDonutDetection</c> and candidate size — two statistics with
+        /// different scalings that must not be pooled or thresholded as a single physical quantity.
+        /// </para></summary>
         public IReadOnlyList<double> StarSnrs { get; set; }
 
         /// <summary>Full-frame sensor dimensions (pixels) used to convert <see cref="StarCenters"/> to ratio coords

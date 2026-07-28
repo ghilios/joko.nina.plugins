@@ -227,9 +227,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// <summary>
         /// INFORMATIONAL ONLY, carried straight through from <see cref="Star.MeasuredSensitivity"/> by
         /// <see cref="ToDetectedStar"/> — the exact scalar the Sensitivity gate compared this star against.
-        /// NaN for any star not produced by that projection (e.g. hand-built in tests). This is the lossy
-        /// boundary the optimizer's path goes through (<c>DetectedStar</c> has no such field), so it must be
-        /// re-declared here rather than inherited.
+        /// NaN for any star not produced by that projection (e.g. hand-built in tests), and — in production, not
+        /// just tests — for any star reloaded from a PRE-this-change saved detection cache: this type round-trips
+        /// through <c>StarDetectionResultCacheSerializer</c> to <c>&lt;image&gt;_star_detection_result.json</c>, and
+        /// <c>AutoFocusEngine.TryLoadValidCachedDetection</c> (AutoFocus/AutoFocusEngine.cs, ~:1166 the deserialize
+        /// call, ~:1178 the version check) accepts any cache file whose <c>DetectorVersion</c> matches the current
+        /// <c>StarDetector.StarDetectorVersion</c> — which this change deliberately did NOT bump (no detection
+        /// output changed), so an old cache file written before this field existed still passes that check and
+        /// reloads with this property defaulting to NaN. This is the lossy boundary the optimizer's path goes
+        /// through (<c>DetectedStar</c> has no such field), so it must be re-declared here rather than inherited.
         /// </summary>
         public double MeasuredSensitivity { get; set; } = double.NaN;
 

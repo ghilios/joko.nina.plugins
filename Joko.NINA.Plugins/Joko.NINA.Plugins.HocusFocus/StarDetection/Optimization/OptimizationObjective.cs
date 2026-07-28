@@ -201,14 +201,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double BestFocusPosition { get; set; } = double.NaN;
 
         // Per-frame accepted-star HFRs (JAGGED; PARALLEL to FrameStarCounts, with FrameStarHFRs[i].Count ==
-        // FrameStarCounts[i]). Feeds the extreme-HFR outlier penalty (SHfrOutlier). Null ⇒ no per-star HFR data ⇒
-        // SHfrOutlier returns exactly 1.0 (J bit-identical at the baseline).
+        // FrameStarCounts[i]) WHEN POPULATED. Feeds the extreme-HFR outlier penalty (SHfrOutlier). Null (the whole
+        // list) ⇒ no per-star HFR data ⇒ SHfrOutlier returns exactly 1.0 (J bit-identical at the baseline).
+        // CONVENTION (also applies to the per-star-SNR field below): RunEvaluationData substitutes Array.Empty&lt;double&gt;()
+        // per FRAME when that frame's producer didn't populate the per-star list, which is indistinguishable from
+        // "this frame legitimately had zero accepted stars" — an empty FrameStarHFRs[i] does NOT prove
+        // FrameStarCounts[i] == 0. A reader must check Count before assuming parallelism with FrameStarCounts;
+        // don't index FrameStarHFRs[i][k] assuming it always has FrameStarCounts[i] entries.
         public IReadOnlyList<IReadOnlyList<double>> FrameStarHFRs { get; set; }
 
-        // Per-frame accepted-star measured Sensitivity-gate SNRs (JAGGED; PARALLEL to FrameStarCounts, with
-        // element counts matching per frame), mirroring FrameStarHFRs above. INERT DATA — no sub-score and no term
-        // of JRun reads it; it is plumbed through purely so a later exposure-recommendation feature can read the
-        // measured per-star SNR when the optimizer floors the Sensitivity gate.
+        // Per-frame accepted-star measured Sensitivity-gate SNRs (JAGGED; PARALLEL to FrameStarCounts, with element
+        // counts matching per frame WHEN POPULATED — see the FrameStarHFRs convention note above; the same
+        // empty-does-not-mean-zero-stars caveat applies here), mirroring FrameStarHFRs above. Also inherits
+        // Star.MeasuredSensitivity's caveats: values are in binned-pixel space (not comparable across
+        // DetectionBinning factors) and each entry is EITHER a per-pixel ratio OR a donut matched-filter SNR,
+        // depending on DefocusAwareDonutDetection — two different statistics that must not be pooled as one. INERT
+        // DATA — no sub-score and no term of JRun reads it; it is plumbed through purely so a later
+        // exposure-recommendation feature can read the measured per-star SNR when the optimizer floors the
+        // Sensitivity gate.
         public IReadOnlyList<IReadOnlyList<double>> FrameStarSnrs { get; set; }
 
         // Per-frame region-occupancy fraction in [0, 1] (or NaN where geometry was unavailable), PARALLEL to

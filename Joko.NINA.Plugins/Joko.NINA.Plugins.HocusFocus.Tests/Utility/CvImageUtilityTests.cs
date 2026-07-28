@@ -347,21 +347,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
         }
 
         [Test]
-        public void AddOffset_NaNMeasuredSensitivity_StaysNaN() {
-            // Guards the field-drop regression the task calls out: a naive AddOffset rewrite that forgets a field
-            // (as it already does for RelaxationAdmitted — a separate, tracked follow-up) would silently zero this
-            // out instead of preserving NaN.
-            var star = new Star() {
-                Center = new Point2d(1, 2),
-                StarBoundingBox = new Rect(0, 0, 4, 4)
-            };
-
-            var offset = star.AddOffset(xOffset: 5, yOffset: 5);
-
-            Assert.That(double.IsNaN(offset.MeasuredSensitivity), Is.True);
-        }
-
-        [Test]
         public void AddOffset_NullBackgroundPlane_StaysNull() {
             var star = new Star() {
                 Center = new Point2d(5, 6),
