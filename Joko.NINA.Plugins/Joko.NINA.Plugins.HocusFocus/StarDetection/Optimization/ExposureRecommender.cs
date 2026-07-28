@@ -152,7 +152,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     /// <summary>
     /// Recommends a longer auto-focus exposure time from the measured Sensitivity-gate SNR of the stars an
     /// optimizer run actually accepted (<see cref="RunEvaluationMetrics.FrameStarSnrs"/>). Static, pure, no VM and
-    /// no NINA types — the math is fully testable in isolation; a later task wires this into the optimizer UI.
+    /// no NINA types — the math is fully testable in isolation. The optimizer wizard's Summary renders it through
+    /// <see cref="StarSignalCopy"/> and acts on it through that page's "Capture a new sweep and optimize" button.
     ///
     /// <para><b>Why this exists.</b> <c>StarDetectorParams.Sensitivity</c> (the "BrightnessSensitivity" gate: a
     /// candidate must satisfy <c>(s−b)/n &gt; Sensitivity</c> to be counted) is searched over [0, 50] by the Star

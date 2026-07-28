@@ -812,8 +812,7 @@
                               a run whose gate sat at the floor measured its curve from low-confidence detections.
                               It also sits next to the auto-focus block's exposure row, which is the setting it is
                               talking about. Structure copies the detection-binning block below: bold header, a
-                              Width=200 label/value row, then the wrapped consequence. No action control here —
-                              re-capturing a sweep at the recommended exposure is a separate, later addition.  -->
+                              Width=200 label/value row, the wrapped consequence, then the action row.  -->
                         <StackPanel
                             Margin="0,8,0,8"
                             Visibility="{Binding HasExposureBlock, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
