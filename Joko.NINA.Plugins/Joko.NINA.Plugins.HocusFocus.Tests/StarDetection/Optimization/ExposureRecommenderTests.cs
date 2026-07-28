@@ -314,6 +314,52 @@ public class ExposureRecommenderTests {
         });
     }
 
+    [Test]
+    public void Recommend_CapsBeforeRounding_NotAfter() {
+        // A discriminating case needs a cap that is NOT already on the rounding ladder's grid: the two prior cap
+        // tests (8.0s and 30.0s) both land exactly on a grid point, so RoundExposureSeconds(min(raw, cap)) (correct)
+        // and min(RoundExposureSeconds(raw), cap) (a round-then-cap mutant) happen to agree on those -- they do NOT
+        // discriminate cap-then-round from round-then-cap. t_old = 2.2s -> factor cap = 8.8s, which is NOT a
+        // multiple of the sub-10s 0.5s ladder step:
+        //   correct:  RoundExposureSeconds(min(220, 8.8))      = RoundExposureSeconds(8.8) = 9.0
+        //   mutant:   min(RoundExposureSeconds(220), 8.8)      = min(220.0, 8.8)            = 8.8
+        // (The absolute 30s cap can NEVER discriminate this, so there is no equivalent case for it: 30 sits exactly
+        // on the ladder's own 1s/5s band boundary, and any raw large enough to trigger that cap rounds UP under the
+        // >30s 5s-granularity band to something still >= itself > 30, so min(RoundExposureSeconds(raw), 30) always
+        // lands on 30 regardless of order -- the two orderings are structurally unable to disagree there.)
+        var metrics = BuildMetrics(new[] { Frame(1.0), Frame(1.0), Frame(1.0) }); // S_now = 1.0 -> raw factor 100
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 2.2);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.RawSeconds, Is.EqualTo(220.0).Within(1e-9));
+            Assert.That(rec.WasCapped, Is.True);
+            Assert.That(rec.CappedByAbsoluteLimit, Is.False, "the factor cap (8.8s) binds well under the 30s absolute cap");
+            Assert.That(rec.RecommendedSeconds, Is.EqualTo(9.0).Within(1e-9),
+                "cap (8.8) THEN round (-> 9.0); a round-then-cap mutant would report 8.8 instead");
+        });
+    }
+
+    [Test]
+    public void Recommend_CurrentExposureAlreadyPastAbsoluteCap_NeverShortensAndReportsNoIncrease() {
+        // t_old = 40s already exceeds MaxRecommendedExposureSeconds(30). S_now = 9 (just under the target, so the
+        // data genuinely wants more): raw factor (10/9)^2 ~= 1.2346 -> RawSeconds ~= 49.38s, which the absolute
+        // cap would pull down to 30 -- BELOW the 40s already in use. The never-shorter floor overrides that back up
+        // to CurrentSeconds(40), so HasRecommendation stays true (the situation is worth reporting: the data wants
+        // ~49s, past what a sweep can sustain) but IncreasesExposure must be false -- nothing to actually raise.
+        var metrics = BuildMetrics(new[] { Frame(9.0), Frame(9.0), Frame(9.0) });
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 40.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.HasRecommendation, Is.True);
+            Assert.That(rec.WasCapped, Is.True);
+            Assert.That(rec.CappedByAbsoluteLimit, Is.True);
+            Assert.That(rec.RecommendedSeconds, Is.EqualTo(rec.CurrentSeconds), "floored back up to current, never shortened");
+            Assert.That(rec.IncreasesExposure, Is.False, "a consumer must not render a 'raise it to X' affordance here");
+        });
+    }
+
     /// <summary>Builds an inclusive ascending double range [start, end] -- a small local helper to keep the
     /// 40-value quantile test readable.</summary>
     private static double[] Range(int start, int end) {

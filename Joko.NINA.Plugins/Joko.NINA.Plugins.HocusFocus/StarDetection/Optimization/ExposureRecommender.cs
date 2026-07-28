@@ -48,7 +48,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/>)</c>, floored so it is never below
         /// <see cref="CurrentSeconds"/>, THEN rounded up to the exposure-time ladder
         /// (<see cref="ExposureRecommender.RoundExposureSeconds"/>). <see cref="double.NaN"/> when
-        /// <see cref="HasRecommendation"/> is false.
+        /// <see cref="HasRecommendation"/> is false. That never-below-<see cref="CurrentSeconds"/> floor means this
+        /// can equal <see cref="CurrentSeconds"/> exactly (when the absolute cap sits below an already-long current
+        /// exposure) while <see cref="HasRecommendation"/> is still true — check <see cref="IncreasesExposure"/>
+        /// before rendering this as a "raise it to X" affordance.
         /// </summary>
         public double RecommendedSeconds { get; set; }
 
@@ -75,7 +78,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>
         /// True when either the run-relative <see cref="ExposureRecommender.MaxExposureFactor"/> cap or the
         /// absolute <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/> cap reduced
-        /// <see cref="RawSeconds"/> before rounding.
+        /// <see cref="RawSeconds"/> before rounding. This can be true together with
+        /// <see cref="IncreasesExposure"/> = false: when the absolute cap sits below an already-long
+        /// <see cref="CurrentSeconds"/>, <see cref="RawSeconds"/> was still capped down, but the never-shorter
+        /// floor then pulled <see cref="RecommendedSeconds"/> back up to <see cref="CurrentSeconds"/>, so nothing
+        /// about capping implies the exposure actually needs to change — see <see cref="IncreasesExposure"/>.
         /// </summary>
         public bool WasCapped { get; set; }
 
@@ -95,6 +102,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// instead of silently suggesting a shorter exposure the user never asked to shorten.
         /// </summary>
         public bool ExposureIsNotTheLimit { get; set; }
+
+        /// <summary>
+        /// True when this recommendation actually asks for a LONGER exposure than <see cref="CurrentSeconds"/>.
+        /// False when the never-shorter floor (see <see cref="RecommendedSeconds"/>) collapsed
+        /// <see cref="RecommendedSeconds"/> onto <see cref="CurrentSeconds"/> — which happens whenever
+        /// <see cref="CurrentSeconds"/> already exceeds <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/>
+        /// (realistic for narrowband) and the data still wants more. <see cref="HasRecommendation"/> stays true in
+        /// that case — the situation is still worth reporting ("you are at 40 s, the data wants ~49 s, and that is
+        /// past what an AF sweep can sustain") — it just is not an increase. A consumer MUST check this before
+        /// rendering a "raise it to X" affordance, or a false one renders a no-op "40 s → 40 s" row.
+        /// </summary>
+        public bool IncreasesExposure => RecommendedSeconds > CurrentSeconds;
     }
 
     /// <summary>
