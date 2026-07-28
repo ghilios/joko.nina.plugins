@@ -487,11 +487,15 @@ public class OptimizationSummaryTests {
         // GOLDEN, and the regression this state exists to prevent: ExposureIsNotTheLimit means S_now >= the target,
         // so an unconditional "stars barely cleared the noise" opening is FALSE here and is contradicted by the very
         // next sentence. MeasuredSnr is the NTarget-th BRIGHTEST accepted star, so this state actually describes a
-        // rich field — hence no "star-poor" claim either (see the ShortFrameCount case below).
+        // rich field — hence no "star-poor" claim either (see the ShortFrameCount case below). It is also NOT a
+        // property of "the stars that were accepted": at a 0.125 gate the accepted set runs from 0.125 upward, so
+        // the sentence has to name the brightest stars and then reconcile that with the low-confidence clause,
+        // rather than leaving the two looking like a contradiction.
         var text = Body(Starved(advice: Advice(5, 5, 22.0, exposureIsNotTheLimit: true)), live: true);
         Assert.That(text, Is.EqualTo(
             NeutralOpening
-            + " Exposure is not what is limiting this run: the stars that were accepted measure S/N 22, at or above the default gate of 10."));
+            + " Exposure is not what is limiting this run: your brightest stars measure S/N 22, which already meets the default gate of 10;"
+            + " the low gate is admitting a long tail of far fainter candidates below them."));
         Assert.Multiple(() => {
             Assert.That(text, Does.Not.Contain("barely cleared"));
             Assert.That(text, Does.Not.Contain("star-poor"), "nothing measured says the field is thin");
@@ -517,27 +521,45 @@ public class OptimizationSummaryTests {
         Assert.That(advice.CapLimitsRecommendation, Is.True, "fixture guard: a cap really did shape the offer");
         var text = Body(Starved(advice: advice), live: true);
         Assert.That(text, Is.EqualTo(
-            LowSignalOpening + " That is a partial step: one run should not raise the exposure by more than 4x, so expect to repeat this."));
+            LowSignalOpening + " The recommendation above is a partial step: one run should not raise the exposure by more than 4x, so expect to repeat this."));
         Assert.Multiple(() => {
             Assert.That(text, Does.Not.Contain("filter"), "the exposure route is nowhere near exhausted");
             Assert.That(text, Does.Not.Contain("broadband"));
+            Assert.That(text, Does.Not.Contain(" That is a partial step"),
+                "the opening quotes no number, so a bare pronoun would reach past it to the ROW");
         });
     }
 
     [Test]
-    public void ExposureCopy_AbsoluteCap_Replay_IsDiagnosisReassuranceAndOneInstruction() {
-        // GOLDEN on a stacked state: Replay + a binding ABSOLUTE cap. The filter suggestion outranks the
-        // "raise it in NINA's focuser options" instruction — telling a user to set an exposure the cap just
-        // refused to recommend would contradict the sentence before it.
-        var advice = Advice(10, 30, 1.9, raw: 75.0, wasCapped: true, cappedByAbsoluteLimit: true);
-        Assert.That(advice.CapLimitsRecommendation, Is.True, "fixture guard");
+    public void ExposureCopy_AbsoluteCap_ButStillAnIncrease_Replay_SaysWhereToSetIt() {
+        // The absolute cap binding does NOT mean the exposure route is exhausted: 10 s at S/N 5 wants 40 s and is
+        // trimmed to 30 s — a real 3x improvement, sitting in the row directly above. Replay has no write-back for
+        // the exposure, so if the body does not say where to set it, nothing does; and offering the filter route
+        // "instead" here would advise against the very offer above it. The narrowband hint therefore rides along
+        // in the same sentence rather than replacing the instruction.
+        var advice = Advice(10, 30, 5.0, raw: 40.0, wasCapped: true, cappedByAbsoluteLimit: true);
+        Assert.Multiple(() => {
+            Assert.That(advice.IncreasesExposure, Is.True, "fixture guard: there IS a longer exposure on offer");
+            Assert.That(advice.CapLimitsRecommendation, Is.True, "fixture guard");
+        });
         var text = Body(Starved(advice: advice, offsetSteps: 5), live: false);
         Assert.That(text, Is.EqualTo(
             LowSignalOpening
-            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so the recommendation stops at 30 s."
+            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so the recommendation above stops at 30 s."
             + ReplayReassurance
-            + " If you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead."));
-        Assert.That(text, Does.Not.Contain("NINA's focuser options"), "exactly one instruction");
+            + " For a more reliable tune, raise your auto-focus exposure to about 30 s in NINA's focuser options and run this wizard again in Live mode;"
+            + " if you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead."));
+    }
+
+    [Test]
+    public void ExposureCopy_AbsoluteCap_ButStillAnIncrease_Live_EndsAtTheDiagnosis() {
+        // Live's instruction slot stays empty until it has a capture action of its own — the same place
+        // Live + a plain increase ends. The row still carries "10 s → 30 s".
+        var advice = Advice(10, 30, 5.0, raw: 40.0, wasCapped: true, cappedByAbsoluteLimit: true);
+        var text = Body(Starved(advice: advice, offsetSteps: 5), live: true);
+        Assert.That(text, Is.EqualTo(
+            LowSignalOpening
+            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so the recommendation above stops at 30 s."));
     }
 
     [Test]
@@ -596,7 +618,7 @@ public class OptimizationSummaryTests {
         var text = Body(s, live: false);
         Assert.That(text, Is.EqualTo(
             LowSignalOpening
-            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so the recommendation stops at 30 s."
+            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so the recommendation above stops at 30 s."
             + ReplayReassurance
             + " The detection binning change recommended below also raises measured star signal, so the two are not additive: change the factor first and let the next run re-measure the exposure."));
         Assert.Multiple(() => {
@@ -673,6 +695,17 @@ public class OptimizationSummaryTests {
             Assert.That(noOffset, Does.Not.Contain("minutes"), "no known sweep width, no sweep cost");
             Assert.That(justOver, Does.Contain("roughly 2 minutes per auto-focus run"), "10.4 s x 9 frames = 1.56 min");
         });
+    }
+
+    [Test]
+    public void ExposureDetail_PastTheCap_DoesNotTellAUserTheirOwnExposureIsImpossible() {
+        // This branch is reached only when the CURRENT exposure already exceeds the cap, so a flat "past the 30 s a
+        // sweep can sustain" would be contradicted by the 40 s setup the user is successfully running.
+        var text = Detail(Starved(advice: Advice(40, 40, 6.0, raw: 111.1, wasCapped: true, cappedByAbsoluteLimit: true), offsetSteps: 5));
+        Assert.That(text, Is.EqualTo(
+            "Sky-limited scaling: 40 s × (10 / 6)² = 111 s per frame, roughly 20 minutes per auto-focus run."
+            + " That is past the 30 s this recommendation will suggest, and past what you already use, so nothing longer is offered."));
+        Assert.That(text, Does.Not.Contain("a sweep can sustain"));
     }
 
     [Test]

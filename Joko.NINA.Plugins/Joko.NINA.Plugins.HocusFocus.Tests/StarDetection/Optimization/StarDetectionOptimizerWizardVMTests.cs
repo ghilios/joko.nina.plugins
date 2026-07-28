@@ -3134,7 +3134,14 @@ public class StarDetectionOptimizerWizardVMTests {
 
         Assert.That(vm.Summary.VariantSensitivity, Is.LessThanOrEqualTo(ExposureRecommender.SensitivityFloorThreshold),
             "fixture guard");
-        Assert.That(vm.RecommendedExposureText, Is.EqualTo("3 s → 6.5 s (measured star S/N 7; target 10)"),
-            "with no exposure in the frames, the profile's auto-focus exposure is the base");
+        Assert.Multiple(() => {
+            Assert.That(vm.RecommendedExposureText, Is.EqualTo("3 s → 6.5 s (measured star S/N 7; target 10)"),
+                "with no exposure in the frames, the profile's auto-focus exposure is the base");
+            // The ONLY coverage of RunExposureIsAssumed's production writer: everything else asserts it on a
+            // hand-built summary or through BuildCurrentSummary's carry-over, so hard-coding the flag false in
+            // BuildSummaryAsync used to pass the whole suite. A derived number computed off an assumed input must
+            // say so in visible copy.
+            Assert.That(vm.ExposureBodyText, Does.Contain("assumes your profile's 3 s auto-focus exposure"));
+        });
     }
 }
