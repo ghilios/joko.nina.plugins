@@ -312,7 +312,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                     Is.EqualTo(star.BackgroundPlane.ValueAt(star.Center.X + 1.0, star.Center.Y)).Within(1e-12));
                 Assert.That(scaled.StarContaminationSuspected, Is.True);
                 Assert.That(scaled.RelaxationAdmitted, Is.True);
-                // A ratio of two intensities — mean binning preserves level for both, so it is carried UNSCALED.
+                // Carried UNSCALED — not because binning preserves the level (it does not: the noise
+                // denominator is measured on the already-binned image, so it shrinks under binning), but because
+                // this is the gate's own comparison pair with StarDetectorParams.Sensitivity, which is compared in
+                // binned-pixel space. Values are NOT comparable across binning factors.
                 Assert.That(scaled.MeasuredSensitivity, Is.EqualTo(5.5).Within(1e-12));
                 Assert.That(star.ScaleToSourcePixels(1), Is.SameAs(star));
             });

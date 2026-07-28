@@ -752,7 +752,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         // LATENTLY affected — correctness insurance if the optimizer is ever pointed at a region, not a live
         // scoring change. The genuinely ROI-scoped consumer is the Aberration Inspector's per-region detection
         // grid (InspectorVM.GetStarDetectionRegions), and only when DefocusAwareDonutDetection is explicitly
-        // enabled (default OFF). Fixed as Task 6 of plans/optimizer-exposure-recommendation-plan.md.)
+        // enabled (default OFF). Fixed by adding the explicit RelaxationAdmitted carry-through below.)
         public static Star AddOffset(this Star star, int xOffset, int yOffset) {
             return new Star() {
                 Center = star.Center.Add(new Point2d(xOffset, yOffset)),

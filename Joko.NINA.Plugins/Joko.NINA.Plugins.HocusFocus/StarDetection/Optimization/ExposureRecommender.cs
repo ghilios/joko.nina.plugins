@@ -59,13 +59,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <see cref="IncreasesExposure"/> exactly equivalent to <c>cappedSeconds &gt; CurrentSeconds</c>, with no
         /// approximation window.</para>
         ///
-        /// <para>NOTE: rounding UP after capping means this can exceed
-        /// <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/> by up to one ladder step (e.g. a capped
-        /// 8.8 s rounds to 9.0 s) — do not assume it is bounded by the cap. Separately, the never-below-
-        /// <see cref="CurrentSeconds"/> behavior means this can equal <see cref="CurrentSeconds"/> exactly (when
-        /// the absolute cap sits below an already-long current exposure) while <see cref="HasRecommendation"/> is
-        /// still true — check <see cref="IncreasesExposure"/> before rendering this as a "raise it to X"
-        /// affordance.</para>
+        /// <para>NOTE: rounding UP after capping means this can exceed whichever cap actually bound
+        /// <c>cappedSeconds</c> by up to one ladder step (e.g. a capped 8.8 s — from the RUN-RELATIVE
+        /// <see cref="ExposureRecommender.MaxExposureFactor"/> cap on a 2.2 s current exposure — rounds to 9.0 s).
+        /// This overshoot can never carry the result past the ABSOLUTE
+        /// <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/> ceiling itself, though:
+        /// <c>cappedSeconds</c> is always &lt;= 30 by construction, and every granularity
+        /// <see cref="ExposureRecommender.RoundExposureSeconds"/> uses for an input &lt;= 30 (0.5 s or 1.0 s)
+        /// divides 30 evenly, so the ceiling can land AT 30 but never past it. This CAN still exceed 30 overall,
+        /// though — just not via rounding: the never-below-<see cref="CurrentSeconds"/> behavior means this can
+        /// equal <see cref="CurrentSeconds"/> exactly (when the absolute cap sits below an already-long current
+        /// exposure) while <see cref="HasRecommendation"/> is still true — check <see cref="IncreasesExposure"/>
+        /// before rendering this as a "raise it to X" affordance.</para>
         /// </summary>
         public double RecommendedSeconds { get; set; }
 
@@ -143,8 +148,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// alone is NOT this signal: it can be true while <see cref="IncreasesExposure"/> is false (the
         /// never-shorter floor pulled the answer back up past the cap to <see cref="CurrentSeconds"/> — see
         /// <see cref="WasCapped"/>), in which case there is nothing delivered for a cap to have "limited". This is
-        /// the flag Task 3's UI should read; <see cref="WasCapped"/> stays as the lower-level "RawSeconds was
-        /// reduced" fact for diagnostics.
+        /// the flag <see cref="StarSignalCopy"/> reads when it decides whether to label the row "capped at N s";
+        /// <see cref="WasCapped"/> stays as the lower-level "RawSeconds was reduced" fact for diagnostics.
         /// </summary>
         public bool CapLimitsRecommendation => WasCapped && IncreasesExposure;
     }
@@ -320,11 +325,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// for the concrete case that motivated this).</para>
         ///
         /// <para>Capping BEFORE rounding does NOT mean <see cref="ExposureRecommendation.RecommendedSeconds"/> can
-        /// never exceed the cap — <see cref="RoundExposureSeconds"/> always rounds UP, so on the "capped value
-        /// exceeds current" branch it can push a capped value past the cap by up to one ladder step (a capped
-        /// value of 8.8 s rounds to 9.0 s). What cap-before-round actually buys is that the overshoot is BOUNDED to
-        /// at most one ladder step, rather than the unbounded overshoot a round-then-cap ordering would leave
-        /// uncorrected. A caller MUST NOT assume <c>RecommendedSeconds &lt;= MaxRecommendedExposureSeconds</c>.</para>
+        /// never exceed the cap that produced it — <see cref="RoundExposureSeconds"/> always rounds UP, so on the
+        /// "capped value exceeds current" branch it can push <c>cappedSeconds</c> past whichever cap bound it by up
+        /// to one ladder step (a capped value of 8.8 s — the RUN-RELATIVE <see cref="MaxExposureFactor"/> cap on a
+        /// 2.2 s current exposure — rounds to 9.0 s). What cap-before-round actually buys is that the overshoot is
+        /// BOUNDED to at most one ladder step, rather than the unbounded overshoot a round-then-cap ordering would
+        /// leave uncorrected. That overshoot can never carry the result past the ABSOLUTE
+        /// <see cref="MaxRecommendedExposureSeconds"/> ceiling itself on this branch: <c>cappedSeconds &lt;= 30</c>
+        /// always, and every granularity <see cref="RoundExposureSeconds"/> uses for an input &lt;= 30 (0.5 s or
+        /// 1.0 s) divides 30 evenly, so the ceiling lands AT 30 at most, never past it. A caller still MUST NOT
+        /// assume <c>RecommendedSeconds &lt;= MaxRecommendedExposureSeconds</c> overall, though: the OTHER branch
+        /// (an already-long <paramref name="currentExposureSeconds"/> past the absolute cap, e.g. narrowband)
+        /// returns <paramref name="currentExposureSeconds"/> unchanged, which can exceed 30 with nothing to do with
+        /// rounding.</para>
         ///
         /// <para><b>Never shorter than current.</b> By construction: on the branch where
         /// <c>cappedSeconds &gt; currentExposureSeconds</c>, <see cref="RoundExposureSeconds"/> only ever rounds UP

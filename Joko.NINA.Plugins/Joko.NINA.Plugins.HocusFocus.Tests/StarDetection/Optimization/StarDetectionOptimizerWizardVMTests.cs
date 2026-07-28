@@ -3061,6 +3061,10 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(vm.RecommendedExposureText, Is.EqualTo("3 s → 6.5 s (measured star S/N 7; target 10)"));
             // The derivation is background, so it rides on the row's tooltip rather than in the paragraph.
             Assert.That(vm.ExposureDerivationDetail, Does.Contain("Sky-limited scaling: 3 s × (10 / 7)² = 6.1 s per frame"));
+            // HasExposureBody drives the body paragraph's visibility (DataTemplates.xaml); it is bound but doc'd as
+            // "always true while the block is visible", which a regression blanking the paragraph would not
+            // otherwise catch.
+            Assert.That(vm.HasExposureBody, Is.True);
             Assert.That(vm.ExposureBodyText, Does.Contain("You can still accept these settings"));
             Assert.That(vm.ExposureBodyText, Does.Contain("Live mode"), "Replay has no capture action to offer");
             // The block reports a confidence problem; it is NOT a veto. A Replay run whose gate floored is still

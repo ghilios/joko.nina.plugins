@@ -781,7 +781,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// <para>Re-tallied a second time over the FINAL post-filter survivor set, in
         /// HocusFocusStarDetection.BuildStarDetectionResult — that re-tally is where this field is corrupted if
         /// AddOffset (Utility/CvImageUtility.cs; the ROI-offset translation) ever drops Star.RelaxationAdmitted
-        /// again, as it silently did before Task 6 of plans/optimizer-exposure-recommendation-plan.md. Same lossy
+        /// again, as it silently did before AddOffset was fixed to carry the flag through. Same lossy
         /// cache boundary as HocusFocusDetectedStar.MeasuredSensitivity (HocusFocusStarDetection.cs): this value
         /// is persisted to the saved &lt;image&gt;_star_detection_result.json, and that fix correctly did NOT bump
         /// StarDetector.StarDetectorVersion (no detection OUTPUT changed, only this readout). So a cache file saved
