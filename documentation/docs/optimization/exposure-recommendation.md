@@ -88,10 +88,16 @@ Two independent limits bound how far a single recommendation can push the exposu
   stops behaving like an autofocus run and risks hitting NINA's own autofocus timeout, the opposite of
   what this recommendation is for.
 
-Whichever cap binds, the figure is rounded **up** to a practical exposure-time ladder (0.5 s steps below
-10 s, 1 s steps from 10 to 30 s, 5 s steps above), and only when the capped value actually exceeds the
-current exposure; an unchanged value is never rounded. The caps describe intent, and that last rounding
-step always rounds up, so the number you see can land one ladder step past whichever cap applied.
+Whichever cap binds, the figure is rounded **up** to a practical exposure-time ladder — 0.5 s steps below
+10 s, 1 s steps from 10 s to 30 s — and only when the capped value actually exceeds the current exposure;
+an unchanged value is never rounded. (The ladder also has a coarser 5 s step above 30 s, but a
+recommendation's capped value never exceeds 30 s, so this block never actually shows you that tier.)
+
+That rounding step always rounds up, so when the **run-relative** 4× cap is what bound the number, the
+figure you see can land up to one ladder step past it — for example, a 2.2 s current exposure caps its
+raw factor at 8.8 s (2.2 s × 4), which rounds up to the 9.0 s a run like that would actually show. The
+**absolute** 30 s ceiling does not have this overshoot: every ladder step at or below 30 s divides 30 s
+evenly, so a value capped at 30 s always rounds to exactly 30 s, never past it.
 
 !!! example
     A 3 s run measuring `S/N 4.1` computes a raw `(10 / 4.1)²` factor of about 5.9, or roughly 17.8 s.
@@ -119,16 +125,23 @@ problem than exposure.
 
 What the block asks you to *do* about the number depends on where the run's frames came from.
 
-A **Live sweep** run in **Optimize** mode adds a **New sweep exposure** row inside the Star signal block:
-an editable exposure box, pre-filled with the recommended value, next to a **Capture a new sweep and
-optimize** button. Adjust the number if you want, then the button recaptures the sweep at that exposure
-and re-tunes detection settings against the new frames, without leaving the wizard. A Live sweep run in
-**Use current settings** mode has nothing to re-tune, so that row is hidden; the block instead tells you
-to switch to Optimize mode and run the wizard again.
+A **Live sweep** run in **Optimize** mode adds a **New sweep exposure** row inside the Star signal block
+whenever there is a longer exposure to capture at: an editable exposure box, pre-filled with the
+recommended value, next to a **Capture a new sweep and optimize** button. Adjust the number if you want,
+then the button recaptures the sweep at that exposure and re-tunes detection settings against the new
+frames, without leaving the wizard. A Live sweep run in **Use current settings** mode has nothing to
+re-tune, so that row is hidden; the block instead tells you to switch to Optimize mode and run the wizard
+again.
 
 A **saved ("Replay") run** has no rig attached to recapture from, so the block tells you to raise your
 auto-focus exposure to about the recommended value in NINA's focuser options and run the wizard again in
 Live mode once you have frames at the new exposure.
+
+Whichever of those three shapes applies, the block adds the same rider whenever the number it just quoted
+was trimmed by the absolute 30 s ceiling rather than the run-relative 4× cap: "if you are shooting
+narrowband, consider auto-focusing through a broadband filter with a filter offset instead." The capped
+number is still worth capturing in that case — the rider offers an alternative alongside it, not a
+replacement.
 
 **Accepting the run in front of you is still a legitimate choice** in every case: the settings it found
 are the best fit for the frames you actually have.
@@ -139,6 +152,27 @@ are the best fit for the frames you actually have.
     change raises the same per-pixel SNR on its own. When the summary offers both recommendations at
     once, they are not independently additive: change the binning factor first and let the next run
     re-measure the exposure. Stacking both changes in the same step over-corrects.
+
+## When exposure has run out
+
+There is a second state, beyond the \(S_{\text{now}} \ge 10\) case in [What it never
+does](#what-it-never-does), where the block does not offer a longer exposure: the run's exposure is
+already at or past the 30 second absolute ceiling (see [The two caps](#the-two-caps)), and the measured
+signal still falls short of the default gate (\(S_{\text{now}} < 10\)). Unlike the \(S_{\text{now}} \ge
+10\) case, this is not a healthy field — the data genuinely wants more exposure. But the recommender's
+raw, uncapped factor would ask for something past 30 s, and the absolute cap pulls that back down to the
+current exposure rather than proposing anything shorter, so there is nothing longer left to recommend.
+The block says so directly: "Reaching the default gate would take longer per frame than an auto-focus
+sweep can spend, so there is no longer exposure to offer."
+
+With the exposure route genuinely exhausted, the block's remedy here is a different lever entirely: "If
+you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset
+instead."
+
+A narrowband filter passes so little broadband sky and star light that the exposure this recommendation
+would need to reach the default gate is already impractical for an autofocus sweep. Auto-focusing through
+a broadband filter instead — and letting NINA's per-filter focus offset return the focuser to the
+narrowband focus point — reaches usable star signal without extending the exposure any further.
 
 ## See also
 
