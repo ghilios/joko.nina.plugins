@@ -106,6 +106,51 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             });
         }
 
+        [TestCase(2)]
+        [TestCase(3)]
+        public async Task Detect_Binned_LeavesTheHfrDispersionInSourcePixels(int binning) {
+            // The auto-focus curve's ERROR BARS are HFRStdDev, and the hyperbolic fit weights each point by
+            // 1/ErrorY^2 - so a dispersion left in binned pixels would draw error bars a factor of `binning` too
+            // small AND mis-weight the fit against any frame detected at a different factor.
+            //
+            // Nothing scales the dispersion explicitly, and nothing needs to: HocusFocusStarDetection computes it
+            // from Star.HFR, which StarDetector has already scaled, and both sd and MAD are scale-equivariant
+            // (sd(b*x) = b*sd(x)). This test exists because that correctness is INDIRECT - it would be quietly lost
+            // by moving the aggregation into the detector, or by "fixing" it with a scale-back of its own, which
+            // would double-count. Computed here exactly the two ways production does (MeanOutliers vs the
+            // MedianMAD default).
+            // BuildField's stars are all one size, so its HFR dispersion is ~0 at every factor and would make this
+            // vacuously green. Spread the sigmas to give the statistic something real to measure.
+            using var image = SyntheticGaussianStarImage.CreateFlat(480, 480, (float)Background);
+            var sigmas = new[] { 4.5, 5.25, 6.0, 6.75, 7.5 };
+            for (var i = 0; i < Placements.Length; i++) {
+                SyntheticStarField.AddStar(image, Placements[i].x, Placements[i].y, sigmas[i], Peak);
+            }
+
+            var unbinnedHfrs = (await DetectAsync(image, Params(1))).DetectedStars.Select(s => s.HFR).ToList();
+            var binnedHfrs = (await DetectAsync(image, Params(binning))).DetectedStars.Select(s => s.HFR).ToList();
+            Assume.That(unbinnedHfrs.Count, Is.GreaterThan(1).And.EqualTo(binnedHfrs.Count),
+                "both runs must find the same stars, or the dispersions are not comparable");
+
+            static double Sd(IReadOnlyCollection<double> hfrs) {
+                var mean = hfrs.Average();
+                return Math.Sqrt(hfrs.Sum(h => (h - mean) * (h - mean)) / (hfrs.Count - 1));
+            }
+
+            var (_, unbinnedMad) = unbinnedHfrs.MedianMAD();
+            var (_, binnedMad) = binnedHfrs.MedianMAD();
+            TestContext.WriteLine($"1x: sd={Sd(unbinnedHfrs):F3} mad={unbinnedMad:F3}; {binning}x: sd={Sd(binnedHfrs):F3} mad={binnedMad:F3}");
+
+            // The discriminating check: a dispersion still in binned pixels would be ~1/binning of the 1x value,
+            // which these tolerances (well under a factor of 2) exclude.
+            Assert.Multiple(() => {
+                Assert.That(Sd(binnedHfrs), Is.EqualTo(Sd(unbinnedHfrs)).Within(0.35 * Sd(unbinnedHfrs)),
+                    "HFR sigma must be in source pixels - it is drawn as the curve's error bars and weights the fit");
+                Assert.That(binnedMad, Is.EqualTo(unbinnedMad).Within(0.35 * Math.Max(unbinnedMad, 1e-6)),
+                    "HFR MAD (the default dispersion) must be in source pixels for the same reason");
+            });
+        }
+
         [Test]
         public async Task Detect_Binned_ScalesBoundingBoxesAndTheDebugRoiToSourcePixels() {
             using var image = BuildField();

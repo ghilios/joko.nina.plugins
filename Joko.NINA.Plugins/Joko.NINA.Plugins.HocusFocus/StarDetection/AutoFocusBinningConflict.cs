@@ -70,14 +70,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// <summary>
         /// The prompt text. Explains what each setting is for, states the combined factor, lists exactly what
         /// would be reset, and ends with the question.
+        ///
+        /// <para>Every line break here is deliberate typesetting, not paragraphing. This goes to NINA's
+        /// <c>MyMessageBox</c>, whose TextBlock has no <c>TextWrapping</c> and no <c>MaxWidth</c> inside a window
+        /// that sizes to content — so the window is exactly as wide as the longest line, and its buttons split
+        /// that width. As one paragraph per idea this rendered ~1800px across. Keep lines under ~60 characters.
+        /// The one line that cannot be bounded is the per-filter bullet, which carries a user-chosen name.</para>
         /// </summary>
         public string Describe(int detectionBinning) {
             var sb = new StringBuilder();
-            sb.AppendLine($"NINA's Auto Focus Binning is set above 1x1, and Hocus Focus detection binning is now {detectionBinning}x{detectionBinning}.");
+            sb.AppendLine("NINA's Auto Focus Binning is set above 1x1, and Hocus Focus");
+            sb.AppendLine($"detection binning is now {detectionBinning}x{detectionBinning}.");
             sb.AppendLine();
-            sb.AppendLine("These are different settings. Auto Focus Binning changes how the camera captures the auto-focus frames; it should match the binning you image at. Detection binning resamples the captured frame for star detection only.");
+            sb.AppendLine("These are different settings. Auto Focus Binning changes");
+            sb.AppendLine("how the camera captures the auto-focus frames; it should");
+            sb.AppendLine("match the binning you image at. Detection binning resamples");
+            sb.AppendLine("the captured frame for star detection only.");
             sb.AppendLine();
-            sb.AppendLine($"The two multiply, so detection would currently run at {EffectiveFactorDescription(detectionBinning)}.");
+            sb.AppendLine("The two multiply, so detection would currently run at");
+            sb.AppendLine($"{EffectiveFactorDescription(detectionBinning)}.");
             sb.AppendLine();
             sb.AppendLine("Currently set above 1x1:");
             if (GlobalBinning > 1) {
@@ -122,7 +133,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             if (FilterNames.Count > 0 && GlobalBinning <= 1) {
                 return $"{detectionBinning}x on top of each filter's own capture binning";
             }
-            return $"{cameraFactor * detectionBinning}x the native pixel size ({cameraFactor}x at capture, {detectionBinning}x again for detection)";
+            // Broken across two lines for the same width reason as Describe. The break lands AFTER "…pixel size"
+            // so that phrase stays contiguous — it is what the tests match on, and what the user reads first.
+            return $"{cameraFactor * detectionBinning}x the native pixel size\n({cameraFactor}x at capture, {detectionBinning}x again for detection)";
         }
     }
 }

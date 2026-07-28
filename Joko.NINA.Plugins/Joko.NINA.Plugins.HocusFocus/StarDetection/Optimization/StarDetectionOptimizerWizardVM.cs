@@ -545,14 +545,36 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // The summary already gave the reason and the button named the action, so this only has to cover what
                 // the click costs and what it commits to. Confirming at all is worth it because the search re-runs.
                 confirmReoptimizeAtBinning: (from, to) => MyMessageBox.Show(
-                    $"Detection binning {from}x{from} \u2192 {to}x{to}.\n\n"
-                    + $"This re-runs the search at {to}x{to} on the frames already captured (no new exposures, no focuser movement). "
-                    + "Nothing is saved until you Accept the new result.\n\n"
-                    + "Optimize again now?",
+                    DescribeReoptimizeAtBinning(from, to),
                     "Detection Binning",
                     System.Windows.MessageBoxButton.YesNo,
                     System.Windows.MessageBoxResult.Yes) == System.Windows.MessageBoxResult.Yes) {
         }
+
+        /// <summary>
+        /// The "optimize again at a different detection binning" confirmation body.
+        ///
+        /// <para>Every line break is deliberate TYPESETTING, not paragraphing, and this is a named method rather
+        /// than an inline string so the line widths can be guarded by a test. It goes to NINA's
+        /// <c>MyMessageBox</c>, whose TextBlock has no <c>TextWrapping</c> and no <c>MaxWidth</c> inside a window
+        /// that sizes to content: the window ends up exactly as wide as the longest line, and its two buttons
+        /// split that width between them. As one flowing paragraph this rendered a 1280px-wide modal with 610px
+        /// buttons. Keep every line under <c>MaxDialogLineLength</c>.</para>
+        /// </summary>
+        internal static string DescribeReoptimizeAtBinning(int from, int to) =>
+            $"Detection binning {from}x{from} → {to}x{to}.\n"
+            + "\n"
+            + $"This re-runs the search at {to}x{to} on the frames already\n"
+            + "captured (no new exposures, no focuser movement).\n"
+            + "Nothing is saved until you Accept the new result.\n"
+            + "\n"
+            + "Optimize again now?";
+
+        /// <summary>The line-width budget for <see cref="MyMessageBox"/> bodies, in characters. At NINA's dialog
+        /// face (~8.2 px/char) 60 characters puts the window near 525px and each button near 245px — an ordinary
+        /// confirmation dialog. It is also mid-band of readable measure (45-75 characters). Past ~100 the buttons
+        /// clear 400px and the dialog reads as broken.</summary>
+        internal const int MaxDialogLineLength = 60;
 
         /// <summary>
         /// Primary constructor (interfaces only) used by both the convenience constructor and the unit tests.

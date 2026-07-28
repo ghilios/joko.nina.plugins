@@ -88,6 +88,19 @@ public class AutoFocusBinningConflictTests {
         });
     }
 
+    [TestCase(2)]
+    [TestCase(3)]
+    [TestCase(4)]
+    public void Describe_IsTypesetNarrowEnoughForMyMessageBox(int detectionBinning) {
+        // MyMessageBox does not wrap and sizes to content, so the longest line here IS the dialog's width. As one
+        // paragraph per idea this rendered ~1800px across. See DialogTypesettingGuardTests for the full rationale.
+        var conflict = AutoFocusBinningConflict.Detect(BuildProfile(2, ("L", 1), ("Ha", 2)));
+        DialogTypesettingGuardTests.AssertEveryLineFits(
+            conflict.Describe(detectionBinning),
+            $"The AF-binning conflict prompt (detection {detectionBinning}x)",
+            exempt: DialogTypesettingGuardTests.IsFilterBullet);
+    }
+
     [Test]
     public void ResetToUnbinned_ClearsTheGlobalAndTheNamedFiltersOnly() {
         var profileService = BuildProfile(2, ("L", 1), ("Ha", 2), ("OIII", 4));
