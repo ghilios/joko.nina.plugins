@@ -515,6 +515,28 @@ public class ExposureRecommenderTests {
         });
     }
 
+    [Test]
+    public void Recommend_CappedValueJustBelowOffGridCurrent_RoundOnlyIfExceedsCurrent_DoesNotOvershoot() {
+        // The RESIDUAL case the round-then-Math.Max floor missed: S_now just barely above TargetSensitivity, so
+        // cappedSeconds lands just BELOW an off-grid current -- close enough that rounding UP would carry it back
+        // PAST current, even though Math.Max(rounded, current) looks like a floor.
+        //   S_now = 10.16, t_old = 3.2s: raw = cappedSeconds = 3.2*(10/10.16)^2 ~= 3.10s (uncapped).
+        //   buggy   (round unconditionally, then Math.Max floor): RoundExposureSeconds(3.10) = 3.5s;
+        //     Math.Max(3.5, 3.2) = 3.5s -- past current, contradicting ExposureIsNotTheLimit's "3.2s is enough".
+        //   correct (round ONLY IF cappedSeconds > current): 3.10 > 3.2 is false -> return current EXACTLY = 3.2s.
+        // As with the sibling test above, the pair assertion (ExposureIsNotTheLimit && !IncreasesExposure) is what
+        // makes the state space non-contradictory.
+        var metrics = BuildMetrics(new[] { Frame(10.16), Frame(10.16), Frame(10.16) });
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 3.2);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.ExposureIsNotTheLimit, Is.True);
+            Assert.That(rec.IncreasesExposure, Is.False, "must not simultaneously claim the exposure is fine AND propose raising it");
+            Assert.That(rec.RecommendedSeconds, Is.EqualTo(3.2).Within(1e-9), "returns current EXACTLY -- not a rounded-then-maxed approximation");
+        });
+    }
+
     /// <summary>Builds an inclusive ascending double range [start, end] -- a small local helper to keep the
     /// 40-value quantile test readable.</summary>
     private static double[] Range(int start, int end) {

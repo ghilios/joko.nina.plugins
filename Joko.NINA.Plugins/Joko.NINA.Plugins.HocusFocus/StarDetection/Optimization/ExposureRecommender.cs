@@ -43,19 +43,29 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double RawSeconds { get; set; }
 
         /// <summary>
-        /// The value to pre-fill the exposure-time UI box with: <see cref="RawSeconds"/> capped at
-        /// <c>min(CurrentSeconds × <see cref="ExposureRecommender.MaxExposureFactor"/>,
-        /// <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/>)</c>, rounded up to the exposure-time
-        /// ladder (<see cref="ExposureRecommender.RoundExposureSeconds"/>), THEN floored so it is never below
-        /// <see cref="CurrentSeconds"/> (last, against the caller's un-rounded current value — flooring before
-        /// rounding would let rounding walk an off-grid <see cref="CurrentSeconds"/> back above itself).
-        /// <see cref="double.NaN"/> when <see cref="HasRecommendation"/> is false. NOTE: rounding UP after capping
-        /// means this can exceed <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/> by up to one
-        /// ladder step (e.g. a capped 8.8 s rounds to 9.0 s) — do not assume it is bounded by the cap. Separately,
-        /// the never-below-<see cref="CurrentSeconds"/> floor means this can equal <see cref="CurrentSeconds"/>
-        /// exactly (when the absolute cap sits below an already-long current exposure) while
-        /// <see cref="HasRecommendation"/> is still true — check <see cref="IncreasesExposure"/> before rendering
-        /// this as a "raise it to X" affordance.
+        /// The value to pre-fill the exposure-time UI box with. Let <c>cappedSeconds</c> be <see cref="RawSeconds"/>
+        /// capped at <c>min(CurrentSeconds × <see cref="ExposureRecommender.MaxExposureFactor"/>,
+        /// <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/>)</c>: when <c>cappedSeconds &gt;
+        /// CurrentSeconds</c> this is <c>cappedSeconds</c> rounded up to the exposure-time ladder
+        /// (<see cref="ExposureRecommender.RoundExposureSeconds"/>); OTHERWISE this is <see cref="CurrentSeconds"/>
+        /// EXACTLY, un-rounded — there is nothing to raise, so nothing is rounded. <see cref="double.NaN"/> when
+        /// <see cref="HasRecommendation"/> is false.
+        ///
+        /// <para>This is a two-way BRANCH, not "round then floor": an earlier version rounded unconditionally and
+        /// floored the result with <c>Math.Max(rounded, CurrentSeconds)</c>, which is only an approximate floor —
+        /// rounding can walk a <c>cappedSeconds</c> that sits just BELOW an off-grid <see cref="CurrentSeconds"/>
+        /// back ABOVE it (e.g. <c>cappedSeconds</c> = 3.10 s, <c>CurrentSeconds</c> = 3.2 s: rounds to 3.5 s, and
+        /// <c>Math.Max(3.5, 3.2)</c> leaves it at 3.5 s — past current). The branch form makes
+        /// <see cref="IncreasesExposure"/> exactly equivalent to <c>cappedSeconds &gt; CurrentSeconds</c>, with no
+        /// approximation window.</para>
+        ///
+        /// <para>NOTE: rounding UP after capping means this can exceed
+        /// <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/> by up to one ladder step (e.g. a capped
+        /// 8.8 s rounds to 9.0 s) — do not assume it is bounded by the cap. Separately, the never-below-
+        /// <see cref="CurrentSeconds"/> behavior means this can equal <see cref="CurrentSeconds"/> exactly (when
+        /// the absolute cap sits below an already-long current exposure) while <see cref="HasRecommendation"/> is
+        /// still true — check <see cref="IncreasesExposure"/> before rendering this as a "raise it to X"
+        /// affordance.</para>
         /// </summary>
         public double RecommendedSeconds { get; set; }
 
@@ -112,13 +122,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         /// <summary>
         /// True when this recommendation actually asks for a LONGER exposure than <see cref="CurrentSeconds"/>.
-        /// False when the never-shorter floor (see <see cref="RecommendedSeconds"/>) collapsed
-        /// <see cref="RecommendedSeconds"/> onto <see cref="CurrentSeconds"/> — which happens whenever
-        /// <see cref="CurrentSeconds"/> already exceeds <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/>
-        /// (realistic for narrowband) and the data still wants more. <see cref="HasRecommendation"/> stays true in
-        /// that case — the situation is still worth reporting ("you are at 40 s, the data wants ~49 s, and that is
-        /// past what an AF sweep can sustain") — it just is not an increase. A consumer MUST check this before
-        /// rendering a "raise it to X" affordance, or a false one renders a no-op "40 s → 40 s" row.
+        /// Exactly equivalent to "the capped-but-unrounded exposure exceeds <see cref="CurrentSeconds"/>" (see
+        /// <see cref="RecommendedSeconds"/> for why this is exact rather than approximate). False in two distinct
+        /// situations: (1) <see cref="MeasuredSnr"/> already meets <see cref="ExposureRecommender.TargetSensitivity"/>
+        /// (see <see cref="ExposureIsNotTheLimit"/>) — the raw factor is then ≤ 1, so there was never more exposure
+        /// to ask for; or (2) the absolute cap pulls the capped value down to at or below an already-long
+        /// <see cref="CurrentSeconds"/> (realistic for narrowband, <c>CurrentSeconds &gt;
+        /// <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/></c>) even though the data still wants
+        /// more. <see cref="HasRecommendation"/> stays true in either case — the situation can still be worth
+        /// reporting ("you are at 40 s, the data wants ~49 s, and that is past what an AF sweep can sustain") — it
+        /// just is not an increase. A consumer MUST check this before rendering a "raise it to X" affordance, or a
+        /// false one renders a no-op "40 s → 40 s" row.
         /// </summary>
         public bool IncreasesExposure => RecommendedSeconds > CurrentSeconds;
 
@@ -296,39 +310,59 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <para><b>Order of operations</b> (see <see cref="ExposureRecommendation.RawSeconds"/> /
         /// <see cref="ExposureRecommendation.RecommendedSeconds"/>): S_now → raw factor
         /// <c>(TargetSensitivity/S_now)²</c> → <c>RawSeconds</c> → cap at
-        /// <c>min(currentExposureSeconds × MaxExposureFactor, MaxRecommendedExposureSeconds)</c> →
-        /// <see cref="RoundExposureSeconds"/> → floor at <paramref name="currentExposureSeconds"/> (see below,
-        /// LAST, so it cannot be undone by rounding).</para>
+        /// <c>min(currentExposureSeconds × MaxExposureFactor, MaxRecommendedExposureSeconds)</c> — then
+        /// <see cref="RoundExposureSeconds"/> is applied ONLY IF the capped value actually exceeds
+        /// <paramref name="currentExposureSeconds"/>; otherwise <paramref name="currentExposureSeconds"/> is
+        /// returned EXACTLY, un-rounded. This is not "cap, round, floor" as three sequential steps — it is a
+        /// two-way branch, because ANY unconditional rounding step applied to a value that might already be at or
+        /// below current risks rounding it UP past current (see <see cref="ExposureRecommendation.RecommendedSeconds"/>
+        /// for the concrete case that motivated this).</para>
         ///
         /// <para>Capping BEFORE rounding does NOT mean <see cref="ExposureRecommendation.RecommendedSeconds"/> can
-        /// never exceed the cap — <see cref="RoundExposureSeconds"/> always rounds UP, so it can push a capped
-        /// value past the cap by up to one ladder step (a capped value of 8.8 s rounds to 9.0 s). What
-        /// cap-before-round actually buys is that the overshoot is BOUNDED to at most one ladder step, rather than
-        /// the unbounded overshoot a round-then-cap ordering would leave uncorrected. A caller MUST NOT assume
-        /// <c>RecommendedSeconds &lt;= MaxRecommendedExposureSeconds</c>.</para>
+        /// never exceed the cap — <see cref="RoundExposureSeconds"/> always rounds UP, so on the "capped value
+        /// exceeds current" branch it can push a capped value past the cap by up to one ladder step (a capped
+        /// value of 8.8 s rounds to 9.0 s). What cap-before-round actually buys is that the overshoot is BOUNDED to
+        /// at most one ladder step, rather than the unbounded overshoot a round-then-cap ordering would leave
+        /// uncorrected. A caller MUST NOT assume <c>RecommendedSeconds &lt;= MaxRecommendedExposureSeconds</c>.</para>
         ///
-        /// <para><b>Never shorter than current.</b> The floor is the LAST step (applied to the ROUNDED value,
-        /// against the caller's un-rounded <paramref name="currentExposureSeconds"/>), unconditional and not
-        /// incidental to either branch's arithmetic: ordinarily it is moot when <c>S_now &lt; TargetSensitivity</c>
-        /// (the raw factor exceeds 1 there, so <c>RawSeconds &gt; currentExposureSeconds</c> already), and when
-        /// <c>S_now ≥ TargetSensitivity</c> the raw factor is ≤ 1 by construction so the floor is exactly what
-        /// keeps the recommendation from suggesting a shorter exposure the user never asked to shorten — that case
-        /// also sets <see cref="ExposureRecommendation.ExposureIsNotTheLimit"/>. But the floor is applied
-        /// unconditionally (not only in that branch) because the absolute 30 s cap can itself sit below an
-        /// already-long <paramref name="currentExposureSeconds"/>, which would otherwise recommend shortening a
-        /// deliberately long exposure back down to the cap. Applying it LAST (rather than before rounding) matters:
-        /// flooring BEFORE rounding lets the subsequent round push an off-grid floored value back above current —
-        /// see <see cref="ExposureRecommendation.RecommendedSeconds"/>.</para>
+        /// <para><b>Never shorter than current.</b> By construction: on the branch where
+        /// <c>cappedSeconds &gt; currentExposureSeconds</c>, <see cref="RoundExposureSeconds"/> only ever rounds UP
+        /// (ceiling), so the result stays <c>&gt;= cappedSeconds &gt; currentExposureSeconds</c> — no separate floor
+        /// is needed there. On the other branch <paramref name="currentExposureSeconds"/> is returned unchanged, so
+        /// it trivially cannot be shorter than itself. <c>IncreasesExposure ⟺ cappedSeconds &gt; currentExposureSeconds</c>
+        /// holds exactly (see <see cref="ExposureRecommendation.IncreasesExposure"/>) — an EARLIER version of this
+        /// method rounded unconditionally and then applied <c>Math.Max(rounded, current)</c> as an approximate
+        /// floor, which does not hold that equivalence: rounding a capped value that sits just BELOW current can
+        /// still push it back ABOVE current (S_now=10.16, current=3.2 s: cappedSeconds=3.10 s rounds to 3.5 s,
+        /// which the Math.Max form left at 3.5 s — past current, contradicting
+        /// <see cref="ExposureRecommendation.ExposureIsNotTheLimit"/>'s "3.2 s is already enough"). This still
+        /// applies even when <c>S_now &lt; TargetSensitivity</c> and the situation is ordinarily moot (the raw
+        /// factor exceeds 1 there, so <c>RawSeconds &gt; currentExposureSeconds</c> already) or when the absolute
+        /// 30 s cap sits below an already-long <paramref name="currentExposureSeconds"/> (which would otherwise
+        /// recommend shortening a deliberately long exposure back down to the cap) — the branch is unconditional,
+        /// not incidental to either scenario's arithmetic.</para>
         /// </summary>
         public static ExposureRecommendation Recommend(RunEvaluationMetrics metrics, ObjectiveConstants c, double currentExposureSeconds) {
             if (metrics?.FrameStarSnrs == null) {
                 return NoRecommendation(currentExposureSeconds, usableFrameCount: 0, shortFrameCount: 0);
             }
 
-            // c is trusted non-null with a trusted NTarget, exactly like every other ObjectiveConstants-consuming
-            // method in this namespace (OptimizationObjective.SFocus/SStars/JRun/... never null-check or
-            // value-clamp their ObjectiveConstants either) -- a null c throws, consistently with those siblings,
-            // rather than silently degrading.
+            // c is trusted non-null, consistently with every other ObjectiveConstants-consuming method in this
+            // namespace (OptimizationObjective.SFocus/SStars/JRun/... never null-check their ObjectiveConstants
+            // either) -- a null c throws here too, rather than silently degrading.
+            //
+            // NTarget, however, is trusted POSITIVE -- a STRONGER requirement than those siblings impose. They use
+            // NTarget only in floating-point arithmetic that degrades gracefully at 0 (SStars: Clamp01(nMed /
+            // c.NTarget) -> Clamp01(+Infinity) -> 1.0; TieBreakerScore: nMean / (nMean + c.NTarget) -> 1.0 -- never
+            // an exception). This method is the ONLY consumer that uses NTarget as an ARRAY INDEX
+            // (PerFrameNthBrightest's filtered[filtered.Count - nTarget]): at NTarget = 0 that evaluates
+            // filtered[filtered.Count], throwing ArgumentOutOfRangeException on the first non-recovery frame with
+            // any finite positive SNR. Safe today because the only production assignment is
+            // ObjectiveConstants.ForAberrationInspection's NTarget = 60 (every other construction is a bare `new
+            // ObjectiveConstants()`, default 20; there is no persisted option, XAML binding, or deserialization
+            // path that could set it to <= 0). If NTarget is ever exposed as a user-tunable value, clamp it at the
+            // source or restore a guard here -- do not assume this method's array-index usage is as forgiving as
+            // its floating-point siblings'.
             var nTarget = c.NTarget;
             var snrsByFrame = metrics.FrameStarSnrs;
             var isRecovery = metrics.FrameIsRecovery;
@@ -371,14 +405,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var cappedByAbsoluteLimit = wasCapped && MaxRecommendedExposureSeconds <= factorCap;
 
             // Never emit a shorter exposure than the user already uses -- guarded explicitly (see the method
-            // remarks), not left to fall out of either branch's arithmetic. This floor is applied AFTER rounding,
-            // against the RAW currentExposureSeconds (not a rounded copy of it): flooring before rounding was a
-            // real bug -- an off-grid current value floored in first would then get rounded UP past itself (e.g.
-            // S_now=12, currentExposureSeconds=3.2s: floor-then-round produced 3.5s, silently contradicting
-            // ExposureIsNotTheLimit's "3.2s is already enough"), and could round a capped value past the cap it
-            // was just clamped to. Flooring last, against the un-rounded current value, is exact: "never shorter
-            // than current" not "never shorter than current rounded to the ladder".
-            var recommendedSeconds = Math.Max(RoundExposureSeconds(cappedSeconds), currentExposureSeconds);
+            // remarks), not left to fall out of either branch's arithmetic. ROUND ONLY WHEN THE CAPPED VALUE
+            // ACTUALLY EXCEEDS CURRENT, rather than rounding unconditionally and flooring the result with
+            // Math.Max: that Math.Max form is only an approximate floor -- RoundExposureSeconds can round a
+            // cappedSeconds that sits just BELOW currentExposureSeconds up past it (e.g. S_now=10.16,
+            // currentExposureSeconds=3.2s: cappedSeconds=3.10s rounds to 3.5s, which Math.Max(3.5, 3.2) leaves at
+            // 3.5s -- past current, contradicting ExposureIsNotTheLimit's "3.2s is already enough" the same way
+            // the previous ordering bug did). Branching first makes the two cases exact: when cappedSeconds >
+            // currentExposureSeconds, RoundExposureSeconds(cappedSeconds) is >= cappedSeconds > currentExposureSeconds
+            // by construction (ceiling never decreases), so no separate floor is needed; otherwise there is
+            // nothing to raise, and CurrentSeconds is returned EXACTLY, un-rounded (rounding an unchanged value
+            // would just be the earlier bug's off-grid-overshoot risk in disguise). This makes
+            // <c>IncreasesExposure ⟺ cappedSeconds &gt; currentExposureSeconds</c> hold exactly.
+            var recommendedSeconds = cappedSeconds > currentExposureSeconds
+                ? RoundExposureSeconds(cappedSeconds)
+                : currentExposureSeconds;
 
             return new ExposureRecommendation {
                 HasRecommendation = true,
