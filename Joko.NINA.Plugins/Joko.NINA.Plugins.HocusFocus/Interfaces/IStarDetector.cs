@@ -482,8 +482,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Reduces bias for undersampled rigs (FWHM ≈ 1.5px). Default: false.
         public bool PSFPixelIntegration { get; set; } = false;
 
-        // Pixel scale of the image given for star detection
+        // Pixel scale of the image given for star detection. INCLUDES DetectionBinning, so arcsec-valued outputs
+        // (PSF.FWHMArcsecs) stay physical while the pixel-valued ones are measured in binned pixels.
         public double PixelScale { get; set; } = 1.0d;
+
+        // The integer factor star detection software-bins the frame by before analyzing it (1 = off), layered on
+        // by HocusFocusStarDetection.ApplyDetectionImageContext from the effective options. The whole detection pipeline
+        // then runs in binned pixels, so every pixel-unit knob above stays in its calibrated range; the detector
+        // scales every pixel-space OUTPUT back to source pixels before returning
+        // (StarDetector.ScaleResultToSourcePixels). EARLY param — it changes candidate formation, so it is in
+        // EarlyCacheKeyProperties.
+        public int DetectionBinning { get; set; } = 1;
 
         // How per-star HFR is aggregated (and whether an extra HFR-outlier rejection pass runs). Carried on the params
         // bundle — rather than read from the live options at the detect site — so a replay that supplies a capture-time
@@ -504,7 +513,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public StarDetectorParams Clone() => (StarDetectorParams)this.MemberwiseClone();
 
         public override string ToString() {
-            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(DefocusAwareDistortion)}={DefocusAwareDistortion.ToString()}, {nameof(DefocusDistortionSizeReference)}={DefocusDistortionSizeReference.ToString()}, {nameof(DefocusDistortionMinFactor)}={DefocusDistortionMinFactor.ToString()}, {nameof(DefocusAwareCentering)}={DefocusAwareCentering.ToString()}, {nameof(DefocusCenteringToleranceFactor)}={DefocusCenteringToleranceFactor.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(Region)}={Region}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(UsePSFAbsoluteDeviation)}={UsePSFAbsoluteDeviation.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}, {nameof(ContaminationSensitivity)}={ContaminationSensitivity.ToString()}, {nameof(MaxStarEvaluationParallelism)}={MaxStarEvaluationParallelism.ToString()}}}";
+            return $"{{{nameof(HotpixelFiltering)}={HotpixelFiltering.ToString()}, {nameof(NoiseReductionRadius)}={NoiseReductionRadius.ToString()}, {nameof(NoiseClippingMultiplier)}={NoiseClippingMultiplier.ToString()}, {nameof(StarClippingMultiplier)}={StarClippingMultiplier.ToString()}, {nameof(HotpixelFilterRadius)}={HotpixelFilterRadius.ToString()}, {nameof(StructureLayers)}={StructureLayers.ToString()}, {nameof(StructureDilationSize)}={StructureDilationSize.ToString()}, {nameof(StructureDilationCount)}={StructureDilationCount.ToString()}, {nameof(Sensitivity)}={Sensitivity.ToString()}, {nameof(PeakResponse)}={PeakResponse.ToString()}, {nameof(MaxDistortion)}={MaxDistortion.ToString()}, {nameof(DefocusAwareDistortion)}={DefocusAwareDistortion.ToString()}, {nameof(DefocusDistortionSizeReference)}={DefocusDistortionSizeReference.ToString()}, {nameof(DefocusDistortionMinFactor)}={DefocusDistortionMinFactor.ToString()}, {nameof(DefocusAwareCentering)}={DefocusAwareCentering.ToString()}, {nameof(DefocusCenteringToleranceFactor)}={DefocusCenteringToleranceFactor.ToString()}, {nameof(StarCenterTolerance)}={StarCenterTolerance.ToString()}, {nameof(BackgroundBoxExpansion)}={BackgroundBoxExpansion.ToString()}, {nameof(MinimumStarBoundingBoxSize)}={MinimumStarBoundingBoxSize.ToString()}, {nameof(MinHFR)}={MinHFR.ToString()}, {nameof(Region)}={Region}, {nameof(AnalysisSamplingSize)}={AnalysisSamplingSize.ToString()}, {nameof(StoreStructureMap)}={StoreStructureMap.ToString()}, {nameof(SaveIntermediateFilesPath)}={SaveIntermediateFilesPath}, {nameof(SaturationThreshold)}={SaturationThreshold.ToString()}, {nameof(ModelPSF)}={ModelPSF.ToString()}, {nameof(PSFFitType)}={PSFFitType.ToString()}, {nameof(UsePSFAbsoluteDeviation)}={UsePSFAbsoluteDeviation.ToString()}, {nameof(PSFGoodnessOfFitThreshold)}={PSFGoodnessOfFitThreshold.ToString()}, {nameof(PSFResolution)}={PSFResolution.ToString()}, {nameof(PSFParallelPartitionSize)}={PSFParallelPartitionSize.ToString()}, {nameof(PixelScale)}={PixelScale.ToString()}, {nameof(DetectionBinning)}={DetectionBinning.ToString()}, {nameof(ContaminationSensitivity)}={ContaminationSensitivity.ToString()}, {nameof(MaxStarEvaluationParallelism)}={MaxStarEvaluationParallelism.ToString()}}}";
         }
 
         // Properties intentionally EXCLUDED from the detection-result cache key (ToCanonicalCacheString). The
@@ -815,6 +824,23 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
                 rectBounds.AddRange(newRectBounds);
             }
         }
+
+        /// <summary>
+        /// Scales every <c>*Bounds</c> rectangle from binned pixels back to source pixels. Called once, after
+        /// <see cref="AddROIOffset"/>, when <see cref="StarDetectorParams.DetectionBinning"/> is above 1 — the
+        /// rejected-candidate boxes are drawn over the full-resolution frame by the annotator and matched against
+        /// full-resolution review labels, so they must live in the same space as the accepted stars.
+        /// </summary>
+        public void ScaleBounds(int factor) {
+            if (factor <= 1) {
+                return;
+            }
+            foreach (var rectBounds in AllBoundsLists()) {
+                var scaled = rectBounds.Select(r => new Rect(r.X * factor, r.Y * factor, r.Width * factor, r.Height * factor)).ToList();
+                rectBounds.Clear();
+                rectBounds.AddRange(scaled);
+            }
+        }
     }
 
     /// <summary>
@@ -893,6 +919,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public List<Star> DetectedStars { get; set; }
         public StarDetectorMetrics Metrics { get; set; }
         public DebugData DebugData { get; set; }
+
+        // The software binning factor detection ran at (1 = none). Informational: every geometry in this result is
+        // already back in SOURCE pixels. Useful for logs and for anything that wants to report what was used.
+        public int DetectionBinning { get; set; } = 1;
 
         // Noise σ estimated on the noise-reduced structure-map source; drives only the binarize threshold.
         public double StructureNoiseSigma { get; set; }

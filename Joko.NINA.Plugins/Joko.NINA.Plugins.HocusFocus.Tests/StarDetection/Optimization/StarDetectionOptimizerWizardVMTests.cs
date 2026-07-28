@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -85,6 +85,39 @@ public class StarDetectionOptimizerWizardVMTests {
                 StarCount = starCount,
                 StarCenters = Array.Empty<(double X, double Y)>()
             });
+        };
+    }
+
+    // Same curve shape, but with an in-focus HFR of 5 px instead of 1.5 — big enough that the detection-binning
+    // rule asks for 2x2 while the run analyzed at 1x1. Needed by any test of the recommendation's ACTIONS: with
+    // the standard fixture the recommendation matches the run, so every gate is false and such a test is vacuous.
+    private const double LargeStarHyperbolaA = 5.0;
+
+    // Flatter than HyperbolaB so the sweep spans a realistic 5.0 -> ~9.4 px rather than 5 -> 50; the seed guard
+    // rejects a curve that steep as unusable.
+    private const double LargeStarHyperbolaB = 50.0;
+
+    private static double LargeStarHfr(int pos) {
+        var dx = (pos - HyperbolaP0) / LargeStarHyperbolaB;
+        return Math.Sqrt(LargeStarHyperbolaA * LargeStarHyperbolaA + dx * dx);
+    }
+
+    private static LoadedRun LargeStarRun(string id = "largestars", double optSensitivity = 10.0) {
+        Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect = (image, p, token) => {
+            var pos = (int)image;
+            var dist = Math.Abs(p.Sensitivity - optSensitivity);
+            return Task.FromResult(new FrameDetectionResult {
+                AverageHFR = LargeStarHfr(pos),
+                HFRStdDev = 0.05,
+                StarCount = (int)Math.Max(10, Math.Round(22 - 1.5 * dist)),
+                StarCenters = Array.Empty<(double X, double Y)>()
+            });
+        };
+        var data = new RunEvaluationData(id, NineFrames(), detect, NewAlglib(), DefaultFitConfig());
+        return new LoadedRun {
+            Data = data,
+            Seed = new StarDetectorParams { Sensitivity = 2, StarClippingMultiplier = 2.0 },
+            AfOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 }
         };
     }
 
@@ -2165,6 +2198,212 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.SelectSource));
             Assert.That(vm.ErrorMessage, Does.Contain("did not produce"));
         });
+    }
+
+    // ---- Detection binning ---------------------------------------------------------------------------------
+
+    [Test]
+    public void SweepDetectionBinning_WritesThroughToThePersistedOption() {
+        // The confirmation panel edits the real setting, not a session-local copy: the search is tuned at this
+        // factor, so Accept must not be able to apply settings tuned at a factor the profile does not have.
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var vm = NewVM(LoaderReturning(GoodRun()), options);
+
+        vm.SweepDetectionBinning = DetectionBinningEnum.Bin3;
+
+        options.Received(1).DetectionBinning = DetectionBinningEnum.Bin3;
+    }
+
+    [Test]
+    public void SweepCaptureBinning_ReportsNinasAutoFocusBinning() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        focuserSettings.AutoFocusBinning.Returns((short)2);
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService);
+
+        Assert.That(vm.SweepCaptureBinning, Is.EqualTo("2x2"));
+    }
+
+    [Test]
+    public async Task Accept_WithNoPendingBinning_DoesNotTouchTheFactor() {
+        // A plain run analyzed at the persisted factor. Accept applies the tuned settings and leaves binning alone;
+        // the recommendation, if any, is advice the user did not act on.
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var vm = NewVM(LoaderReturning(GoodRun()), options);
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        Assert.That(vm.Summary.DetectionBinningPendingApply, Is.False);
+
+        options.ClearReceivedCalls();
+        vm.AcceptCommand.Execute(null);
+
+        options.DidNotReceiveWithAnyArgs().DetectionBinning = default;
+    }
+
+    [Test]
+    public async Task AfterARun_TheBinningBlockIsToldTheFramesAreAvailable() {
+        // Regression: every run path raises the summary's dependents BEFORE SnapshotReviewInputs records the run
+        // folders, so the detection-binning block was last NOTIFIED while those folders were still empty. The
+        // button sat permanently disabled under copy claiming "the frames from this run are no longer available
+        // to re-read" - while they were on disk exactly where the snapshot had just put them.
+        //
+        // This has to assert on what the UI was TOLD, not on the property's value afterwards: these are computed
+        // properties, so by the time a test reads them the folders are populated and the stale notification is
+        // invisible. Bindings only re-read on notification, which is precisely what was missing.
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var vm = NewVM(LoaderReturning(LargeStarRun()), options);
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        bool? lastNotifiedCanReOptimize = null;
+        string lastNotifiedBody = null;
+        vm.PropertyChanged += (s, e) => {
+            if (e.PropertyName == nameof(vm.CanOptimizeAgainAtRecommendedBinning)) {
+                lastNotifiedCanReOptimize = vm.CanOptimizeAgainAtRecommendedBinning;
+            } else if (e.PropertyName == nameof(vm.DetectionBinningBodyText)) {
+                lastNotifiedBody = vm.DetectionBinningBodyText;
+            }
+        };
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        Assert.That(vm.ShowOptimizeAgainAtRecommendedBinning, Is.True,
+            "fixture guard: this run's 5 px stars must make the recommendation differ, or the assertions below are vacuous");
+        Assert.Multiple(() => {
+            Assert.That(lastNotifiedCanReOptimize, Is.True,
+                "the last thing the UI was told must be that the re-run can proceed - the frames are on disk");
+            Assert.That(lastNotifiedBody ?? string.Empty, Does.Not.Contain("no longer available"),
+                "a run that just recorded its folders must never tell the user its frames are gone");
+        });
+    }
+
+    [Test]
+    public async Task AfterARun_TheOptimizeAgainCommandIsToldItCanRun() {
+        // Regression, and NOT the same bug as the test above. That one was about stale run folders; this one is
+        // about IsBusy. The command's CanExecute is a superset of the property - "CanOptimizeAgainAtRecommendedBinning
+        // && !IsBusy" - and the only moment it was ever asked was from inside the run's try block, where IsBusy is
+        // true by construction. IsBusy = false in the finally then notified six other commands but not this one, so
+        // the button stayed disabled forever, underneath body copy (a plain property, no IsBusy term) cheerfully
+        // promising that clicking it would re-run on the captured frames.
+        //
+        // Asserting CanExecute() after the run passes either way - IsBusy is false by then. Only the last value the
+        // UI was NOTIFIED of distinguishes the two.
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var vm = NewVM(LoaderReturning(LargeStarRun()), options);
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        bool? lastNotifiedCanExecute = null;
+        vm.OptimizeAgainAtRecommendedBinningCommand.CanExecuteChanged +=
+            (s, e) => lastNotifiedCanExecute = vm.OptimizeAgainAtRecommendedBinningCommand.CanExecute(null);
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.ShowOptimizeAgainAtRecommendedBinning, Is.True,
+            "fixture guard: this run's 5 px stars must make the recommendation differ, or the assertion below is vacuous");
+        Assert.That(lastNotifiedCanExecute, Is.True,
+            "the last thing the button was told must be that it can run - it is on screen and the frames are on disk");
+    }
+
+    [Test]
+    public async Task EveryCommandDependingOnIsBusy_IsNotifiedWhenIsBusyChanges() {
+        // The general form of the bug above: IsBusy's setter hand-lists the commands it notifies, so a command added
+        // later silently misses out and freezes in whatever state it was last asked about. Rather than re-listing
+        // them here (which would rot the same way), toggle IsBusy and catch any command whose CanExecute VALUE moved
+        // without a CanExecuteChanged to tell the UI about it.
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var vm = NewVM(LoaderReturning(LargeStarRun()), options);
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+        await vm.StartAsync(CancellationToken.None);
+        Assume.That(vm.IsBusy, Is.False, "the run must have settled before the toggle means anything");
+
+        var commands = typeof(StarDetectionOptimizerWizardVM)
+            .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+            .Where(p => typeof(System.Windows.Input.ICommand).IsAssignableFrom(p.PropertyType))
+            .Select(p => new { p.Name, Command = (System.Windows.Input.ICommand)p.GetValue(vm) })
+            .Where(c => c.Command != null)
+            .ToList();
+        Assert.That(commands.Count, Is.GreaterThan(5),
+            $"only {commands.Count} commands were discovered - the reflection walk is broken, not the VM");
+
+        var notified = new HashSet<string>();
+        foreach (var c in commands) {
+            var name = c.Name;
+            c.Command.CanExecuteChanged += (s, e) => notified.Add(name);
+        }
+        var before = commands.ToDictionary(c => c.Name, c => c.Command.CanExecute(null));
+
+        typeof(StarDetectionOptimizerWizardVM).GetProperty(nameof(StarDetectionOptimizerWizardVM.IsBusy))
+            .GetSetMethod(nonPublic: true).Invoke(vm, new object[] { true });
+
+        var moved = commands.Where(c => c.Command.CanExecute(null) != before[c.Name]).Select(c => c.Name).ToList();
+        Assert.That(moved, Is.Not.Empty,
+            "no command changed state across the toggle - the guard would pass no matter what IsBusy forgot to notify");
+
+        var silent = moved.Where(name => !notified.Contains(name)).ToList();
+        Assert.That(silent, Is.Empty,
+            "these commands change their enabled state with IsBusy but IsBusy's setter never tells the UI, so their\n" +
+            "buttons freeze in whatever state they were last asked about:\n  " + string.Join("\n  ", silent) + "\n" +
+            "Fix: add a NotifyCanExecuteChanged() call for each in the IsBusy setter.");
+    }
+
+    [Test]
+    public async Task OptimizeAgainButton_AndItsBodyCopy_AppearTogether() {
+        // The body copy and the button were gated on different conditions once, so the summary could describe an
+        // action whose control was hidden. They must appear and disappear together: body copy with no button
+        // describes an action the user cannot take, and a button with no copy leaves the consequence unstated.
+        //
+        // This deliberately does NOT sniff the copy for the button's name. The earlier version did, and matched
+        // only because the fixture produced empty copy - it passed for a run where neither appeared, which is the
+        // one case that proves nothing.
+        async Task<StarDetectionOptimizerWizardVM> RunWith(LoadedRun run) {
+            var options = Substitute.For<IStarDetectionOptions>();
+            options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+            var vm = NewVM(LoaderReturning(run), options);
+            vm.SourcePaths[0] = @"C:\fake\attempt";
+            await vm.StartAsync(CancellationToken.None);
+            return vm;
+        }
+
+        // 5 px stars at 1x1: the measurement calls for a different factor, so both must appear.
+        var differs = await RunWith(LargeStarRun());
+        Assert.Multiple(() => {
+            Assert.That(differs.ShowOptimizeAgainAtRecommendedBinning, Is.True);
+            Assert.That(differs.HasDetectionBinningBody, Is.True);
+            Assert.That(differs.DetectionBinningBodyText, Does.Contain("2x2"),
+                "the copy must name the factor the button would switch to");
+        });
+
+        // 1.5 px stars at 1x1: the run's factor is already right, so neither must appear.
+        var agrees = await RunWith(GoodRun());
+        Assert.Multiple(() => {
+            Assert.That(agrees.ShowOptimizeAgainAtRecommendedBinning, Is.False);
+            Assert.That(agrees.HasDetectionBinningBody, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task OptimizeAgainAtRecommendedBinning_IsOnlyOfferedWhenTheMeasurementDisagrees() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var vm = NewVM(LoaderReturning(GoodRun()), options);
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        // Whatever the synthetic run measures, the offer must agree with the summary's own verdict — and it must
+        // never be offered without frames on disk to re-read.
+        Assert.That(vm.CanOptimizeAgainAtRecommendedBinning, Is.EqualTo(vm.Summary.DetectionBinningDiffers));
+        Assert.That(vm.HasDetectionBinningBlock, Is.EqualTo(vm.Summary.HasDetectionBinningMeasurement));
     }
 
     [Test]

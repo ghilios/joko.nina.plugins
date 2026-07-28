@@ -1,7 +1,8 @@
-<ResourceDictionary
+﻿<ResourceDictionary
     x:Class="NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.DataTemplates"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces"
     xmlns:local="clr-namespace:NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization"
     xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
     xmlns:oxy="clr-namespace:OxyPlot.Wpf;assembly=OxyPlot.Contrib.Wpf"
@@ -28,6 +29,8 @@
     <TextBlock x:Key="SDOpt_LiveExposure_Tooltip" Text="The exposure for every frame of the sweep, starting from your profile's auto-focus exposure. Make it long enough that stars stay visible out at the defocused ends of the sweep. Narrowband filters usually need a longer exposure to start. After a good result you can adopt this exposure into your profile from the summary." />
     <TextBlock x:Key="SDOpt_LiveSaveFolder_Tooltip" Text="The captured frames are saved here, in a timestamped AutoFocus_… subfolder, then loaded back like a saved run so the optimizer can search them. A folder is required before Start. Choosing one also saves it as your Hocus Focus auto-focus save path." />
     <TextBlock x:Key="SDOpt_TargetFilter_Tooltip" Text="Per-filter star detection is enabled, so this run tunes ONE filter's settings set. The baseline and 'current settings' come from this filter's set; a live sweep moves the wheel to this filter and exposes through it; and Accept writes the optimized result into this filter's set." />
+    <TextBlock x:Key="SDOpt_CaptureBinning_Tooltip" Text="NINA's Auto Focus Binning: how the camera bins when it captures the sweep frames. Set in NINA's Options, and per filter in the filter wheel settings. It should match the binning you image at. Detection binning below is applied on top of this, in software, for star detection only." />
+    <TextBlock x:Key="SDOpt_DetectionBinningRec_Tooltip" Text="Recommended from this run's fitted in-focus HFR, using the detector's 2 to 4 pixel calibration target. Optimize again re-runs the search on the same frames at the recommended factor; nothing is saved until you Accept, which applies the factor and the re-tuned settings together." />
     <TextBlock x:Key="SDOpt_FocusRecovery_Tooltip" Text="Widens the live sweep by this many extra steps on EACH side, so the auto-focus curve can still bracket focus when you start well off focus. The extra far-from-focus frames are down-weighted in the fit and exempt from the star-count requirements, so they help find focus without skewing it. Set 0 to disable recovery." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
@@ -440,6 +443,41 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
+                    <!--  Detection binning for a Replay run. The search is tuned at whatever factor is in effect, so
+                          a replay needs this choice just as much as a live sweep does; without it, Replay users have
+                          no wizard surface for it at all.  -->
+                    <StackPanel
+                        Margin="0,8,0,0"
+                        Visibility="{Binding IsReplay, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <TextBlock
+                                Width="200"
+                                VerticalAlignment="Center"
+                                Text="Detection binning"
+                                ToolTip="{StaticResource DetectionBinning_Tooltip}" />
+                            <ComboBox
+                                MinWidth="80"
+                                VerticalAlignment="Center"
+                                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:DetectionBinningEnum}}}"
+                                SelectedItem="{Binding SweepDetectionBinning}"
+                                ToolTip="{StaticResource DetectionBinning_Tooltip}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock
+                                Margin="10,0,0,0"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Foreground="{StaticResource PrimaryBrush}"
+                                Text="{Binding SweepDetectionBinningRecommendation}"
+                                ToolTip="{Binding SweepDetectionBinningRecommendationDetail}"
+                                Visibility="{Binding SweepDetectionBinningRecommendationVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                        </StackPanel>
+                    </StackPanel>
+
                     <!--  Live sweep confirmation (Live source only). The sweep is centered on the current focuser
                           position, so the user confirms rough focus; they may lengthen the exposure for faint /
                           narrowband stars; and they must choose a save folder. The read-only rows summarize the
@@ -487,8 +525,42 @@
                             <TextBlock VerticalAlignment="Center" Text="{Binding SweepPointCount}" />
                         </StackPanel>
                         <StackPanel Margin="0,2" Orientation="Horizontal">
-                            <TextBlock Width="200" VerticalAlignment="Center" Text="Binning" />
-                            <TextBlock VerticalAlignment="Center" Text="{Binding SweepBinning}" />
+                            <TextBlock
+                                Width="200"
+                                VerticalAlignment="Center"
+                                Text="Capture binning"
+                                ToolTip="{StaticResource SDOpt_CaptureBinning_Tooltip}" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Text="{Binding SweepCaptureBinning}"
+                                ToolTip="{StaticResource SDOpt_CaptureBinning_Tooltip}" />
+                        </StackPanel>
+                        <StackPanel Margin="0,2" Orientation="Horizontal">
+                            <TextBlock
+                                Width="200"
+                                VerticalAlignment="Center"
+                                Text="Detection binning"
+                                ToolTip="{StaticResource DetectionBinning_Tooltip}" />
+                            <ComboBox
+                                MinWidth="80"
+                                VerticalAlignment="Center"
+                                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:DetectionBinningEnum}}}"
+                                SelectedItem="{Binding SweepDetectionBinning}"
+                                ToolTip="{StaticResource DetectionBinning_Tooltip}">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <TextBlock
+                                Margin="10,0,0,0"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Foreground="{StaticResource PrimaryBrush}"
+                                Text="{Binding SweepDetectionBinningRecommendation}"
+                                ToolTip="{Binding SweepDetectionBinningRecommendationDetail}"
+                                Visibility="{Binding SweepDetectionBinningRecommendationVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                         </StackPanel>
                         <StackPanel Margin="0,2" Orientation="Horizontal">
                             <TextBlock Width="200" VerticalAlignment="Center" Text="Filter" />
@@ -754,6 +826,40 @@
                                 ToolTip="{StaticResource SDOpt_ApplyStepSize_Tooltip}" />
                         </StackPanel>
 
+                        <!--  Detection binning: a first-class recommendation, structurally parallel to the
+                              auto-focus block above (bold header, label/value row, then the consequence). Hidden
+                              outright when the baseline fit was degenerate — no measured HFR, nothing to say.
+                              There is deliberately no "apply this factor" control: a factor applied without the
+                              settings measured at it is a combination the optimizer never evaluated. The only
+                              action re-runs the search at the new factor, and Accept then writes both together.  -->
+                        <StackPanel
+                            Margin="0,8,0,8"
+                            Visibility="{Binding HasDetectionBinningBlock, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <TextBlock Margin="0,0,0,2" FontWeight="Bold" Text="Detection binning" />
+                            <StackPanel Margin="0,2" Orientation="Horizontal">
+                                <TextBlock
+                                    Width="200"
+                                    Text="Recommended factor"
+                                    ToolTip="{StaticResource SDOpt_DetectionBinningRec_Tooltip}" />
+                                <TextBlock
+                                    Text="{Binding DetectionBinningRecommendationText, Mode=OneWay}"
+                                    ToolTip="{StaticResource SDOpt_DetectionBinningRec_Tooltip}" />
+                            </StackPanel>
+                            <TextBlock
+                                MaxWidth="560"
+                                Margin="0,4,0,4"
+                                HorizontalAlignment="Left"
+                                Text="{Binding DetectionBinningBodyText, Mode=OneWay}"
+                                TextWrapping="Wrap"
+                                Visibility="{Binding HasDetectionBinningBody, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                            <Button
+                                HorizontalAlignment="Left"
+                                Command="{Binding OptimizeAgainAtRecommendedBinningCommand}"
+                                Visibility="{Binding ShowOptimizeAgainAtRecommendedBinning, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                <TextBlock Margin="12,6" Text="{Binding OptimizeAgainAtRecommendedBinningText}" />
+                            </Button>
+                        </StackPanel>
+
                         <!--  Changed parameters table  -->
                         <TextBlock
                             Margin="0,4,0,4"
@@ -768,21 +874,37 @@
                             Visibility="{Binding HasRoundsSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                         <!--  The value column shows the full path "current → optimized" (and, after Continue, the
                               per-round trajectory "current → R1 → R2 → …") via the row's arrow-joined Trajectory.  -->
+                        <!--  Sized to CONTENT: the summary already scrolls, so a MaxHeight here only produced a
+                              nested scrollbar and a band of dead viewport under the last row. RowHeight + the
+                              centred element styles keep the rows compact and the text on the row's centre line
+                              (the default cell padding top-justifies it, which reads as ragged).  -->
                         <DataGrid
                             AutoGenerateColumns="False"
                             CanUserAddRows="False"
+                            GridLinesVisibility="Horizontal"
                             HeadersVisibility="Column"
                             IsReadOnly="True"
                             ItemsSource="{Binding ChangedParametersDisplay}"
-                            MaxHeight="180">
+                            RowHeight="26"
+                            VerticalScrollBarVisibility="Disabled">
+                            <DataGrid.Resources>
+                                <!--  Applied per column below rather than as a DataGridCell style, so NINA's own
+                                      cell theming (selection, gridlines, brushes) is left intact.  -->
+                                <Style x:Key="HF_ChangedParamCellText" TargetType="TextBlock">
+                                    <Setter Property="VerticalAlignment" Value="Center" />
+                                    <Setter Property="Margin" Value="4,0" />
+                                </Style>
+                            </DataGrid.Resources>
                             <DataGrid.Columns>
                                 <DataGridTextColumn
                                     Width="2*"
                                     Binding="{Binding Name}"
+                                    ElementStyle="{StaticResource HF_ChangedParamCellText}"
                                     Header="Parameter" />
                                 <DataGridTextColumn
                                     Width="3*"
                                     Binding="{Binding Trajectory}"
+                                    ElementStyle="{StaticResource HF_ChangedParamCellText}"
                                     Header="Current → Optimized" />
                             </DataGrid.Columns>
                         </DataGrid>

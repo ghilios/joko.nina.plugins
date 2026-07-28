@@ -43,6 +43,18 @@ The result is clamped to a minimum of 1 and, if a focuser maximum step is suppli
 recommendation is reported alongside a default **offset of 4 steps** per side, so an autofocus run sampling
 that many points on each side of the estimated minimum lands neatly inside the focus-sensitive region.
 
+!!! warning "A sweep too narrow to contain the band is capped"
+    The half-width is read off the **fitted** curve, so when the sweep is too shallow to reach three times the
+    minimum HFR it comes from extrapolating the model past everything you measured. The shallower the sweep,
+    the further out that lands: it can call for a sweep several times wider than anything measured, and even
+    exceed the focuser's travel.
+
+    The half-width is therefore capped at **1.5× the sampled half-span**, and the summary marks the
+    recommendation *capped by this sweep's width; re-run auto-focus to refine*. The cap does not change where
+    the recommendation converges, only how fast: each run widens the sweep, and a shallow rig reaches the same
+    answer in about three runs. It only engages when the sweep's ends reach less than roughly 2.1× the minimum
+    HFR; a well-shaped sweep is untouched.
+
 !!! note "Degenerate fits are left alone"
     If the fit is missing, its minimum is not finite, the minimum HFR is not positive, or the curve never
     reaches three times its minimum on either side within the bounded search, the recommender returns your

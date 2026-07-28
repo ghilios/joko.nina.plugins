@@ -17,6 +17,7 @@ using NINA.Core.Utility;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
 using System;
+using System.ComponentModel;
 using System.IO;
 using System.Collections.Generic;
 using Newtonsoft.Json;
@@ -27,19 +28,44 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     [JsonObject]
     public class StarDetectionOptions : BaseINPC, IStarDetectionOptions {
         private readonly SuppressiblePluginOptionsAccessor optionsAccessor;
+        private readonly IProfileService profileService;
 
         public StarDetectionOptions(IProfileService profileService)
-            : this(profileService, CreateDefaultAccessor(profileService)) {
+            : this(profileService, CreateDefaultAccessor(profileService), inFocusHfr: null) {
         }
 
-        internal StarDetectionOptions(IProfileService profileService, IPluginOptionsAccessor optionsAccessor) {
+        public StarDetectionOptions(IProfileService profileService, InFocusHfrRecord inFocusHfr)
+            : this(profileService, CreateDefaultAccessor(profileService), inFocusHfr) {
+        }
+
+        internal StarDetectionOptions(IProfileService profileService, IPluginOptionsAccessor optionsAccessor)
+            : this(profileService, optionsAccessor, inFocusHfr: null) {
+        }
+
+        internal StarDetectionOptions(IProfileService profileService, IPluginOptionsAccessor optionsAccessor, InFocusHfrRecord inFocusHfr) {
             if (optionsAccessor == null) {
                 throw new ArgumentNullException(nameof(optionsAccessor));
             }
             this.optionsAccessor = new SuppressiblePluginOptionsAccessor(optionsAccessor, MachineLocalKeys);
+            this.profileService = profileService;
             profileService.ProfileChanged += ProfileService_ProfileChanged;
             this.PropertyChanged += StarDetectionOptions_PropertyChanged;
+            // The recommendation follows the last MEASURED in-focus HFR, so it refreshes when a new measurement
+            // lands (an auto-focus run finishing), not when the profile's optics change.
+            this.inFocusHfr = inFocusHfr ?? new InFocusHfrRecord(profileService);
+            this.inFocusHfr.Changed += (s, e) => RaiseDetectionBinningRecommendationChanged();
             InitializeOptions();
+        }
+
+        private readonly InFocusHfrRecord inFocusHfr;
+
+        /// <summary>The measured in-focus HFR the detection-binning recommendation reads (read-only here).</summary>
+        internal InFocusHfrRecord InFocusHfr => inFocusHfr;
+
+        private void RaiseDetectionBinningRecommendationChanged() {
+            RaisePropertyChanged(nameof(DetectionBinningHint));
+            RaisePropertyChanged(nameof(DetectionBinningHintDetail));
+            RaisePropertyChanged(nameof(DetectionBinningRecommendationVisible));
         }
 
         private static IPluginOptionsAccessor CreateDefaultAccessor(IProfileService profileService) {
@@ -230,6 +256,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             simple_NoiseLevel = optionsAccessor.GetValueEnum<NoiseLevelEnum>("Simple_NoiseLevel", NoiseLevelEnum.Typical);
             simple_PixelScale = optionsAccessor.GetValueEnum<PixelScaleEnum>("Simple_PixelScale", PixelScaleEnum.Typical);
             simple_FocusRange = optionsAccessor.GetValueEnum<FocusRangeEnum>("Simple_FocusRange", FocusRangeEnum.Typical);
+            // Default OFF, and clamped on read: an out-of-range persisted value (including the removed Auto = 0)
+            // must never silently bin a user's frames after an upgrade.
+            detectionBinning = DetectionBinningResolver.ToSetting((int)optionsAccessor.GetValueEnum<DetectionBinningEnum>(nameof(DetectionBinning), DetectionBinningEnum.Bin1));
             hotpixelFiltering = optionsAccessor.GetValueBoolean("HotpixelFiltering", true);
             hotpixelThresholdingEnabled = optionsAccessor.GetValueBoolean(nameof(HotpixelThresholdingEnabled), true);
             useAutoFocusCrop = optionsAccessor.GetValueBoolean("UseAutoFocusCrop", true);
@@ -294,6 +323,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         public void ResetDefaults() {
+            // Restoring defaults is a bulk apply, not a binning decision — same no-dialog rule as ApplySnapshotCore.
+            suppressInteractivePrompts = true;
+            try {
+                ResetDefaultsImpl();
+            } finally {
+                suppressInteractivePrompts = false;
+            }
+        }
+
+        private void ResetDefaultsImpl() {
             UseAdvanced = false;
             DebugMode = false;
             ModelPSF = true;
@@ -301,6 +340,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             Simple_NoiseLevel = NoiseLevelEnum.Typical;
             Simple_PixelScale = PixelScaleEnum.Typical;
             Simple_FocusRange = FocusRangeEnum.Typical;
+            DetectionBinning = DetectionBinningEnum.Bin1;
             HotpixelFiltering = true;
             HotpixelThresholdingEnabled = true;
             UseAutoFocusCrop = true;
@@ -447,6 +487,76 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
             }
         }
+
+        private DetectionBinningEnum detectionBinning;
+
+        /// <summary>
+        /// How much star detection software-bins the frame before analyzing it. Detection-only: the displayed
+        /// image, and every HFR/position reported, stay at the resolution the camera delivered. Applies in BOTH
+        /// Simple and Advanced mode — it is deliberately absent from <see cref="DerivePresetSettings"/>, so the
+        /// presets never clobber it.
+        /// </summary>
+        public DetectionBinningEnum DetectionBinning {
+            get => detectionBinning;
+            set {
+                if (detectionBinning != value) {
+                    detectionBinning = value;
+                    optionsAccessor.SetValueEnum<DetectionBinningEnum>(nameof(DetectionBinning), value);
+                    RaisePropertyChanged();
+                    RaiseDetectionBinningRecommendationChanged();
+                    MaybeWarnAboutAutoFocusBinning();
+                }
+            }
+        }
+
+        /// <summary>
+        /// The short recommendation shown beside the dropdown, from the last MEASURED in-focus HFR. Advice only —
+        /// nothing changes the setting but the user.
+        /// </summary>
+        [JsonIgnore]
+        public string DetectionBinningHint => DetectionBinningResolver.DescribeRecommendation(
+            DetectionBinningResolver.ToFactor(detectionBinning), inFocusHfr.HfrPixels);
+
+        /// <summary>The reasoning behind <see cref="DetectionBinningHint"/>, shown as its tooltip.</summary>
+        [JsonIgnore]
+        public string DetectionBinningHintDetail => DetectionBinningResolver.DescribeRecommendationDetail(
+            DetectionBinningResolver.ToFactor(detectionBinning), inFocusHfr.HfrPixels, inFocusHfr.MeasuredAtUtc);
+
+        /// <summary>Whether to show the recommendation line at all — only when it asks for something (a first
+        /// auto-focus, or a factor change). It is hidden once the setting matches the measurement.</summary>
+        [JsonIgnore]
+        public bool DetectionBinningRecommendationVisible => DetectionBinningResolver.ShouldShowRecommendation(
+            DetectionBinningResolver.ToFactor(detectionBinning), inFocusHfr.HfrPixels);
+
+        /// <summary>
+        /// Raises the NINA-AF-binning conflict with whoever installed <see cref="AutoFocusBinningConflictHandler"/>
+        /// (HocusFocusPlugin, which shows the dialog). Only fires on a genuine user edit: bulk applies
+        /// (<see cref="ApplySnapshotCore"/>, <see cref="InitializeOptions"/>) and per-filter buffered edit mode
+        /// suppress it, so profile load, import, replay and copy-from-filter never pop a dialog.
+        /// </summary>
+        private void MaybeWarnAboutAutoFocusBinning() {
+            var handler = AutoFocusBinningConflictHandler;
+            if (handler == null || suppressInteractivePrompts || !PersistToProfile) {
+                return;
+            }
+            var resolved = DetectionBinningResolver.ToFactor(detectionBinning);
+            if (resolved <= 1) {
+                return;
+            }
+            var conflict = AutoFocusBinningConflict.Detect(profileService);
+            if (!conflict.HasConflict) {
+                return;
+            }
+            handler(conflict, resolved);
+        }
+
+        /// <summary>
+        /// Invoked when the user raises detection binning while NINA's Auto Focus Binning is also above 1x1.
+        /// Installed by HocusFocusPlugin; null in tests and headless tooling, where no prompt is possible.
+        /// </summary>
+        internal Action<AutoFocusBinningConflict, int> AutoFocusBinningConflictHandler { get; set; }
+
+        private bool suppressInteractivePrompts;
 
         private FocusRangeEnum simple_FocusRange;
 
@@ -1219,6 +1329,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 throw new ArgumentNullException(nameof(source));
             }
 
+            // A bulk apply is not a user edit: import, replay and copy-from-filter must never pop the
+            // detection-binning / Auto-Focus-Binning dialog.
+            suppressInteractivePrompts = true;
+            try {
+                ApplySnapshotCoreImpl(source, includeMachineLocalPerfKnobs);
+            } finally {
+                suppressInteractivePrompts = false;
+            }
+        }
+
+        private void ApplySnapshotCoreImpl(IStarDetectionOptions source, bool includeMachineLocalPerfKnobs) {
             // 1) Restore the curated optimized-settings snapshot storage (or clear it). ApplyOptimizedSettings flips
             //    UseAdvanced/UseOptimizedSettings and recomputes the live knobs — all overridden below.
             var optimized = source.GetOptimizedSettings();
@@ -1248,6 +1369,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // settings) from a source. Used as the final step of ApplySnapshotCore. When includeMachineLocalPerfKnobs is
         // false (cross-machine import), the machine-local DebugMode and PSFParallelPartitionSize are left untouched.
         private void ApplyKnobs(IStarDetectionOptions source, bool includeMachineLocalPerfKnobs) {
+            DetectionBinning = source.DetectionBinning;
             ModelPSF = source.ModelPSF;
             HotpixelFiltering = source.HotpixelFiltering;
             HotpixelThresholdingEnabled = source.HotpixelThresholdingEnabled;

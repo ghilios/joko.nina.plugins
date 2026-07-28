@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection.Optimization;
@@ -172,5 +173,129 @@ public class OptimizationSummaryTests {
     public void ImprovementPercent_UsesObjectiveScore() {
         var s = new OptimizationSummary { SeedJ = 1.0, BestJ = 1.2 };
         Assert.That(s.ImprovementPercent, Is.EqualTo(20.0).Within(1e-9));
+    }
+
+    // ---- Detection binning states -------------------------------------------------------------------------
+    //
+    // F = the factor this run analyzed at, P = the persisted setting, R = what the measured HFR calls for.
+
+    private static OptimizationSummary Binning(int run, int persisted, int recommended, double hfr, double rSquared = 0.99) =>
+        new OptimizationSummary {
+            RunDetectionBinning = run, PersistedDetectionBinning = persisted,
+            RecommendedDetectionBinning = recommended, MeasuredInFocusHfr = hfr, FitRSquared = rSquared
+        };
+
+    [Test]
+    public void DetectionBinning_NoMeasuredHfr_HidesTheWholeBlock() {
+        // A degenerate baseline fit has nothing to say about binning, and the bad curve is already on the chart.
+        var s = Binning(1, 1, 1, double.NaN);
+        Assert.Multiple(() => {
+            Assert.That(s.HasDetectionBinningMeasurement, Is.False);
+            Assert.That(s.DetectionBinningDiffers, Is.False);
+            Assert.That(s.DetectionBinningPendingApply, Is.False);
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_FollowsTheVariantsOwnCurve_NotTheBaseline() {
+        // Regression: a run whose OPTIMIZED curve bottomed at 5.1 px reported "measured in-focus HFR 4.3 px, 1x1
+        // unchanged", because the number came from the current-settings curve while the chart showed the optimized
+        // one. The current-settings curve is exactly the one not to trust here — that run's focus precision went
+        // 45.88 -> 6.64 by switching off it.
+        var optimized = new OptimizationSummary {
+            RunDetectionBinning = 1, PersistedDetectionBinning = 1,
+            MeasuredInFocusHfr = 5.1, FitRSquared = 0.99,
+            BaselineMeasuredInFocusHfr = 4.3, BaselineFitRSquared = 0.98,
+            RecommendedDetectionBinning = DetectionBinningResolver.RecommendFromHfr(5.1)
+        };
+        var current = StarDetectionOptimizerWizardVM.BuildCurrentSummary(optimized);
+
+        Assert.Multiple(() => {
+            Assert.That(optimized.MeasuredInFocusHfr, Is.EqualTo(5.1), "the Optimized view reports the optimized curve");
+            Assert.That(optimized.RecommendedDetectionBinning, Is.EqualTo(2), "5.1 px calls for 2x2");
+            Assert.That(optimized.DetectionBinningDiffers, Is.True);
+
+            // The Current view keeps the current settings, so it reports what THOSE measure.
+            Assert.That(current.MeasuredInFocusHfr, Is.EqualTo(4.3));
+            Assert.That(current.RecommendedDetectionBinning, Is.EqualTo(1), "4.3 px is still in range");
+            Assert.That(current.DetectionBinningDiffers, Is.False);
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_PoorFit_SuppressesTheRecommendationEntirely() {
+        // The in-focus HFR is read off the fitted focus curve. When a sweep runs past the point where the
+        // detector can still measure the defocused donuts, those frames report a couple of compact noise blobs
+        // instead, the fit is dragged wildly off, and R2 goes negative. Measured on the simulator at 2800mm: a
+        // +/-320-step sweep put the fitted minimum at 2.16 px against an optics truth of 4.87 px, with
+        // R2 = -0.34. No estimator recovers from that - the underlying curve is junk - so the only honest answer
+        // is to not offer a recommendation at all.
+        var junk = Binning(run: 1, persisted: 1, recommended: 1, hfr: 2.16, rSquared: -0.34);
+        Assert.Multiple(() => {
+            Assert.That(junk.HasDetectionBinningMeasurement, Is.False, "a curve this bad cannot support a recommendation");
+            Assert.That(junk.DetectionBinningDiffers, Is.False);
+            Assert.That(junk.DetectionBinningPendingApply, Is.False);
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_MissingFitQuality_SuppressesTheRecommendation() {
+        // No fit at all (too few points, degenerate curve) leaves R2 NaN. Same rule: say nothing.
+        var noFit = Binning(run: 1, persisted: 1, recommended: 2, hfr: 6.1, rSquared: double.NaN);
+        Assert.That(noFit.HasDetectionBinningMeasurement, Is.False);
+    }
+
+    [Test]
+    public void DetectionBinning_GoodFit_IsAccepted() {
+        // The sound regime the same experiment measured: R2 >= 0.998 at every sweep width where the detector
+        // still tracked the donuts, and the fitted minimum agreed with the optics truth to within 5%.
+        var sound = Binning(run: 1, persisted: 1, recommended: 2, hfr: 4.71, rSquared: 0.9984);
+        Assert.Multiple(() => {
+            Assert.That(sound.HasDetectionBinningMeasurement, Is.True);
+            Assert.That(sound.DetectionBinningDiffers, Is.True);
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_RecommendationMatchesTheRun_ReadsAsConfirmation() {
+        var s = Binning(run: 2, persisted: 2, recommended: 2, hfr: 5.3);
+        Assert.Multiple(() => {
+            Assert.That(s.DetectionBinningDiffers, Is.False);
+            Assert.That(s.DetectionBinningPendingApply, Is.False);
+            Assert.That(s.DetectionBinningText, Is.EqualTo("2x2 (unchanged; measured in-focus HFR 5.3 px)"));
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_RecommendationDiffers_OffersTheChange() {
+        var s = Binning(run: 1, persisted: 1, recommended: 2, hfr: 6.1);
+        Assert.Multiple(() => {
+            Assert.That(s.DetectionBinningDiffers, Is.True);
+            Assert.That(s.DetectionBinningPendingApply, Is.False, "nothing has been re-run yet, so Accept writes no factor");
+            Assert.That(s.DetectionBinningText, Is.EqualTo("1x1 -> 2x2 (measured in-focus HFR 6.1 px)"));
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_AfterOptimizeAgain_IsPendingAndNamesBothFactors() {
+        // The run analyzed at 2x2 while the profile still says 1x1: Accept writes the factor WITH the settings.
+        var s = Binning(run: 2, persisted: 1, recommended: 2, hfr: 6.2);
+        Assert.Multiple(() => {
+            Assert.That(s.DetectionBinningPendingApply, Is.True);
+            Assert.That(s.DetectionBinningDiffers, Is.False, "the run already used the recommended factor");
+            Assert.That(s.DetectionBinningText, Is.EqualTo("1x1 -> 2x2 (applied on Accept; measured in-focus HFR 6.2 px)"));
+        });
+    }
+
+    [Test]
+    public void DetectionBinning_PendingApplyWinsOverAFurtherRecommendation() {
+        // Seeing shifted and the re-run now implies 3x3. The pending 2x2 is still what Accept would write, so the
+        // row must describe that rather than silently advertising a factor nothing was measured at.
+        var s = Binning(run: 2, persisted: 1, recommended: 3, hfr: 8.4);
+        Assert.Multiple(() => {
+            Assert.That(s.DetectionBinningPendingApply, Is.True);
+            Assert.That(s.DetectionBinningDiffers, Is.True);
+            Assert.That(s.DetectionBinningText, Is.EqualTo("1x1 -> 2x2 (applied on Accept; measured in-focus HFR 8.4 px)"));
+        });
     }
 }

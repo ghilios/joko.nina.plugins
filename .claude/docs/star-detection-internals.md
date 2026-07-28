@@ -26,6 +26,44 @@ unaffected) for cleaner sigma/FWHM/eccentricity.
 
 For the headless TestApp diagnostic that exercises this test, see `testapp-cli.md`.
 
+## Software Detection Binning
+
+`StarDetectorParams.DetectionBinning` (int, 1 = off) resamples the frame at the top of
+`BuildDetectionContextInternal`, so **the whole pipeline runs in binned pixels** and every pixel-unit knob
+stays in its calibrated range (in-focus HFR ~2-4 px) regardless of the rig's pixel scale. Non-obvious rules:
+
+- **It is an EARLY param** (`EarlyCacheKeyProperties`) — it changes candidate formation, so an early context
+  can never be reused across factors.
+- **Hotpixel filtering is hoisted above the resample** (native resolution). A hot pixel averaged into its
+  block is no longer the isolated outlier the filter looks for.
+- **Everything pixel-valued is scaled back to SOURCE pixels** at the end of `GateAndMeasureInternal`, BEFORE
+  the ROI offset (the ROI is cropped at native resolution, so its offset is already in source pixels):
+  `Star.ScaleToSourcePixels`, `StarDetectorMetrics.ScaleBounds`, `PSFModel.ScaledToSourcePixels`. Centers
+  pick up a `(b-1)/2` half-block shift; intensities are unchanged (mean binning preserves level);
+  `PSF.FWHMArcsecs` is NOT rescaled because `StarDetectorParams.PixelScale` already carries the factor.
+  `HocusFocusStarDetection.SourcePixelScale` divides it back out for anything user-facing.
+- **The factor is always explicit — there is no Auto, deliberately.** A self-resolving factor would change
+  detection behavior on upgrade and invalidate already-tuned settings. `Utility/DetectionBinningResolver`
+  RECOMMENDS one (options page + optimization wizard) and never writes the setting. `ToFactor` clamps, so an
+  out-of-range persisted value can never bin someone's frames.
+- **The recommendation comes from a MEASUREMENT, never from pixel scale.** `InFocusHfrRecord` holds the last
+  auto-focus run's FINAL HFR (a real exposure at the settled position), written from
+  `AutoFocusEngine.OnCompleted` and by a live wizard sweep. Do NOT reintroduce an assumed-seeing estimate:
+  plausible seeing spans ~1.5-4", wider than the whole 1x-vs-2x margin, and the old estimate told a user with
+  3.6 px stars to bin 2x2.
+- **Never read the in-focus HFR off the fitted curve vertex without checking the fit.** Past ~22 px of defocus
+  the detector loses the donuts and reports ~2 px noise blobs; those points drag the vertex to 2.16 px against
+  a 4.87 px truth, with R2 negative. The wizard gates on R2 >= 0.9
+  (`OptimizationSummary.MinRSquaredForBinningRecommendation`). Evidence:
+  `Tests/CameraSimulator/InFocusHfrDiagnosticTests`.
+- The optimization wizard changes the factor ONLY via "Optimize again at NxN": it re-runs the search on the
+  saved frames at the new factor (stamped onto the reloaded seed/baseline in `LoadRunStampedAsync`, nothing
+  persisted) and Accept writes the factor together with the settings measured at it. Don't add an
+  apply-the-factor-alone path — that pair is only valid together.
+- **Reported HFR drifts with the factor** (+5% at 2x, +16% at 3x on the capstone frames): higher per-pixel
+  SNR admits more outer flux into the measurement. Harmless for best-focus, but HFR is not comparable across
+  factors — don't "fix" a test that observes this.
+
 ## Star Detection Metrics UI Requirement
 
 Every new field added to `StarDetectorMetrics` (rejection counts, flags, etc.) **must** also be displayed in the star detection metrics panel in `AutoFocus/DataTemplates.xaml`. The metrics panel uses a `UniformGrid Columns="2"` with `StackPanel` pairs. Add new entries using the `HF_ZeroToDoubleDashConverter` pattern:

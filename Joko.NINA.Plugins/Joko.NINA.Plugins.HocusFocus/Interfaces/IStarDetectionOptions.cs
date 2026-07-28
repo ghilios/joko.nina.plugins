@@ -67,6 +67,31 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         MeanOutliers
     }
 
+    /// <summary>
+    /// The software binning factor star detection resamples the frame by BEFORE analyzing it. Detection-only:
+    /// the image NINA displays, and every HFR/position Hocus Focus reports, stay at the resolution the camera
+    /// delivered. The underlying values ARE the factors, so a factor round-trips through this enum.
+    ///
+    /// <para>There is deliberately NO "Auto" member. A factor that resolved itself from the profile would change
+    /// detection behavior the moment a user upgraded, silently invalidating settings they had already tuned.
+    /// <c>DetectionBinningResolver</c> instead RECOMMENDS a factor in the UI and leaves the choice explicit.</para>
+    /// </summary>
+    [TypeConverter(typeof(EnumStaticDescriptionConverter))]
+    public enum DetectionBinningEnum {
+
+        [Description("1x1 (Off)")]
+        Bin1 = 1,
+
+        [Description("2x2")]
+        Bin2 = 2,
+
+        [Description("3x3")]
+        Bin3 = 3,
+
+        [Description("4x4")]
+        Bin4 = 4
+    }
+
     public interface IStarDetectionOptions {
         bool UseAdvanced { get; set; }
         bool ModelPSF { get; set; }
@@ -76,6 +101,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         PixelScaleEnum Simple_PixelScale { get; set; }
         FocusRangeEnum Simple_FocusRange { get; set; }
+
+        // Detection-only software binning. Not derived by the Simple-mode presets — it applies in both modes.
+        DetectionBinningEnum DetectionBinning { get; set; }
 
         // Fine-grained configuration
         bool HotpixelFiltering { get; set; }

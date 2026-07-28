@@ -48,6 +48,8 @@ Internally, this preset chooses the noise-reduction radius, whether measurement-
 
 `WideField` removes a structure layer and shrinks the minimum bounding box; `LongFocalLength` adds a layer, grows the minimum box, and increases sensitivity. See [Structure & Detection](structure-detection.md) and [Star Acceptance Gates](acceptance-gates.md).
 
+This preset compensates for pixel scale by nudging a few knobs. [Detection Binning](detection-binning.md) attacks the same problem directly, by resampling the frame so star size lands back in the range the defaults were built for. It defaults to **1x1 (Off)** and applies in both Simple and Advanced mode.
+
 **Focus Range** — tooltip:
 
 > As you get further from critical focus, stars become large donuts. Star detection will typically consider them too large to be stars when you're far enough from focus. Enabling a wide range increases the number of layers considered for star detection
@@ -156,6 +158,7 @@ A frame flows through the detector in roughly this order. The figure below shows
 | Stage | What happens | Settings page |
 |---|---|---|
 | **Preprocessing & noise** | Hotpixel filtering, optional Gaussian blur, two noise-σ estimates | [Preprocessing & Noise](preprocessing.md) |
+| **Detection binning** | Optional integer resample so star size lands in the detector's calibrated range | [Detection Binning](detection-binning.md) |
 | **Structure & detection** | Wavelet layers → noise-clipped binarization → dilation → candidate flood-fill | [Structure & Detection](structure-detection.md) |
 | **Star acceptance gates** | Size, distortion, centering, sensitivity, flatness, min-HFR checks per candidate | [Star Acceptance Gates](acceptance-gates.md) |
 | **Hot pixels & saturation** | Hotpixel threshold, saturation rejection threshold | [Hot Pixels & Saturation](hotpixel-saturation.md) |
@@ -169,7 +172,7 @@ Each accepted star contributes its HFR (and, with PSF modeling on, FWHM and ecce
 
 Internally the detector splits into an **EARLY** phase (`BuildDetectionContext`) and a **LATE** phase (`GateAndMeasure`):
 
-- **EARLY** parameters affect the prepared image, the candidate region set, and the noise estimates. Changing one forces a **full re-detect**. These are the hotpixel knobs (`HotpixelFiltering`, `HotpixelThresholdingEnabled`, `HotpixelThreshold`), noise reduction (`StarMeasurementNoiseReductionEnabled`, `NoiseReductionRadius`, `NoiseClippingMultiplier`, `LocallyAdaptiveBinarization`, `AdaptiveNoiseBlockSize`), the structure-map knobs (`StructureLayers`, `DefocusAwareStructure`, `StructureLayerBoost`, `StructureDilationSize`, `StructureDilationCount`), `SaturationThreshold`, and the detection `Region`.
+- **EARLY** parameters affect the prepared image, the candidate region set, and the noise estimates. Changing one forces a **full re-detect**. These are the hotpixel knobs (`HotpixelFiltering`, `HotpixelThresholdingEnabled`, `HotpixelThreshold`), noise reduction (`StarMeasurementNoiseReductionEnabled`, `NoiseReductionRadius`, `NoiseClippingMultiplier`, `LocallyAdaptiveBinarization`, `AdaptiveNoiseBlockSize`), the structure-map knobs (`StructureLayers`, `DefocusAwareStructure`, `StructureLayerBoost`, `StructureDilationSize`, `StructureDilationCount`), `SaturationThreshold`, `DetectionBinning`, and the detection `Region`.
 - **LATE** parameters only re-gate or re-measure the candidates that already exist (sensitivity, distortion, centering, min-HFR, PSF settings, the defocus-aware *gate* relaxations, contamination). They are cheap to change.
 
 You don't normally need to think about this when using NINA, where every detection runs the full pipeline anyway. The distinction matters because the [Optimization Wizard](../optimization/index.md) and the headless tooling exploit it: an expensive early context is cached and reused across many late-only candidate moves, which is what makes the optimizer fast. The safe failure mode of the cache is always a redundant recompute, never stale reuse.

@@ -57,8 +57,11 @@ The simulator appears in NINA's normal equipment chooser:
    the **Field Rotation** setting acting as an offset. Without a rotator, **Field Rotation** sets
    the frame rotation directly.
 
-The camera is monochrome, 1×1 binning only, with a gain slider and no cooler control (its
-**Temperature** readout reports the configured sensor temperature). There is no live view.
+The camera is monochrome, with a gain slider and no cooler control (its **Temperature** readout reports the
+configured sensor temperature). There is no live view. Symmetric binning from 1×1 to 4×4 is supported: the
+frame is always rendered at full resolution and then binned by summing each block, clipped at the sensor's
+full-scale ADU, so a binned frame carries the whole block's signal and saturates rather than wrapping. The
+binning factor is stamped into the image metadata, which is what star detection reads to compute pixel scale.
 
 ## Configure the rig
 

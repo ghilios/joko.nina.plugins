@@ -1,9 +1,11 @@
-using NINA.Astrometry;
+﻿using NINA.Astrometry;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Catalog;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Utility;
+using System;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
 
@@ -37,10 +39,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
 
         public static FilterDefinition FilterDef => FilterRegistry.Get(Filter);
 
-        public static TanProjection Projection() {
+        public static TanProjection Projection(double focalLengthMillimeters = FocalLengthMillimeters) {
             var s = SensorDef;
-            return new TanProjection(PointingRaDeg, PointingDecDeg, FocalLengthMillimeters, s.PixelSizeMicrons, 0.0, s.Width, s.Height);
+            return new TanProjection(PointingRaDeg, PointingDecDeg, focalLengthMillimeters, s.PixelSizeMicrons, 0.0, s.Width, s.Height);
         }
+
+        /// <summary>Arcsec per pixel for this scene's sensor at <paramref name="focalLengthMillimeters"/>, including
+        /// any camera binning. The same quantity <c>HocusFocusStarDetection.ApplyDetectionImageContext</c> derives
+        /// from a captured frame, so tests can resolve detection binning exactly the way production does.</summary>
+        public static double PixelScaleArcsecPerPixel(double focalLengthMillimeters, int cameraBinning = 1)
+            => MathUtility.ArcsecPerPixel(SensorDef.PixelSizeMicrons, focalLengthMillimeters) * Math.Max(1, cameraBinning);
 
         public static RenderRequest Request(
                 int focuserPosition,
@@ -50,15 +58,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 double backfocusErrorMicrons = 0.0,
                 double exposureSeconds = ExposureSeconds,
                 int noiseSeed = NoiseSeed,
-                string astapCatalogPath = AstapCatalogPath) {
+                string astapCatalogPath = AstapCatalogPath,
+                double focalLengthMillimeters = FocalLengthMillimeters,
+                double apertureMillimeters = ApertureMillimeters,
+                double limitingMagnitude = LimitingMagnitude) {
             return new RenderRequest {
                 FocuserConnected = true,
                 FocuserPosition = focuserPosition,
                 TelescopeConnected = true,
                 RaDegreesJ2000 = PointingRaDeg,
                 DecDegreesJ2000 = PointingDecDeg,
-                ApertureMillimeters = ApertureMillimeters,
-                FocalLengthMillimeters = FocalLengthMillimeters,
+                ApertureMillimeters = apertureMillimeters,
+                FocalLengthMillimeters = focalLengthMillimeters,
                 CentralObstructionEnabled = false,
                 CentralObstructionFraction = 0.0,
                 OpticalThroughput = OpticalThroughput,
@@ -72,7 +83,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 OptimalFocuserPosition = OptimalFocuserPosition,
                 FocuserStepSizeMicrons = FocuserStepSizeMicrons,
                 AstapCatalogPath = astapCatalogPath,
-                LimitingMagnitude = LimitingMagnitude,
+                LimitingMagnitude = limitingMagnitude,
                 RotationDegrees = 0.0,
                 NoiseSeed = noiseSeed,
                 AberrationsEnabled = aberrationsEnabled,

@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -29,6 +29,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// three times the minimum HFR (averaged over the two sides). <see cref="double.NaN"/> for a degenerate fit.
         /// </summary>
         public double HalfWidth { get; set; }
+
+        /// <summary>
+        /// True when <see cref="HalfWidth"/> landed outside what this sweep actually sampled and was capped (see
+        /// <see cref="StepSizeRecommender.MaxHalfWidthSampledHalfSpanMultiple"/>). The recommendation is then a
+        /// deliberate partial step toward the answer rather than the answer: re-run with it and the next sweep,
+        /// being deeper, produces a better-grounded one.
+        /// </summary>
+        public bool WasCapped { get; set; }
     }
 
     /// <summary>
@@ -51,6 +59,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // Upper bound on the outward search for the half-width, as a multiple of the fit's sampled X span — a
         // guard so a near-flat / degenerate fit cannot loop unboundedly.
         private const double MaxSearchSpanMultiple = 4.0;
+
+        /// <summary>
+        /// How far past the sampled sweep the recommended half-width may reach, as a multiple of the sampled
+        /// HALF-span.
+        ///
+        /// <para>The half-width is read off the FITTED model, so on a sweep too shallow to contain the 3x band it
+        /// comes from extrapolating the hyperbola well beyond any measured point — and the shallower the sweep,
+        /// the further out it goes. Measured on synthetic curves with the exact AF physics, from a +/-2096-step
+        /// sweep: ends at 1.2x the minimum HFR put the half-width 4.3x the sampled half-span out (step 524 ->
+        /// 2554, a +/-10216 sweep); 1.36x put it 3.1x out; only a sweep that already reaches ~3x lands inside the
+        /// data. Recommending a sweep several times wider than anything measured is a claim the data cannot
+        /// support, and it can exceed the focuser's travel.</para>
+        ///
+        /// <para>1.5 caps the per-run correction without changing where it converges: each run widens the sweep,
+        /// the next half-width is better grounded, and a shallow rig reaches the same answer in about three runs
+        /// instead of one unverifiable jump. The cap binds whenever the sweep's ends reach less than roughly
+        /// 2.1x the minimum HFR, and <see cref="StepSizeRecommendation.WasCapped"/> says so.</para>
+        /// </summary>
+        public const double MaxHalfWidthSampledHalfSpanMultiple = 1.5;
 
         /// <summary>
         /// Recommends a step size (and offset steps) from <paramref name="bestFit"/>. Returns the
@@ -88,13 +115,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 halfWidth = 0.5 * (rightW + leftW); // average the two sides (handles asymmetric models)
             }
 
+            // Only trust the model a bounded distance past the data it was fitted to.
+            var wasCapped = false;
+            var maxHalfWidth = MaxHalfWidthSampledHalfSpanMultiple * 0.5 * searchSpan;
+            if (maxHalfWidth > 0.0 && halfWidth > maxHalfWidth) {
+                halfWidth = maxHalfWidth;
+                wasCapped = true;
+            }
+
             var step = (int)Math.Round(halfWidth / PointsPerSide, MidpointRounding.AwayFromZero);
             step = ClampStep(step, focuserMaxStep);
 
             return new StepSizeRecommendation {
                 StepSize = step,
                 OffsetSteps = DefaultOffsetSteps,
-                HalfWidth = halfWidth
+                HalfWidth = halfWidth,
+                WasCapped = wasCapped
             };
         }
 

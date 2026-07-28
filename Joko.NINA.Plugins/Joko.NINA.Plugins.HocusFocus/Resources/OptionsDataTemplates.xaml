@@ -521,6 +521,7 @@
     <TextBlock x:Key="SimpleNoiseLevel_Tooltip" Text="Controls the amount of blurring done on the source image before beginning the star detection process. Increase this if you have a particularly noisy sensor or shoot at a very high focal ratio" />
     <TextBlock x:Key="SimpleFocusRange_Tooltip" Text="As you get further from critical focus, stars become large donuts. Star detection will typically consider them too large to be stars when you're far enough from focus. Enabling a wide range increases the number of layers considered for star detection" />
     <TextBlock x:Key="SimplePixelScale_Tooltip" Text="At high focal lengths, pixel scale decreases and apparent star size (in pixels) increases. Setting this to a higher focal length increases the number of layers considered for star detection, which could increase false positives due from nebulosity" />
+    <TextBlock x:Key="DetectionBinning_Tooltip" Text="Software binning applied to the frame for star detection only. Star detection is calibrated for in-focus stars of roughly 2 to 4 pixels; at long focal lengths stars are much larger than that, which puts the pixel-based settings out of range. Binning the frame for detection brings star size back into range and improves signal to noise per pixel. The image you see and the HFR values reported stay at the resolution the camera captured. This is not NINA's Auto Focus Binning, which changes how the camera captures the auto-focus frames and should match the binning you image at; the two multiply" />
     <TextBlock x:Key="UsePSFAbsoluteDeviation_Tooltip" Text="Enables an experimental PSF fitting approach that is more robust to noise and outlier pixels. This should more closely mimic PixInsight PSF fitting logic" />
     <TextBlock x:Key="RotatedHyperbolicFit_Tooltip" Text="Allows hyperbolic fitting to rotate. This can be useful if your focus curve is asymmetrical." />
     <TextBlock x:Key="MeasurementAverage_Tooltip" Text="Controls how the average star measurement across the frame is calculated. Median is robust to outliers, and is the default." />
@@ -972,8 +973,11 @@
                         TextWrapping="Wrap" />
                 </Button>
             </Grid>
+            <!--  No bottom margin: the per-filter grid below adds none either, so the seam between the
+                  two is exactly one control's 5px top margin - the same spacing as any row inside this
+                  grid. They used to stack (5 + 10 + 5) and read as an unexplained band.  -->
         <Grid
-            Margin="5"
+            Margin="5,5,5,0"
             VerticalAlignment="Top"
             d:DataContext="{d:DesignInstance sd:StarDetectionOptionsVM,
                                              IsDesignTimeCreatable=False}">
@@ -1146,6 +1150,9 @@
                 <!--  52: Locally Adaptive Binarization toggle (advanced-only); 53: its block-size knob (advanced-only).  -->
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
                 <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
+                <!--  54: Detection Binning (always visible - it applies in both Simple and Advanced mode). Its
+                      recommendation lives OUTSIDE this grid, just below it — see the note there.  -->
+                <RowDefinition />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -1851,6 +1858,29 @@
             </ninactrl:UnitTextBox>
 
             <TextBlock
+                Grid.Row="54"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Detection Binning"
+                ToolTip="{StaticResource DetectionBinning_Tooltip}" />
+            <ComboBox
+                Name="PART_DetectionBinningEnumList"
+                Grid.Row="54"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                ItemsSource="{Binding Source={util:EnumBindingSource {x:Type interfaces:DetectionBinningEnum}}}"
+                SelectedItem="{Binding StarDetectionOptions.DetectionBinning}"
+                ToolTip="{StaticResource DetectionBinning_Tooltip}">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Converter={StaticResource HF_EnumStaticDescriptionValueConverter}}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock
                 Grid.Row="19"
                 Grid.Column="0"
                 VerticalAlignment="Center"
@@ -2319,6 +2349,22 @@
                 IsChecked="{Binding StarDetectionOptions.SaveIntermediateImages}"
                 ToolTip="{StaticResource SaveIntermediateFiles_Tooltip}" />
         </Grid>
+            <!--  Detection-binning recommendation. Sits directly below the settings grid (Detection Binning is
+                  that grid's last row), NOT inside it: a wrapping TextBlock in a shared-size grid cell can fail
+                  to converge its measure when UI Automation forces a re-measure, pegging the UI thread — see
+                  OptionsDataTemplatesLayoutTests. Outside the grid it can wrap freely and cannot widen the
+                  shared label/value columns. Hidden unless it has something to ask for.  -->
+            <TextBlock
+                MaxWidth="560"
+                Margin="10,4,5,0"
+                HorizontalAlignment="Left"
+                FontStyle="Italic"
+                Foreground="{StaticResource PrimaryBrush}"
+                Text="{Binding StarDetectionOptions.DetectionBinningHint}"
+                TextWrapping="Wrap"
+                ToolTip="{Binding StarDetectionOptions.DetectionBinningHintDetail}"
+                Visibility="{Binding StarDetectionOptions.DetectionBinningRecommendationVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+
             <!--  Per-filter star detection: master toggle (always visible) + the editing-filter selector and
                   copy-from row (shown only while the feature is on, via the RowDefinition-style pattern). A
                   separate grid BELOW the settings grid and above Import/Export, sharing the settings grid's
@@ -2326,7 +2372,7 @@
                   Binding paths (PerFilterStore.*, PerFilterEditBinder.*, CopyStarDetectionFromFilterCommand)
                   resolve on BOTH hosts: HocusFocusPlugin (plugin options page) and StarDetectionOptionsVM
                   (Imaging dockable) expose identically-named instance properties.  -->
-            <Grid Margin="5,10,5,0" HorizontalAlignment="Left">
+            <Grid Margin="5,0,5,0" HorizontalAlignment="Left">
                 <Grid.Resources>
                     <Style x:Key="ShowOnPerFilterEnabled" TargetType="{x:Type RowDefinition}">
                         <Setter Property="Height" Value="0" />

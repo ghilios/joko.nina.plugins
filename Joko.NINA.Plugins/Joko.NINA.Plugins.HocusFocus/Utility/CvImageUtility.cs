@@ -102,6 +102,52 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return ToOpenCVMat(imageData.Data.FlatArray, bpp: props.BitDepth, width: props.Width, height: props.Height);
         }
 
+        /// <summary>
+        /// Software-bins <paramref name="src"/> by an integer <paramref name="factor"/>, replacing each
+        /// factor×factor block with its MEAN. Mean rather than sum because the pipeline works on [0, 1]-normalized
+        /// floats against an absolute saturation threshold: summing would clip, while the mean preserves the
+        /// level (and with it saturation semantics) and divides uncorrelated noise by <c>factor</c>.
+        ///
+        /// <para>The source is first cropped to a whole multiple of <paramref name="factor"/>, so up to
+        /// <c>factor - 1</c> trailing rows/columns are dropped. That keeps the block mapping exact
+        /// (<c>original = binned * factor + (factor - 1) / 2</c>) rather than letting the resize blend partial
+        /// blocks at the right/bottom edge. On an exact integer downscale <c>InterpolationFlags.Area</c> IS the
+        /// block mean.</para>
+        ///
+        /// <para>Always returns a NEW Mat that the caller owns; <c>factor &lt;= 1</c> yields a clone.</para>
+        /// </summary>
+        public static Mat BinMean(Mat src, int factor) {
+            if (src.Type() != MatType.CV_32F) {
+                throw new ArgumentException("Only CV_32F supported");
+            }
+            if (factor <= 1) {
+                return src.Clone();
+            }
+
+            var binnedWidth = src.Cols / factor;
+            var binnedHeight = src.Rows / factor;
+            if (binnedWidth < 1 || binnedHeight < 1) {
+                throw new ArgumentException($"Binning factor {factor} exceeds the image dimensions ({src.Cols}x{src.Rows})", nameof(factor));
+            }
+
+            var croppedWidth = binnedWidth * factor;
+            var croppedHeight = binnedHeight * factor;
+            var dst = new Mat();
+            try {
+                if (croppedWidth == src.Cols && croppedHeight == src.Rows) {
+                    Cv2.Resize(src, dst, new Size(binnedWidth, binnedHeight), 0, 0, InterpolationFlags.Area);
+                } else {
+                    using (var cropped = src.SubMat(new Rect(0, 0, croppedWidth, croppedHeight))) {
+                        Cv2.Resize(cropped, dst, new Size(binnedWidth, binnedHeight), 0, 0, InterpolationFlags.Area);
+                    }
+                }
+            } catch {
+                dst.Dispose();
+                throw;
+            }
+            return dst;
+        }
+
         public static CvImageStatistics CalculateStatistics(Mat image, Rect? rect = null, CvImageStatisticsFlags flags = CvImageStatisticsFlags.All) {
             if (image.Type() != MatType.CV_32F) {
                 throw new ArgumentException("Only CV_32F supported");
@@ -716,6 +762,46 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 HFR = star.HFR,
                 PSF = star.PSF,
                 StarContaminationSuspected = star.StarContaminationSuspected
+            };
+        }
+
+        /// <summary>
+        /// Re-expresses a star measured on a software-binned frame in SOURCE pixels. Every length grows by
+        /// <paramref name="factor"/>; positions also pick up the <c>(factor - 1) / 2</c> half-block shift, because
+        /// a block mean is sampled at the CENTER of the factor×factor block it replaced. Intensities
+        /// (background, mean/peak brightness) are unchanged — mean binning preserves the level.
+        /// </summary>
+        public static Star ScaleToSourcePixels(this Star star, int factor) {
+            if (factor <= 1) {
+                return star;
+            }
+            var centerShift = (factor - 1) / 2.0;
+            return new Star() {
+                Center = new Point2d(star.Center.X * factor + centerShift, star.Center.Y * factor + centerShift),
+                StarBoundingBox = new Rect(
+                    star.StarBoundingBox.X * factor,
+                    star.StarBoundingBox.Y * factor,
+                    star.StarBoundingBox.Width * factor,
+                    star.StarBoundingBox.Height * factor),
+                Background = star.Background,
+                // The plane's origin is a point, so it moves like the center; its slopes are per-pixel rates, so
+                // they shrink by the same factor. ValueAt(scaled point) then equals the original plane's value at
+                // the corresponding binned point.
+                BackgroundPlane = star.BackgroundPlane == null
+                    ? null
+                    : new LocalBackgroundPlane(
+                        star.BackgroundPlane.OriginX * factor + centerShift,
+                        star.BackgroundPlane.OriginY * factor + centerShift,
+                        star.BackgroundPlane.B0,
+                        star.BackgroundPlane.B1 / factor,
+                        star.BackgroundPlane.B2 / factor,
+                        star.BackgroundPlane.IsFlat),
+                MeanBrightness = star.MeanBrightness,
+                PeakBrightness = star.PeakBrightness,
+                HFR = star.HFR * factor,
+                PSF = star.PSF?.ScaledToSourcePixels(factor),
+                StarContaminationSuspected = star.StarContaminationSuspected,
+                RelaxationAdmitted = star.RelaxationAdmitted
             };
         }
 

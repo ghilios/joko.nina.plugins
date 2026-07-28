@@ -168,6 +168,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         public byte[] StructureMap;
 
         public Rectangle DetectionROI;
+
+        /// <summary>
+        /// The software binning factor detection ran at. <see cref="StructureMap"/> is a raster of the BINNED
+        /// image, so it is <c>DetectionROI.Width / Binning</c> wide: each entry covers a
+        /// <c>Binning × Binning</c> block of <see cref="DetectionROI"/>. 1 when binning is off.
+        /// </summary>
+        public int Binning = 1;
     }
 
     public class HocusFocusStarDetectionResult : StarDetectionResult {
@@ -461,7 +468,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// </summary>
         private StarDetectorParams BuildStarDetectorParams(IStarDetectionOptions effectiveOptions, IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus) {
             var detectorParams = BuildStarDetectorParams(effectiveOptions);
-            ApplyDetectionImageContext(detectorParams, image, starDetectionRegion, isAutoFocus);
+            ApplyDetectionImageContext(detectorParams, image, starDetectionRegion, isAutoFocus, effectiveOptions.DetectionBinning);
             if (!isAutoFocus) {
                 // Only save intermediate images for 1 detection. Doing this again should require the user to pick it again.
                 // SaveIntermediateImages is machine-local by scope decision, so the one-shot reset always targets the
@@ -506,7 +513,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // options — then layer on the same image context + auto-focus overrides as the standard path, so a
             // capture-time replay produces identical params to a live run configured with those settings.
             var detectorParams = BuildStarDetectorParams(optionsOverride);
-            ApplyDetectionImageContext(detectorParams, image, starDetectionRegion, isAutoFocus);
+            ApplyDetectionImageContext(detectorParams, image, starDetectionRegion, isAutoFocus, optionsOverride.DetectionBinning);
             return detectorParams;
         }
 
@@ -519,18 +526,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// </summary>
         public StarDetectorParams GetDefaultStarDetectorParams(IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus) {
             var detectorParams = BuildDefaultStarDetectorParams();
-            ApplyDetectionImageContext(detectorParams, image, starDetectionRegion, isAutoFocus);
+            // Binning is the ONE image-context field the seed does NOT reset: it describes the rig (how many pixels
+            // a star spans), not a tunable the optimizer explores. Seeding it at 1x while the user runs at 2x would
+            // tune the search against pixels they will never analyze, and would make the seed's score incomparable
+            // with the baseline's. Read from the live options (never mutated).
+            ApplyDetectionImageContext(detectorParams, image, starDetectionRegion, isAutoFocus, starDetectionOptions.DetectionBinning);
             return detectorParams;
         }
 
         /// <summary>
-        /// Layers the image-dependent fields (PixelScale from the profile × binning, Region) and the auto-focus
-        /// overrides (ModelPSF=false, no intermediate-file save) onto an already-built params bundle. Pure with
-        /// respect to options — shared by <see cref="GetStarDetectorParams"/> and
-        /// <see cref="GetDefaultStarDetectorParams"/> so the two can never diverge in how they compute pixel scale or
-        /// apply the AF overrides.
+        /// Layers the image-dependent fields (PixelScale from the profile × binning, the resolved software
+        /// <see cref="StarDetectorParams.DetectionBinning"/>, Region) and the auto-focus overrides (ModelPSF=false,
+        /// no intermediate-file save) onto an already-built params bundle. Pure with respect to options — shared by
+        /// <see cref="GetStarDetectorParams"/> and <see cref="GetDefaultStarDetectorParams"/> so the two can never
+        /// diverge in how they compute pixel scale or apply the AF overrides.
         /// </summary>
-        private void ApplyDetectionImageContext(StarDetectorParams detectorParams, IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus) {
+        private void ApplyDetectionImageContext(StarDetectorParams detectorParams, IRenderedImage image, StarDetectionRegion starDetectionRegion, bool isAutoFocus, DetectionBinningEnum detectionBinning) {
             var binning = Math.Max(image.RawImageData.MetaData.Camera.BinX, 1);
             var pixelScale = MathUtility.ArcsecPerPixel(profileService.ActiveProfile.CameraSettings.PixelSize, profileService.ActiveProfile.TelescopeSettings.FocalLength) * binning;
             if (double.IsNaN(pixelScale)) {
@@ -541,7 +552,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Logger.Warning("Pixel Scale is NaN. Make sure pixel size and focal length are set in Options.");
             }
 
-            detectorParams.PixelScale = pixelScale;
+            // The user's explicit factor. It is never derived here: a detection binning that resolved itself would
+            // change how frames are analyzed the moment the plugin updated, silently invalidating tuned settings.
+            // The UI recommends a factor (DetectionBinningResolver) and the user chooses.
+            var softwareBinning = DetectionBinningResolver.ToFactor(detectionBinning);
+            detectorParams.DetectionBinning = softwareBinning;
+
+            // Detection runs in BINNED pixels, so the scale it reasons in is the binned scale. That keeps the one
+            // arcsec-valued output (PSF.FWHMArcsecs) physical while every pixel-valued output is measured in binned
+            // pixels — the detector scales those back to source pixels before returning. Consumers that want the
+            // frame's own pixel scale divide back out by DetectionBinning (see BuildResultHeader).
+            detectorParams.PixelScale = pixelScale * softwareBinning;
             detectorParams.Region = starDetectionRegion;
 
             // For AutoFocus, don't save intermediate data or model PSFs.
@@ -556,6 +577,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // extremes.
             }
         }
+
+        /// <summary>
+        /// The pixel scale of the frame AS CAPTURED, which is what results report and the UI shows.
+        /// <see cref="StarDetectorParams.PixelScale"/> is the BINNED scale the detector reasons in (see
+        /// <see cref="ApplyDetectionImageContext"/>), so divide the software binning factor back out — every
+        /// pixel-valued field on the result is already back in source pixels, and this keeps the two consistent.
+        /// </summary>
+        private static double SourcePixelScale(StarDetectorParams detectorParams)
+            => detectorParams.PixelScale / Math.Max(1, detectorParams.DetectionBinning);
 
         public async Task<StarDetectionResult> Detect(IRenderedImage image, HocusFocusDetectionParams hocusFocusParams, StarDetectorParams detectorParams, IProgress<ApplicationStatus> progress, CancellationToken token) {
             var result = BuildResultHeader(image, hocusFocusParams, detectorParams, out var imageSize, out var _);
@@ -582,7 +612,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Region = detectorParams.Region,
                 FocuserPosition = focuserMediator.GetInfo().Position,
                 PixelSize = pixelSize,
-                PixelScale = detectorParams.PixelScale,
+                PixelScale = SourcePixelScale(detectorParams),
                 MeasurementAverage = detectorParams.MeasurementAverage,
                 DetectorVersion = StarDetector.StarDetectorVersion,
                 CacheKey = StarDetector.ComputeCacheKey(detectorParams)
@@ -617,7 +647,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Region = detectorParams.Region,
                 FocuserPosition = context.FocuserPosition,
                 PixelSize = context.PixelSize,
-                PixelScale = detectorParams.PixelScale,
+                PixelScale = SourcePixelScale(detectorParams),
                 MeasurementAverage = detectorParams.MeasurementAverage,
                 DetectorVersion = StarDetector.StarDetectorVersion,
                 CacheKey = StarDetector.ComputeCacheKey(detectorParams)

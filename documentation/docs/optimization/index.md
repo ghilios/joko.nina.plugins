@@ -49,6 +49,20 @@ The high-level loop has three steps:
 
 *The summary shows the resulting focus curve, focus precision, and a recommended autofocus step size.*
 
+The summary also reports a recommended **detection binning**. The search holds
+[Detection Binning](../settings/detection-binning.md) fixed, but it reads the in-focus HFR off your fitted
+focus curve and reports the factor that implies.
+
+The recommendation only appears when the fit is sound (R² of at least 0.9). A sweep that runs far enough out
+that the detector loses the defocused donuts reports compact noise blobs instead, and those drag the fitted
+minimum well away from the truth.
+
+If the measurement calls for a different factor, the only action offered is **Optimize again at NxN**. It
+repeats the search at that factor on the frames already captured, with no new exposures and no focuser
+movement. Nothing is written until you **Accept** the new result, which applies the factor and the settings
+tuned at it together; the factor is never applied on its own, because settings tuned at one factor are not
+valid at another. You can always accept the run as it stands instead.
+
 Optionally, you can label a handful of hard frames (missed stars, false positives) to add a
 **recall/precision** term to the score (recall = the fraction of real stars recovered; precision = the
 fraction of accepted detections that are real). This term is decisive for dim or bloated, out-of-focus
@@ -92,8 +106,10 @@ A live run goes like this:
    on the current focuser position, so it has to start near focus.
 2. Choose **Live Auto-Focus**, set the **Exposure**, and choose the folder to **Save captured frames
    to**. The camera and focuser must be connected, and **Start** stays disabled until you pick a save
-   folder. The panel also shows the step size, number of points, binning, filter, and gain the sweep
-   will use; these come from your profile's auto-focus settings.
+   folder. The panel also shows the step size, number of points, capture binning, filter, and gain the
+   sweep will use; these come from your profile's auto-focus settings. **Detection binning** can also be
+   changed here; the whole search is tuned at whatever factor is in effect when the run starts (see
+   [Detection Binning](../settings/detection-binning.md)). A Replay run has the same control.
 3. Press **Start** and confirm the telescope is roughly focused when prompted. The wizard moves the
    focuser out and steps back across the range set by your profile's auto-focus step size and offset
    steps, saves a frame at each point, then returns the focuser to where it started. The sweep does not

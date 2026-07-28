@@ -93,6 +93,25 @@ All tooltips below are quoted verbatim from the plugin UI.
     - Set **Max Concurrency** to a non-zero cap only if frame processing is starving memory or CPU on a slow machine; leave it at 0 (no limit) otherwise.
     - Set a non-zero **Focuser Offset** only for a measured, repeatable focus bias in your train. It is an advanced-only fixed nudge applied after the calculated position.
 
+## Binning during autofocus
+
+Two separate settings decide how many pixels an autofocus frame is measured on.
+
+**NINA's Auto Focus Binning** (Options → Focuser, and per filter in the filter wheel settings) changes the
+capture: the camera returns a smaller frame with larger pixels. Set it to the binning you image at, so focus
+is found for the frames you actually shoot. Hocus Focus reads it back from the frame's metadata to compute
+pixel scale.
+
+**Hocus Focus Detection Binning** (Star Detector tab, default **1x1**) does not touch the capture. It
+resamples the frame for star detection only, to bring star sizes into the range the detector is tuned for,
+and every HFR it reports comes back in the captured frame's pixels. It never changes itself: a line under the
+setting recommends a factor from your last measured in-focus HFR, and you choose. See
+[Detection Binning](../settings/detection-binning.md).
+
+The two multiply. If you raise Detection Binning while Auto Focus Binning is above 1x1, Hocus Focus explains
+the difference and offers to set the NINA setting back to 1x1. The recommendation already accounts for camera
+binning, so it backs off on its own when the camera is already binning.
+
 ## How it uses the star detector
 
 Every HFR measurement comes from the same Hocus Focus star detector documented in [Star detection](star-detection.md), run with autofocus-specific overrides:

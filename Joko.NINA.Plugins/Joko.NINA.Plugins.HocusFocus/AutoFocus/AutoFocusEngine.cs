@@ -2908,6 +2908,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     RejectedPoints = s.RejectedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray(),
                     WindowExcludedPoints = s.WindowExcludedPoints.Select(p => new AutoFocusRegionPoint() { FocuserPosition = p.Key, Measurement = p.Value }).ToArray()
                 }).ToImmutableList();
+            // Publish the run's FINAL HFR — a real exposure taken at the position the run settled on — as the
+            // measured in-focus HFR the detection-binning recommendation reads. Deliberately NOT the fitted curve
+            // minimum: on a sweep wide enough that the detector loses the defocused donuts, the outer frames report
+            // compact noise blobs and drag that vertex far below truth. The primary (first) region is the
+            // full-frame one on the standard auto-focus path.
+            var measuredInFocusHfr = regionHFRs.FirstOrDefault()?.FinalHFR;
+            if (measuredInFocusHfr.HasValue) {
+                HocusFocusPlugin.InFocusHfr?.Record(measuredInFocusHfr.Value, DateTime.UtcNow, "auto-focus final HFR");
+            }
+
             Completed?.Invoke(this, new AutoFocusCompletedEventArgs() {
                 Iteration = iteration,
                 InitialFocusPosition = initialFocuserPosition,
