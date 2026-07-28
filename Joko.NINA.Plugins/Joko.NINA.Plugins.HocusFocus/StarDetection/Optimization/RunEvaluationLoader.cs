@@ -273,6 +273,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 var hfrs = result.StarList == null
                     ? (IReadOnlyList<double>)Array.Empty<double>()
                     : result.StarList.Select(s => s.HFR).ToList();
+                // Per-star measured Sensitivity-gate SNRs, PARALLEL to centers (same StarList; see StarSnrs) —
+                // inert data for a later exposure-recommendation feature. StarList is built by a single ordered
+                // .Select(ToDetectedStar) (HocusFocusStarDetection.BuildStarDetectionResult), so centers/HFRs/SNRs
+                // all derive from that one list and stay parallel. A failed cast surfaces as NaN, not silently 0.
+                var snrs = result.StarList == null
+                    ? (IReadOnlyList<double>)Array.Empty<double>()
+                    : result.StarList.Select(s => (s as HocusFocusDetectedStar)?.MeasuredSensitivity ?? double.NaN).ToList();
                 var imageSize = (result as HocusFocusStarDetectionResult)?.ImageSize ?? System.Drawing.Size.Empty;
                 return new FrameDetectionResult {
                     AverageHFR = result.AverageHFR,
@@ -280,6 +287,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     StarCount = result.DetectedStars,
                     StarCenters = centers,
                     StarHFRs = hfrs,
+                    StarSnrs = snrs,
                     ImageWidth = imageSize.Width,
                     ImageHeight = imageSize.Height,
                     // Relaxation-admitted accepted-star count for this frame (0 unless a defocus-aware gate is on),

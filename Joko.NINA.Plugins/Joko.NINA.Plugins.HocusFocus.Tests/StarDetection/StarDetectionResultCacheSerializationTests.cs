@@ -53,7 +53,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                     PSF = BuildPsf(),
                     NormalisedBrightness = 0.42f,
                     OriginalPosition = new Accord.Point(100.5f, 200.25f),
-                    StarContaminationSuspected = true
+                    StarContaminationSuspected = true,
+                    MeasuredSensitivity = 8.75
                 },
                 new HocusFocusDetectedStar {
                     HFR = 3.1,
@@ -64,6 +65,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                     BoundingBox = new Rectangle(290, 390, 20, 20),
                     PSF = null, // a star without a fitted PSF must also survive
                     NormalisedBrightness = 0.77f
+                    // MeasuredSensitivity intentionally left at its double.NaN default (see RoundTrip_PreservesMeasuredSensitivityNaNDefault).
                 }
             };
 
@@ -125,7 +127,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 Assert.That(star.BoundingBox.Height, Is.EqualTo(12));
                 Assert.That(star.StarContaminationSuspected, Is.True);
                 Assert.That(star.NormalisedBrightness, Is.EqualTo(0.42f).Within(1e-6f));
+                Assert.That(star.MeasuredSensitivity, Is.EqualTo(8.75).Within(1e-9));
             });
+        }
+
+        [Test]
+        public void RoundTrip_PreservesMeasuredSensitivityNaNDefault() {
+            // Newtonsoft's default FloatFormatHandling.String writes NaN as the quoted, valid, parseable "NaN"
+            // token, so the never-set default must round-trip back to NaN rather than 0 or a serialization error.
+            var json = StarDetectionResultCacheSerializer.Serialize(BuildResult());
+            var restored = StarDetectionResultCacheSerializer.Deserialize(json);
+            var star = (HocusFocusDetectedStar)restored.StarList[1];
+
+            Assert.That(double.IsNaN(star.MeasuredSensitivity), Is.True);
         }
 
         [Test]

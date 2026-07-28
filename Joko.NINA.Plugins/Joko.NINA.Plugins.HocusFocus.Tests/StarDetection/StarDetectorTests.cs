@@ -365,6 +365,65 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         }
 
         // -----------------------------------------------------------------------
+        // Star.MeasuredSensitivity (F-exposure-recommendation groundwork: plumb the already-computed gate scalar
+        // out to Star, informational only — see IStarDetector.cs doc comment)
+        // -----------------------------------------------------------------------
+
+        private static Mat BuildSingleStarField() {
+            const int w = 256, h = 256;
+            var mat = SyntheticStarField.CreateFlat(w, h, 0.05f);
+            SyntheticStarField.AddStar(mat, cx: 128, cy: 128, sigma: 2.5, peak: 0.5);
+            SyntheticDefocusedStarImage.AddGaussianNoise(mat, sigma: 0.02, seed: 13579);
+            return mat;
+        }
+
+        [Test]
+        public async Task MeasuredSensitivity_AcceptedStar_FiniteAndAboveThreshold() {
+            var p = StarDetectorEquivalence.StandardParams();
+
+            using var field = BuildSingleStarField();
+            var result = await StarDetectorEquivalence.RunDetect(field, p);
+
+            Assert.That(result.DetectedStars, Has.Count.EqualTo(1), "a single well-formed star must be accepted");
+            var star = result.DetectedStars[0];
+            Assert.Multiple(() => {
+                Assert.That(double.IsNaN(star.MeasuredSensitivity), Is.False, "accepted star must carry a finite MeasuredSensitivity");
+                Assert.That(star.MeasuredSensitivity, Is.GreaterThan(p.Sensitivity), "must be on the accept side of the gate it just passed");
+            });
+        }
+
+        [Test]
+        public async Task MeasuredSensitivity_EqualsExactGateComparedScalar_ViaThresholdInversion() {
+            // Independent oracle: with StarDetectorParams.CollectRejectedCandidateDiagnostics on, a LowSensitivity
+            // rejection records RejectedCandidateRecord.MeasuredValue = the SAME `sensitivity` local the gate
+            // compared (StarDetector.cs, EvaluateStarCandidate, just before the LowSensitivity gate) — it is not
+            // re-derived. Push the SAME deterministic candidate (same seed ⇒ identical candidate formation;
+            // Sensitivity is a LATE-only gate param, so it cannot perturb candidate formation) across the
+            // accept/reject boundary by setting Sensitivity to exactly the accepting run's MeasuredSensitivity (the
+            // gate is `sensitivity <= p.Sensitivity`, so an exact match now rejects) and confirm the diagnostics
+            // record's MeasuredValue equals Star.MeasuredSensitivity from the accepting run — proving
+            // MeasuredSensitivity IS the scalar the gate compares (for a non-extended candidate, NormalizedBrightness
+            // / σ — DefocusAwareDonutDetection is off in StandardParams, so the donut branch is never taken).
+            var pAccept = StarDetectorEquivalence.StandardParams();
+            using var fieldAccept = BuildSingleStarField();
+            var acceptResult = await StarDetectorEquivalence.RunDetect(fieldAccept, pAccept);
+            Assert.That(acceptResult.DetectedStars, Has.Count.EqualTo(1), "a single well-formed star must be accepted");
+            var measuredSensitivity = acceptResult.DetectedStars[0].MeasuredSensitivity;
+
+            var pReject = StarDetectorEquivalence.StandardParams();
+            pReject.Sensitivity = measuredSensitivity;
+            pReject.CollectRejectedCandidateDiagnostics = true;
+            using var fieldReject = BuildSingleStarField();
+            var rejectResult = await StarDetectorEquivalence.RunDetect(fieldReject, pReject);
+
+            Assert.That(rejectResult.DetectedStars, Is.Empty, "exact-match Sensitivity threshold must now reject the star (gate is <=)");
+            var lowSens = rejectResult.RejectedCandidates.Where(r => r.Gate == RejectionGate.LowSensitivity).ToList();
+            Assert.That(lowSens, Has.Count.EqualTo(1));
+            Assert.That(lowSens[0].MeasuredValue, Is.EqualTo(measuredSensitivity).Within(1e-12),
+                "the LowSensitivity gate's recorded scalar must equal Star.MeasuredSensitivity exactly — the same underlying variable");
+        }
+
+        // -----------------------------------------------------------------------
         // ComputeIterativeCentroid tests
         // -----------------------------------------------------------------------
 

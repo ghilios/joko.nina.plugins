@@ -224,8 +224,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         public bool StarContaminationSuspected { get; set; }
 
+        /// <summary>
+        /// INFORMATIONAL ONLY, carried straight through from <see cref="Star.MeasuredSensitivity"/> by
+        /// <see cref="ToDetectedStar"/> — the exact scalar the Sensitivity gate compared this star against.
+        /// NaN for any star not produced by that projection (e.g. hand-built in tests). This is the lossy
+        /// boundary the optimizer's path goes through (<c>DetectedStar</c> has no such field), so it must be
+        /// re-declared here rather than inherited.
+        /// </summary>
+        public double MeasuredSensitivity { get; set; } = double.NaN;
+
         public override string ToString() {
-            return $"{{{nameof(PSF)}={PSF}, {nameof(HFR)}={HFR.ToString()}, {nameof(Position)}={Position.ToString()}, {nameof(AverageBrightness)}={AverageBrightness.ToString()}, {nameof(MaxBrightness)}={MaxBrightness.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(BoundingBox)}={BoundingBox.ToString()}, {nameof(StarContaminationSuspected)}={StarContaminationSuspected.ToString()}}}";
+            return $"{{{nameof(PSF)}={PSF}, {nameof(HFR)}={HFR.ToString()}, {nameof(Position)}={Position.ToString()}, {nameof(AverageBrightness)}={AverageBrightness.ToString()}, {nameof(MaxBrightness)}={MaxBrightness.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(BoundingBox)}={BoundingBox.ToString()}, {nameof(StarContaminationSuspected)}={StarContaminationSuspected.ToString()}, {nameof(MeasuredSensitivity)}={MeasuredSensitivity.ToString()}}}";
         }
     }
 
@@ -813,7 +822,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 Background = star.Background,
                 BoundingBox = star.StarBoundingBox.ToDrawingRectangle(),
                 PSF = star.PSF,
-                StarContaminationSuspected = star.StarContaminationSuspected
+                StarContaminationSuspected = star.StarContaminationSuspected,
+                MeasuredSensitivity = star.MeasuredSensitivity
             };
         }
 

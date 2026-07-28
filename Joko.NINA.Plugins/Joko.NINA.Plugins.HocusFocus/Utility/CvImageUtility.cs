@@ -741,6 +741,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return new Accord.Point(x: (float)point.X, y: (float)point.Y);
         }
 
+        // NOTE: this helper currently drops RelaxationAdmitted (not carried into the returned Star) — a known gap,
+        // tracked as a separate follow-up task. Not fixed here.
         public static Star AddOffset(this Star star, int xOffset, int yOffset) {
             return new Star() {
                 Center = star.Center.Add(new Point2d(xOffset, yOffset)),
@@ -761,7 +763,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 PeakBrightness = star.PeakBrightness,
                 HFR = star.HFR,
                 PSF = star.PSF,
-                StarContaminationSuspected = star.StarContaminationSuspected
+                StarContaminationSuspected = star.StarContaminationSuspected,
+                // A translation changes nothing about a dimensionless SNR ratio.
+                MeasuredSensitivity = star.MeasuredSensitivity
             };
         }
 
@@ -801,7 +805,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 HFR = star.HFR * factor,
                 PSF = star.PSF?.ScaledToSourcePixels(factor),
                 StarContaminationSuspected = star.StarContaminationSuspected,
-                RelaxationAdmitted = star.RelaxationAdmitted
+                RelaxationAdmitted = star.RelaxationAdmitted,
+                // A ratio of two intensities (like MeanBrightness/PeakBrightness above) — mean binning preserves
+                // level for both the numerator and the denominator, so this needs no rescaling.
+                MeasuredSensitivity = star.MeasuredSensitivity
             };
         }
 

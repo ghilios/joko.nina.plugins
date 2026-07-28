@@ -1818,7 +1818,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 MeanBrightness = starCandidate.TotalFlux / starCandidate.PixelCount,
                 StarBoundingBox = starBounds,
                 PeakBrightness = starCandidate.Peak,
-                RelaxationAdmitted = relaxationAdmitted
+                RelaxationAdmitted = relaxationAdmitted,
+                // Informational only — the exact `sensitivity` scalar the gate above just compared against
+                // p.Sensitivity (donut branch already applied, if taken). No new computation.
+                MeasuredSensitivity = sensitivity
             };
 
             // Measure HFR, and discard if we couldn't calculate it

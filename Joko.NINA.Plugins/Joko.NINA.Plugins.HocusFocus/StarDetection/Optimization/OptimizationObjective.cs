@@ -205,6 +205,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // SHfrOutlier returns exactly 1.0 (J bit-identical at the baseline).
         public IReadOnlyList<IReadOnlyList<double>> FrameStarHFRs { get; set; }
 
+        // Per-frame accepted-star measured Sensitivity-gate SNRs (JAGGED; PARALLEL to FrameStarCounts, with
+        // element counts matching per frame), mirroring FrameStarHFRs above. INERT DATA — no sub-score and no term
+        // of JRun reads it; it is plumbed through purely so a later exposure-recommendation feature can read the
+        // measured per-star SNR when the optimizer floors the Sensitivity gate.
+        public IReadOnlyList<IReadOnlyList<double>> FrameStarSnrs { get; set; }
+
         // Per-frame region-occupancy fraction in [0, 1] (or NaN where geometry was unavailable), PARALLEL to
         // FrameStarCounts. Feeds the region-coverage reward (SCoverage). Null ⇒ coverage is excluded from JRun
         // entirely (J bit-identical at the baseline).

@@ -291,7 +291,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 PeakBrightness = 0.7,
                 HFR = 3.0,
                 StarContaminationSuspected = true,
-                RelaxationAdmitted = true
+                RelaxationAdmitted = true,
+                MeasuredSensitivity = 5.5
             };
 
             var scaled = star.ScaleToSourcePixels(3);
@@ -311,6 +312,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                     Is.EqualTo(star.BackgroundPlane.ValueAt(star.Center.X + 1.0, star.Center.Y)).Within(1e-12));
                 Assert.That(scaled.StarContaminationSuspected, Is.True);
                 Assert.That(scaled.RelaxationAdmitted, Is.True);
+                // A ratio of two intensities — mean binning preserves level for both, so it is carried UNSCALED.
+                Assert.That(scaled.MeasuredSensitivity, Is.EqualTo(5.5).Within(1e-12));
                 Assert.That(star.ScaleToSourcePixels(1), Is.SameAs(star));
             });
         }

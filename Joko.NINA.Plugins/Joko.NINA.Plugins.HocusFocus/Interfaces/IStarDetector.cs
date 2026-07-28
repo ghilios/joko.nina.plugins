@@ -694,8 +694,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// </summary>
         public bool RelaxationAdmitted { get; set; }
 
+        /// <summary>
+        /// INFORMATIONAL ONLY (never affects an accept/reject decision, never enters the optimizer objective). The
+        /// exact scalar the Sensitivity gate compared this star against: <c>NormalizedBrightness / σ</c>, or — when
+        /// <see cref="StarDetectorParams.DefocusAwareDonutDetection"/> admits the integrated-flux path for an
+        /// extended candidate — the larger of that and the donut integrated-flux SNR (whichever the gate actually
+        /// used). Dimensionless (a ratio of two intensities / a ratio of flux to noise), so it needs no rescaling
+        /// under detection binning
+        /// (<see cref="NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility.ScaleToSourcePixels(Star, int)"/>) or an
+        /// ROI offset (<see cref="NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility.AddOffset"/>).
+        /// <see cref="double.NaN"/> at every legacy construction site that doesn't set it. Feeds a later
+        /// exposure-time recommendation when the optimizer floors the Sensitivity gate.
+        /// </summary>
+        public double MeasuredSensitivity { get; set; } = double.NaN;
+
         public override string ToString() {
-            return $"{{{nameof(Center)}={Center.ToString()}, {nameof(StarBoundingBox)}={StarBoundingBox.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(MeanBrightness)}={MeanBrightness.ToString()}, {nameof(PeakBrightness)}={PeakBrightness.ToString()}, {nameof(HFR)}={HFR.ToString()}, {nameof(PSF)}={PSF}, {nameof(StarContaminationSuspected)}={StarContaminationSuspected}, {nameof(RelaxationAdmitted)}={RelaxationAdmitted}}}";
+            return $"{{{nameof(Center)}={Center.ToString()}, {nameof(StarBoundingBox)}={StarBoundingBox.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(MeanBrightness)}={MeanBrightness.ToString()}, {nameof(PeakBrightness)}={PeakBrightness.ToString()}, {nameof(HFR)}={HFR.ToString()}, {nameof(PSF)}={PSF}, {nameof(StarContaminationSuspected)}={StarContaminationSuspected}, {nameof(RelaxationAdmitted)}={RelaxationAdmitted}, {nameof(MeasuredSensitivity)}={MeasuredSensitivity.ToString()}}}";
         }
     }
 

@@ -40,6 +40,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// case the penalty is inert (objective bit-identical).</summary>
         public IReadOnlyList<double> StarHFRs { get; set; }
 
+        /// <summary>Accepted-star measured Sensitivity-gate SNRs (PARALLEL to <see cref="StarCenters"/>; same
+        /// surviving set, same order) — i.e. <see cref="Star.MeasuredSensitivity"/> carried through. INERT DATA: no
+        /// sub-score or objective term reads this yet; it exists so a later exposure-recommendation feature can read
+        /// the measured per-star SNR without re-plumbing. NaN entries where the caller can't determine it (e.g. a
+        /// failed cast to the concrete star type).</summary>
+        public IReadOnlyList<double> StarSnrs { get; set; }
+
         /// <summary>Full-frame sensor dimensions (pixels) used to convert <see cref="StarCenters"/> to ratio coords
         /// for the region-coverage metric. 0 when unknown, in which case coverage is skipped for the frame.</summary>
         public int ImageWidth { get; set; }
@@ -620,6 +627,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var frameRelaxationAdmittedCounts = new List<int>(frames.Count);
             var frameFocuserPositions = new List<int>(frames.Count);
             var frameStarHfrs = new List<IReadOnlyList<double>>(frames.Count);
+            var frameStarSnrs = new List<IReadOnlyList<double>>(frames.Count);
             var frameRegionOccupancy = new List<double>(frames.Count);
             var perFrame = new List<(int FocuserPosition, FrameDetectionResult Detection)>(frames.Count);
             for (int i = 0; i < frames.Count; i++) {
@@ -632,6 +640,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // Per-frame accepted-star HFRs (extreme-HFR outlier penalty) and region occupancy (coverage reward).
                 // Both stay inert in the objective when null/NaN, so the baseline J is unaffected.
                 frameStarHfrs.Add(detection.StarHFRs ?? (IReadOnlyList<double>)Array.Empty<double>());
+                // Per-frame accepted-star SNRs — inert data, mirrors frameStarHfrs (see FrameStarSnrs).
+                frameStarSnrs.Add(detection.StarSnrs ?? (IReadOnlyList<double>)Array.Empty<double>());
                 frameRegionOccupancy.Add(RegionCoverage.Occupancy(
                     detection.StarCenters, detection.ImageWidth, detection.ImageHeight, CoverageGridRows, CoverageGridCols));
                 perFrame.Add((frames[i].FocuserPosition, detection));
@@ -732,6 +742,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 FrameRelaxationAdmittedCounts = frameRelaxationAdmittedCounts,
                 FrameFocuserPositions = frameFocuserPositions,
                 FrameStarHFRs = frameStarHfrs,
+                FrameStarSnrs = frameStarSnrs,
                 FrameRegionOccupancy = frameRegionOccupancy,
                 // null (never an all-false list) when the focus-recovery feature is off ⇒ baseline.
                 FrameIsRecovery = frameIsRecovery,

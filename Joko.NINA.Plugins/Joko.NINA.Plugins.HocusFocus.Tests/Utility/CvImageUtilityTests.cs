@@ -321,7 +321,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
                 PeakBrightness = 0.9,
                 HFR = 2.5,
                 PSF = null,
-                StarContaminationSuspected = true
+                StarContaminationSuspected = true,
+                MeasuredSensitivity = 4.2
             };
 
             var offset = star.AddOffset(xOffset: 100, yOffset: 200);
@@ -335,12 +336,29 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
                 Assert.That(offset.PeakBrightness, Is.EqualTo(0.9));
                 Assert.That(offset.HFR, Is.EqualTo(2.5));
                 Assert.That(offset.StarContaminationSuspected, Is.True);
+                // A translation changes nothing about a dimensionless SNR ratio — carried through as-is.
+                Assert.That(offset.MeasuredSensitivity, Is.EqualTo(4.2).Within(1e-12));
                 Assert.That(offset.BackgroundPlane, Is.Not.Null);
                 Assert.That(offset.BackgroundPlane.IsFlat, Is.False);
                 // The plane is anchored at the star center: translated plane at translated point == original at original point.
                 Assert.That(offset.BackgroundPlane.ValueAt(115 + 3, 227 + 4),
                     Is.EqualTo(star.BackgroundPlane.ValueAt(15 + 3, 27 + 4)).Within(1e-12));
             });
+        }
+
+        [Test]
+        public void AddOffset_NaNMeasuredSensitivity_StaysNaN() {
+            // Guards the field-drop regression the task calls out: a naive AddOffset rewrite that forgets a field
+            // (as it already does for RelaxationAdmitted — a separate, tracked follow-up) would silently zero this
+            // out instead of preserving NaN.
+            var star = new Star() {
+                Center = new Point2d(1, 2),
+                StarBoundingBox = new Rect(0, 0, 4, 4)
+            };
+
+            var offset = star.AddOffset(xOffset: 5, yOffset: 5);
+
+            Assert.That(double.IsNaN(offset.MeasuredSensitivity), Is.True);
         }
 
         [Test]
