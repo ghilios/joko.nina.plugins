@@ -89,6 +89,25 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
     }
 
     [Test]
+    public void CaptureNewSweepPrompt_StatesTheThreeCostsThatDistinguishItFromItsSibling() {
+        // A CONTENT guard, not a width one, and it belongs beside the width guard because the two pull against each
+        // other: the fix for an over-long line is to re-break or shorten the copy, and the easiest thing to shorten
+        // is precisely the cost. This prompt is the deliberate inverse of the binning one, whose body reassures
+        // "no new exposures, no focuser movement" — so it has to say all three of: fresh exposures, the focuser
+        // moves, and how much longer it will take.
+        var text = StarDetectionOptimizerWizardVM.DescribeCaptureNewSweep(5.0, 12.0);
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("fresh"), "new exposures are taken");
+            Assert.That(text, Does.Contain("focuser moves"), "and the focuser is driven through a full sweep");
+            Assert.That(text, Does.Contain("2.4x as long"), "and it costs proportionally more sky time");
+            Assert.That(text, Does.Contain("12 s"), "the exposure it is about to capture at");
+            Assert.That(text, Does.Contain("5 s"), "and the one it replaces");
+            Assert.That(text, Does.Contain("Nothing is saved until you Accept"),
+                "the wizard's contract: only Accept writes");
+        });
+    }
+
+    [Test]
     public void CaptureNewSweepPrompt_WithNoUsableCurrentExposure_OmitsTheRatioRatherThanPrintingInfinity() {
         // A pure function cannot assume the UI's GreaterThanZeroRule ran. "about ∞x as long" would be worse than
         // saying nothing, so the clause drops out entirely — and the rest of the body must still typeset.
