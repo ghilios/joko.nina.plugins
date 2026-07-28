@@ -203,7 +203,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // Per-frame accepted-star HFRs (JAGGED; PARALLEL to FrameStarCounts, with FrameStarHFRs[i].Count ==
         // FrameStarCounts[i]) WHEN POPULATED. Feeds the extreme-HFR outlier penalty (SHfrOutlier). Null (the whole
         // list) ⇒ no per-star HFR data ⇒ SHfrOutlier returns exactly 1.0 (J bit-identical at the baseline).
-        // CONVENTION (also applies to the per-star-SNR field below): RunEvaluationData substitutes Array.Empty&lt;double&gt;()
+        // CONVENTION (also applies to the per-star-SNR field below): RunEvaluationData substitutes Array.Empty<double>()
         // per FRAME when that frame's producer didn't populate the per-star list, which is indistinguishable from
         // "this frame legitimately had zero accepted stars" — an empty FrameStarHFRs[i] does NOT prove
         // FrameStarCounts[i] == 0. A reader must check Count before assuming parallelism with FrameStarCounts;

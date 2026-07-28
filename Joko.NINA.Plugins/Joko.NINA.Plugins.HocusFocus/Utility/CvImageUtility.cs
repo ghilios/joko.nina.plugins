@@ -819,9 +819,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 // (StarDetectorParams.Sensitivity is compared against it in EvaluateStarCandidate, BEFORE this
                 // rescale runs, in binned pixel space), so both must stay in the same space. NOT a case of binning
                 // preserving level: the denominator (MeasurementNoiseSigma) is measured on the ALREADY-BINNED image
-                // (StarDetector.cs computes KappaSigmaNoiseEstimate(srcImage, ...) after the bin), so it shrinks by
-                // ~factor while the numerator does not — MeasuredSensitivity at DetectionBinning=2 is roughly 2x a
-                // same-star native-resolution value. NOT comparable across binning factors.
+                // (StarDetector.cs computes KappaSigmaNoiseEstimate(srcImage, ...) after the bin), so it shrinks
+                // under binning (by up to ~factor for uncorrelated noise; measurably less in practice — the default
+                // HotpixelFiltering runs ABOVE the bin, at native resolution, which correlates the noise, giving
+                // ~1.3x at 2x on synthetic white noise rather than ~2x). The numerator moves too, just less (the
+                // PeakBrightness/NormalizedBrightness peak term shrinks slightly when a sharp star is block-
+                // averaged). The DIRECTION is what matters, not a specific ratio: values are NOT comparable across
+                // binning factors.
                 MeasuredSensitivity = star.MeasuredSensitivity
             };
         }

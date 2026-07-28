@@ -708,12 +708,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// (<see cref="NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility.ScaleToSourcePixels(Star, int)"/>) and an
         /// ROI offset (<see cref="NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility.AddOffset"/>) WITHOUT rescaling
         /// — not because binning "preserves the level" (it does not: the σ denominator is measured on the
-        /// already-binned image, so it shrinks by ~<c>DetectionBinning</c> while the numerator does not), but
-        /// because this is the gate's own comparison pair with <see cref="StarDetectorParams.Sensitivity"/> (a
-        /// binned-space param compared BEFORE the rescale) — both must stay in the same space, exactly like
-        /// <c>RejectedCandidateRecord.MeasuredValue</c>. Consequence: values are NOT comparable across different
-        /// <see cref="StarDetectorParams.DetectionBinning"/> factors (roughly 2x larger at 2x binning for the same
-        /// star).
+        /// already-binned image, so it shrinks under binning — by up to ~<c>DetectionBinning</c> for uncorrelated
+        /// noise, measurably less in practice, since the default <c>HotpixelFiltering</c> runs ABOVE the bin at
+        /// native resolution and correlates the noise, giving ~1.3x at 2x on synthetic white noise rather than
+        /// ~2x; the numerator moves too, just less — the peak term of <c>NormalizedBrightness</c> also shrinks
+        /// slightly when a sharp star is block-averaged), but because this is the gate's own comparison pair with
+        /// <see cref="StarDetectorParams.Sensitivity"/> (a binned-space param compared BEFORE the rescale) — both
+        /// must stay in the same space, exactly like <c>RejectedCandidateRecord.MeasuredValue</c>. The DIRECTION is
+        /// what matters, not a specific ratio: values are NOT comparable across different
+        /// <see cref="StarDetectorParams.DetectionBinning"/> factors.
         /// </para>
         /// <see cref="double.NaN"/> at every legacy construction site that doesn't set it. Feeds a later
         /// exposure-time recommendation when the optimizer floors the Sensitivity gate.
