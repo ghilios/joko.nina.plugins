@@ -169,6 +169,24 @@ VM and no NINA types, so the math is fully testable in isolation.
 - [ ] **Fallback:** `profileService.ActiveProfile.FocuserSettings.AutoFocusExposureTime`, stated in the copy.
       If neither yields a positive number ⇒ no derived value. Never scale a factor off an unknown base.
 
+### Carried forward from Task 2's review (read before starting)
+
+- [ ] **Check `IncreasesExposure`, not `HasRecommendation`, before rendering any "raise it to X" affordance.**
+      `ExposureRecommender` has a never-shorter-than-current floor, so when the current exposure already
+      exceeds `MaxRecommendedExposureSeconds` the recommendation collapses onto the current value and a naive
+      `"{Current} s → {Recommended} s"` row renders a no-op `"40 s → 40 s"`. `HasRecommendation` stays true in
+      that case on purpose — the situation is still worth reporting, it just is not an increase.
+- [ ] **Use `CapLimitsRecommendation`, not `WasCapped`, to drive the capped copy.** `WasCapped` means "the cap
+      reduced `RawSeconds`", which is not the same as "the cap shaped what we are showing you".
+- [ ] **`RecommendedSeconds` can exceed `MaxRecommendedExposureSeconds` by up to one rounding-ladder step.**
+      Rounding is up and happens after the cap. Do not assume a hard 30 s ceiling in the copy.
+- [ ] **Detection-binning interaction — decide and document.** `FrameStarSnrs` values are in binned-pixel
+      space, so `S_now` is in the run's binned space while `TargetSensitivity` is a fixed constant.
+      Self-consistent within a run, but this same Summary page also renders a *detection-binning change*
+      recommendation, and per-pixel SNR scales with the binning factor — a user who accepts both gets an
+      over-recommendation. Decide whether to suppress or qualify one when the other is active, and say so in
+      the copy.
+
 ### Model
 - [ ] `OptimizationSummary` (`StarDetectionOptimizerWizardVM.cs:99-342`) gains `RunExposureSeconds`,
       `OptimizedSensitivity`, `BaselineSensitivity`, `ExposureAdvice`, `BaselineExposureAdvice`, and
