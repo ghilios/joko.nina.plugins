@@ -322,6 +322,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
                 HFR = 2.5,
                 PSF = null,
                 StarContaminationSuspected = true,
+                RelaxationAdmitted = true,
                 MeasuredSensitivity = 4.2
             };
 
@@ -336,6 +337,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
                 Assert.That(offset.PeakBrightness, Is.EqualTo(0.9));
                 Assert.That(offset.HFR, Is.EqualTo(2.5));
                 Assert.That(offset.StarContaminationSuspected, Is.True);
+                // A translation cannot change whether the gate's defocus relaxation admitted this star —
+                // dropping this field silently zeroes RelaxationAdmittedCount on every ROI-scoped run (see
+                // HocusFocusStarDetection.BuildStarDetectionResult's re-tally), which is exactly the bug this
+                // guards against.
+                Assert.That(offset.RelaxationAdmitted, Is.True);
                 // A translation changes nothing about a dimensionless SNR ratio — carried through as-is.
                 Assert.That(offset.MeasuredSensitivity, Is.EqualTo(4.2).Within(1e-12));
                 Assert.That(offset.BackgroundPlane, Is.Not.Null);

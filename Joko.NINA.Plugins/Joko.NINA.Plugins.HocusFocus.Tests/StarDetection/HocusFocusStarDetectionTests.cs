@@ -154,6 +154,49 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         }
 
         [Test]
+        public void BuildStarDetectionResult_ROIScopedRegion_RelaxationAdmittedCountReflectsFlaggedStars() {
+            // Regression guard for the AddOffset field-drop bug (Task 6, plans/optimizer-exposure-recommendation-
+            // plan.md). The corrupted observable was NOT the per-star Star.RelaxationAdmitted flag itself (that is
+            // guarded directly by CvImageUtilityTests.AddOffset_CarriesAllFields_AndTranslatesBackgroundPlane and
+            // by StarDetectorTests.RelaxationAdmitted_LargeDonut_ROIScoped_FlagSurvivesTheROIOffset) — it was this
+            // method's RE-TALLY of that flag into HocusFocusStarDetectionResult.Metrics.RelaxationAdmittedCount,
+            // the value the Star Detection Results dockable displays and the value persisted to the detection
+            // cache. This test pins the re-tally directly, over an ROI-shaped Region (no InnerCropBoundary — the
+            // same shape InspectorVM.GetStarDetectionRegions uses for its per-region grid), independent of how the
+            // DetectedStars list was produced. That closes the gap one layer below AddOffset itself: if anything
+            // between AddOffset and this re-tally (e.g. a filter spliced in before it) ever corrupts the count
+            // again, this test catches it even if AddOffset stays correct.
+            var det = Build();
+            var result = new HocusFocusStarDetectionResult();
+            var starDetectorResult = new HocusFocusStarDetectorResult {
+                DetectedStars = new List<Star> {
+                    new Star {
+                        Center = new OpenCvSharp.Point2d(20, 20),
+                        StarBoundingBox = new OpenCvSharp.Rect(15, 15, 10, 10),
+                        HFR = 2.0,
+                        RelaxationAdmitted = true
+                    },
+                    new Star {
+                        Center = new OpenCvSharp.Point2d(60, 60),
+                        StarBoundingBox = new OpenCvSharp.Rect(55, 55, 10, 10),
+                        HFR = 2.2,
+                        RelaxationAdmitted = false
+                    }
+                },
+                Metrics = new StarDetectorMetrics()
+            };
+            var detectorParams = new StarDetectorParams {
+                // ROI-scoped, no inner crop — mirrors production's only non-Full-region consumer (the Aberration
+                // Inspector's region grid), which never sets an InnerCropBoundary either.
+                Region = new StarDetectionRegion(new RatioRect(0.1, 0.1, 0.8, 0.8))
+            };
+
+            det.BuildStarDetectionResult(result, starDetectorResult, new HocusFocusDetectionParams(), detectorParams, new Size(100, 100));
+
+            Assert.That(starDetectorResult.Metrics.RelaxationAdmittedCount, Is.EqualTo(1));
+        }
+
+        [Test]
         public void HocusFocusStarDetectionResult_DefaultsAreNaN() {
             var r = new HocusFocusStarDetectionResult();
             Assert.Multiple(() => {

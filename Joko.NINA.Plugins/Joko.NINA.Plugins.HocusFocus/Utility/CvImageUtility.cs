@@ -741,16 +741,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return new Accord.Point(x: (float)point.X, y: (float)point.Y);
         }
 
-        // NOTE: this helper currently drops RelaxationAdmitted (not carried into the returned Star, unlike
-        // ScaleToSourcePixels below, which does carry it). Concrete consequence: on ANY run with an ROI configured,
-        // every star returned by StarDetector.GateAndMeasureInternal has already been through this AddOffset (the
-        // ROI-offset step), so its RelaxationAdmitted resets to the Star default (false) — HocusFocusStarDetection's
-        // re-tally (`starDetectorResult.Metrics.RelaxationAdmittedCount = starList.Count(s => s.RelaxationAdmitted)`,
-        // HocusFocusStarDetection.cs ~:763) then always counts 0, so the optimizer's SDefocusPrecision sub-score
-        // silently reads as if nothing was ever relaxation-admitted. NOT a drive-by fix here: restoring it would
-        // change J for any ROI + defocus-aware-gates run (currently under-penalized), which is exactly the kind of
-        // behavior change this task (an inert plumbing change) must not make. Tracked separately as Task 6 in
-        // plans/optimizer-exposure-recommendation-plan.md.
+        // Carries every field through, exactly like its sibling ScaleToSourcePixels below — including
+        // RelaxationAdmitted, which a translation cannot change. (Previously this helper silently dropped
+        // RelaxationAdmitted, which zeroed HocusFocusStarDetection.BuildStarDetectionResult's
+        // RelaxationAdmittedCount re-tally — and with it the Star Detection Results dockable's readout
+        // (AutoFocus/DataTemplates.xaml) and the persisted detection cache — on any ROI-scoped run
+        // (StarDetectionRegion other than Full). No shipping path feeds a non-Full region into the optimizer
+        // (StarDetectionOptimizerWizardVM hardcodes Full; RunEvaluationLoader/FrameReviewBuilder/the TestApp
+        // diagnostic runner all default to Full too), so OptimizationObjective.SDefocusPrecision was only
+        // LATENTLY affected — correctness insurance if the optimizer is ever pointed at a region, not a live
+        // scoring change. The genuinely ROI-scoped consumer is the Aberration Inspector's per-region detection
+        // grid (InspectorVM.GetStarDetectionRegions), and only when DefocusAwareDonutDetection is explicitly
+        // enabled (default OFF). Fixed as Task 6 of plans/optimizer-exposure-recommendation-plan.md.)
         public static Star AddOffset(this Star star, int xOffset, int yOffset) {
             return new Star() {
                 Center = star.Center.Add(new Point2d(xOffset, yOffset)),
@@ -772,6 +774,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 HFR = star.HFR,
                 PSF = star.PSF,
                 StarContaminationSuspected = star.StarContaminationSuspected,
+                // A translation cannot change whether the detector's gate admitted this star via defocus
+                // relaxation — pure carry-through, same reasoning as ScaleToSourcePixels below.
+                RelaxationAdmitted = star.RelaxationAdmitted,
                 // A translation changes nothing about a dimensionless SNR ratio.
                 MeasuredSensitivity = star.MeasuredSensitivity
             };

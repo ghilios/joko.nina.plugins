@@ -777,6 +777,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// thread from the assembled accepted-star list (it never flows through <see cref="Merge"/>, since the
         /// per-thread metrics instances never touch it). Zero whenever the defocus-aware gates are OFF, so it
         /// does NOT affect detection bit-identity. The optimizer consumes it as a precision/false-positive signal.
+        ///
+        /// <para>Re-tallied a second time over the FINAL post-filter survivor set, in
+        /// HocusFocusStarDetection.BuildStarDetectionResult — that re-tally is where this field is corrupted if
+        /// AddOffset (Utility/CvImageUtility.cs; the ROI-offset translation) ever drops Star.RelaxationAdmitted
+        /// again, as it silently did before Task 6 of plans/optimizer-exposure-recommendation-plan.md. Same lossy
+        /// cache boundary as HocusFocusDetectedStar.MeasuredSensitivity (HocusFocusStarDetection.cs): this value
+        /// is persisted to the saved &lt;image&gt;_star_detection_result.json, and that fix correctly did NOT bump
+        /// StarDetector.StarDetectorVersion (no detection OUTPUT changed, only this readout). So a cache file saved
+        /// by a PRE-fix build from an ROI + defocus-aware-gates run — one that persisted this count as 0 due to the
+        /// bug — still passes AutoFocusEngine.TryLoadValidCachedDetection's version check and reloads with
+        /// RelaxationAdmittedCount pinned at 0 until that frame is re-detected.</para>
         /// </summary>
         public int RelaxationAdmittedCount { get; set; } = 0;
         public int OutsideROI { get; set; } = 0;
