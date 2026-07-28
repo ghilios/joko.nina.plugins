@@ -45,13 +45,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>
         /// The value to pre-fill the exposure-time UI box with: <see cref="RawSeconds"/> capped at
         /// <c>min(CurrentSeconds × <see cref="ExposureRecommender.MaxExposureFactor"/>,
-        /// <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/>)</c>, floored so it is never below
-        /// <see cref="CurrentSeconds"/>, THEN rounded up to the exposure-time ladder
-        /// (<see cref="ExposureRecommender.RoundExposureSeconds"/>). <see cref="double.NaN"/> when
-        /// <see cref="HasRecommendation"/> is false. That never-below-<see cref="CurrentSeconds"/> floor means this
-        /// can equal <see cref="CurrentSeconds"/> exactly (when the absolute cap sits below an already-long current
-        /// exposure) while <see cref="HasRecommendation"/> is still true — check <see cref="IncreasesExposure"/>
-        /// before rendering this as a "raise it to X" affordance.
+        /// <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/>)</c>, rounded up to the exposure-time
+        /// ladder (<see cref="ExposureRecommender.RoundExposureSeconds"/>), THEN floored so it is never below
+        /// <see cref="CurrentSeconds"/> (last, against the caller's un-rounded current value — flooring before
+        /// rounding would let rounding walk an off-grid <see cref="CurrentSeconds"/> back above itself).
+        /// <see cref="double.NaN"/> when <see cref="HasRecommendation"/> is false. NOTE: rounding UP after capping
+        /// means this can exceed <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/> by up to one
+        /// ladder step (e.g. a capped 8.8 s rounds to 9.0 s) — do not assume it is bounded by the cap. Separately,
+        /// the never-below-<see cref="CurrentSeconds"/> floor means this can equal <see cref="CurrentSeconds"/>
+        /// exactly (when the absolute cap sits below an already-long current exposure) while
+        /// <see cref="HasRecommendation"/> is still true — check <see cref="IncreasesExposure"/> before rendering
+        /// this as a "raise it to X" affordance.
         /// </summary>
         public double RecommendedSeconds { get; set; }
 
@@ -78,11 +82,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>
         /// True when either the run-relative <see cref="ExposureRecommender.MaxExposureFactor"/> cap or the
         /// absolute <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/> cap reduced
-        /// <see cref="RawSeconds"/> before rounding. This can be true together with
-        /// <see cref="IncreasesExposure"/> = false: when the absolute cap sits below an already-long
-        /// <see cref="CurrentSeconds"/>, <see cref="RawSeconds"/> was still capped down, but the never-shorter
-        /// floor then pulled <see cref="RecommendedSeconds"/> back up to <see cref="CurrentSeconds"/>, so nothing
-        /// about capping implies the exposure actually needs to change — see <see cref="IncreasesExposure"/>.
+        /// <see cref="RawSeconds"/> before rounding. This is a statement about <see cref="RawSeconds"/> only — it
+        /// does NOT mean the cap shaped the DELIVERED <see cref="RecommendedSeconds"/> (the never-shorter floor can
+        /// still pull the answer back up past the cap to <see cref="CurrentSeconds"/>, leaving nothing capped in
+        /// the final result). Use <see cref="CapLimitsRecommendation"/> for that question.
         /// </summary>
         public bool WasCapped { get; set; }
 
@@ -90,7 +93,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// When <see cref="WasCapped"/>, true if the binding bound was the absolute
         /// <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/> ceiling rather than the run-relative
         /// <see cref="ExposureRecommender.MaxExposureFactor"/>. Meaningless (left false) when
-        /// <see cref="WasCapped"/> is false.
+        /// <see cref="WasCapped"/> is false. TIE: when <c>CurrentSeconds × MaxExposureFactor</c> equals
+        /// <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/> exactly (e.g. <c>CurrentSeconds = 7.5 s</c>,
+        /// since <c>7.5 × 4 = 30</c>) both bounds bind at the same value and this reports true — the absolute limit
+        /// is treated as "the reason" in a tie, since it is the one that would still bind even if
+        /// <see cref="ExposureRecommender.MaxExposureFactor"/> were relaxed.
         /// </summary>
         public bool CappedByAbsoluteLimit { get; set; }
 
@@ -114,6 +121,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// rendering a "raise it to X" affordance, or a false one renders a no-op "40 s → 40 s" row.
         /// </summary>
         public bool IncreasesExposure => RecommendedSeconds > CurrentSeconds;
+
+        /// <summary>
+        /// True when a cap genuinely shaped the delivered <see cref="RecommendedSeconds"/> — i.e. the
+        /// recommendation both raises the exposure AND was constrained by one of the two caps — so a consumer can
+        /// label the affordance "capped at N s" rather than a plain "raise it to N s". <see cref="WasCapped"/>
+        /// alone is NOT this signal: it can be true while <see cref="IncreasesExposure"/> is false (the
+        /// never-shorter floor pulled the answer back up past the cap to <see cref="CurrentSeconds"/> — see
+        /// <see cref="WasCapped"/>), in which case there is nothing delivered for a cap to have "limited". This is
+        /// the flag Task 3's UI should read; <see cref="WasCapped"/> stays as the lower-level "RawSeconds was
+        /// reduced" fact for diagnostics.
+        /// </summary>
+        public bool CapLimitsRecommendation => WasCapped && IncreasesExposure;
     }
 
     /// <summary>
@@ -153,6 +172,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     /// statistic the objective never actually computes, and would hand the entire recommendation to whichever
     /// single frame had a passing cloud, a satellite trail, or a guiding bump — exactly the kind of one-frame
     /// fluke a focus sweep is supposed to be robust to.</para>
+    ///
+    /// <para><b>Caveat — interaction with a detection-binning recommendation.</b>
+    /// <see cref="RunEvaluationMetrics.FrameStarSnrs"/> values are in BINNED-PIXEL space (see that field's doc
+    /// comment), so S_now is self-consistent within a single run — <see cref="TargetSensitivity"/> is the same
+    /// gate threshold, compared in the same space, that the run's own detector used. But the wizard's Summary page
+    /// can ALSO render a separate detection-binning-change recommendation for the same run, and a per-pixel SNR
+    /// scales with the binning factor (roughly, since higher binning averages more source photons and more sky
+    /// per output pixel). A user who accepts BOTH recommendations — a higher binning factor AND this longer
+    /// exposure — would be over-recommended: the binning change alone already raises the measured SNR, so the
+    /// exposure increase this class computed (from the run's pre-binning-change SNR) asks for more than is then
+    /// actually needed. This class does not know about, and deliberately does not try to correct for, the other
+    /// recommendation — a consumer presenting both must caveat that they are not independently additive.</para>
     /// </summary>
     public static class ExposureRecommender {
 
@@ -202,10 +233,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         /// <summary>
         /// The minimum number of usable (non-recovery, non-empty) frames before <see cref="Recommend"/> will
-        /// answer at all. Matches <see cref="ObjectiveConstants.MinFramesForPenalty"/> — the same "too thin to
-        /// trust" bar the objective's own label-free penalties use. Precedent for staying silent rather than
-        /// guessing on thin data: <c>OptimizationSummary.MinRSquaredForBinningRecommendation</c> /
-        /// <c>HasDetectionBinningMeasurement</c> withholds the detection-binning recommendation the same way.
+        /// answer at all. This is a HARD-CODED constant — deliberately NOT read from
+        /// <see cref="ObjectiveConstants.MinFramesForPenalty"/>, even though both currently equal 3. The two
+        /// thresholds answer genuinely different questions ("enough frames to compute a recommendation at all"
+        /// here vs. "enough frames to apply the label-free precision penalty" there) and only coincide at the same
+        /// "too thin to trust" bar by choice, not by definition; a future retune of one must not silently move the
+        /// other. Precedent for staying silent rather than guessing on thin data:
+        /// <c>OptimizationSummary.MinRSquaredForBinningRecommendation</c> / <c>HasDetectionBinningMeasurement</c>
+        /// withholds the detection-binning recommendation the same way.
         /// </summary>
         public const int MinFramesForRecommendation = 3;
 
@@ -261,27 +296,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <para><b>Order of operations</b> (see <see cref="ExposureRecommendation.RawSeconds"/> /
         /// <see cref="ExposureRecommendation.RecommendedSeconds"/>): S_now → raw factor
         /// <c>(TargetSensitivity/S_now)²</c> → <c>RawSeconds</c> → cap at
-        /// <c>min(currentExposureSeconds × MaxExposureFactor, MaxRecommendedExposureSeconds)</c> → floor at
-        /// <paramref name="currentExposureSeconds"/> (see below) → <see cref="RoundExposureSeconds"/>. Capping
-        /// BEFORE rounding, and rounding UP, means the displayed value can never exceed the cap the capping step
-        /// computed.</para>
+        /// <c>min(currentExposureSeconds × MaxExposureFactor, MaxRecommendedExposureSeconds)</c> →
+        /// <see cref="RoundExposureSeconds"/> → floor at <paramref name="currentExposureSeconds"/> (see below,
+        /// LAST, so it cannot be undone by rounding).</para>
         ///
-        /// <para><b>Never shorter than current.</b> The floor step above is unconditional, not incidental to
-        /// either branch's arithmetic: ordinarily it is moot when <c>S_now &lt; TargetSensitivity</c> (the raw
-        /// factor exceeds 1 there, so <c>RawSeconds &gt; currentExposureSeconds</c> already), and when
+        /// <para>Capping BEFORE rounding does NOT mean <see cref="ExposureRecommendation.RecommendedSeconds"/> can
+        /// never exceed the cap — <see cref="RoundExposureSeconds"/> always rounds UP, so it can push a capped
+        /// value past the cap by up to one ladder step (a capped value of 8.8 s rounds to 9.0 s). What
+        /// cap-before-round actually buys is that the overshoot is BOUNDED to at most one ladder step, rather than
+        /// the unbounded overshoot a round-then-cap ordering would leave uncorrected. A caller MUST NOT assume
+        /// <c>RecommendedSeconds &lt;= MaxRecommendedExposureSeconds</c>.</para>
+        ///
+        /// <para><b>Never shorter than current.</b> The floor is the LAST step (applied to the ROUNDED value,
+        /// against the caller's un-rounded <paramref name="currentExposureSeconds"/>), unconditional and not
+        /// incidental to either branch's arithmetic: ordinarily it is moot when <c>S_now &lt; TargetSensitivity</c>
+        /// (the raw factor exceeds 1 there, so <c>RawSeconds &gt; currentExposureSeconds</c> already), and when
         /// <c>S_now ≥ TargetSensitivity</c> the raw factor is ≤ 1 by construction so the floor is exactly what
         /// keeps the recommendation from suggesting a shorter exposure the user never asked to shorten — that case
         /// also sets <see cref="ExposureRecommendation.ExposureIsNotTheLimit"/>. But the floor is applied
         /// unconditionally (not only in that branch) because the absolute 30 s cap can itself sit below an
         /// already-long <paramref name="currentExposureSeconds"/>, which would otherwise recommend shortening a
-        /// deliberately long exposure back down to the cap.</para>
+        /// deliberately long exposure back down to the cap. Applying it LAST (rather than before rounding) matters:
+        /// flooring BEFORE rounding lets the subsequent round push an off-grid floored value back above current —
+        /// see <see cref="ExposureRecommendation.RecommendedSeconds"/>.</para>
         /// </summary>
         public static ExposureRecommendation Recommend(RunEvaluationMetrics metrics, ObjectiveConstants c, double currentExposureSeconds) {
             if (metrics?.FrameStarSnrs == null) {
                 return NoRecommendation(currentExposureSeconds, usableFrameCount: 0, shortFrameCount: 0);
             }
 
-            var nTarget = Math.Max(1, c.NTarget); // defensive; NTarget is always >= 1 in every real ObjectiveConstants
+            // c is trusted non-null with a trusted NTarget, exactly like every other ObjectiveConstants-consuming
+            // method in this namespace (OptimizationObjective.SFocus/SStars/JRun/... never null-check or
+            // value-clamp their ObjectiveConstants either) -- a null c throws, consistently with those siblings,
+            // rather than silently degrading.
+            var nTarget = c.NTarget;
             var snrsByFrame = metrics.FrameStarSnrs;
             var isRecovery = metrics.FrameIsRecovery;
 
@@ -291,7 +339,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (IsRecoveryFrame(isRecovery, i)) {
                     continue; // far-from-focus recovery wing: by design few/no stars, not representative of gate strength
                 }
-                var value = PerFrameQuantile(snrsByFrame[i], nTarget, out var wasShort);
+                var value = PerFrameNthBrightest(snrsByFrame[i], nTarget, out var wasShort);
                 if (value == null) {
                     continue; // no usable SNR data on this frame (Trap: NOT proof the frame was starved -- see FrameStarSnrs)
                 }
@@ -323,10 +371,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var cappedByAbsoluteLimit = wasCapped && MaxRecommendedExposureSeconds <= factorCap;
 
             // Never emit a shorter exposure than the user already uses -- guarded explicitly (see the method
-            // remarks), not left to fall out of either branch's arithmetic.
-            cappedSeconds = Math.Max(cappedSeconds, currentExposureSeconds);
-
-            var recommendedSeconds = RoundExposureSeconds(cappedSeconds);
+            // remarks), not left to fall out of either branch's arithmetic. This floor is applied AFTER rounding,
+            // against the RAW currentExposureSeconds (not a rounded copy of it): flooring before rounding was a
+            // real bug -- an off-grid current value floored in first would then get rounded UP past itself (e.g.
+            // S_now=12, currentExposureSeconds=3.2s: floor-then-round produced 3.5s, silently contradicting
+            // ExposureIsNotTheLimit's "3.2s is already enough"), and could round a capped value past the cap it
+            // was just clamped to. Flooring last, against the un-rounded current value, is exact: "never shorter
+            // than current" not "never shorter than current rounded to the ladder".
+            var recommendedSeconds = Math.Max(RoundExposureSeconds(cappedSeconds), currentExposureSeconds);
 
             return new ExposureRecommendation {
                 HasRecommendation = true,
@@ -359,12 +411,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         /// <summary>
         /// Reduces one frame's raw SNR list to a single value: the <paramref name="nTarget"/>-th brightest entry
-        /// after dropping non-finite and non-positive entries, or (<paramref name="wasShort"/> = true) the
-        /// faintest surviving entry when fewer than <paramref name="nTarget"/> survive. Returns null when nothing
-        /// survives filtering (including a null/empty input list) — see the Recommend remarks for why that is
-        /// deliberately indistinguishable from, and treated identically to, a frame that had zero real detections.
+        /// (a fixed ORDER STATISTIC / rank, not a quantile — a fraction of the distribution would drift with the
+        /// star count, undermining the whole point of pinning the recommendation to the objective's own fixed
+        /// <c>NTarget</c> knee; see the class remarks) after dropping non-finite and non-positive entries, or
+        /// (<paramref name="wasShort"/> = true) the faintest surviving entry when fewer than
+        /// <paramref name="nTarget"/> survive. Returns null when nothing survives filtering (including a
+        /// null/empty input list) — see the Recommend remarks for why that is deliberately indistinguishable from,
+        /// and treated identically to, a frame that had zero real detections.
         /// </summary>
-        private static double? PerFrameQuantile(IReadOnlyList<double> frameSnrs, int nTarget, out bool wasShort) {
+        private static double? PerFrameNthBrightest(IReadOnlyList<double> frameSnrs, int nTarget, out bool wasShort) {
             wasShort = false;
             if (frameSnrs == null || frameSnrs.Count == 0) {
                 return null;

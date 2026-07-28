@@ -52,13 +52,14 @@ public class ExposureRecommenderTests {
             "the recommendation targets the SAME gate value the shipped default would admit");
     }
 
-    // ── Per-frame quantile ──────────────────────────────────────────────────────────────────────────────────
+    // ── Per-frame Nth-brightest ─────────────────────────────────────────────────────────────────────────────
 
     [Test]
     public void Recommend_TakesTheNTargetThBrightestPerFrame() {
-        // 40 distinct SNRs (1..40) on three IDENTICAL frames, so the median-across-frames step is a no-op and
-        // the result is exactly the per-frame quantile. Descending rank (NTarget - 1) == ascending index 19,
-        // i.e. value 21 (ascending array is 1..40, so index 20 holds 21) -- element 19 of the descending order.
+        // 40 distinct SNRs (1..40) on three IDENTICAL frames, so the median-across-frames step is a no-op and the
+        // result is exactly the per-frame order statistic. Descending rank (NTarget - 1 = 19, 0-indexed, i.e. the
+        // 20th brightest) is ascending index (k - nTarget = 40 - 20 = 20), i.e. value 21 (ascending array is
+        // 1..40, so index 20 holds value 21).
         var frame = Frame(Range(1, 40));
         var metrics = BuildMetrics(new[] { frame, frame, frame });
         var c = new ObjectiveConstants { NTarget = 20 };
@@ -74,10 +75,12 @@ public class ExposureRecommenderTests {
     }
 
     [Test]
-    public void Recommend_ReadsNTargetFromConstants_QuantileIndexMoves() {
+    public void Recommend_ReadsNTargetFromConstants_FallsBackWhenNTargetExceedsSurvivors() {
         // Same 40-value frame as above, but NTarget=60 now exceeds the 40 survivors on every frame, so EVERY
         // frame falls back to its faintest survivor (1.0) instead of the value from the NTarget=20 test (21.0).
-        // If NTarget were hard-coded to 20 inside the implementation this assertion would fail.
+        // NOTE: this alone does not prove NTarget is genuinely read (every frame lands in the SHORT branch, whose
+        // result -- filtered[0] -- does not depend on nTarget's exact value at all) -- see the sibling test below
+        // for a case where the index actually moves within the non-short branch.
         var frame = Frame(Range(1, 40));
         var metrics = BuildMetrics(new[] { frame, frame, frame });
         var c = new ObjectiveConstants { NTarget = 60 };
@@ -87,6 +90,24 @@ public class ExposureRecommenderTests {
         Assert.Multiple(() => {
             Assert.That(rec.MeasuredSnr, Is.EqualTo(1.0));
             Assert.That(rec.ShortFrameCount, Is.EqualTo(3), "all three frames have fewer than NTarget=60 survivors");
+        });
+    }
+
+    [Test]
+    public void Recommend_ReadsNTargetFromConstants_QuantileIndexActuallyMoves() {
+        // Same 40-value (1..40) frame, but NTarget=10 (< 40 survivors), so this stays in the NON-short branch and
+        // the selected rank genuinely moves with NTarget: ascending index (k - nTarget) = 40 - 10 = 30, value 31
+        // -- different from both the NTarget=20 test (21.0) and the NTarget=60 fallback test (1.0). If NTarget
+        // were hard-coded to 20 inside the implementation, this would incorrectly report 21.0 instead of 31.0.
+        var frame = Frame(Range(1, 40));
+        var metrics = BuildMetrics(new[] { frame, frame, frame });
+        var c = new ObjectiveConstants { NTarget = 10 };
+
+        var rec = ExposureRecommender.Recommend(metrics, c, currentExposureSeconds: 1.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.MeasuredSnr, Is.EqualTo(31.0));
+            Assert.That(rec.ShortFrameCount, Is.EqualTo(0), "40 survivors >= NTarget=10, not a short frame");
         });
     }
 
@@ -140,6 +161,72 @@ public class ExposureRecommenderTests {
             Assert.That(rec.ShortFrameCount, Is.EqualTo(3), "only the 3 real frames are short; the empty one is neither");
             Assert.That(rec.MeasuredSnr, Is.EqualTo(6.0), "median of {5, 6, 7} -- the empty frame contributes nothing");
         });
+    }
+
+    [Test]
+    public void Recommend_ExactlyNTargetSurvivors_TakesTheNonShortBranch() {
+        // k == nTarget EXACTLY: this is the boundary between the ">= nTarget" (non-short) and short branches. Both
+        // branches happen to return the SAME VALUE here (filtered[0], the minimum of the 20 values) -- a `>` vs
+        // `>=` mutation at the branch condition would be invisible to a value-only assertion. ShortFrameCount is
+        // the ONLY observable signal: the correct `>=` takes the non-short branch (wasShort stays false), while a
+        // buggy `>` would incorrectly fall through to the short branch.
+        var frame = Frame(Range(1, 20)); // exactly 20 survivors
+        var metrics = BuildMetrics(new[] { frame, frame, frame });
+        var c = new ObjectiveConstants { NTarget = 20 };
+
+        var rec = ExposureRecommender.Recommend(metrics, c, currentExposureSeconds: 1.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.MeasuredSnr, Is.EqualTo(1.0), "the minimum of the 20 values, from either branch's arithmetic");
+            Assert.That(rec.ShortFrameCount, Is.EqualTo(0), "k == nTarget must take the non-short (>=) branch");
+        });
+    }
+
+    [Test]
+    public void Recommend_NTargetOfOne_ReturnsTheBrightestSurvivor() {
+        // NTarget = 1: the "1st brightest" is simply the maximum of the frame's survivors.
+        var frame = Frame(5.0, 3.0, 9.0, 1.0);
+        var metrics = BuildMetrics(new[] { frame, frame, frame });
+        var c = new ObjectiveConstants { NTarget = 1 };
+
+        var rec = ExposureRecommender.Recommend(metrics, c, currentExposureSeconds: 1.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.MeasuredSnr, Is.EqualTo(9.0), "NTarget=1 must select the brightest survivor, not the faintest");
+            Assert.That(rec.ShortFrameCount, Is.EqualTo(0));
+        });
+    }
+
+    [Test]
+    public void Recommend_MixedShortAndNonShortFrames_ShortFrameCountIsAPartialCount() {
+        // Two NON-short frames (40 survivors each, well above NTarget=20) and one SHORT frame (5 survivors), so
+        // ShortFrameCount must land on a genuine PARTIAL count (1 of 3) -- not the all-or-nothing 0 or 3 every
+        // other test exercises.
+        var richFrame = Frame(Range(1, 40));   // non-short: value = filtered[40-20] = 21
+        var thinFrame = Frame(50.0, 40.0, 30.0, 20.0, 10.0); // short: value = min = 10
+        var metrics = BuildMetrics(new[] { richFrame, richFrame, thinFrame });
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 1.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.ShortFrameCount, Is.EqualTo(1), "only the thin frame is short");
+            Assert.That(rec.UsableFrameCount, Is.EqualTo(3));
+            Assert.That(rec.MeasuredSnr, Is.EqualTo(21.0), "median of {21, 21, 10}");
+        });
+    }
+
+    [Test]
+    public void Recommend_DoesNotMutateTheCallersFrameStarSnrsArrays() {
+        // FrameStarSnrs is producer-owned; Recommend must copy before sorting, never sort the caller's array
+        // in place. Pass an array already in DESCENDING order and confirm it is untouched after the call -- an
+        // in-place Sort() (ascending) on the original would flip it, an easy future regression to reintroduce.
+        var descending = new double[] { 40.0, 30.0, 20.0, 10.0, 5.0 };
+        var expectedUnchanged = (double[])descending.Clone();
+        var metrics = BuildMetrics(new IReadOnlyList<double>[] { descending, Frame(6.0), Frame(7.0) });
+
+        ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 1.0);
+
+        Assert.That(descending, Is.EqualTo(expectedUnchanged), "Recommend must not sort/mutate the caller's array in place");
     }
 
     // ── Median across frames, not the worst frame ──────────────────────────────────────────────────────────
@@ -255,10 +342,33 @@ public class ExposureRecommenderTests {
         });
     }
 
+    [Test]
+    public void Recommend_UncappedIncrease_PinsRecommendedSecondsEndToEnd() {
+        // The happy path, pinned all the way through: S_now = 5, t_old = 1s -> raw factor (10/5)^2 = 4.0 ->
+        // RawSeconds = 4.0. factorCap = 1*4 = 4.0 == RawSeconds exactly (not exceeded) and well under the 30s
+        // absolute cap, so this is an ordinary UNCAPPED increase: WasCapped must be false and RecommendedSeconds
+        // must be the rounded RawSeconds itself (4.0 is already on the sub-10s 0.5s grid), not merely "some
+        // number >= current" -- Recommend_ScalesAsTheSquareOfTheSnrRatio (t_old=5s) only pins RawSeconds and,
+        // coincidentally, lands exactly on ITS OWN factor cap, so neither test end-to-end-pins an uncapped result.
+        var metrics = BuildMetrics(new[] { Frame(5.0), Frame(5.0), Frame(5.0) });
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 1.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.RawSeconds, Is.EqualTo(4.0).Within(1e-9));
+            Assert.That(rec.WasCapped, Is.False);
+            Assert.That(rec.RecommendedSeconds, Is.EqualTo(4.0).Within(1e-9));
+            Assert.That(rec.IncreasesExposure, Is.True);
+            Assert.That(rec.CapLimitsRecommendation, Is.False, "nothing was capped, so the cap cannot be limiting it");
+        });
+    }
+
     [TestCase(3.01, 3.5)]   // below 10s: 0.5s granularity, rounds UP past the next half-second
     [TestCase(3.5, 3.5)]    // already exactly on the grid -- ceiling of an exact value is itself, not the next step
+    [TestCase(10.0, 10.0)]  // lower band edge: exactly 10.0 uses the 1s (not 0.5s) granularity, already exact
     [TestCase(15.2, 16.0)]  // 10s-30s: 1s granularity
     [TestCase(20.0, 20.0)]  // already exact
+    [TestCase(30.0, 30.0)]  // upper band edge: exactly 30.0 uses the 1s (not 5s) granularity, already exact
     [TestCase(32.1, 35.0)]  // above 30s: 5s granularity
     [TestCase(40.0, 40.0)]  // already exact
     public void RoundExposureSeconds_AlwaysRoundsUp_AcrossTheThreeLadderBands(double input, double expected) {
@@ -357,6 +467,51 @@ public class ExposureRecommenderTests {
             Assert.That(rec.CappedByAbsoluteLimit, Is.True);
             Assert.That(rec.RecommendedSeconds, Is.EqualTo(rec.CurrentSeconds), "floored back up to current, never shortened");
             Assert.That(rec.IncreasesExposure, Is.False, "a consumer must not render a 'raise it to X' affordance here");
+        });
+    }
+
+    [Test]
+    public void Recommend_CurrentExposureOffGrid_PastAbsoluteCap_FloorsExactlyToCurrent() {
+        // The floor-before-round bug (fixed in this file) only shows up when CurrentSeconds is OFF the rounding
+        // ladder's grid -- the earlier 40.0s test above sits exactly on the >30s 5s grid, so it passes under
+        // EITHER ordering and does not cover this. 31.0s is NOT a multiple of 5, so it discriminates:
+        //   S_now = 9, t_old = 31s: raw = 31*(10/9)^2 ~= 38.27s. factorCap = 124s, absoluteCap = 30s -> upperCap = 30.
+        //   correct (round THEN floor): max(RoundExposureSeconds(30), 31) = max(30, 31) = 31.0.
+        //   buggy   (floor THEN round): RoundExposureSeconds(max(30, 31)) = RoundExposureSeconds(31) = 35.0 --
+        //     past the 30s cap AND past CurrentSeconds, exactly the reviewed defect.
+        var metrics = BuildMetrics(new[] { Frame(9.0), Frame(9.0), Frame(9.0) });
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 31.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.HasRecommendation, Is.True);
+            Assert.That(rec.RecommendedSeconds, Is.EqualTo(31.0).Within(1e-9), "floors exactly to the off-grid current value");
+            Assert.That(rec.IncreasesExposure, Is.False);
+            Assert.That(rec.RecommendedSeconds,
+                Is.LessThanOrEqualTo(Math.Max(ExposureRecommender.MaxRecommendedExposureSeconds, rec.CurrentSeconds)),
+                "must never exceed max(absolute cap, current) -- the buggy ordering reported 35.0, violating this");
+        });
+    }
+
+    [Test]
+    public void Recommend_CurrentExposureOffGrid_AlreadyAtTarget_IsConsistentWithExposureIsNotTheLimit() {
+        // Another off-grid current value, this time on the OTHER (ExposureIsNotTheLimit) branch:
+        //   S_now = 12 >= TargetSensitivity(10), t_old = 3.2s: raw = 3.2*(10/12)^2 ~= 2.22s (uncapped, since well
+        //   under both caps).
+        //   correct (round THEN floor): max(RoundExposureSeconds(2.22), 3.2) = max(2.5, 3.2) = 3.2 -- unchanged.
+        //   buggy   (floor THEN round): RoundExposureSeconds(max(2.22, 3.2)) = RoundExposureSeconds(3.2) = 3.5 --
+        //     ExposureIsNotTheLimit=true ("3.2s is already enough") while simultaneously proposing "raise it to
+        //     3.5s", the exact no-op-affordance contradiction IncreasesExposure exists to prevent.
+        // The pair assertion below (ExposureIsNotTheLimit == true AND IncreasesExposure == false) is what makes
+        // the state space non-contradictory; either one alone would not catch the bug.
+        var metrics = BuildMetrics(new[] { Frame(12.0), Frame(12.0), Frame(12.0) });
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 3.2);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.ExposureIsNotTheLimit, Is.True);
+            Assert.That(rec.IncreasesExposure, Is.False, "must not simultaneously claim the exposure is fine AND propose raising it");
+            Assert.That(rec.RecommendedSeconds, Is.EqualTo(3.2).Within(1e-9));
         });
     }
 
