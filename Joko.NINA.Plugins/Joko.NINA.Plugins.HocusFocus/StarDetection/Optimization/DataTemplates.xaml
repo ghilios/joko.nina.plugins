@@ -32,6 +32,7 @@
     <TextBlock x:Key="SDOpt_CaptureBinning_Tooltip" Text="NINA's Auto Focus Binning: how the camera bins when it captures the sweep frames. Set in NINA's Options, and per filter in the filter wheel settings. It should match the binning you image at. Detection binning below is applied on top of this, in software, for star detection only." />
     <TextBlock x:Key="SDOpt_DetectionBinningRec_Tooltip" Text="Recommended from this run's fitted in-focus HFR, using the detector's 2 to 4 pixel calibration target. Optimize again re-runs the search on the same frames at the recommended factor; nothing is saved until you Accept, which applies the factor and the re-tuned settings together." />
     <TextBlock x:Key="SDOpt_StarSignal_Tooltip" Text="Brightness Sensitivity is the acceptance gate a candidate must clear to count as a star: its brightness above the local background, divided by the local noise. It ranges from 0 to 50 and the shipped default is 10, so a value near the bottom means almost anything above the noise was admitted — whether the optimizer landed there or you set it by hand. The recommended exposure is what would put this run's stars back at the default gate, assuming sky noise dominates, so quadrupling the exposure doubles S/N. It scales from the exposure the run's own frames were captured with, or from your profile's auto-focus exposure when the frames record none. One run never recommends more than 4x the current exposure, or more than 30 s per frame." />
+    <TextBlock x:Key="SDOpt_CaptureNewSweep_Tooltip" Text="Captures a whole new auto-focus sweep at this exposure and re-runs the optimization on the fresh frames — the only way to fix a run whose stars were too faint, since no setting recovers signal the frames never had. It takes new exposures and moves the focuser, so it costs a full sweep of sky time. The box starts at the recommended exposure and is yours to change. Any detection binning change you have already re-optimized at still applies. Nothing is saved until you Accept the new result." />
     <TextBlock x:Key="SDOpt_FocusRecovery_Tooltip" Text="Widens the live sweep by this many extra steps on EACH side, so the auto-focus curve can still bracket focus when you start well off focus. The extra far-from-focus frames are down-weighted in the fit and exempt from the star-count requirements, so they help find focus without skewing it. Set 0 to disable recovery." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
@@ -841,6 +842,44 @@
                                 Text="{Binding ExposureBodyText, Mode=OneWay}"
                                 TextWrapping="Wrap"
                                 Visibility="{Binding HasExposureBody, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                            <!--  The action: capture a fresh sweep at a longer exposure and re-optimize on it. The
+                                  WHOLE ROW is hidden on Replay (ShowCaptureNewSweep), where re-capturing is
+                                  mode-inapplicable — the same branch the detection-binning block takes for
+                                  "use current settings". Everything that is merely unavailable (disconnected
+                                  camera/focuser, no save folder) leaves the button visible and DISABLED via the
+                                  command's CanExecute, so the body copy above never describes a control that is not
+                                  on screen.
+                                  The box is editable and LostFocus-bound, so THE BUTTON LABEL DELIBERATELY CARRIES
+                                  NO NUMBER: a numbered label goes stale the instant the user starts typing and then
+                                  contradicts the box beside it. Consequence in the label, value in the box — do not
+                                  "fix" this by interpolating the seconds into the button.  -->
+                            <StackPanel Margin="0,4,0,2" Orientation="Horizontal"
+                                        Visibility="{Binding ShowCaptureNewSweep, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                <TextBlock
+                                    Width="200"
+                                    VerticalAlignment="Center"
+                                    Text="New sweep exposure"
+                                    ToolTip="{StaticResource SDOpt_CaptureNewSweep_Tooltip}" />
+                                <ninactrl:UnitTextBox
+                                    MinWidth="80"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    ToolTip="{StaticResource SDOpt_CaptureNewSweep_Tooltip}"
+                                    Unit="s">
+                                    <Binding Path="RecaptureExposureSeconds" UpdateSourceTrigger="LostFocus">
+                                        <Binding.ValidationRules>
+                                            <rules:GreaterThanZeroRule />
+                                        </Binding.ValidationRules>
+                                    </Binding>
+                                </ninactrl:UnitTextBox>
+                                <Button
+                                    Margin="8,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Command="{Binding CaptureNewSweepCommand}"
+                                    ToolTip="{StaticResource SDOpt_CaptureNewSweep_Tooltip}">
+                                    <TextBlock Margin="12,6" Text="Capture a new sweep and optimize" />
+                                </Button>
+                            </StackPanel>
                         </StackPanel>
 
                         <!--  Auto-focus block: the recommended step size / offset steps PLUS the toggle that applies

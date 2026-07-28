@@ -350,6 +350,11 @@ public class OptimizationSummaryTests {
     private const string ReplayReassurance =
         " You can still accept these settings; they are the best fit for frames like these.";
 
+    /// <summary>Live's one instruction: it names the capture action sitting directly below the paragraph, and
+    /// quotes no seconds (the row above and the editable box below both carry the number).</summary>
+    private const string LiveCaptureInstruction =
+        " Capture a new sweep at the longer exposure to re-tune these settings on frames that have real signal.";
+
     [TestCase(0.0, true)]
     [TestCase(0.125, true)]
     [TestCase(0.5, true)]
@@ -470,16 +475,20 @@ public class OptimizationSummaryTests {
     }
 
     [Test]
-    public void ExposureCopy_Live_PlainIncrease_IsTheDiagnosisAloneAndDoesNotRestateTheRow() {
-        // GOLDEN. The row already reads "3 s → 12 s (measured star S/N 4.1; target 10)", so a body sentence saying
-        // "at about 12 s the same stars would clear the gate" adds a third printing of the same number and nothing
-        // else — the sibling detection-binning block returns an EMPTY body in exactly this situation. Live has no
-        // instruction to give yet (its capture action is a later task), so the diagnosis stands alone.
+    public void ExposureCopy_Live_PlainIncrease_NamesTheCaptureActionAndQuotesNoNumber() {
+        // GOLDEN. The row already reads "3 s → 12 s (measured star S/N 4.1; target 10)" and the editable box beside
+        // the button repeats it, so a body sentence quoting the seconds a THIRD time would go stale the moment the
+        // user edits that box. The sibling detection-binning block sets the rule: the body's only job is to say why
+        // the button exists.
         var text = Body(Starved(advice: Advice(3, 12, 4.1)), live: true);
-        Assert.That(text, Is.EqualTo(LowSignalOpening));
-        // The block follows the SELECTED variant, and on the Current view the gate is the user's own hand-set
-        // value, so the copy must never attribute it to the optimizer.
-        Assert.That(text, Does.Not.Contain("optimizer"));
+        Assert.That(text, Is.EqualTo(LowSignalOpening + LiveCaptureInstruction));
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Not.Contain("12 s"), "the number lives in the row and the box, not the paragraph");
+            // The block follows the SELECTED variant, and on the Current view the gate is the user's own hand-set
+            // value, so the copy must never attribute it to the optimizer.
+            Assert.That(text, Does.Not.Contain("optimizer"));
+            Assert.That(text, Does.Not.Contain("NINA's focuser options"), "that is Replay's instruction");
+        });
     }
 
     [Test]
@@ -520,8 +529,13 @@ public class OptimizationSummaryTests {
         var advice = Advice(2, 8, 4.5, raw: 9.88, wasCapped: true, cappedByAbsoluteLimit: false);
         Assert.That(advice.CapLimitsRecommendation, Is.True, "fixture guard: a cap really did shape the offer");
         var text = Body(Starved(advice: advice), live: true);
+        // The relative cap is still a plain increase, so the capture instruction stands — and "expect to repeat
+        // this" is advice about the very action the button takes. NO narrowband rider: that rides only with the
+        // ABSOLUTE cap, and 8 s is nowhere near the ceiling.
         Assert.That(text, Is.EqualTo(
-            LowSignalOpening + " The recommendation above is a partial step: one run should not raise the exposure by more than 4x, so expect to repeat this."));
+            LowSignalOpening
+            + " The recommendation above is a partial step: one run should not raise the exposure by more than 4x, so expect to repeat this."
+            + LiveCaptureInstruction));
         Assert.Multiple(() => {
             Assert.That(text, Does.Not.Contain("filter"), "the exposure route is nowhere near exhausted");
             Assert.That(text, Does.Not.Contain("broadband"));
@@ -552,14 +566,19 @@ public class OptimizationSummaryTests {
     }
 
     [Test]
-    public void ExposureCopy_AbsoluteCap_ButStillAnIncrease_Live_EndsAtTheDiagnosis() {
-        // Live's instruction slot stays empty until it has a capture action of its own — the same place
-        // Live + a plain increase ends. The row still carries "10 s → 30 s".
+    public void ExposureCopy_AbsoluteCap_ButStillAnIncrease_Live_CapturesAndCarriesTheNarrowbandRider() {
+        // GOLDEN, and the Live twin of the Replay case above. The absolute cap binding does NOT exhaust the
+        // exposure route — 10 s at S/N 5 wants 40 s and is trimmed to 30 s, a real 3x improvement the capture
+        // action can actually go and take — so the capture instruction stands and the narrowband hint rides along
+        // in the SAME sentence rather than replacing it. One instruction either way.
         var advice = Advice(10, 30, 5.0, raw: 40.0, wasCapped: true, cappedByAbsoluteLimit: true);
         var text = Body(Starved(advice: advice, offsetSteps: 5), live: true);
         Assert.That(text, Is.EqualTo(
             LowSignalOpening
-            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so the recommendation above stops at 30 s."));
+            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so the recommendation above stops at 30 s."
+            + LiveCaptureInstruction.TrimEnd('.')
+            + "; if you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead."));
+        Assert.That(text, Does.Not.Contain("You can still accept"), "that reassurance is Replay's, not Live's");
     }
 
     [Test]
@@ -579,6 +598,22 @@ public class OptimizationSummaryTests {
             + ReplayReassurance
             + " If you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead."));
         Assert.That(text, Does.Not.Contain("40 s"), "the row carries the numbers; the body must not re-offer them");
+    }
+
+    [Test]
+    public void ExposureCopy_AlreadyPastTheCap_Live_DoesNotOfferACaptureThatChangesNothing() {
+        // The mirror image of the case above, and the reason the capture instruction branches on IncreasesExposure
+        // rather than HasRecommendation: at 40 s the recommendation collapses onto the current exposure, so a new
+        // sweep would spend minutes of sky time to re-capture at the exposure that just failed. Live therefore
+        // takes the SAME filter-route remedy Replay does here.
+        var advice = Advice(40, 40, 6.0, raw: 111.1, wasCapped: true, cappedByAbsoluteLimit: true);
+        Assert.That(advice.IncreasesExposure, Is.False, "fixture guard");
+        var text = Body(Starved(advice: advice), live: true);
+        Assert.That(text, Is.EqualTo(
+            LowSignalOpening
+            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so there is no longer exposure to offer."
+            + " If you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead."));
+        Assert.That(text, Does.Not.Contain("Capture a new sweep"), "there is nothing longer to capture at");
     }
 
     [Test]

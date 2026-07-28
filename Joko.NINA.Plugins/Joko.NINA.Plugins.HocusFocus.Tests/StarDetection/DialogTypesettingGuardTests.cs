@@ -74,7 +74,34 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 $"The re-optimize prompt ({from}x -> {to}x)");
         }
 
-        /// <summary>The per-filter bullet carries a user-chosen filter name, so its width cannot be bounded.
+        [TestCase(0.5, 2.0)]
+    [TestCase(3.0, 6.5)]
+    [TestCase(5.0, 12.0)]
+    [TestCase(12.5, 30.0)]
+    [TestCase(0.1, 30.0)]
+    public void CaptureNewSweepPrompt_IsTypesetWithinTheBudget(double from, double to) {
+        // Swept across magnitudes because THREE interpolations share these lines — both exposures and the derived
+        // "about Nx as long" ratio — so a wide value in any of them can push a line over on its own. 0.1 -> 30 s is
+        // the widest ratio the caps allow anywhere near a real setup (300x).
+        AssertEveryLineFits(
+            StarDetectionOptimizerWizardVM.DescribeCaptureNewSweep(from, to),
+            $"The capture-new-sweep prompt ({from}s -> {to}s)");
+    }
+
+    [Test]
+    public void CaptureNewSweepPrompt_WithNoUsableCurrentExposure_OmitsTheRatioRatherThanPrintingInfinity() {
+        // A pure function cannot assume the UI's GreaterThanZeroRule ran. "about ∞x as long" would be worse than
+        // saying nothing, so the clause drops out entirely — and the rest of the body must still typeset.
+        var text = StarDetectionOptimizerWizardVM.DescribeCaptureNewSweep(0.0, 12.0);
+        AssertEveryLineFits(text, "The capture-new-sweep prompt (no current exposure)");
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Not.Contain("as long"));
+            Assert.That(text, Does.Not.Contain("∞"));
+            Assert.That(text, Does.Contain("Capture and optimize now?"), "the ask survives the missing clause");
+        });
+    }
+
+    /// <summary>The per-filter bullet carries a user-chosen filter name, so its width cannot be bounded.
         /// Every other line of that prompt can be, and is.</summary>
         internal static bool IsFilterBullet(string line) =>
             line.TrimStart().StartsWith("- Filter \"", StringComparison.Ordinal);

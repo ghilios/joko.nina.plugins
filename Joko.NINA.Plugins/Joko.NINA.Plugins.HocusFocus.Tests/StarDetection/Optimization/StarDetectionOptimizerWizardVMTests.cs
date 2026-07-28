@@ -271,6 +271,7 @@ public class StarDetectionOptimizerWizardVMTests {
         OptimizerSettings optimizerSettings = null,
         IAutoFocusOptions autoFocusOptions = null,
         Func<bool> confirmRoughFocus = null,
+        Func<double, double, bool> confirmCaptureNewSweep = null,
         Func<string> currentFilterName = null,
         Func<int?> currentGain = null,
         Func<bool> perFilterEnabled = null,
@@ -296,6 +297,7 @@ public class StarDetectionOptimizerWizardVMTests {
             isFocuserConnected: isFocuserConnected,
             autoFocusOptions: autoFocusOptions,
             confirmRoughFocus: confirmRoughFocus,
+            confirmCaptureNewSweep: confirmCaptureNewSweep,
             currentFilterName: currentFilterName,
             currentGain: currentGain,
             perFilterEnabled: perFilterEnabled,
@@ -2983,11 +2985,16 @@ public class StarDetectionOptimizerWizardVMTests {
     // the same modest SNR, so each frame's NTarget-th-brightest is exactly starSnr and the derived exposure is
     // plain arithmetic rather than a property of the fixture's ordering.
     private static LoadedRun StarvedRun(
-        string id = "starved", double starSnr = 7.0, int starsPerFrame = 30, double capturedExposureSeconds = 3.0) {
+        string id = "starved", double starSnr = 7.0, int starsPerFrame = 30, double capturedExposureSeconds = 3.0,
+        bool largeStars = false) {
         Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect = (image, p, token) => {
             var pos = (int)image;
             return Task.FromResult(new FrameDetectionResult {
-                AverageHFR = Hfr(pos),
+                // largeStars swaps in the 5 px in-focus curve so a starved run can ALSO carry a detection-binning
+                // recommendation — the only way to exercise how a pending "Optimize again at 2x2" interacts with a
+                // fresh capture. The gate still floors either way: the curve is identical at every Sensitivity, so
+                // J responds to the star count alone.
+                AverageHFR = largeStars ? LargeStarHfr(pos) : Hfr(pos),
                 HFRStdDev = 0.05,
                 StarCount = (int)Math.Max(6, Math.Round(26.0 - 2.0 * p.Sensitivity)),
                 StarCenters = Array.Empty<(double X, double Y)>(),
@@ -3142,6 +3149,465 @@ public class StarDetectionOptimizerWizardVMTests {
             // BuildSummaryAsync used to pass the whole suite. A derived number computed off an assumed input must
             // say so in visible copy.
             Assert.That(vm.ExposureBodyText, Does.Contain("assumes your profile's 3 s auto-focus exposure"));
+        });
+    }
+
+    // ---- Star signal: capture a new sweep at the recommended exposure ------------------------------------
+    //
+    // The Live counterpart of "Optimize again at NxN": that action re-reads frames already on disk, this one
+    // replaces them. Every run path DISPOSES the RunEvaluationData it was handed, so a test that runs twice
+    // (Start, then a fresh capture) cannot reuse one LoadedRun — hence a loader that manufactures one per call,
+    // the same reason RecordingLoader exists for the re-optimize tests.
+
+    private sealed class ProducingLoader : IRunEvaluationLoader {
+        private readonly Func<string, LoadedRun> factory;
+
+        /// <summary>Every run handed out, in load order — the VM stamps these AFTER the loader returns them, so a
+        /// test can read the recovery/binning stamp off them post-flow.</summary>
+        public List<LoadedRun> Produced { get; } = new List<LoadedRun>();
+
+        /// <summary>Every folder asked for, in load order.</summary>
+        public List<string> Folders { get; } = new List<string>();
+
+        public ProducingLoader(Func<string, LoadedRun> factory) {
+            this.factory = factory;
+        }
+
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, CancellationToken token) =>
+            LoadSavedRunAsync(attemptFolderPath, region, null, null, null, token);
+
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, CancellationToken token) =>
+            LoadSavedRunAsync(attemptFolderPath, region, labels, null, null, token);
+
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, IProgress<RunLoadProgress> progress, CancellationToken token) =>
+            LoadSavedRunAsync(attemptFolderPath, region, labels, progress, null, token);
+
+        public Task<LoadedRun> LoadSavedRunAsync(string attemptFolderPath, StarDetectionRegion region, IReadOnlyList<FrameLabels> labels, IProgress<RunLoadProgress> progress, IStarDetectionOptions baselineOptionsOverride, CancellationToken token) {
+            Folders.Add(attemptFolderPath);
+            var run = factory(attemptFolderPath);
+            Produced.Add(run);
+            return Task.FromResult(run);
+        }
+    }
+
+    private static ProducingLoader StarvedLoader(bool largeStars = false) =>
+        new ProducingLoader(folder => StarvedRun(id: "starved::" + folder, largeStars: largeStars));
+
+    // A Live, signal-starved wizard sitting on the Summary: SweepExposureSeconds 5 s and a measured S/N of 7 make
+    // the recommendation 5 x (10/7)^2 = 10.2 s, rounded up the 10-30 s ladder to 11 s — a genuine increase, so the
+    // capture action is on offer. Optimize mode (NOT NewLiveVM's use-current), since the whole point is re-tuning.
+    private static StarDetectionOptimizerWizardVM NewStarvedLiveVM(
+        IAutoFocusEngine engine, IRunEvaluationLoader loader,
+        IStarDetectionOptions options = null, IProfileService profileService = null,
+        Func<double, double, bool> confirmCaptureNewSweep = null) {
+        var vm = NewVM(loader, options, profileService,
+            isCameraConnected: () => true, isFocuserConnected: () => true,
+            autoFocusEngine: engine, confirmCaptureNewSweep: confirmCaptureNewSweep);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 5.0;
+        return vm;
+    }
+
+    private static IAutoFocusEngine LiveEngineReturningTasks(Func<CallInfo, Task<AutoFocusResult>> onSweep) {
+        var engine = Substitute.For<IAutoFocusEngine>();
+        engine.GetOptions().Returns(_ => new AutoFocusEngineOptions());
+        engine.CaptureFixedSweepAsync(default, default, default, default).ReturnsForAnyArgs(ci => onSweep(ci));
+        return engine;
+    }
+
+    private static AutoFocusResult SweptOk(int n = 0) =>
+        new AutoFocusResult { Succeeded = true, SaveFolder = $@"C:\live\attempt{n}" };
+
+    [Test]
+    public async Task CaptureNewSweep_IsOfferedAfterAStarvedLiveRun_AndPrefilledWithTheRecommendation() {
+        var engine = LiveEngine(_ => SweptOk());
+        var vm = NewStarvedLiveVM(engine, StarvedLoader());
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        Assert.That(vm.HasExposureBlock, Is.True, "fixture guard: the gate must actually floor");
+        Assert.Multiple(() => {
+            Assert.That(vm.ShowCaptureNewSweep, Is.True);
+            Assert.That(vm.CanCaptureNewSweep, Is.True);
+            Assert.That(vm.CaptureNewSweepCommand.CanExecute(null), Is.True,
+                "the command is asked from inside the run, while IsBusy is still true - it must be re-asked after");
+            Assert.That(vm.RecaptureExposureSeconds, Is.EqualTo(11.0),
+                "5 s x (10/7)^2 = 10.2 s, rounded up the 10-30 s ladder");
+            // The body names the action; the number lives in the row and the box beside the button.
+            Assert.That(vm.ExposureBodyText, Does.Contain("Capture a new sweep at the longer exposure"));
+            Assert.That(vm.ExposureBodyText, Does.Not.Contain("NINA's focuser options"));
+        });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_Declined_CapturesNothingAndLeavesTheSweepExposureAlone() {
+        // The dialog is the last chance to back out of minutes of sky time, so declining must be inert - in
+        // particular it must NOT leave LiveExposureSeconds armed at the recommendation for some later sweep.
+        var captures = 0;
+        var engine = LiveEngine(_ => { captures++; return SweptOk(captures); });
+        var vm = NewStarvedLiveVM(engine, StarvedLoader(), confirmCaptureNewSweep: (from, to) => false);
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.ShowCaptureNewSweep, Is.True, "fixture guard");
+        var capturesAfterStart = captures;
+        var summaryAfterStart = vm.Summary;
+
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(captures, Is.EqualTo(capturesAfterStart), "declining must not capture");
+            Assert.That(vm.LiveExposureSeconds, Is.EqualTo(5.0), "and must not arm the sweep exposure");
+            Assert.That(vm.Summary, Is.SameAs(summaryAfterStart), "nor disturb the summary");
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.IsBusy, Is.False, "the interlock must be released on the declined path too");
+        });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_CapturesAtTheRecommendedExposure() {
+        var captured = new List<AutoFocusEngineOptions>();
+        var engine = LiveEngine(ci => { captured.Add(ci.Arg<AutoFocusEngineOptions>()); return SweptOk(captured.Count); });
+        var vm = NewStarvedLiveVM(engine, StarvedLoader());
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(captured, Has.Count.EqualTo(1), "fixture guard: the Start sweep");
+        Assert.That(captured[0].OverrideAutoFocusExposureTime, Is.EqualTo(TimeSpan.FromSeconds(5.0)));
+
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(captured, Has.Count.EqualTo(2), "the action captures a fresh sweep");
+            Assert.That(captured[1].OverrideAutoFocusExposureTime, Is.EqualTo(TimeSpan.FromSeconds(11.0)),
+                "the sweep is taken at the box's exposure, not the one the previous run used");
+            Assert.That(captured[1].Save, Is.True);
+            Assert.That(captured[1].SavePath, Is.EqualTo(@"C:\live"));
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_EditedExposure_BeatsTheRecommendation() {
+        // The box is editable precisely because the recommendation is an extrapolation. Whatever is in it at click
+        // time is what gets captured.
+        var captured = new List<AutoFocusEngineOptions>();
+        var engine = LiveEngine(ci => { captured.Add(ci.Arg<AutoFocusEngineOptions>()); return SweptOk(captured.Count); });
+        var vm = NewStarvedLiveVM(engine, StarvedLoader());
+        await vm.StartAsync(CancellationToken.None);
+
+        vm.RecaptureExposureSeconds = 20.0;
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.That(captured[1].OverrideAutoFocusExposureTime, Is.EqualTo(TimeSpan.FromSeconds(20.0)));
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_HonorsRunCount() {
+        // A single-shot re-capture would silently drop runs 2..N and then compare a 1-run result against the
+        // 2-run baseline the summary was built from.
+        var captures = 0;
+        var engine = LiveEngine(_ => { captures++; return SweptOk(captures); });
+        var vm = NewStarvedLiveVM(engine, StarvedLoader());
+        vm.RunCount = 2;
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(captures, Is.EqualTo(2), "fixture guard: Start captures one sweep per run");
+        Assert.That(vm.Summary.RunCount, Is.EqualTo(2));
+
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(captures, Is.EqualTo(4), "the re-capture takes RunCount sweeps, not one");
+            Assert.That(vm.Summary.RunCount, Is.EqualTo(2), "and the summary still describes both");
+        });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_PreservesAPendingOptimizeAgainBinningFactor() {
+        // pendingDetectionBinning is deliberately NOT cleared: the user is mid-way through evaluating 2x2, and the
+        // fresh frames must be analyzed at the factor Accept would write. Clearing it would silently drop them back
+        // to 1x1 while the summary still offered to apply 2x2.
+        var options = Substitute.For<IStarDetectionOptions>();
+        options.DetectionBinning.Returns(DetectionBinningEnum.Bin1);
+        var engine = LiveEngine(_ => SweptOk());
+        var vm = NewStarvedLiveVM(engine, StarvedLoader(largeStars: true), options);
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.ShowOptimizeAgainAtRecommendedBinning, Is.True,
+            "fixture guard: the 5 px stars must call for 2x2, or there is no pending factor to preserve");
+        Assert.That(vm.HasExposureBlock, Is.True, "fixture guard: and the gate must still floor");
+
+        await vm.OptimizeAgainAtRecommendedBinningCommand.ExecuteAsync(null);
+        Assert.That(vm.Summary.RunDetectionBinning, Is.EqualTo(2), "fixture guard: the pending factor is in force");
+        Assert.That(vm.ShowCaptureNewSweep, Is.True, "fixture guard: the capture action survives the re-optimize");
+
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.Summary.RunDetectionBinning, Is.EqualTo(2),
+                "the freshly captured frames are analyzed at the pending factor");
+            Assert.That(vm.Summary.DetectionBinningPendingApply, Is.True,
+                "so Accept still writes the factor with the settings measured at it");
+        });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_UsesTheSnapshottedRecoverySteps_NotTheLiveBox() {
+        // LoadRunStampedAsync's contract: every load after the originating Start reuses that Start's snapshot, so
+        // the widened CAPTURE and the recovery TAGGING can never disagree. Re-reading the box here would widen the
+        // sweep by 5 while the evaluator still tagged 1 frame per side as recovery.
+        var captured = new List<AutoFocusEngineOptions>();
+        var engine = LiveEngine(ci => { captured.Add(ci.Arg<AutoFocusEngineOptions>()); return SweptOk(captured.Count); });
+        var vm = NewStarvedLiveVM(engine, StarvedLoader());
+        vm.FocusRecoverySteps = 1;
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(captured[0].AutoFocusInitialOffsetSteps, Is.EqualTo(1), "fixture guard: 0 profile offset + 1 recovery");
+
+        vm.FocusRecoverySteps = 5;
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.That(captured[1].AutoFocusInitialOffsetSteps, Is.EqualTo(1),
+            "the re-capture widens by the SNAPSHOT (1), not by the edited box (5)");
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_FailedCapture_RestoresTheExposureAndLeavesTheSummaryIntact() {
+        var fail = false;
+        var engine = LiveEngine(_ => fail ? throw new InvalidOperationException("focuser exploded") : SweptOk());
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+        var vm = NewStarvedLiveVM(engine, StarvedLoader(), profileService: profileService);
+
+        await vm.StartAsync(CancellationToken.None);
+        var summaryAfterStart = vm.Summary;
+        var exposureRowAfterStart = vm.SweepExposureChangeText;
+
+        fail = true;
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Does.Contain("focuser exploded"));
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "the previous result is still valid");
+            Assert.That(vm.Summary, Is.SameAs(summaryAfterStart), "and untouched");
+            Assert.That(vm.LiveExposureSeconds, Is.EqualTo(5.0), "the pending sweep exposure is rolled back");
+            // RunLiveAttemptAsync writes capturedLiveExposureSeconds BEFORE the sweep can fail, so restoring only
+            // LiveExposureSeconds would leave the intact summary reporting - and Accept writing - an exposure
+            // nothing was ever captured at.
+            Assert.That(vm.SweepExposureChangeText, Is.EqualTo(exposureRowAfterStart));
+            Assert.That(vm.SweepExposureChangeText, Does.Not.Contain("11 s"));
+            Assert.That(vm.AcceptCommand.CanExecute(null), Is.True, "a failed extra capture must not block Accept");
+            Assert.That(vm.IsBusy, Is.False);
+        });
+
+        vm.AcceptCommand.Execute(null);
+        focuserSettings.DidNotReceive().AutoFocusExposureTime = 11.0;
+        focuserSettings.Received().AutoFocusExposureTime = 5.0;
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_Cancelled_RestoresTheExposureWithoutAnError() {
+        // The cancel path takes a different catch clause than the failure path, and only shares the finally. A
+        // restore written into the exception handler instead of the finally would pass the test above and leave the
+        // exposure armed here.
+        var cancel = false;
+        var engine = LiveEngine(_ => cancel ? throw new OperationCanceledException() : SweptOk());
+        var vm = NewStarvedLiveVM(engine, StarvedLoader());
+
+        await vm.StartAsync(CancellationToken.None);
+        var summaryAfterStart = vm.Summary;
+
+        cancel = true;
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Is.Null, "a cancel is a user choice, not a failure");
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.Summary, Is.SameAs(summaryAfterStart));
+            Assert.That(vm.LiveExposureSeconds, Is.EqualTo(5.0));
+            Assert.That(vm.SweepExposureChangeText, Does.Not.Contain("11 s"));
+            Assert.That(vm.IsBusy, Is.False);
+        });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_SweepProducedNoFrames_KeepsTheUserOnTheSummary() {
+        // A failed/partial sweep can still return a SaveFolder; "not succeeded" means no capture. Unlike Start
+        // (which drops back to Select Source) this is an OPTIONAL extra capture, so the previous result stands.
+        var succeed = true;
+        var engine = LiveEngine(_ => succeed ? SweptOk() : new AutoFocusResult { Succeeded = false, SaveFolder = @"C:\live\attempt" });
+        var vm = NewStarvedLiveVM(engine, StarvedLoader());
+
+        await vm.StartAsync(CancellationToken.None);
+        var summaryAfterStart = vm.Summary;
+
+        succeed = false;
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Does.Contain("did not produce"));
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.Summary, Is.SameAs(summaryAfterStart));
+            Assert.That(vm.LiveExposureSeconds, Is.EqualTo(5.0));
+        });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_RepointsEveryLaterReloadAtTheFreshFrames() {
+        // The snapshot at the end of the capture must carry the FRESH folders. Handing it the previous run's would
+        // leave Continue / re-optimize / Review all re-reading the starved frames this action exists to replace -
+        // and nothing on screen would say so, since the summary would describe the new capture.
+        var captures = 0;
+        var engine = LiveEngine(_ => SweptOk(++captures));
+        var loader = StarvedLoader();
+        var vm = NewStarvedLiveVM(engine, loader);
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(loader.Folders, Is.EqualTo(new[] { @"C:\live\attempt1" }), "fixture guard: the Start sweep's folder");
+
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+        Assert.That(loader.Folders.Last(), Is.EqualTo(@"C:\live\attempt2"), "fixture guard: the fresh sweep's folder");
+
+        // Continue re-loads from the snapshot, so it is the honest probe for what the snapshot now holds.
+        Assert.That(vm.CanContinueOptimization, Is.True, "fixture guard");
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null);
+
+        Assert.That(loader.Folders.Last(), Is.EqualTo(@"C:\live\attempt2"),
+            "the reload must reach for the frames the capture just took, not the starved ones it replaced");
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_ResetsTheRoundChainAndDropsTheFeedbackVariant() {
+        // Fresh frames at a different exposure are a fresh tuning, not another round: splicing them onto the
+        // Continue trajectory would show a per-round path measured across two different sets of exposures, and the
+        // feedback variant's labels were drawn on images that no longer describe this result.
+        var engine = LiveEngine(_ => SweptOk());
+        var vm = NewStarvedLiveVM(engine, StarvedLoader());
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.CanContinueOptimization, Is.True, "fixture guard");
+        await vm.ContinueOptimizationCommand.ExecuteAsync(null);
+        Assert.That(vm.RoundsCompleted, Is.EqualTo(2), "fixture guard: a second round is on the chain");
+
+        // Building a REAL feedback variant needs a full Review round-trip with labels; the reset is what is under
+        // test, so the variant is planted directly.
+        typeof(StarDetectionOptimizerWizardVM)
+            .GetField("feedbackResult", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
+            .SetValue(vm, new OptimizationResult { BestParams = new StarDetectorParams(), BestJ = 0.5, SeedJ = 0.5 });
+        Assert.That(vm.HasFeedback, Is.True, "fixture guard");
+
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.RoundsCompleted, Is.EqualTo(0), "the chain restarts from this capture");
+            Assert.That(vm.HasFeedback, Is.False, "the feedback variant was measured on the discarded frames");
+            Assert.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Optimized));
+            Assert.That(vm.HasRoundsSummary, Is.False, "no multi-round header to splice");
+        });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_UpdatesTheAcceptWriteBack() {
+        // capturedLiveExposureSeconds is updated by RunLiveAttemptAsync, so the summary's exposure row and Accept's
+        // profile write follow with no extra plumbing - which is exactly why it needs a test.
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+        var engine = LiveEngine(_ => SweptOk());
+        var vm = NewStarvedLiveVM(engine, StarvedLoader(), profileService: profileService);
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.SweepExposureChangeText, Does.Contain("5 s"), "fixture guard: the Start sweep's exposure");
+
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.SweepExposureChangeText, Does.Contain("11 s"),
+                "the summary reports what the LATEST capture actually used");
+            Assert.That(vm.CanApplyExposureTime, Is.True);
+            Assert.That(vm.ApplyRecommendedStepSize, Is.True, "an exposure change alone makes the AF toggle meaningful");
+        });
+
+        vm.AcceptCommand.Execute(null);
+
+        focuserSettings.Received().AutoFocusExposureTime = 11.0;
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_IsBlockedWhileAnotherRunIsInFlight() {
+        // The `running` interlock, not IsBusy: the command's CanExecute is bypassed by a direct ExecuteAsync (and
+        // by a double-click that lands before the requery), so re-entrancy has to be refused inside the method.
+        var gate = new TaskCompletionSource<AutoFocusResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var block = false;
+        var captures = 0;
+        var engine = LiveEngineReturningTasks(_ => {
+            captures++;
+            return block ? gate.Task : Task.FromResult(SweptOk(captures));
+        });
+        var vm = NewStarvedLiveVM(engine, StarvedLoader());
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(captures, Is.EqualTo(1), "fixture guard");
+
+        block = true;
+        var inFlight = vm.CaptureNewSweepCommand.ExecuteAsync(null);
+        Assert.That(vm.IsBusy, Is.True, "fixture guard: the first capture is parked inside the sweep");
+        Assert.That(captures, Is.EqualTo(2), "fixture guard");
+
+        await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+        Assert.That(captures, Is.EqualTo(2), "the second click must not start a second sweep");
+
+        gate.SetResult(SweptOk(2));
+        await inFlight;
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "and the first capture still completes normally");
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_DisconnectedCamera_LeavesTheRowVisibleButTheButtonDisabled() {
+        // The Show/Can split: a device that dropped while the user read the summary is TEMPORARILY unavailable, so
+        // the affordance stays on screen (disabled) rather than vanishing out from under the copy that names it.
+        var connected = true;
+        var engine = LiveEngine(_ => SweptOk());
+        var vm = NewVM(StarvedLoader(), isCameraConnected: () => connected, isFocuserConnected: () => true,
+            autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 5.0;
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.CanCaptureNewSweep, Is.True, "fixture guard");
+
+        connected = false;
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ShowCaptureNewSweep, Is.True, "the row stays visible");
+            Assert.That(vm.CanCaptureNewSweep, Is.False, "but the action cannot run");
+            Assert.That(vm.CaptureNewSweepCommand.CanExecute(null), Is.False);
+        });
+    }
+
+    [Test]
+    public async Task CaptureNewSweep_Replay_IsNotOfferedAtAll_AndAcceptStaysEnabled() {
+        // Replay has no rig to re-capture from, so the action is mode-inapplicable and the row is HIDDEN (the
+        // binning block's use-current branch). The Star signal block is a warning, never a veto: Accept must stay
+        // available exactly as it does without this action.
+        var vm = NewVM(LoaderReturning(StarvedRun()));
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.HasExposureBlock, Is.True, "fixture guard: the block itself is on screen");
+        Assert.Multiple(() => {
+            Assert.That(vm.ShowCaptureNewSweep, Is.False);
+            Assert.That(vm.CanCaptureNewSweep, Is.False);
+            Assert.That(vm.CaptureNewSweepCommand.CanExecute(null), Is.False);
+            Assert.That(vm.ExposureBodyText, Does.Not.Contain("Capture a new sweep"),
+                "and the copy must not describe a control that is not on screen");
+            Assert.That(vm.AcceptCommand.CanExecute(null), Is.True);
         });
     }
 }

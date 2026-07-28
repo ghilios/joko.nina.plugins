@@ -487,6 +487,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // Confirms re-running the search at a different detection binning factor. Takes (from, to) so the dialog can
         // name both. Defaults to "yes" so tests and headless paths are not blocked.
         private readonly Func<int, int, bool> confirmReoptimizeAtBinning;
+
+        // Confirms capturing a WHOLE NEW SWEEP at a longer exposure. Takes (from, to) seconds so the dialog can name
+        // both. Same default-to-yes contract as confirmReoptimizeAtBinning: tests and headless paths proceed. This
+        // one matters more than its sibling — the sibling re-reads frames already on disk, this one moves the
+        // focuser and spends minutes of sky time.
+        private readonly Func<double, double, bool> confirmCaptureNewSweep;
         private readonly Func<string> currentFilterName;
         private readonly Func<int?> currentGain;
 
@@ -637,6 +643,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     DescribeReoptimizeAtBinning(from, to),
                     "Detection Binning",
                     System.Windows.MessageBoxButton.YesNo,
+                    System.Windows.MessageBoxResult.Yes) == System.Windows.MessageBoxResult.Yes,
+                // Unlike the binning re-run, this one takes new exposures and moves the focuser, so the dialog has to
+                // say so — the summary's copy and the button name the action, not its cost.
+                confirmCaptureNewSweep: (from, to) => MyMessageBox.Show(
+                    DescribeCaptureNewSweep(from, to),
+                    "Capture New Sweep",
+                    System.Windows.MessageBoxButton.YesNo,
                     System.Windows.MessageBoxResult.Yes) == System.Windows.MessageBoxResult.Yes) {
         }
 
@@ -658,6 +671,44 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             + "Nothing is saved until you Accept the new result.\n"
             + "\n"
             + "Optimize again now?";
+
+        /// <summary>
+        /// The "capture a new sweep at a longer exposure" confirmation body.
+        ///
+        /// <para>The DELIBERATE INVERSE of <see cref="DescribeReoptimizeAtBinning"/>'s reassurance. That action
+        /// re-reads frames already on disk, so its body promises "no new exposures, no focuser movement". This one
+        /// does the opposite on every count — it exposes again, it drives the focuser through a full sweep, and at
+        /// the longer exposure it costs proportionally more sky time — so the body has to say all three. The
+        /// summary's copy said WHY and the button said WHAT; this is the only place the COST appears.</para>
+        ///
+        /// <para>The cost is stated as a RATIO rather than a wall-clock estimate on purpose: the absolute figure
+        /// needs the sweep's point count and frames-per-point, which are profile state this pure function does not
+        /// (and should not) reach for, and the confirmation panel's own
+        /// <see cref="SweepEstimatedDurationText"/> already carries the absolute number for the sweep the user
+        /// configured. "About Nx as long as the last one" is derivable from the two exposures alone and is the
+        /// comparison the user is actually making at this moment.</para>
+        ///
+        /// <para>Line breaks are TYPESETTING, not paragraphing — see <see cref="DescribeReoptimizeAtBinning"/> for
+        /// why (MyMessageBox does not wrap, so the longest line sets the dialog's width). Keep every line under
+        /// <see cref="MaxDialogLineLength"/>; the widths are guarded by a test that sweeps the interpolated
+        /// magnitudes.</para>
+        /// </summary>
+        internal static string DescribeCaptureNewSweep(double from, double to) {
+            var text =
+                $"Sweep exposure {from:0.##} s → {to:0.##} s.\n"
+                + "\n"
+                + $"This captures a NEW sweep at {to:0.##} s per frame: fresh\n"
+                + "exposures, and the focuser moves.\n";
+            // A non-positive "from" cannot produce a ratio (the sweep exposure is validated positive in the UI, but
+            // this is a pure function and an "∞x as long" line would be worse than no line at all).
+            if (from > 0.0) {
+                text += $"Expect it to take about {to / from:0.#}x as long as the last one.\n";
+            }
+            return text
+                + "Nothing is saved until you Accept the new result.\n"
+                + "\n"
+                + "Capture and optimize now?";
+        }
 
         /// <summary>The line-width budget for <see cref="MyMessageBox"/> bodies, in characters. At NINA's dialog
         /// face (~8.2 px/char) 60 characters puts the window near 525px and each button near 245px — an ordinary
@@ -682,6 +733,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             IAutoFocusOptions autoFocusOptions = null,
             Func<bool> confirmRoughFocus = null,
             Func<int, int, bool> confirmReoptimizeAtBinning = null,
+            Func<double, double, bool> confirmCaptureNewSweep = null,
             Func<string> currentFilterName = null,
             Func<int?> currentGain = null,
             Func<bool> perFilterEnabled = null,
@@ -712,6 +764,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // tests and headless callers proceed without a dialog.
             this.confirmRoughFocus = confirmRoughFocus ?? (() => true);
             this.confirmReoptimizeAtBinning = confirmReoptimizeAtBinning ?? ((from, to) => true);
+            this.confirmCaptureNewSweep = confirmCaptureNewSweep ?? ((from, to) => true);
             this.currentFilterName = currentFilterName;
             this.currentGain = currentGain;
             this.perFilterEnabled = perFilterEnabled ?? (() => false);
@@ -741,6 +794,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             CancelCommand = new RelayCommand(Cancel);
             AcceptCommand = new RelayCommand(Accept, CanAccept);
             OptimizeAgainAtRecommendedBinningCommand = new AsyncRelayCommand(() => OptimizeAgainAtRecommendedBinningAsync(CancellationToken.None), () => CanOptimizeAgainAtRecommendedBinning && !IsBusy);
+            CaptureNewSweepCommand = new AsyncRelayCommand(() => CaptureNewSweepAsync(CancellationToken.None), () => CanCaptureNewSweep && !IsBusy);
             BackCommand = new RelayCommand(Back, () => CurrentStep == WizardStep.Summary && !IsBusy);
             CloseCommand = new RelayCommand(() => RequestClose?.Invoke(this, EventArgs.Empty));
             ReviewCommand = new AsyncRelayCommand(EnterReviewAsync, CanEnterReview);
@@ -997,6 +1051,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     saveFolderPath = value;
                     RaisePropertyChanged();
                     StartCommand.NotifyCanExecuteChanged();
+                    // The summary's capture action saves to the same folder, so it is gated on this too.
+                    RaisePropertyChanged(nameof(CanCaptureNewSweep));
+                    CaptureNewSweepCommand?.NotifyCanExecuteChanged();
                 }
             }
         }
@@ -1197,6 +1254,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     // being a plain property, read CanOptimizeAgainAtRecommendedBinning alone and correctly said the
                     // frames were there. A disabled button under copy promising it works.
                     OptimizeAgainAtRecommendedBinningCommand.NotifyCanExecuteChanged();
+                    CaptureNewSweepCommand.NotifyCanExecuteChanged();
                     RaisePropertyChanged(nameof(CanContinueOptimization));
                 }
             }
@@ -1885,6 +1943,84 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// than to a blank gap if that ever stops holding.</summary>
         public bool HasExposureBody => !string.IsNullOrEmpty(ExposureBodyText);
 
+        private double recaptureExposureSeconds;
+
+        /// <summary>
+        /// The exposure the "Capture a new sweep and optimize" action will capture at. Pre-filled from the selected
+        /// variant's recommendation each time a run settles (see <c>SeedRecaptureExposure</c>), then EDITABLE — the
+        /// recommendation is a derived extrapolation, and the user knows things about their sky that it does not.
+        ///
+        /// <para>Session-only and deliberately NOT persisted: it exists for the duration of one summary. What DOES
+        /// persist is <see cref="LiveExposureSeconds"/> — which this writes on capture, and which Accept can then
+        /// write to the profile — so a value that survived the wizard would silently re-arm a later sweep with an
+        /// exposure derived from a run the user never accepted.</para>
+        /// </summary>
+        public double RecaptureExposureSeconds {
+            get => recaptureExposureSeconds;
+            set {
+                if (recaptureExposureSeconds != value) {
+                    recaptureExposureSeconds = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Whether the Star signal block's capture action row is SHOWN: this run was a Live sweep and there is a
+        /// longer exposure to capture at.
+        ///
+        /// <para>Deliberately the same condition the body copy uses to promise the action, exactly as
+        /// <see cref="ShowOptimizeAgainAtRecommendedBinning"/> is for its own button — see that property for the
+        /// bug that rule exists to prevent. Branches on
+        /// <see cref="ExposureRecommendation.IncreasesExposure"/>, never on
+        /// <see cref="ExposureRecommendation.HasRecommendation"/>: a run whose current exposure already exceeds the
+        /// absolute cap keeps <c>HasRecommendation</c> true while the recommendation collapses onto the current
+        /// value, and re-capturing at the exposure you just used is a no-op that costs a sweep.</para>
+        ///
+        /// <para>Hidden rather than disabled on REPLAY, matching the binning block's use-current branch: there is
+        /// no rig to re-capture from, so the action is mode-inapplicable rather than temporarily unavailable.
+        /// Everything that is merely unavailable (no engine, a disconnected camera or focuser, no save folder,
+        /// use-current mode) lives in <see cref="CanCaptureNewSweep"/> and renders as a disabled button.</para>
+        /// </summary>
+        public bool ShowCaptureNewSweep =>
+            HasExposureBlock && lastRunWasLive && (SelectedSummary?.ExposureAdvice?.IncreasesExposure ?? false);
+
+        /// <summary>
+        /// Whether the capture can actually proceed. It drives a real auto-focus sweep, so it needs an engine, a
+        /// connected camera and focuser, and somewhere to save the frames — the same pre-flight
+        /// <see cref="ValidateSourceBeforeStart"/> applies to a Live Start, re-checked here because a device can
+        /// disconnect while the user reads the summary.
+        ///
+        /// <para>"Use current settings" is excluded because there is nothing to re-tune: that mode skips the search
+        /// entirely, so a fresh sweep would spend the sky time and land on the same current settings.</para>
+        /// </summary>
+        public bool CanCaptureNewSweep =>
+            ShowCaptureNewSweep
+            && !IsUseCurrentMode
+            && autoFocusEngine != null
+            && isCameraConnected()
+            && isFocuserConnected()
+            && !string.IsNullOrWhiteSpace(SaveFolderPath);
+
+        /// <summary>
+        /// Pre-fills <see cref="RecaptureExposureSeconds"/> from the SELECTED variant's recommendation. Called from
+        /// <see cref="SnapshotReviewInputs"/> — the one point every successful run path reaches after its variants
+        /// and selection have settled, so the box always reflects the summary now on screen (including after a
+        /// capture-and-re-optimize, whose fresh run may still be starved and want more).
+        ///
+        /// <para>Falls back to the exposure the run was captured with when there is no derived number, so the box
+        /// never shows a bare 0 in the window between the block appearing and the user typing.</para>
+        /// </summary>
+        private void SeedRecaptureExposure() {
+            var advice = SelectedSummary?.ExposureAdvice;
+            var recommended = advice?.RecommendedSeconds ?? double.NaN;
+            if (advice != null && advice.HasRecommendation && double.IsFinite(recommended) && recommended > 0.0) {
+                RecaptureExposureSeconds = recommended;
+                return;
+            }
+            RecaptureExposureSeconds = capturedLiveExposureSeconds > 0.0 ? capturedLiveExposureSeconds : LiveExposureSeconds;
+        }
+
         /// <summary>
         /// The Star signal block's body copy. Pure and static so every copy state is unit-testable without a VM,
         /// following <see cref="DescribeReoptimizeAtBinning"/>.
@@ -2024,13 +2160,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// recommendation STILL raises the exposure (10 s at S/N 5 wants 40 s, capped to 30 s — a real 3x
         /// improvement sitting in the row), and offering the filter route "instead" there advises against the
         /// offer directly above it while suppressing the only sentence that says where to apply it.</item>
-        /// <item><b>Raise the profile exposure and re-run in Live mode.</b> Replay only — Replay has no
-        /// write-back for the exposure (<see cref="CanApplyExposureTime"/> is false), so if this sentence does not
-        /// say where to set it, nothing does. Carries the narrowband suggestion as a RIDER when the absolute cap
-        /// trimmed the number, so that hint survives without becoming a competing instruction. Live gets its own
-        /// capture action in a later task, which is why Live can legitimately end with no instruction at all (the
-        /// row already carries the number, exactly as the binning block leaves its body empty when the row says it
-        /// all).</item>
+        /// <item><b>Get frames at the longer exposure.</b> The one remaining instruction, and it is the SAME
+        /// instruction in both modes — only the way to carry it out differs, so the two share this slot rather than
+        /// competing for it. LIVE names the capture action that sits directly below the paragraph: as with the
+        /// binning block, the body's only job is to say why that button exists, since the row already carries the
+        /// number and the tooltip the derivation. REPLAY has no capture action and no write-back for the exposure
+        /// (<see cref="CanApplyExposureTime"/> is false), so if its sentence does not say where to set the value by
+        /// hand, nothing does. Both carry the narrowband suggestion as a RIDER when the absolute cap trimmed the
+        /// number, so that hint survives without becoming a competing instruction.
+        ///
+        /// <para>Gated on <see cref="ExposureRecommendation.IncreasesExposure"/>, which is exactly the condition
+        /// <see cref="ShowCaptureNewSweep"/> uses — so the Live sentence and the control it describes appear and
+        /// disappear together (the house rule at <see cref="ShowOptimizeAgainAtRecommendedBinning"/>). When the
+        /// capture is merely UNAVAILABLE (no engine, a disconnected camera, no save folder, use-current mode) the
+        /// button renders disabled rather than vanishing, so the sentence still has a referent.</para></item>
         /// </list>
         /// </summary>
         private static string RemedyFor(OptimizationSummary summary, ExposureRecommendation advice, bool lastRunWasLive) {
@@ -2041,11 +2184,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (advice != null && advice.HasRecommendation && !advice.ExposureIsNotTheLimit && !advice.IncreasesExposure) {
                 return "If you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead.";
             }
-            if (!lastRunWasLive && increases) {
-                var text = $"For a more reliable tune, raise your auto-focus exposure to about {advice.RecommendedSeconds:0.##} s in NINA's focuser options and run this wizard again in Live mode.";
+            if (increases) {
+                // Live acts on the rig it is attached to; Replay can only tell the user where the setting lives. The
+                // Live sentence quotes no seconds: the editable box beside the button is the authority on the value,
+                // and the row above already printed the recommendation (see the button's label comment in the XAML).
+                var text = lastRunWasLive
+                    ? "Capture a new sweep at the longer exposure to re-tune these settings on frames that have real signal."
+                    : $"For a more reliable tune, raise your auto-focus exposure to about {advice.RecommendedSeconds:0.##} s in NINA's focuser options and run this wizard again in Live mode.";
                 if (advice.CappedByAbsoluteLimit) {
-                    // The cap trimmed the number, so the raise is a partial fix. The filter route rides along as an
-                    // alternative to it rather than replacing it — same sentence, so "one instruction" still holds.
+                    // The cap trimmed the number, so this is a partial fix in either mode. The filter route rides
+                    // along as an alternative rather than replacing it — same sentence, so "one instruction" holds.
                     text = text.TrimEnd('.')
                         + "; if you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead.";
                 }
@@ -2115,6 +2263,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(ExposureBodyText));
             RaisePropertyChanged(nameof(HasExposureBody));
             RaisePropertyChanged(nameof(ExposureDerivationDetail));
+            // The capture action's visibility and runnability read the same selected-summary state the copy above
+            // does, so they are re-raised with it — the binning block's sibling call is right below, and the bug
+            // that motivates both is documented on OptimizeAgainAtRecommendedBinningCommand's notification there.
+            RaisePropertyChanged(nameof(ShowCaptureNewSweep));
+            RaisePropertyChanged(nameof(CanCaptureNewSweep));
+            CaptureNewSweepCommand?.NotifyCanExecuteChanged();
         }
 
         private void RaiseDetectionBinningBlockChanged() {
@@ -2307,6 +2461,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>Summary page: re-run the search at the measured recommended factor, on the frames already on
         /// disk. Writes nothing — see <see cref="OptimizeAgainAtRecommendedBinningAsync"/>.</summary>
         public AsyncRelayCommand OptimizeAgainAtRecommendedBinningCommand { get; }
+
+        /// <summary>Summary page (Live runs only): capture a FRESH sweep at <see cref="RecaptureExposureSeconds"/>
+        /// and re-optimize on it. Writes nothing — see <see cref="CaptureNewSweepAsync"/>.</summary>
+        public AsyncRelayCommand CaptureNewSweepCommand { get; }
+
         public RelayCommand BackCommand { get; }
         public RelayCommand CloseCommand { get; }
 
@@ -3352,11 +3511,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // The button then sits permanently disabled under copy claiming the frames are gone, while they are on
             // disk exactly where this method just recorded them.
             RaiseDetectionBinningBlockChanged();
+            // Pre-fill the capture action's exposure box from THIS run's recommendation. Here, because this is the
+            // one point every successful path reaches after its variants and selection have settled — seeding it
+            // any earlier would read the previous run's summary. Re-seeded on every run, so a capture-and-optimize
+            // whose fresh frames are still starved comes back asking for more rather than re-offering the exposure
+            // that just fell short.
+            SeedRecaptureExposure();
             // The Star signal block is refreshed at the same point, for the same structural reason: this is where a
             // run's post-success state finally settles, AFTER every path has already raised the summary's
             // dependents. Its inputs are all fixed by BuildSummaryAsync today, so this is currently belt-and-braces
             // — but the binning block's bug was exactly "a later-settling input was never re-notified", and pairing
-            // the two refreshes keeps the next input added here (Task 4's Live capture action reads the same
+            // the two refreshes keeps the next input added here (the Live capture action reads the same
             // run-availability state the binning button does) from re-introducing it.
             RaiseExposureBlockChanged();
         }
@@ -3887,6 +4052,164 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     pendingDetectionBinning = previous;
                 }
                 DisposeLoadedRuns(reloaded);
+                IsBusy = false;
+                Interlocked.Exchange(ref running, 0);
+            }
+        }
+
+        /// <summary>
+        /// Summary → "Capture a new sweep and optimize": captures a WHOLE NEW Live sweep at
+        /// <see cref="RecaptureExposureSeconds"/> and re-runs the optimization on the fresh frames. The answer to a
+        /// signal-starved run whose gate floored: the settings cannot be fixed on frames that never had the signal,
+        /// so the frames are replaced rather than re-analyzed.
+        ///
+        /// <para>Structurally the twin of <see cref="OptimizeAgainAtRecommendedBinningAsync"/> — same interlock,
+        /// same progress reset, same chain reset, same <c>succeeded</c>/<c>finally</c> restore — with four
+        /// deliberate differences, each of which was a trap:</para>
+        ///
+        /// <list type="number">
+        /// <item>It CAPTURES via <see cref="RunLiveAttemptAsync"/> instead of re-loading
+        /// <c>reoptimizeRunFolders</c>. Those folders hold the starved frames; re-reading them is exactly what
+        /// cannot help.</item>
+        /// <item>It loops over <see cref="RunCount"/>, not over the recorded folders. A user who configured 2 runs
+        /// gets 2 sweeps — capturing a single sweep here would silently halve a multi-run configuration, and the
+        /// summary would then compare a 1-run result against a 2-run baseline.</item>
+        /// <item>The snapshot at the end passes the FRESH folders and ids. The old ones point at the frames this
+        /// action exists to replace, so re-optimize/continue/review would all reach for the starved set.</item>
+        /// <item>It restores BOTH <see cref="LiveExposureSeconds"/> (which <see cref="RunLiveAttemptAsync"/> reads)
+        /// and <c>capturedLiveExposureSeconds</c> (which it WRITES, before the sweep can fail) when the capture
+        /// does not succeed. Restoring only the first leaves the intact summary's exposure row — and Accept's
+        /// profile write-back — reporting an exposure nothing was ever captured at.</item>
+        /// </list>
+        ///
+        /// <para><c>pendingDetectionBinning</c> is deliberately LEFT ALONE, so a prior "Optimize again at NxN"
+        /// still applies: the fresh frames are analyzed at the factor the user is mid-way through evaluating, and
+        /// Accept still writes that factor with the settings measured at it.
+        /// <c>capturedRecoveryStepsPerSide</c> is likewise reused rather than re-read from
+        /// <see cref="FocusRecoverySteps"/> — <see cref="LoadRunStampedAsync"/>'s contract is that every reload
+        /// after the originating Start uses that Start's snapshot, so the widened capture and the recovery TAGGING
+        /// cannot disagree.</para>
+        ///
+        /// <para>Persists nothing, like every other path here: Accept remains the only writer.</para>
+        /// </summary>
+        private async Task CaptureNewSweepAsync(CancellationToken externalToken) {
+            if (!CanCaptureNewSweep) {
+                return;
+            }
+            if (Interlocked.CompareExchange(ref running, 1, 0) != 0) {
+                return; // a Start/re-optimize/continue/capture is already in flight
+            }
+
+            var target = RecaptureExposureSeconds;
+            // The sweep exposure is what RunLiveAttemptAsync reads, so the confirmation quotes the change it is
+            // about to make to it rather than the summary's (identical, but derived) recommendation row.
+            var previousExposure = LiveExposureSeconds;
+            var previousCapturedExposure = capturedLiveExposureSeconds;
+            if (!confirmCaptureNewSweep(previousExposure, target)) {
+                Interlocked.Exchange(ref running, 0);
+                return;
+            }
+            LiveExposureSeconds = target;
+
+            ErrorMessage = null;
+            SetProgress(null, 0, 0);
+            ProgressSeedJ = 0;
+            ProgressBestJ = 0;
+            ProgressSeedSigma = double.NaN;
+            ProgressBestSigma = double.NaN;
+            IsBusy = true;
+
+            cts?.Dispose();
+            cts = CancellationTokenSource.CreateLinkedTokenSource(externalToken);
+            var token = cts.Token;
+
+            List<LoadedRun> captured = null;
+            var succeeded = false;
+            try {
+                CurrentStep = WizardStep.Acquire;
+                // The freshly captured folders/ids REPLACE the previous run's, in capture order, exactly as
+                // AcquireAsync fills them on a Start — SnapshotReviewInputs below hands them on to every path that
+                // re-reads this run from disk.
+                loadedRunFolders.Clear();
+                loadedRunIds.Clear();
+                captured = new List<LoadedRun>(RunCount);
+                for (var i = 0; i < RunCount; i++) {
+                    token.ThrowIfCancellationRequested();
+                    var folder = await RunLiveAttemptAsync(token).ConfigureAwait(true);
+                    if (string.IsNullOrEmpty(folder)) {
+                        // Same clean message AcquireAsync gives, but the user stays on the SUMMARY: the previous
+                        // run's result is still valid and still acceptable, which is the whole point of this being
+                        // an optional extra capture rather than a re-Start.
+                        ErrorMessage = "The live sweep did not produce a saved set of frames. Check the focuser and try again.";
+                        CurrentStep = WizardStep.Summary;
+                        return;
+                    }
+                    SetProgress("Loading frames", 0, 0);
+                    var loadProgress = new Progress<RunLoadProgress>(rp =>
+                        SetProgress("Loading frames", rp.Current, rp.Total));
+                    // Load + stamp through the single choke-point: it carries the recovery snapshot AND any pending
+                    // optimize-again binning factor onto the fresh runs.
+                    var loaded = await LoadRunStampedAsync(folder, null, loadProgress, token).ConfigureAwait(true);
+                    captured.Add(loaded);
+                    loadedRunFolders.Add(folder);
+                    loadedRunIds.Add(loaded.Data.RunId);
+                }
+
+                CurrentStep = WizardStep.Optimize;
+                await AnalyzeWithProgressAsync(captured, r => r.Seed, token).ConfigureAwait(true);
+                // The "before" is the user's current settings measured on THESE frames — the only honest
+                // comparison, since the previous run's baseline was measured on differently-exposed ones.
+                currentBaselineJ = await ComputeBaselineJAsync(captured, token).ConfigureAwait(true);
+
+                var optimizeResult = await OptimizeAsync(captured, token).ConfigureAwait(true);
+                var built = await BuildSummaryAsync(captured, optimizeResult, token).ConfigureAwait(true);
+
+                // A fresh tuning on fresh frames, not another round: reset the chain rather than splicing a
+                // trajectory across two different sets of exposures.
+                optimizedResult = optimizeResult;
+                optimizedSummary = built.Summary;
+                optimizedCurve = built.OptimizedCurve;
+                currentCurve = built.CurrentCurve;
+                optimizedChain.Clear();
+                optimizedChain.Add(optimizeResult.BestParams);
+                optimizedRoundJ.Clear();
+                optimizedRoundJ.Add(optimizeResult.BestJ);
+                optimizedRoundCurves.Clear();
+                optimizedRoundCurves.Add(built.OptimizedCurve);
+                // The feedback variant was measured on the OLD frames; it cannot be compared or accepted now, and
+                // the labels behind it were drawn on images that no longer describe this result.
+                feedbackResult = null;
+                feedbackSummary = null;
+                feedbackCurve = null;
+                currentSummary = BuildCurrentSummary(built.Summary);
+                OptimizerImprovedOverCurrent = optimizeResult.BestJ > currentBaselineJ + ImprovementEpsilon;
+                selectedVariant = OptimizationVariant.Optimized;
+                RaiseSelectedVariantDependents();
+
+                SnapshotReviewInputs(captured, loadedRunFolders, loadedRunIds);
+                RecordRunDuration();
+                CurrentStep = WizardStep.Summary;
+                succeeded = true;
+                Logger.Info($"Captured a new sweep at {target}s per frame and re-optimized on it (not yet applied; Accept writes the settings)");
+            } catch (OperationCanceledException) {
+                Logger.Info("Capture of a new sweep was cancelled");
+                CurrentStep = WizardStep.Summary;
+            } catch (Exception ex) {
+                Logger.Error(ex, "Capturing a new sweep failed");
+                ErrorMessage = $"Capturing a new sweep at {target}s failed: {ex.Message}";
+                CurrentStep = WizardStep.Summary;
+            } finally {
+                if (!succeeded) {
+                    // Cancelled or failed: put BOTH exposures back. LiveExposureSeconds is what a later sweep would
+                    // capture at; capturedLiveExposureSeconds is what the (still-displayed, still-acceptable)
+                    // summary reports and what Accept writes to the profile — and RunLiveAttemptAsync has already
+                    // overwritten it by the time any sweep can fail. Nothing was persisted, so there is no other
+                    // residue to undo.
+                    LiveExposureSeconds = previousExposure;
+                    capturedLiveExposureSeconds = previousCapturedExposure;
+                    RaiseExposureRowChanged();
+                }
+                DisposeLoadedRuns(captured);
                 IsBusy = false;
                 Interlocked.Exchange(ref running, 0);
             }
