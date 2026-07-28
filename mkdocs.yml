@@ -114,3 +114,4 @@ nav:
       - AF-Curve Fitting & Sigma-Focus: optimization/af-curve-fitting.md
       - Labels, Recall & Precision: optimization/labels-recall-precision.md
       - Step-Size Recommendation: optimization/step-size.md
+      - Exposure Recommendation: optimization/exposure-recommendation.md
