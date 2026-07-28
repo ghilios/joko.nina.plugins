@@ -31,6 +31,7 @@
     <TextBlock x:Key="SDOpt_TargetFilter_Tooltip" Text="Per-filter star detection is enabled, so this run tunes ONE filter's settings set. The baseline and 'current settings' come from this filter's set; a live sweep moves the wheel to this filter and exposes through it; and Accept writes the optimized result into this filter's set." />
     <TextBlock x:Key="SDOpt_CaptureBinning_Tooltip" Text="NINA's Auto Focus Binning: how the camera bins when it captures the sweep frames. Set in NINA's Options, and per filter in the filter wheel settings. It should match the binning you image at. Detection binning below is applied on top of this, in software, for star detection only." />
     <TextBlock x:Key="SDOpt_DetectionBinningRec_Tooltip" Text="Recommended from this run's fitted in-focus HFR, using the detector's 2 to 4 pixel calibration target. Optimize again re-runs the search on the same frames at the recommended factor; nothing is saved until you Accept, which applies the factor and the re-tuned settings together." />
+    <TextBlock x:Key="SDOpt_StarSignal_Tooltip" Text="Brightness Sensitivity is the acceptance gate a candidate must clear to count as a star: its brightness above the local background, divided by the local noise. The optimizer searches it over 0 to 50, and the shipped default is 10 — so a value at the bottom of that range means the frames were signal-starved and the detector had to admit almost anything above the noise to find stars at all. The recommended exposure is what would put this run's stars back at the default gate, assuming sky noise dominates, so quadrupling the exposure doubles S/N. It is derived from the exposure the run's own frames were captured with, or from your profile's auto-focus exposure when the frames record none." />
     <TextBlock x:Key="SDOpt_FocusRecovery_Tooltip" Text="Widens the live sweep by this many extra steps on EACH side, so the auto-focus curve can still bracket focus when you start well off focus. The extra far-from-focus frames are down-weighted in the fit and exempt from the star-count requirements, so they help find focus without skewing it. Set 0 to disable recovery." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
@@ -720,6 +721,20 @@
                             Text="{Binding OptimizerNoImprovementNote, Mode=OneWay}"
                             Visibility="{Binding ShowNoImprovementNote, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
+                        <!--  Low-signal warning: the run's Sensitivity gate landed at its search floor, so the curve
+                              below is drawn from detections that barely cleared the noise. It sits ABOVE the chart
+                              because Accept lives in the footer outside this ScrollViewer and is always reachable —
+                              a plausible-looking curve can otherwise be accepted without ever scrolling to the Star
+                              signal block. The page's ONLY colored element, and deliberately the WARNING brush, not
+                              the error one: the result is usable, just low-confidence. No icon.  -->
+                        <TextBlock
+                            Margin="0,0,0,8"
+                            FontStyle="Italic"
+                            Foreground="{StaticResource NotificationWarningBrush}"
+                            Text="{Binding LowSignalChartNote, Mode=OneWay}"
+                            TextWrapping="Wrap"
+                            Visibility="{Binding HasExposureBlock, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+
                         <!--  Auto-focus curve for the selected variant (rebuilt on toggle via the ContentControl).  -->
                         <Border
                             Height="260"
@@ -789,6 +804,39 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+                        </StackPanel>
+
+                        <!--  Star signal: the head of the recommendation region, placed ABOVE the auto-focus and
+                              detection-binning blocks because it impugns the numbers both of them are derived from —
+                              a run whose gate sat at the floor measured its curve from low-confidence detections.
+                              It also sits next to the auto-focus block's exposure row, which is the setting it is
+                              talking about. Structure copies the detection-binning block below: bold header, a
+                              Width=200 label/value row, then the wrapped consequence. No action control here —
+                              re-capturing a sweep at the recommended exposure is a separate, later addition.  -->
+                        <StackPanel
+                            Margin="0,8,0,8"
+                            Visibility="{Binding HasExposureBlock, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <TextBlock Margin="0,0,0,2" FontWeight="Bold" Text="Star signal" />
+                            <!--  Hidden when the run could not support a derived number (too few usable frames, no
+                                  per-star SNRs, or no known exposure to scale from) — the body below still carries
+                                  the diagnosis, which is the part that always applies.  -->
+                            <StackPanel Margin="0,2" Orientation="Horizontal"
+                                        Visibility="{Binding HasRecommendedExposure, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                <TextBlock
+                                    Width="200"
+                                    Text="Recommended exposure"
+                                    ToolTip="{StaticResource SDOpt_StarSignal_Tooltip}" />
+                                <TextBlock
+                                    Text="{Binding RecommendedExposureText, Mode=OneWay}"
+                                    ToolTip="{StaticResource SDOpt_StarSignal_Tooltip}" />
+                            </StackPanel>
+                            <TextBlock
+                                MaxWidth="560"
+                                Margin="0,4,0,4"
+                                HorizontalAlignment="Left"
+                                Text="{Binding ExposureBodyText, Mode=OneWay}"
+                                TextWrapping="Wrap"
+                                Visibility="{Binding HasExposureBody, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                         </StackPanel>
 
                         <!--  Auto-focus block: the recommended step size / offset steps PLUS the toggle that applies

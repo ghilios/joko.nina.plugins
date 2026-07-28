@@ -2975,4 +2975,161 @@ public class StarDetectionOptimizerWizardVMTests {
         });
     }
 
+    // ---- Star signal: the exposure recommendation on a signal-starved run --------------------------------
+    //
+    // Detection here finds MORE stars the LOWER the gate, and the focus curve is identical at every gate, so J is
+    // a monotone function of Sensitivity alone and the search lands on the axis floor — the coarse grid's level 0
+    // IS Lower (0.0), so this does not depend on the compass walking all the way down. Every accepted star carries
+    // the same modest SNR, so each frame's NTarget-th-brightest is exactly starSnr and the derived exposure is
+    // plain arithmetic rather than a property of the fixture's ordering.
+    private static LoadedRun StarvedRun(
+        string id = "starved", double starSnr = 7.0, int starsPerFrame = 30, double capturedExposureSeconds = 3.0) {
+        Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect = (image, p, token) => {
+            var pos = (int)image;
+            return Task.FromResult(new FrameDetectionResult {
+                AverageHFR = Hfr(pos),
+                HFRStdDev = 0.05,
+                StarCount = (int)Math.Max(6, Math.Round(26.0 - 2.0 * p.Sensitivity)),
+                StarCenters = Array.Empty<(double X, double Y)>(),
+                StarSnrs = Enumerable.Repeat(starSnr, starsPerFrame).ToList()
+            });
+        };
+        var data = new RunEvaluationData(id, NineFrames(), detect, NewAlglib(), DefaultFitConfig());
+        return new LoadedRun {
+            Data = data,
+            // Seed AND baseline start at the healthy default gate, so the Current variant stays healthy while the
+            // optimized one floors — which is what makes the follows-the-variant test below non-vacuous.
+            Seed = new StarDetectorParams { Sensitivity = 10, StarClippingMultiplier = 2.0 },
+            Baseline = new StarDetectorParams { Sensitivity = 10, StarClippingMultiplier = 2.0 },
+            AfOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 },
+            CapturedExposureSeconds = capturedExposureSeconds
+        };
+    }
+
+    [Test]
+    public async Task Replay_FlooredGate_ShowsTheStarSignalBlockAndKeepsAcceptEnabled() {
+        var vm = NewVM(LoaderReturning(StarvedRun()));
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        Assert.That(vm.Summary.OptimizedSensitivity, Is.LessThanOrEqualTo(ExposureRecommender.SensitivityFloorThreshold),
+            "fixture guard: the search must actually land at the gate floor, or every assertion below is vacuous");
+        Assert.Multiple(() => {
+            Assert.That(vm.HasExposureBlock, Is.True);
+            Assert.That(vm.LowSignalChartNote, Is.EqualTo(StarDetectionOptimizerWizardVM.LowSignalChartNoteText),
+                "the chart note is the only thing a user who never scrolls will see");
+            Assert.That(vm.HasRecommendedExposure, Is.True);
+            // t_old is the exposure recorded in the saved run's frames (3 s); S_now = 7 against a target of 10
+            // needs (10/7)^2 = 2.04x, i.e. 6.12 s, rounded up the sub-10-second ladder to 6.5 s.
+            Assert.That(vm.RecommendedExposureText, Is.EqualTo("3 s → 6.5 s (measured star S/N 7; target 10)"));
+            Assert.That(vm.ExposureBodyText, Does.Contain("You can still accept these settings"));
+            Assert.That(vm.ExposureBodyText, Does.Contain("Live mode"), "Replay has no capture action to offer");
+            // The block reports a confidence problem; it is NOT a veto. A Replay run whose gate floored is still
+            // the best fit for frames like these, and Accept must stay available — HasExposureRecommendation must
+            // never enter CanAccept in any form.
+            Assert.That(vm.AcceptCommand.CanExecute(null), Is.True);
+        });
+    }
+
+    [Test]
+    public async Task Live_FlooredGate_ScalesFromTheSweepExposureNotTheRecordedOne() {
+        // A Live sweep knows exactly what it captured with, and prefers that over anything read back out of the
+        // frames — the fixture records a DIFFERENT 3 s so a regression to the header value is visible.
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(StarvedRun(capturedExposureSeconds: 3.0)),
+            isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 5.0;
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+        Assert.That(vm.Summary.OptimizedSensitivity, Is.LessThanOrEqualTo(ExposureRecommender.SensitivityFloorThreshold),
+            "fixture guard");
+        Assert.Multiple(() => {
+            // 5 s x (10/7)^2 = 10.2 s, rounded up the 10-30 s ladder to 11 s.
+            Assert.That(vm.RecommendedExposureText, Is.EqualTo("5 s → 11 s (measured star S/N 7; target 10)"));
+            Assert.That(vm.ExposureBodyText, Does.Not.Contain("NINA's focuser options"),
+                "the Replay-only 'set it by hand' instruction must not appear on a Live run");
+        });
+    }
+
+    [Test]
+    public async Task HealthyGate_HidesTheStarSignalBlockEntirely() {
+        var vm = NewVM(LoaderReturning(GoodRun()));
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.Summary.OptimizedSensitivity, Is.GreaterThan(ExposureRecommender.SensitivityFloorThreshold),
+            "fixture guard: this run's gate must land well clear of the floor");
+        Assert.Multiple(() => {
+            Assert.That(vm.HasExposureBlock, Is.False, "no new noise on the happy path");
+            Assert.That(vm.LowSignalChartNote, Is.Empty);
+            Assert.That(vm.RecommendedExposureText, Is.Empty);
+            Assert.That(vm.ExposureBodyText, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task StarSignalBlock_FollowsTheSelectedVariant_AndIsRenotifiedOnTheSwitch() {
+        // The optimized gate floored; the user's own gate (10) did not. Toggling to Current must therefore hide the
+        // block — and must SAY so: these are computed properties, so a missing notification leaves the binding
+        // showing the previous variant's verdict while the value read from a test looks correct.
+        var vm = NewVM(LoaderReturning(StarvedRun()));
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+        await vm.StartAsync(CancellationToken.None);
+        Assume.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Optimized), "fixture guard");
+        Assume.That(vm.HasExposureBlock, Is.True, "fixture guard");
+
+        var notified = 0;
+        vm.PropertyChanged += (s, e) => { if (e.PropertyName == nameof(vm.HasExposureBlock)) { notified++; } };
+        vm.SelectedVariant = OptimizationVariant.Current;
+
+        Assert.Multiple(() => {
+            Assert.That(notified, Is.GreaterThan(0), "bindings only re-read on notification");
+            Assert.That(vm.HasExposureBlock, Is.False, "the Current view's own gate is healthy");
+            Assert.That(vm.LowSignalChartNote, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task Replay_NoKnownExposure_GivesTheDiagnosisWithoutInventingAFigure() {
+        // Neither the frames nor the profile yield a positive exposure. Never scale a factor off an unknown base:
+        // the block still names the problem, it just has no seconds to offer.
+        var vm = NewVM(LoaderReturning(StarvedRun(capturedExposureSeconds: double.NaN)));
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assume.That(vm.Summary.OptimizedSensitivity, Is.LessThanOrEqualTo(ExposureRecommender.SensitivityFloorThreshold),
+            "fixture guard");
+        Assert.Multiple(() => {
+            Assert.That(vm.HasExposureBlock, Is.True);
+            Assert.That(vm.HasRecommendedExposure, Is.False);
+            Assert.That(vm.RecommendedExposureText, Is.Empty);
+            Assert.That(vm.ExposureBodyText, Does.Contain("low-confidence detections"));
+            Assert.That(vm.ExposureBodyText, Does.Not.Contain("acceptance level"));
+        });
+    }
+
+    [Test]
+    public async Task Replay_NoRecordedExposure_FallsBackToTheProfileAutoFocusExposure() {
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        focuserSettings.AutoFocusExposureTime.Returns(3.0);
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+        var vm = NewVM(LoaderReturning(StarvedRun(capturedExposureSeconds: double.NaN)), profileService: profileService);
+        vm.SourcePaths[0] = @"C:\fake\attempt";
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assume.That(vm.Summary.OptimizedSensitivity, Is.LessThanOrEqualTo(ExposureRecommender.SensitivityFloorThreshold),
+            "fixture guard");
+        Assert.That(vm.RecommendedExposureText, Is.EqualTo("3 s → 6.5 s (measured star S/N 7; target 10)"),
+            "with no exposure in the frames, the profile's auto-focus exposure is the base");
+    }
 }

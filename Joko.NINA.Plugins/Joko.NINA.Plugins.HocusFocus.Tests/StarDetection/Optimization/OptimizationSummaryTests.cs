@@ -298,4 +298,251 @@ public class OptimizationSummaryTests {
             Assert.That(s.DetectionBinningText, Is.EqualTo("1x1 -> 2x2 (applied on Accept; measured in-focus HFR 8.4 px)"));
         });
     }
+
+    // ---- Star signal (exposure recommendation) ---------------------------------------------------------------
+    //
+    // The block fires on the Sensitivity gate ALONE; the recommendation's sub-states decide what it then says.
+
+    private static ExposureRecommendation Advice(
+        double current, double recommended, double snr,
+        double raw = double.NaN, bool wasCapped = false, bool exposureIsNotTheLimit = false) =>
+        new ExposureRecommendation {
+            HasRecommendation = true,
+            CurrentSeconds = current,
+            RecommendedSeconds = recommended,
+            MeasuredSnr = snr,
+            RawSeconds = double.IsNaN(raw) ? recommended : raw,
+            WasCapped = wasCapped,
+            ExposureIsNotTheLimit = exposureIsNotTheLimit,
+            UsableFrameCount = 9
+        };
+
+    private static OptimizationSummary Starved(
+        double sensitivity = 0.1, ExposureRecommendation advice = null, int offsetSteps = 4,
+        int runBinning = 1, int recommendedBinning = 1) =>
+        new OptimizationSummary {
+            OptimizedSensitivity = sensitivity,
+            ExposureAdvice = advice,
+            CurrentOffsetSteps = offsetSteps,
+            // Only matters for the "both recommendations at once" caveat; a finite HFR + good R2 is what makes the
+            // detection-binning verdict meaningful at all.
+            MeasuredInFocusHfr = 6.1,
+            FitRSquared = 0.99,
+            RunDetectionBinning = runBinning,
+            RecommendedDetectionBinning = recommendedBinning,
+            PersistedDetectionBinning = runBinning
+        };
+
+    [TestCase(0.0, true)]
+    [TestCase(0.125, true)]
+    [TestCase(0.5, true)]
+    [TestCase(1.0, true)]
+    [TestCase(1.0001, false)]
+    [TestCase(2.0, false)]
+    [TestCase(10.0, false)]
+    [TestCase(double.NaN, false)]
+    public void Exposure_BlockVisibility_FollowsTheGateAlone(double sensitivity, bool expected) {
+        // A search that lands in the floor band admitted anything above the noise to find stars at all. NaN (a
+        // summary built before this feature, or by a test that does not set it) must read as "no", not "unknown".
+        Assert.That(Starved(sensitivity).HasExposureRecommendation, Is.EqualTo(expected));
+    }
+
+    [Test]
+    public void Exposure_BlockShows_EvenWithNothingToRecommend() {
+        // Deliberate: the block is NOT additionally gated on there being a derived number. A floored gate means the
+        // focus result rests on low-confidence detections, which is worth saying even when nothing can be done.
+        var s = Starved(sensitivity: 0.1, advice: null);
+        Assert.Multiple(() => {
+            Assert.That(s.HasExposureRecommendation, Is.True);
+            Assert.That(s.ExposureText, Is.Empty, "no advice => no row, but the block still shows its diagnosis");
+        });
+    }
+
+    [Test]
+    public void Exposure_FollowsTheVariantsOwnGate_NotTheBaseline() {
+        // Same rule as MeasuredInFocusHfr: the variant is what Accept applies, so the gate reported must be the
+        // one on screen. An optimizer that floored the gate must not make the user's healthy current settings look
+        // starved, and a user who hand-set their OWN gate to 0 must be told so on the Current view.
+        var optimizedFloored = new OptimizationSummary {
+            OptimizedSensitivity = 0.1, BaselineSensitivity = 10.0,
+            ExposureAdvice = Advice(3, 12, 4.1), BaselineExposureAdvice = Advice(3, 3, 22.0, exposureIsNotTheLimit: true)
+        };
+        var currentOfFloored = StarDetectionOptimizerWizardVM.BuildCurrentSummary(optimizedFloored);
+
+        var optimizedHealthy = new OptimizationSummary {
+            OptimizedSensitivity = 12.0, BaselineSensitivity = 0.2,
+            ExposureAdvice = Advice(3, 3, 30.0, exposureIsNotTheLimit: true), BaselineExposureAdvice = Advice(3, 12, 4.1)
+        };
+        var currentOfHealthy = StarDetectionOptimizerWizardVM.BuildCurrentSummary(optimizedHealthy);
+
+        Assert.Multiple(() => {
+            Assert.That(optimizedFloored.HasExposureRecommendation, Is.True, "the optimized gate is floored");
+            Assert.That(currentOfFloored.HasExposureRecommendation, Is.False, "the user's own gate is healthy");
+            Assert.That(optimizedHealthy.HasExposureRecommendation, Is.False);
+            Assert.That(currentOfHealthy.HasExposureRecommendation, Is.True, "the user hand-set their gate to 0.2");
+        });
+    }
+
+    [Test]
+    public void Exposure_BuildCurrentSummary_CarriesTheBaselineAdvice() {
+        var optimized = new OptimizationSummary {
+            RunExposureSeconds = 3.0,
+            OptimizedSensitivity = 0.1, BaselineSensitivity = 0.2,
+            ExposureAdvice = Advice(3, 12, 4.1), BaselineExposureAdvice = Advice(3, 9, 5.4)
+        };
+        var current = StarDetectionOptimizerWizardVM.BuildCurrentSummary(optimized);
+
+        Assert.Multiple(() => {
+            Assert.That(current.OptimizedSensitivity, Is.EqualTo(0.2), "the Current view reports the current gate");
+            Assert.That(current.BaselineSensitivity, Is.EqualTo(0.2));
+            Assert.That(current.ExposureAdvice, Is.SameAs(optimized.BaselineExposureAdvice),
+                "the Current view's advice is the one derived from the CURRENT settings' accepted stars");
+            Assert.That(current.BaselineExposureAdvice, Is.SameAs(optimized.BaselineExposureAdvice));
+            Assert.That(current.RunExposureSeconds, Is.EqualTo(3.0), "both variants ran on the same frames");
+        });
+    }
+
+    [Test]
+    public void ExposureText_Increase_ShowsBeforeAndAfterWithTheMeasurement() {
+        var s = Starved(advice: Advice(3, 12, 4.1));
+        Assert.That(s.ExposureText, Is.EqualTo("3 s → 12 s (measured star S/N 4.1; target 10)"));
+    }
+
+    [Test]
+    public void ExposureText_AlreadyPastTheCap_ReadsAsUnchangedRatherThanANoOpArrow() {
+        // The recommender never returns a SHORTER exposure, so a 40 s narrowband run (past the 30 s absolute cap)
+        // gets RecommendedSeconds == CurrentSeconds while HasRecommendation stays true. Branching on
+        // HasRecommendation here would print "40 s → 40 s".
+        var s = Starved(advice: Advice(40, 40, 6.0, raw: 111.1, wasCapped: true));
+        Assert.Multiple(() => {
+            Assert.That(s.ExposureText, Is.EqualTo("40 s (unchanged; measured star S/N 6; target 10)"));
+            Assert.That(s.ExposureText, Does.Not.Contain("→"));
+        });
+    }
+
+    [Test]
+    public void ExposureText_NoRecommendation_IsEmpty() {
+        var s = Starved(advice: new ExposureRecommendation {
+            HasRecommendation = false, CurrentSeconds = 3,
+            RecommendedSeconds = double.NaN, RawSeconds = double.NaN, MeasuredSnr = double.NaN
+        });
+        Assert.That(s.ExposureText, Is.Empty, "an empty row is hidden rather than rendering a bare label");
+    }
+
+    // ---- Star signal body copy (one case per state) ----------------------------------------------------------
+
+    private static string Body(OptimizationSummary s, bool live) =>
+        StarDetectionOptimizerWizardVM.DescribeExposureRecommendation(s, live);
+
+    [Test]
+    public void ExposureCopy_HealthyGate_SaysNothing() {
+        Assert.That(Body(Starved(sensitivity: 10.0, advice: Advice(3, 12, 4.1)), live: true), Is.Empty);
+    }
+
+    [Test]
+    public void ExposureCopy_Live_ActionableIncrease_NamesTheGateAndTheExposure() {
+        var text = Body(Starved(sensitivity: 0.1, advice: Advice(3, 12, 4.1)), live: true);
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("Brightness Sensitivity sits at 0.1"));
+            Assert.That(text, Does.Contain("low-confidence detections"));
+            Assert.That(text, Does.Contain("At about 12 s the same stars would reach the detector's normal acceptance level."));
+            // The block follows the SELECTED variant, and on the Current view the gate is the user's own value —
+            // so the copy must never attribute it to the optimizer.
+            Assert.That(text, Does.Not.Contain("optimizer"));
+            Assert.That(text, Does.Not.Contain("NINA's focuser options"), "that is the Replay-only instruction");
+        });
+    }
+
+    [Test]
+    public void ExposureCopy_Capped_ReportsWhatTheRawDerivationAsksFor() {
+        // CapLimitsRecommendation (not WasCapped): the cap actually shaped what is being offered, so the row's
+        // 12 s is a partial step and the body has to say what the data really wants — and what it would cost.
+        var advice = Advice(3, 12, 1.9, raw: 75.0, wasCapped: true);
+        Assume.That(advice.CapLimitsRecommendation, Is.True, "fixture guard: this state is what the branch selects on");
+        var text = Body(Starved(advice: advice, offsetSteps: 5), live: true);
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("about 75 s per frame"));
+            Assert.That(text, Does.Contain("roughly 14 minutes per auto-focus run"), "75 s x (2*5+1) frames = 13.75 min");
+            Assert.That(text, Does.Contain("this filter is the limit"));
+            Assert.That(text, Does.Contain("filter offset"));
+        });
+    }
+
+    [Test]
+    public void ExposureCopy_AlreadyPastTheCap_StillReportsWhatTheDataAsksFor() {
+        // WasCapped is true but CapLimitsRecommendation is FALSE (nothing was delivered for the cap to limit), and
+        // yet this is exactly the case where the user most needs to hear that the data wants more than is on offer.
+        var advice = Advice(40, 40, 6.0, raw: 111.1, wasCapped: true);
+        Assume.That(advice.CapLimitsRecommendation, Is.False);
+        Assume.That(advice.IncreasesExposure, Is.False);
+        var text = Body(Starved(advice: advice), live: true);
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("about 111 s per frame"));
+            Assert.That(text, Does.Not.Contain("At about"), "there is no longer exposure to offer");
+        });
+    }
+
+    [Test]
+    public void ExposureCopy_ExposureIsNotTheLimit_SaysStarPoorNotUnderExposed() {
+        var text = Body(Starved(advice: Advice(5, 5, 22.0, exposureIsNotTheLimit: true)), live: true);
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("star-poor, not under-exposed"));
+            Assert.That(text, Does.Not.Contain("per frame"), "no exposure figure: exposure is not the problem");
+        });
+    }
+
+    [Test]
+    public void ExposureCopy_NoDerivableNumber_GivesTheDiagnosisOnly() {
+        // Fewer than MinFramesForRecommendation usable frames, no per-star SNRs, or an unknown exposure to scale
+        // from. Never scale a factor off an unknown base — say what is wrong and stop.
+        var text = Body(Starved(advice: null), live: true);
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("low-confidence detections"));
+            Assert.That(text, Does.Not.Contain("acceptance level"));
+            Assert.That(text, Does.Not.Contain("per frame"));
+        });
+    }
+
+    [Test]
+    public void ExposureCopy_Replay_KeepsAcceptAndPointsAtTheProfile() {
+        var text = Body(Starved(advice: Advice(3, 12, 4.1)), live: false);
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("You can still accept these settings"));
+            Assert.That(text, Does.Contain("about 12 s in NINA's focuser options"));
+            Assert.That(text, Does.Contain("Live mode"));
+        });
+    }
+
+    [Test]
+    public void ExposureCopy_Replay_WithNoNumber_StillKeepsAcceptButNamesNoExposure() {
+        var text = Body(Starved(advice: null), live: false);
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("You can still accept these settings"));
+            Assert.That(text, Does.Not.Contain("NINA's focuser options"), "there is no figure to tell them to set");
+        });
+    }
+
+    [Test]
+    public void ExposureCopy_WhenBinningAlsoChanges_WarnsTheyAreNotAdditive() {
+        // Per-star SNRs are measured in the run's BINNED pixel space, so a binning change raises measured signal on
+        // its own. Accepting both recommendations from one run over-lengthens the exposure. The block is qualified
+        // rather than suppressed: the diagnosis is true regardless of binning.
+        var both = Starved(advice: Advice(3, 12, 4.1), runBinning: 1, recommendedBinning: 2);
+        Assume.That(both.DetectionBinningDiffers, Is.True, "fixture guard");
+        var onlyExposure = Starved(advice: Advice(3, 12, 4.1), runBinning: 1, recommendedBinning: 1);
+        Assume.That(onlyExposure.DetectionBinningDiffers, Is.False, "fixture guard");
+
+        Assert.Multiple(() => {
+            Assert.That(Body(both, live: true), Does.Contain("not additive"));
+            Assert.That(Body(onlyExposure, live: true), Does.Not.Contain("not additive"));
+        });
+    }
+
+    [Test]
+    public void ExposureCopy_NoDerivedIncrease_SkipsTheBinningCaveat() {
+        // Nothing to over-apply when there is no exposure figure on offer, so the caveat would only add noise.
+        var s = Starved(advice: Advice(5, 5, 22.0, exposureIsNotTheLimit: true), runBinning: 1, recommendedBinning: 2);
+        Assume.That(s.DetectionBinningDiffers, Is.True, "fixture guard");
+        Assert.That(Body(s, live: true), Does.Not.Contain("not additive"));
+    }
 }

@@ -182,6 +182,82 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
+        /// <summary>
+        /// The per-frame exposure time (seconds) the run this summary describes was captured with — a Live sweep's
+        /// own exposure, a Replay run's recorded header value, or the profile's auto-focus exposure as a last
+        /// resort. <see cref="double.NaN"/> when none of those yielded a positive number, in which case
+        /// <see cref="ExposureAdvice"/> carries no derived seconds (a factor scaled off an unknown base is worse
+        /// than no recommendation). Informational here; the derivation lives in <see cref="ExposureAdvice"/>.
+        /// </summary>
+        public double RunExposureSeconds { get; set; } = double.NaN;
+
+        /// <summary>
+        /// The Sensitivity (BrightnessSensitivity) gate THIS VARIANT's settings use — the optimized value on the
+        /// Optimized/Feedback views, the user's current value on the Current view. It must follow the variant for
+        /// the same reason <see cref="MeasuredInFocusHfr"/> does: the variant is what Accept applies, so a Current
+        /// view whose OWN hand-set gate sits at the floor has to say so rather than report the optimizer's.
+        /// </summary>
+        public double OptimizedSensitivity { get; set; } = double.NaN;
+
+        /// <summary>The CURRENT-settings equivalent, carried so the Current variant's summary can be built from
+        /// this one (see <c>BuildCurrentSummary</c>) without re-evaluating the runs — exactly as
+        /// <see cref="BaselineMeasuredInFocusHfr"/> is.</summary>
+        public double BaselineSensitivity { get; set; } = double.NaN;
+
+        /// <summary>The exposure-time recommendation derived from THIS VARIANT's accepted-star SNRs (see
+        /// <see cref="ExposureRecommender"/>). Null when the summary was built without one (every pre-feature
+        /// construction, and every unit test that does not exercise this block).</summary>
+        public ExposureRecommendation ExposureAdvice { get; set; }
+
+        /// <summary>The CURRENT-settings equivalent, carried for <c>BuildCurrentSummary</c> — the baseline
+        /// counterpart to <see cref="ExposureAdvice"/>, mirroring the <see cref="BaselineMeasuredInFocusHfr"/>
+        /// pair.</summary>
+        public ExposureRecommendation BaselineExposureAdvice { get; set; }
+
+        /// <summary>
+        /// Whether the summary shows the "Star signal" block at all.
+        ///
+        /// <para>This is the SENSITIVITY GATE ALONE — deliberately NOT additionally gated on the derived exposure
+        /// factor being large, on the star counts, or on <see cref="ExposureAdvice"/> having produced a number. A
+        /// Sensitivity that landed at its search floor means the detector had to admit essentially anything above
+        /// the noise to find stars at all, and that is worth saying out loud EVEN WHEN a longer exposure is not the
+        /// answer: the sub-states carry that nuance (<see cref="ExposureRecommendation.ExposureIsNotTheLimit"/>
+        /// says the field is star-poor rather than under-exposed; a missing recommendation says only the diagnosis
+        /// can be given). Gating the whole block on "we have a big number to show" would silently hide the one
+        /// finding the user most needs — that the focus result rests on low-confidence detections — in exactly the
+        /// cases where nothing can be done about it.</para>
+        ///
+        /// <para>NaN (the default, i.e. a summary built before this feature or by a test that does not set it)
+        /// is false: <c>NaN &lt;= threshold</c> is false, so the block stays hidden rather than firing on
+        /// "unknown".</para>
+        /// </summary>
+        public bool HasExposureRecommendation => ExposureRecommender.SensitivityIsAtFloor(OptimizedSensitivity);
+
+        /// <summary>
+        /// The recommended-exposure row's value, e.g. "3 s → 12 s (measured star S/N 4.1; target 10)". Empty when
+        /// there is no derived number at all, which hides the row (the block still shows its diagnosis body).
+        ///
+        /// <para>Branches on <see cref="ExposureRecommendation.IncreasesExposure"/>, NOT on
+        /// <see cref="ExposureRecommendation.HasRecommendation"/>: the recommender never returns an exposure
+        /// SHORTER than the current one, so when the current exposure already exceeds
+        /// <see cref="ExposureRecommender.MaxRecommendedExposureSeconds"/> (realistic for narrowband) the
+        /// recommendation collapses onto the current value while <c>HasRecommendation</c> stays true on purpose.
+        /// Rendering that as "{current} → {recommended}" would print a no-op "40 s → 40 s" row, so that case takes
+        /// the "(unchanged; …)" form the detection-binning row already uses for the same situation.</para>
+        /// </summary>
+        public string ExposureText {
+            get {
+                var advice = ExposureAdvice;
+                if (advice == null || !advice.HasRecommendation) {
+                    return string.Empty;
+                }
+                var measured = $"measured star S/N {advice.MeasuredSnr:0.#}; target {ExposureRecommender.TargetSensitivity:0.#}";
+                return advice.IncreasesExposure
+                    ? $"{advice.CurrentSeconds:0.##} s → {advice.RecommendedSeconds:0.##} s ({measured})"
+                    : $"{advice.CurrentSeconds:0.##} s (unchanged; {measured})";
+            }
+        }
+
         /// <summary>For the feedback variant only: σ(focus) of the optimized-WITHOUT-feedback result, so the
         /// results header can show how much the feedback round tightened focus relative to the plain optimization.
         /// Null for the current/optimized summaries.</summary>
@@ -1626,7 +1702,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(RoundsSummaryText));
             RaisePropertyChanged(nameof(HasRoundsSummary));
             RaisePropertyChanged(nameof(FocusPrecisionText));
-            RaiseDetectionBinningBlockChanged();
+            // The Star signal block reads the SELECTED summary's own Sensitivity gate and advice, so it has to be
+            // re-raised on every variant switch exactly like the detection-binning block above — a user toggling to
+            // Current must see the gate THOSE settings use, not the one the previous variant reported.
+            // (This call replaced a second, redundant RaiseDetectionBinningBlockChanged() that sat here.)
+            RaiseExposureBlockChanged();
             AcceptCommand.NotifyCanExecuteChanged();
             BackCommand.NotifyCanExecuteChanged();
             ContinueOptimizationCommand.NotifyCanExecuteChanged();
@@ -1739,6 +1819,145 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>Whether the block has a consequence paragraph to show. False when the recommendation simply
         /// confirms the run's factor — the row already says everything.</summary>
         public bool HasDetectionBinningBody => !string.IsNullOrEmpty(DetectionBinningBodyText);
+
+        /// <summary>Whether the summary shows the "Star signal" block at all — i.e. whether the selected variant's
+        /// Sensitivity gate landed at (or near) its search floor. See
+        /// <see cref="OptimizationSummary.HasExposureRecommendation"/> for why this is the gate ALONE and not
+        /// additionally conditioned on there being a number to show.</summary>
+        public bool HasExposureBlock => SelectedSummary?.HasExposureRecommendation ?? false;
+
+        /// <summary>
+        /// The one italic sentence rendered directly above the focus-curve chart when the gate is floored; empty
+        /// otherwise.
+        ///
+        /// <para>It exists because Accept lives in the footer OUTSIDE the ScrollViewer and is always visible, so a
+        /// user looking at a plausible-shaped curve can accept the run without ever scrolling to the Star signal
+        /// block below the fold. This is the page's only colored element, and it is a warning, not an error: the
+        /// result is usable, it is just built on low-confidence detections.</para>
+        /// </summary>
+        public string LowSignalChartNote => HasExposureBlock ? LowSignalChartNoteText : string.Empty;
+
+        /// <summary>The chart note's wording, as a constant so a test can pin it without duplicating the string.</summary>
+        internal const string LowSignalChartNoteText =
+            "Stars in these frames barely cleared the noise, so this result is built from low-confidence detections; see Star signal below.";
+
+        /// <summary>The recommended-exposure row's value (see <see cref="OptimizationSummary.ExposureText"/>).</summary>
+        public string RecommendedExposureText => SelectedSummary?.ExposureText ?? string.Empty;
+
+        /// <summary>Whether the recommended-exposure row has a derived number to show. False when the run could not
+        /// support one (too few usable frames, no per-star SNRs, or no known exposure to scale from) — the block
+        /// still renders, carrying only its diagnosis, rather than showing a labelled row with nothing beside it.</summary>
+        public bool HasRecommendedExposure => !string.IsNullOrEmpty(RecommendedExposureText);
+
+        /// <summary>The body paragraph under the recommended-exposure row.</summary>
+        public string ExposureBodyText => DescribeExposureRecommendation(SelectedSummary, lastRunWasLive);
+
+        /// <summary>Whether the block has a body paragraph to show. Always true while the block is visible (the
+        /// diagnosis sentence is unconditional), but bound anyway so the block degrades to the row alone rather
+        /// than to a blank gap if that ever stops holding.</summary>
+        public bool HasExposureBody => !string.IsNullOrEmpty(ExposureBodyText);
+
+        /// <summary>
+        /// The Star signal block's body copy. Pure and static so every copy state is unit-testable without a VM,
+        /// following <see cref="DescribeReoptimizeAtBinning"/>.
+        ///
+        /// <para><b>Two traps, both carried forward from the recommender's own review.</b> (1) The "raise it to X"
+        /// sentence branches on <see cref="ExposureRecommendation.IncreasesExposure"/>, never on
+        /// <see cref="ExposureRecommendation.HasRecommendation"/>: the recommender has a never-shorter-than-current
+        /// floor, so an already-long exposure (past the absolute cap — realistic for narrowband) collapses the
+        /// recommendation onto the current value while <c>HasRecommendation</c> stays true, and a naive branch
+        /// would offer the user the exposure they already use. (2) The capped copy is selected by
+        /// <see cref="ExposureRecommendation.CapLimitsRecommendation"/>, not
+        /// <see cref="ExposureRecommendation.WasCapped"/>: <c>WasCapped</c> only says the cap reduced
+        /// <see cref="ExposureRecommendation.RawSeconds"/>, which can be true while nothing delivered was
+        /// shaped by it.</para>
+        ///
+        /// <para><b>Why the opening does not blame the optimizer.</b> This block follows the SELECTED VARIANT, and
+        /// on the Current view the gate on screen is the user's own hand-set value — "the optimizer had to lower
+        /// it" would be plainly false there. The neutral phrasing is true on every variant.</para>
+        ///
+        /// <para><b>Detection-binning interaction.</b> <c>FrameStarSnrs</c> are per-BINNED-pixel, so the derived
+        /// exposure is self-consistent within the run but assumes the run's own binning factor; a higher factor
+        /// raises measured SNR on its own. When this same page ALSO offers a binning change
+        /// (<see cref="OptimizationSummary.DetectionBinningDiffers"/>), accepting both would over-lengthen the
+        /// exposure. The block is deliberately NOT suppressed in that case — the diagnosis ("this result rests on
+        /// low-confidence detections") is exactly what the user must be told, and it is true regardless of binning
+        /// — so the copy is QUALIFIED instead, telling the user the two are not additive and which order to take
+        /// them in. Note this does NOT apply to <see cref="OptimizationSummary.DetectionBinningPendingApply"/>: an
+        /// optimize-again pass already ran, and was measured, at the factor Accept will write, so its SNRs are
+        /// already in the space the user is about to commit to.</para>
+        /// </summary>
+        internal static string DescribeExposureRecommendation(OptimizationSummary summary, bool lastRunWasLive) {
+            if (summary == null || !summary.HasExposureRecommendation) {
+                return string.Empty;
+            }
+            var advice = summary.ExposureAdvice;
+            var text = $"Stars in these frames barely cleared the noise, and Brightness Sensitivity sits at {summary.OptimizedSensitivity:0.##} to accept them at all, so this focus result rests on low-confidence detections.";
+
+            // No usable derivation (fewer than MinFramesForRecommendation usable frames, no per-star SNRs, or no
+            // known exposure to scale from): the diagnosis stands on its own and no figure is invented.
+            if (advice != null && advice.HasRecommendation) {
+                if (advice.ExposureIsNotTheLimit) {
+                    text += " The gate landed at its floor, but your stars already clear the default gate — this field is star-poor, not under-exposed.";
+                } else if (advice.CapLimitsRecommendation || !advice.IncreasesExposure) {
+                    // Two states, deliberately sharing one paragraph: a cap trimmed what is being OFFERED
+                    // (CapLimitsRecommendation), or the current exposure is already past the cap so nothing longer
+                    // can be offered at all (!IncreasesExposure). Both mean "the data asks for more than an
+                    // auto-focus sweep can spend", so both report RawSeconds honestly and name the way out; only
+                    // the ROW differs between them ("3 s → 12 s" vs "40 s (unchanged; …)").
+                    //
+                    // Written as CapLimitsRecommendation, NOT WasCapped: WasCapped only says the cap reduced
+                    // RawSeconds, which says nothing about whether it shaped the delivered answer. The two happen
+                    // to select the same set here only because the second disjunct covers the case where they
+                    // diverge — do NOT "simplify" this to a bare WasCapped, which would silently break the moment
+                    // the past-the-cap state gets copy of its own.
+                    text += $" Reaching the detector's normal acceptance level would take about {FormatExposureSeconds(advice.RawSeconds)} s per frame{DescribeSweepCost(advice.RawSeconds, summary.CurrentOffsetSteps)}."
+                        + " A longer exposure still helps, but at that length this filter is the limit; consider auto-focusing through a broadband filter with a filter offset instead.";
+                } else {
+                    text += $" At about {advice.RecommendedSeconds:0.##} s the same stars would reach the detector's normal acceptance level.";
+                }
+            }
+
+            // Replay has no capture action to offer (Task 4 gives Live one), so it gets the "this is still the best
+            // fit for these frames" reassurance plus where to change the exposure by hand.
+            if (!lastRunWasLive) {
+                text += " You can still accept these settings; they are the best fit for frames like these.";
+                if (advice != null && advice.IncreasesExposure) {
+                    text += $" For a more reliable tune, raise your auto-focus exposure to about {advice.RecommendedSeconds:0.##} s in NINA's focuser options and run this wizard again in Live mode.";
+                }
+            }
+
+            if (summary.DetectionBinningDiffers && advice != null && advice.IncreasesExposure) {
+                text += " The detection binning change recommended below also raises measured star signal, so the two are not additive: change the factor first and let the next run re-measure the exposure.";
+            }
+            return text;
+        }
+
+        /// <summary>Seconds for prose: one decimal below 10 s (where half-seconds matter), whole seconds above —
+        /// a four-digit exposure printed to a tenth reads as false precision on a figure that is an extrapolation.</summary>
+        private static string FormatExposureSeconds(double seconds) =>
+            seconds < 10.0 ? seconds.ToString("0.#") : seconds.ToString("0");
+
+        /// <summary>The ", roughly N minutes per auto-focus run" clause: what a whole sweep would cost at
+        /// <paramref name="perFrameSeconds"/>, over the <c>2·offset+1</c> points an auto-focus run samples. Empty
+        /// when the offset is unknown or the total rounds to under a minute — the clause exists to make an
+        /// impractical number feel impractical, and "roughly 0 minutes" does the opposite.</summary>
+        private static string DescribeSweepCost(double perFrameSeconds, int offsetSteps) {
+            if (!double.IsFinite(perFrameSeconds) || perFrameSeconds <= 0.0 || offsetSteps <= 0) {
+                return string.Empty;
+            }
+            var minutes = perFrameSeconds * (2 * offsetSteps + 1) / 60.0;
+            return minutes < 1.0 ? string.Empty : $", roughly {minutes:0} minutes per auto-focus run";
+        }
+
+        private void RaiseExposureBlockChanged() {
+            RaisePropertyChanged(nameof(HasExposureBlock));
+            RaisePropertyChanged(nameof(LowSignalChartNote));
+            RaisePropertyChanged(nameof(RecommendedExposureText));
+            RaisePropertyChanged(nameof(HasRecommendedExposure));
+            RaisePropertyChanged(nameof(ExposureBodyText));
+            RaisePropertyChanged(nameof(HasExposureBody));
+        }
 
         private void RaiseDetectionBinningBlockChanged() {
             RaisePropertyChanged(nameof(HasDetectionBinningBlock));
@@ -2673,6 +2892,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var measuredFitRSquared = double.NaN;
             var baselineInFocusHfr = double.NaN;
             var baselineFitRSquared = double.NaN;
+            // The exposure-time recommendation, derived from run 0 ONLY — matching the detection-binning precedent
+            // above. With several Replay runs the per-run exposures may legitimately differ, and a single number
+            // covering all of them would be ill-defined; the representative run is the one whose curve is plotted.
+            var runExposureSeconds = ResolveRunExposureSeconds(runs[0]);
+            ExposureRecommendation exposureAdvice = null, baselineExposureAdvice = null;
             OptimizationCurve currentCurveLocal = null, optimizedCurveLocal = null;
             for (var i = 0; i < runs.Count; i++) {
                 token.ThrowIfCancellationRequested();
@@ -2689,6 +2913,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     measuredFitRSquared = bestEval.Metrics?.RSquared ?? double.NaN;
                     baselineInFocusHfr = baselineEval.BestFit?.Minimum.Y ?? double.NaN;
                     baselineFitRSquared = baselineEval.Metrics?.RSquared ?? double.NaN;
+                    // Both variants' exposure advice, computed HERE because both RunEvaluationResults are already
+                    // in hand — the recommender only reads Metrics.FrameStarSnrs, so this costs no extra evaluation
+                    // pass. objectiveConstants (not a fresh ObjectiveConstants) so the recommendation inverts the
+                    // SAME NTarget star-count knee the search just optimized against; the aberration-inspection
+                    // profile moves that knee to 60.
+                    exposureAdvice = ExposureRecommender.Recommend(bestEval.Metrics, objectiveConstants, runExposureSeconds);
+                    baselineExposureAdvice = ExposureRecommender.Recommend(baselineEval.Metrics, objectiveConstants, runExposureSeconds);
                     var (baselineCore, baselineRecovery) = PartitionRecoveryPoints(baselineEval);
                     var (bestCore, bestRecovery) = PartitionRecoveryPoints(bestEval);
                     currentCurveLocal = new OptimizationCurve {
@@ -2729,7 +2960,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 FitRSquared = measuredFitRSquared,
                 BaselineMeasuredInFocusHfr = baselineInFocusHfr,
                 BaselineFitRSquared = baselineFitRSquared,
-                RecommendedDetectionBinning = DetectionBinningResolver.RecommendFromHfr(measuredInFocusHfr)
+                RecommendedDetectionBinning = DetectionBinningResolver.RecommendFromHfr(measuredInFocusHfr),
+                RunExposureSeconds = runExposureSeconds,
+                // This summary describes the OPTIMIZED variant, so the gate it reports is the optimized one — the
+                // gate Accept puts into service. The current-settings gate is carried alongside for
+                // BuildCurrentSummary, exactly as the in-focus HFR pair is.
+                OptimizedSensitivity = res.BestParams?.Sensitivity ?? double.NaN,
+                BaselineSensitivity = baseline?.Sensitivity ?? double.NaN,
+                ExposureAdvice = exposureAdvice,
+                BaselineExposureAdvice = baselineExposureAdvice
             };
             return (summary, currentCurveLocal, optimizedCurveLocal);
         }
@@ -2761,8 +3000,47 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 FitRSquared = optimized.BaselineFitRSquared,
                 BaselineMeasuredInFocusHfr = optimized.BaselineMeasuredInFocusHfr,
                 BaselineFitRSquared = optimized.BaselineFitRSquared,
-                RecommendedDetectionBinning = DetectionBinningResolver.RecommendFromHfr(optimized.BaselineMeasuredInFocusHfr)
+                RecommendedDetectionBinning = DetectionBinningResolver.RecommendFromHfr(optimized.BaselineMeasuredInFocusHfr),
+                // Both variants ran on the same frames, so the exposure is the same number on either view.
+                RunExposureSeconds = optimized.RunExposureSeconds,
+                // The Current view keeps the current detector settings, so it reports THEIR gate and the advice
+                // derived from THEIR accepted stars — not the optimizer's. That is what tells a user who hand-set
+                // their own Sensitivity to 0 why this block is on screen at all.
+                OptimizedSensitivity = optimized.BaselineSensitivity,
+                BaselineSensitivity = optimized.BaselineSensitivity,
+                ExposureAdvice = optimized.BaselineExposureAdvice,
+                BaselineExposureAdvice = optimized.BaselineExposureAdvice
             };
+        }
+
+        /// <summary>
+        /// The exposure time (seconds) to scale the exposure recommendation from — <c>t_old</c>. Three sources, in
+        /// order of how directly they describe the frames that were actually scored:
+        ///
+        /// <list type="number">
+        /// <item>a Live sweep's own captured exposure (<see cref="capturedLiveExposureSeconds"/>) — exact, and it
+        /// is what the wizard itself set on the camera;</item>
+        /// <item>a Replay run's <see cref="LoadedRun.CapturedExposureSeconds"/>, read back out of the saved frames'
+        /// headers, since nothing in a saved attempt records it otherwise;</item>
+        /// <item>the profile's auto-focus exposure — a FALLBACK, not a measurement: it is what an auto-focus run
+        /// would use TODAY, which is only the same number if the saved run used the current setting. Called out in
+        /// the Star signal tooltip so the derived figure is not read as a property of the frames.</item>
+        /// </list>
+        ///
+        /// <para>Returns <see cref="double.NaN"/> when none of the three yields a positive number, which makes
+        /// <see cref="ExposureRecommender.Recommend"/> withhold every derived figure and leaves the block showing
+        /// only its diagnosis. Never scale a factor off an unknown base.</para>
+        /// </summary>
+        private double ResolveRunExposureSeconds(LoadedRun run) {
+            if (lastRunWasLive && capturedLiveExposureSeconds > 0.0) {
+                return capturedLiveExposureSeconds;
+            }
+            var recorded = run?.CapturedExposureSeconds ?? double.NaN;
+            if (double.IsFinite(recorded) && recorded > 0.0) {
+                return recorded;
+            }
+            var profileExposure = profileService?.ActiveProfile?.FocuserSettings?.AutoFocusExposureTime ?? double.NaN;
+            return double.IsFinite(profileExposure) && profileExposure > 0.0 ? profileExposure : double.NaN;
         }
 
         private const int DefaultCurrentStepSize = 10;
@@ -2903,6 +3181,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // The button then sits permanently disabled under copy claiming the frames are gone, while they are on
             // disk exactly where this method just recorded them.
             RaiseDetectionBinningBlockChanged();
+            // The Star signal block is refreshed at the same point, for the same structural reason: this is where a
+            // run's post-success state finally settles, AFTER every path has already raised the summary's
+            // dependents. Its inputs are all fixed by BuildSummaryAsync today, so this is currently belt-and-braces
+            // — but the binning block's bug was exactly "a later-settling input was never re-notified", and pairing
+            // the two refreshes keeps the next input added here (Task 4's Live capture action reads the same
+            // run-availability state the binning button does) from re-introducing it.
+            RaiseExposureBlockChanged();
         }
 
         /// <summary>
