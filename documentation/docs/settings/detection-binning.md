@@ -65,8 +65,22 @@ then whichever brings that measurement closest to 3 px:
     margin: on a 0.28&Prime;/px rig the answer flips at about 2.3&Prime; of seeing. An assumed figure would
     decide the recommendation, not your rig.
 
-Re-run an auto-focus after changing optics, cameras or filters, so the recommendation reflects the current
-rig rather than the previous one. The tooltip shows the measurement date for exactly this reason.
+### Changing the rig discards the measurement
+
+The measurement is a star size in *captured pixels*, so it only means anything at the pixel scale it was taken
+at. A 5.8 px star at 2800 mm is 2.9 px at 1400 mm — the same sky, a different recommendation. So Hocus Focus
+watches the active profile's **focal length**, **pixel size** and **Auto Focus Binning**, and discards the
+measurement whenever they move the pixel scale. The line under the dropdown goes back to asking for an
+auto-focus, and the next auto-focus refills it.
+
+It compares the resulting pixel scale rather than the three values, so a change that cancels out — doubling
+focal length and doubling capture binning — keeps the measurement. Edits arrive one at a time, though, so
+making those two changes one after the other still discards it on the first: nothing can know a compensating
+second edit is coming. The cost is one auto-focus, which is the right side to err on.
+
+Switching profiles does not discard anything. Each profile stores its own measurement, so a switch simply
+moves to that profile's own value. Per-filter Auto Focus Binning overrides are not watched — only the global
+setting is — so re-run an auto-focus by hand after changing one of those.
 
 ## This is not NINA's Auto Focus Binning
 

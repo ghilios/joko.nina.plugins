@@ -103,7 +103,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 : string.Format(ci, " Star detection is calibrated for in-focus stars of roughly 2 to 4 px, and {0:0.0} px is already in that range, so binning is not needed.",
                     measuredHfrPixels);
 
-            return when + reasoning + " Re-run an auto-focus after changing optics, so this reflects the current rig.";
+            return when + reasoning + " Changing focal length, pixel size or capture binning discards this measurement, so it always describes the current rig.";
         }
 
         /// <summary>True when the current factor is not what the measurement calls for. False when there is no
