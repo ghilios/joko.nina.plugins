@@ -31,7 +31,7 @@
     <TextBlock x:Key="SDOpt_TargetFilter_Tooltip" Text="Per-filter star detection is enabled, so this run tunes ONE filter's settings set. The baseline and 'current settings' come from this filter's set; a live sweep moves the wheel to this filter and exposes through it; and Accept writes the optimized result into this filter's set." />
     <TextBlock x:Key="SDOpt_CaptureBinning_Tooltip" Text="NINA's Auto Focus Binning: how the camera bins when it captures the sweep frames. Set in NINA's Options, and per filter in the filter wheel settings. It should match the binning you image at. Detection binning below is applied on top of this, in software, for star detection only." />
     <TextBlock x:Key="SDOpt_DetectionBinningRec_Tooltip" Text="Recommended from this run's fitted in-focus HFR, using the detector's 2 to 4 pixel calibration target. Optimize again re-runs the search on the same frames at the recommended factor; nothing is saved until you Accept, which applies the factor and the re-tuned settings together." />
-    <TextBlock x:Key="SDOpt_StarSignal_Tooltip" Text="Brightness Sensitivity is the acceptance gate a candidate must clear to count as a star: its brightness above the local background, divided by the local noise. The optimizer searches it over 0 to 50, and the shipped default is 10 — so a value at the bottom of that range means the frames were signal-starved and the detector had to admit almost anything above the noise to find stars at all. The recommended exposure is what would put this run's stars back at the default gate, assuming sky noise dominates, so quadrupling the exposure doubles S/N. It is derived from the exposure the run's own frames were captured with, or from your profile's auto-focus exposure when the frames record none." />
+    <TextBlock x:Key="SDOpt_StarSignal_Tooltip" Text="Brightness Sensitivity is the acceptance gate a candidate must clear to count as a star: its brightness above the local background, divided by the local noise. It ranges from 0 to 50 and the shipped default is 10, so a value near the bottom means almost anything above the noise was admitted — whether the optimizer landed there or you set it by hand. The recommended exposure is what would put this run's stars back at the default gate, assuming sky noise dominates, so quadrupling the exposure doubles S/N. It scales from the exposure the run's own frames were captured with, or from your profile's auto-focus exposure when the frames record none. One run never recommends more than 4x the current exposure, or more than 30 s per frame." />
     <TextBlock x:Key="SDOpt_FocusRecovery_Tooltip" Text="Widens the live sweep by this many extra steps on EACH side, so the auto-focus curve can still bracket focus when you start well off focus. The extra far-from-focus frames are down-weighted in the fit and exempt from the star-count requirements, so they help find focus without skewing it. Set 0 to disable recovery." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
@@ -819,7 +819,11 @@
                             <TextBlock Margin="0,0,0,2" FontWeight="Bold" Text="Star signal" />
                             <!--  Hidden when the run could not support a derived number (too few usable frames, no
                                   per-star SNRs, or no known exposure to scale from) — the body below still carries
-                                  the diagnosis, which is the part that always applies.  -->
+                                  the diagnosis, which is the part that always applies.
+                                  The LABEL carries the general background (what the gate is, the target, the caps);
+                                  the VALUE carries this run's own derivation, bound per-run — the same split the
+                                  sweep page's detection-binning row already uses. The body paragraph deliberately
+                                  holds neither: it is capped at the diagnosis plus one instruction.  -->
                             <StackPanel Margin="0,2" Orientation="Horizontal"
                                         Visibility="{Binding HasRecommendedExposure, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                                 <TextBlock
@@ -828,7 +832,7 @@
                                     ToolTip="{StaticResource SDOpt_StarSignal_Tooltip}" />
                                 <TextBlock
                                     Text="{Binding RecommendedExposureText, Mode=OneWay}"
-                                    ToolTip="{StaticResource SDOpt_StarSignal_Tooltip}" />
+                                    ToolTip="{Binding ExposureDerivationDetail, Mode=OneWay}" />
                             </StackPanel>
                             <TextBlock
                                 MaxWidth="560"

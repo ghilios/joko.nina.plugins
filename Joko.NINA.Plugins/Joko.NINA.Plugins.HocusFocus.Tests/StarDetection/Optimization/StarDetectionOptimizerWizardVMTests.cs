@@ -3014,7 +3014,7 @@ public class StarDetectionOptimizerWizardVMTests {
         await vm.StartAsync(CancellationToken.None);
 
         Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
-        Assert.That(vm.Summary.OptimizedSensitivity, Is.LessThanOrEqualTo(ExposureRecommender.SensitivityFloorThreshold),
+        Assert.That(vm.Summary.VariantSensitivity, Is.LessThanOrEqualTo(ExposureRecommender.SensitivityFloorThreshold),
             "fixture guard: the search must actually land at the gate floor, or every assertion below is vacuous");
         Assert.Multiple(() => {
             Assert.That(vm.HasExposureBlock, Is.True);
@@ -3024,10 +3024,12 @@ public class StarDetectionOptimizerWizardVMTests {
             // t_old is the exposure recorded in the saved run's frames (3 s); S_now = 7 against a target of 10
             // needs (10/7)^2 = 2.04x, i.e. 6.12 s, rounded up the sub-10-second ladder to 6.5 s.
             Assert.That(vm.RecommendedExposureText, Is.EqualTo("3 s → 6.5 s (measured star S/N 7; target 10)"));
+            // The derivation is background, so it rides on the row's tooltip rather than in the paragraph.
+            Assert.That(vm.ExposureDerivationDetail, Does.Contain("Sky-limited scaling: 3 s × (10 / 7)² = 6.1 s per frame"));
             Assert.That(vm.ExposureBodyText, Does.Contain("You can still accept these settings"));
             Assert.That(vm.ExposureBodyText, Does.Contain("Live mode"), "Replay has no capture action to offer");
             // The block reports a confidence problem; it is NOT a veto. A Replay run whose gate floored is still
-            // the best fit for frames like these, and Accept must stay available — HasExposureRecommendation must
+            // the best fit for frames like these, and Accept must stay available — HasLowStarSignal must
             // never enter CanAccept in any form.
             Assert.That(vm.AcceptCommand.CanExecute(null), Is.True);
         });
@@ -3047,7 +3049,7 @@ public class StarDetectionOptimizerWizardVMTests {
         await vm.StartAsync(CancellationToken.None);
 
         Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
-        Assert.That(vm.Summary.OptimizedSensitivity, Is.LessThanOrEqualTo(ExposureRecommender.SensitivityFloorThreshold),
+        Assert.That(vm.Summary.VariantSensitivity, Is.LessThanOrEqualTo(ExposureRecommender.SensitivityFloorThreshold),
             "fixture guard");
         Assert.Multiple(() => {
             // 5 s x (10/7)^2 = 10.2 s, rounded up the 10-30 s ladder to 11 s.
@@ -3064,7 +3066,7 @@ public class StarDetectionOptimizerWizardVMTests {
 
         await vm.StartAsync(CancellationToken.None);
 
-        Assert.That(vm.Summary.OptimizedSensitivity, Is.GreaterThan(ExposureRecommender.SensitivityFloorThreshold),
+        Assert.That(vm.Summary.VariantSensitivity, Is.GreaterThan(ExposureRecommender.SensitivityFloorThreshold),
             "fixture guard: this run's gate must land well clear of the floor");
         Assert.Multiple(() => {
             Assert.That(vm.HasExposureBlock, Is.False, "no new noise on the happy path");
@@ -3082,8 +3084,11 @@ public class StarDetectionOptimizerWizardVMTests {
         var vm = NewVM(LoaderReturning(StarvedRun()));
         vm.SourcePaths[0] = @"C:\fake\attempt";
         await vm.StartAsync(CancellationToken.None);
-        Assume.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Optimized), "fixture guard");
-        Assume.That(vm.HasExposureBlock, Is.True, "fixture guard");
+        // Assert, not Assume: NUnit reports a failed Assume as Inconclusive, which `dotnet test` does not fail
+        // on — so a broken fixture would silently disable the re-notification assertion below while the suite
+        // stayed green. Assume is for environmental preconditions, not for the premise of the test.
+        Assert.That(vm.SelectedVariant, Is.EqualTo(OptimizationVariant.Optimized), "fixture guard");
+        Assert.That(vm.HasExposureBlock, Is.True, "fixture guard");
 
         var notified = 0;
         vm.PropertyChanged += (s, e) => { if (e.PropertyName == nameof(vm.HasExposureBlock)) { notified++; } };
@@ -3105,7 +3110,7 @@ public class StarDetectionOptimizerWizardVMTests {
 
         await vm.StartAsync(CancellationToken.None);
 
-        Assume.That(vm.Summary.OptimizedSensitivity, Is.LessThanOrEqualTo(ExposureRecommender.SensitivityFloorThreshold),
+        Assert.That(vm.Summary.VariantSensitivity, Is.LessThanOrEqualTo(ExposureRecommender.SensitivityFloorThreshold),
             "fixture guard");
         Assert.Multiple(() => {
             Assert.That(vm.HasExposureBlock, Is.True);
@@ -3127,7 +3132,7 @@ public class StarDetectionOptimizerWizardVMTests {
 
         await vm.StartAsync(CancellationToken.None);
 
-        Assume.That(vm.Summary.OptimizedSensitivity, Is.LessThanOrEqualTo(ExposureRecommender.SensitivityFloorThreshold),
+        Assert.That(vm.Summary.VariantSensitivity, Is.LessThanOrEqualTo(ExposureRecommender.SensitivityFloorThreshold),
             "fixture guard");
         Assert.That(vm.RecommendedExposureText, Is.EqualTo("3 s → 6.5 s (measured star S/N 7; target 10)"),
             "with no exposure in the frames, the profile's auto-focus exposure is the base");
