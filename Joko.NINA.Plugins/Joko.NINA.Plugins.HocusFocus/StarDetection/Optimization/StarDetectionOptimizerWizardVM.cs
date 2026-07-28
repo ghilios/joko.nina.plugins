@@ -3326,6 +3326,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <para><c>reviewDescriptors</c> / <c>reviewLabelsDir</c> / the re-optimize folders are NOT cleared here:
         /// every caller re-establishes them from the new runs via <see cref="SnapshotReviewInputs"/> on the very
         /// next line, and clearing them first would only widen the window in which they are inconsistent.</para>
+        ///
+        /// <para>This does NOT write anything. A caller that is discarding labels the user actually drew must call
+        /// <see cref="PersistReviewLabels"/> FIRST — it is <see cref="ReviewVM"/> that performs the write, and this
+        /// nulls it — so their work lands on disk under the run it describes. The capture path does exactly that;
+        /// see the call site for why the ordering is load-bearing in both directions.</para>
         /// </summary>
         private void DiscardReviewSnapshot() {
             if (ReviewVM != null) {
@@ -4008,6 +4013,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // A fresh tuning on fresh frames, not another round: reset the chain rather than splicing a
                 // trajectory across two different sets of exposures.
                 AdoptFreshTuning(optimizeResult, built);
+                // Flush the labels to disk BEFORE dropping them, and before SnapshotReviewInputs re-points the
+                // labels dir at the run that is replacing this one. Order is load-bearing twice over: the discard
+                // nulls ReviewVM, which is what actually writes (and what PersistReviewLabels guards on), so a
+                // flush after it silently no-ops; and reviewLabelsDir still resolves to the OLD run's folder here,
+                // which is where labels drawn on the OLD run's images belong. The principle is the Cancel path's:
+                // labels are the user's work product, not a settings mutation, so they survive an action that
+                // discards everything else. (Tolerant — a failed write logs and does not block the capture.)
+                PersistReviewLabels();
                 // …and, UNLIKE the binning path, throw away the review with it. That path re-reads the very same
                 // files, so its RunIds — and therefore its labels — still line up. This one replaced the frames, so
                 // the captured labels describe images that no longer exist here. Keeping them would leave

@@ -62,6 +62,21 @@ public class StarDetectionOptimizerWizardVMTests {
         PreferredModel = null
     };
 
+    /// <summary>The same nine frames, but with FrameIds that are real paths under <paramref name="dir"/> — which is
+    /// what GetFrameDescriptors forwards as FramePath, and therefore what DeriveLabelsDir reads.</summary>
+    private static List<RunFrame> NineFramesUnder(string dir) {
+        var frames = new List<RunFrame>();
+        for (var i = -4; i <= 4; i++) {
+            var pos = HyperbolaP0 + i * DefaultStepSize;
+            frames.Add(new RunFrame {
+                FrameId = System.IO.Path.Combine(dir, $"frame_{pos}.fits"),
+                FocuserPosition = pos,
+                Image = pos
+            });
+        }
+        return frames;
+    }
+
     private static List<RunFrame> NineFrames() {
         var frames = new List<RunFrame>();
         for (var i = -4; i <= 4; i++) {
@@ -2986,7 +3001,8 @@ public class StarDetectionOptimizerWizardVMTests {
     // plain arithmetic rather than a property of the fixture's ordering.
     private static LoadedRun StarvedRun(
         string id = "starved", double starSnr = 7.0, int starsPerFrame = 30, double capturedExposureSeconds = 3.0,
-        bool largeStars = false, double baselineSensitivity = 10.0, double snrAtHealthyGate = double.NaN) {
+        bool largeStars = false, double baselineSensitivity = 10.0, double snrAtHealthyGate = double.NaN,
+        string framesDir = null) {
         Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect = (image, p, token) => {
             var pos = (int)image;
             // snrAtHealthyGate models the real relationship the flat default hides: a HIGH gate admits only the
@@ -3007,7 +3023,10 @@ public class StarDetectionOptimizerWizardVMTests {
                 StarSnrs = Enumerable.Repeat(snr, starsPerFrame).ToList()
             });
         };
-        var data = new RunEvaluationData(id, NineFrames(), detect, NewAlglib(), DefaultFitConfig());
+        // framesDir gives the frames real on-disk paths, so DeriveLabelsDir resolves to "<framesDir>/labels" and the
+        // label-persistence path can be exercised end to end (same trick as GoodRunWithFramePaths).
+        var frames = framesDir == null ? NineFrames() : NineFramesUnder(framesDir);
+        var data = new RunEvaluationData(id, frames, detect, NewAlglib(), DefaultFitConfig());
         return new LoadedRun {
             Data = data,
             // Seed AND baseline start at the healthy default gate, so the Current variant stays healthy while the
@@ -3670,6 +3689,57 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
+    public async Task CaptureNewSweep_FlushesTheLabelsToTheOldRunsFolderBeforeDiscardingThem() {
+        // Labels are the user's work product, not a settings mutation — the principle the Cancel path already
+        // follows by flushing them on the way out. A capture that silently binned hand-drawn labels would
+        // contradict it, so they are written first, under the run whose images they describe.
+        //
+        // The ordering is load-bearing and this test pins it: PersistReviewLabels writes THROUGH ReviewVM, which
+        // DiscardReviewSnapshot nulls, so a flush moved after the discard no-ops and the file never appears. Each
+        // attempt folder gets its own frames directory so "the old run's folder" is a real, checkable place.
+        var tempRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hf-capture-labels-" + Guid.NewGuid().ToString("N"));
+        System.IO.Directory.CreateDirectory(tempRoot);
+        try {
+            string FramesDirFor(string attemptFolder) =>
+                System.IO.Path.Combine(tempRoot, System.IO.Path.GetFileName(attemptFolder));
+            var loader = new ProducingLoader(folder => {
+                var dir = FramesDirFor(folder);
+                System.IO.Directory.CreateDirectory(dir);
+                return StarvedRun(id: System.IO.Path.GetFileName(folder), framesDir: dir);
+            });
+            var captures = 0;
+            var engine = LiveEngine(_ => SweptOk(++captures));
+            var vm = NewStarvedLiveVM(engine, loader, frameReviewBuilder: new FakeReviewBuilder().Build);
+
+            await vm.StartAsync(CancellationToken.None);
+            await vm.ReviewCommand.ExecuteAsync(null);
+            vm.ReviewVM.AddMissedBox(100.0, 120.0, 20.0, 20.0);
+            vm.BackToSummaryCommand.Execute(null);
+            Assert.That(vm.HasLabels, Is.True, "fixture guard: the user really labelled something");
+
+            await vm.CaptureNewSweepCommand.ExecuteAsync(null);
+
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "fixture guard: the capture succeeded");
+            var oldLabelsDir = System.IO.Path.Combine(FramesDirFor(@"C:\live\attempt1"), "labels");
+            var newLabelsDir = System.IO.Path.Combine(FramesDirFor(@"C:\live\attempt2"), "labels");
+            var persisted = System.IO.Directory.Exists(oldLabelsDir)
+                ? System.IO.Directory.GetFiles(oldLabelsDir, "*.json")
+                : Array.Empty<string>();
+            Assert.Multiple(() => {
+                Assert.That(persisted, Is.Not.Empty,
+                    "the capture must write the labels out before dropping them - otherwise the work is simply lost");
+                Assert.That(System.IO.File.ReadAllText(persisted[0]), Does.Contain("missed"),
+                    "and the file must carry the box the user actually drew");
+                Assert.That(System.IO.Directory.Exists(newLabelsDir), Is.False,
+                    "they belong to the run they were drawn on, not to the sweep that replaced it");
+                Assert.That(vm.HasLabels, Is.False, "and they are still dropped from memory afterwards");
+            });
+        } finally {
+            try { System.IO.Directory.Delete(tempRoot, recursive: true); } catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Test]
     public async Task CaptureNewSweep_FailedCapture_LeavesTheReviewSnapshotIntact() {
         // The companion to the above, and the reason the discard lives in the success block: a capture that never
         // produced frames has replaced nothing, so the previous run - and the labelling work done on it - stands.
@@ -3732,15 +3802,10 @@ public class StarDetectionOptimizerWizardVMTests {
             $"{undisposed.Count} of {loader.Produced.Count} loaded runs still pin their source Mats");
     }
 
-    /// <summary>Marks one star as missed on the in-focus frame — the minimum that makes HasLabels true. Mutates the
-    /// in-memory model the wizard holds, which is exactly what the StarReviewVM does as the user draws.</summary>
-    private static void LabelAStar(StarDetectionOptimizerWizardVM vm) {
-        var labels = vm.CapturedLabels.Values.First();
-        labels.Positions.Add(new StarReviewPositionLabels {
-            FocuserPosition = HyperbolaP0,
-            Missed = new List<StarReviewLabelBox> { new StarReviewLabelBox(100, 100, 10, 10) }
-        });
-    }
+    /// <summary>Draws one missed-star box on the frame the review is showing — the minimum that makes HasLabels
+    /// true. Goes through the StarReviewVM, i.e. the same call the drag gesture makes, rather than poking the
+    /// label model directly, so the notification path is exercised too.</summary>
+    private static void LabelAStar(StarDetectionOptimizerWizardVM vm) => vm.ReviewVM.AddMissedBox(100.0, 120.0, 20.0, 20.0);
 
     [Test]
     public async Task CaptureNewSweep_UpdatesTheAcceptWriteBack() {
