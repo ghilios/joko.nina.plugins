@@ -101,6 +101,18 @@ public class AutoFocusBinningConflictTests {
             exempt: DialogTypesettingGuardTests.IsFilterBullet);
     }
 
+    [TestCase(2)]
+    [TestCase(4)]
+    public void Describe_FilterOnlyConflict_IsAlsoTypesetNarrowEnough(int detectionBinning) {
+        // A filter-only conflict takes the OTHER EffectiveFactorDescription branch, which the case above never
+        // reaches - it has a global binning, so it always renders the "Nx the native pixel size" wording.
+        var conflict = AutoFocusBinningConflict.Detect(BuildProfile(1, ("L", 1), ("Ha", 2), ("OIII", 3)));
+        DialogTypesettingGuardTests.AssertEveryLineFits(
+            conflict.Describe(detectionBinning),
+            $"The AF-binning conflict prompt, filter-only (detection {detectionBinning}x)",
+            exempt: DialogTypesettingGuardTests.IsFilterBullet);
+    }
+
     [Test]
     public void ResetToUnbinned_ClearsTheGlobalAndTheNamedFiltersOnly() {
         var profileService = BuildProfile(2, ("L", 1), ("Ha", 2), ("OIII", 4));

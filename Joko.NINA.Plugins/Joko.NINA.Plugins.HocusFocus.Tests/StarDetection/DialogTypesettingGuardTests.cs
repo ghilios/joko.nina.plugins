@@ -42,6 +42,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             var lines = text.Replace("\r\n", "\n").Split('\n');
             Assert.That(lines.Length, Is.GreaterThan(1), $"{what}: a single-line body is the defect this guards against");
 
+            // Echo the rendered block with a ruler at the budget. These dialogs cannot be inspected from a test
+            // run any other way, and the whole point of the fix is how the text SITS, so print the shape.
+            TestContext.WriteLine($"--- {what} ---");
+            TestContext.WriteLine(new string('-', Budget) + "| " + Budget);
+            foreach (var line in lines) {
+                TestContext.WriteLine(line);
+            }
+
             var tooLong = lines
                 .Select((line, i) => (line, number: i + 1))
                 .Where(l => l.line.Length > Budget && !(exempt?.Invoke(l.line) ?? false))

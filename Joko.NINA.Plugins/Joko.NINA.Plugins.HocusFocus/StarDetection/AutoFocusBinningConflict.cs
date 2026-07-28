@@ -133,9 +133,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             if (FilterNames.Count > 0 && GlobalBinning <= 1) {
                 return $"{detectionBinning}x on top of each filter's own capture binning";
             }
-            // Broken across two lines for the same width reason as Describe. The break lands AFTER "…pixel size"
-            // so that phrase stays contiguous — it is what the tests match on, and what the user reads first.
-            return $"{cameraFactor * detectionBinning}x the native pixel size\n({cameraFactor}x at capture, {detectionBinning}x again for detection)";
+            // "at detection" rather than "again for detection" purely for width: it parallels "at capture" and
+            // keeps the whole clause on ONE line under Describe's budget, so the sentence sits on two balanced
+            // lines instead of three with a 24-character orphan. The combined factor stays contiguous.
+            return $"{cameraFactor * detectionBinning}x the native pixel size ({cameraFactor}x at capture, {detectionBinning}x at detection)";
         }
     }
 }
