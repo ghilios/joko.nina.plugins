@@ -33,17 +33,55 @@ absolute numbers.
 18 mono runs are unaffected and must **not** be regenerated — their artifacts are still valid, and re-running them
 would burn hours and risk churn.
 
+**Sequencing decision:** do **`bobp_m101` first, alone**, then stop and reassess. It is the run the conclusion
+under re-check rests on, so it answers the actual question for a third of the rate-limited LLM budget. If its
+conclusion moves, `bobp` and `timmer` become more urgent; if it holds, they may not be urgent at all. Do not start
+the other two without checking back.
+
 ---
 
 ## Task 1 — Re-export linear frames (mechanical, no LLM)
 
-- [ ] Invoke the **`generating-af-golden-data`** skill for the exact pipeline and its gotchas (rate limits,
+- [x] Invoke the **`generating-af-golden-data`** skill for the exact pipeline and its gotchas (rate limits,
       XISF/Bayer handling) — do not improvise the commands.
-- [ ] Re-run `TestApp export-linear` for `bobp`, `bobp_m101`, `timmer`. Phase 1 fixed this runner to debayer, so
-      the new exports are luminance where the old were mosaic.
-- [ ] **Verify the fix took effect** before proceeding: the new `.linear.fits` must differ from the old for these
+- [x] Re-run `TestApp export-linear` for `bobp_m101` (`--profile-id b10b1d6d…` / Default, `--overwrite`).
+      `bobp` and `timmer` deferred per the sequencing decision above.
+- [x] **Verify the fix took effect** before proceeding: the new `.linear.fits` must differ from the old for these
       bayered runs. If they are identical, the export fix did not apply and everything downstream is wasted —
       stop and report.
+
+### Task 1 result — `bobp_m101`, 2026-07-29 (gate PASSED)
+
+All 10 sidecars changed (10/10 distinct MD5s; byte size identical at 47,088,000 — 5936×3966 either way, so
+**size is not a valid gate**, only content is). Old exports preserved at
+`D:\Autofocus Bank\_prior_reports\bobp_m101_linear_mosaic_prephase1\`.
+
+The old files are demonstrably a **Bayer mosaic**: their four CFA sub-lattice medians are four distinct values
+(330 / 353 / 354 / 338 ADU, spread 24–25) and mean |horizontal-neighbour Δ| is 23.7–24.2 ADU. The new files'
+sub-lattice medians are equal to within 1 ADU and the neighbour Δ falls to 3.5 ADU. 97.6% of pixels changed;
+median |Δ| 11 ADU, p99 49 ADU, peaks ~41k ADU at saturated cores.
+
+**The defect's mechanism is not the one this plan and `docs/headless-detection-parity-design.md` assert.** The
+checkerboard dominated `snr_ref`'s block-MAD noise estimate, so the reference's σ was **3.0–3.25× too high**
+(17.8–19.3 ADU vs 5.9). Both the 5σ detection threshold and the SNR tiering scaled with it, so the mosaic
+reference was ~3× **less** sensitive:
+
+| `snr_ref` (k=5, no donut), 10 frames | old (mosaic) | new (luminance) |
+|---|---|---|
+| median σ | 17.8–19.3 ADU | 5.93 ADU |
+| candidates, all tiers | 2,427 | 4,410 |
+| high tier, SNR ≥ 12 | 1,365 | 2,107 |
+
+Cross-matched at the `golden eval` radius (12 px): **1,365 / 1,365 (100%)** of old high-tier candidates are
+reproduced by the new reference, all of them still in the new high tier. There are **zero mosaic-only finds** on
+this run — the old reference was a strict *subset*, not a set polluted with mosaic artifacts. Conversely 209 of
+the new 2,107 high-tier stars match no old candidate at any tier, and a further 533 were present but tiered
+medium/low. The stored goldens' high tiers equal the old counts exactly (27/44/93/246/450/305/100/54/29/17 =
+1,365), confirming the golden high tier is a direct function of this export.
+
+**Consequence for Task 4:** the `recall@SNR≥12 = 0.126` denominator grows ~54% (1,365 → ~2,107) and the added
+stars are *fainter* than any the old reference could see. If HF's misses skew faint, the corrected recall goes
+**down**, not up. Do not enter Task 4 assuming the deficit was a scoring artifact.
 
 ## Task 2 — Regenerate the reference and the goldens
 
