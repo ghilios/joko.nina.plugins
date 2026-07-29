@@ -121,7 +121,9 @@ namespace TestApp {
                 if (framesFilter != null && !framesFilter.Contains(frame.FocuserPosition)) {
                     continue;
                 }
-                using var floatMat = await DiagnosticUtil.LoadFloatMat(frame.Path, profileService);
+                // Tiles are the human/LLM authoring surface, so a bayered frame is DEBAYERED to luminance (a raw
+                // mosaic renders as a visible checkerboard). No CFA hotpixel filter: this renders, it never detects.
+                using var floatMat = await DiagnosticUtil.LoadDisplayFloatMat(frame.Path, profileService);
                 var fullW = floatMat.Cols;
                 var fullH = floatMat.Rows;
                 var cropRect = ResolveRegion(region, frame.Path, fullW, fullH);

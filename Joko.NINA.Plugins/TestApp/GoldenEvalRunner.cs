@@ -175,15 +175,16 @@ namespace TestApp {
                     continue;
                 }
 
-                using var floatMat = await DiagnosticUtil.LoadFloatMat(frame.Path, profileService);
-                var fullW = floatMat.Cols;
-                var fullH = floatMat.Rows;
+                // Detect on the IRenderedImage, exactly as the live app does: the CFA hotpixel filter and the
+                // debayer then run INSIDE Detect at these params (see DiagnosticUtil.LoadRenderedImage). Recall and
+                // precision are only meaningful when the harness scores the image the app actually detects on.
+                var rendered = await DiagnosticUtil.LoadRenderedImage(frame.Path, profileService);
+                var fullW = rendered.RawImageData.Properties.Width;
+                var fullH = rendered.RawImageData.Properties.Height;
                 var regions = ReadRegions(runFolder, fullW, fullH);
 
-                HocusFocusStarDetectorResult result;
-                using (var clone = floatMat.Clone()) {
-                    result = await detector.Detect(clone, p, null, CancellationToken.None);
-                }
+                // Detect(IRenderedImage) builds its own source Mat per call, so the caller's image is never mutated.
+                var result = await detector.Detect(rendered, p, null, CancellationToken.None);
 
                 var stars = result.DetectedStars ?? new List<Star>();
                 var det = stars.Select(s => new DetBox(RectD.FromRect(s.StarBoundingBox), s.Center.X, s.Center.Y)).ToList();
@@ -258,7 +259,10 @@ namespace TestApp {
                     $"P={Fmt(PrecisionRecall.Compute(fe.TP, fe.FP, fe.FN).Precision)} R={Fmt(PrecisionRecall.Compute(fe.TP, fe.FP, fe.FN).Recall)}");
 
                 if (annotate) {
-                    WriteAnnotated(floatMat, gf, stars, match, runOut, frame.FocuserPosition);
+                    // Display only (debayered luminance for an OSC frame, never CFA-filtered) — the overlay boxes
+                    // are full-frame pixel coordinates, which the debayer preserves.
+                    using var displayMat = DiagnosticUtil.ToDisplayMat(rendered);
+                    WriteAnnotated(displayMat, gf, stars, match, runOut, frame.FocuserPosition);
                 }
             }
 

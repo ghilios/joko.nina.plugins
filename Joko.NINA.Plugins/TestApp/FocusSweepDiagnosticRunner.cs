@@ -168,13 +168,14 @@ namespace TestApp {
                 return;
             }
 
-            bool debayerLuminance = DiagnosticUtil.HasFlag(args, "--debayer-luminance");
-            if (debayerLuminance) Console.WriteLine("Debayer-to-luminance ON (mirrors live AF OSC detection path)");
-            bool cfaHotpixel = DiagnosticUtil.HasFlag(args, "--cfa-hotpixel");
-            double cfaThreshold = baseParams.HotpixelThreshold;
-            if (cfaHotpixel) {
-                Console.WriteLine($"CFA hotpixel filter ON (threshold={cfaThreshold}); detector hotpixel filter disabled (mirrors live AF PrepareSrcImageFromRenderedImage)");
-                baseParams.HotpixelFiltering = false;
+            // --debayer-luminance / --cfa-hotpixel are gone: BOTH are now unconditional and, crucially, are performed
+            // INSIDE Detect at these params (DiagnosticUtil.LoadRenderedImage + Detect(IRenderedImage, …)), which is
+            // what the live app does. The old --cfa-hotpixel pattern (pre-filter, then HotpixelFiltering = false) was
+            // NOT faithful: it left StarDetector's hotpixelFilterAlreadyApplied false, so the structure-detection
+            // source got a SPATIAL hotpixel filter (StarDetector.cs:549) that live never applies.
+            if (DiagnosticUtil.HasFlag(args, "--debayer-luminance") || DiagnosticUtil.HasFlag(args, "--cfa-hotpixel")) {
+                Console.WriteLine("NOTE: --debayer-luminance / --cfa-hotpixel are obsolete and ignored — the debayer and the " +
+                    "CFA hotpixel filter now always run inside Detect at the run's params, exactly as the live app does.");
             }
             if (DiagnosticUtil.HasFlag(args, "--defocus-aware")) {
                 baseParams.DefocusAwareStructure = true;
@@ -187,8 +188,8 @@ namespace TestApp {
             var byPosition = new SortedDictionary<int, PositionAccum>();
             var detector = new StarDetector(new AlglibAPI());
             foreach (var frame in frames) {
-                using var img = await DiagnosticUtil.LoadFloatMat(frame.Path, profileService, debayerLuminance, cfaHotpixel, cfaThreshold);
-                var result = await detector.Detect(img, baseParams, null, CancellationToken.None);
+                using var img = await DetectionSource.LoadAsync(frame.Path, profileService);
+                var result = await img.DetectAsync(detector, baseParams, CancellationToken.None);
                 if (!byPosition.TryGetValue(frame.FocuserPosition, out var accum)) {
                     accum = new PositionAccum { FocuserPosition = frame.FocuserPosition };
                     byPosition[frame.FocuserPosition] = accum;
@@ -232,7 +233,7 @@ namespace TestApp {
                 var byPos = new SortedDictionary<int, (int stars, long lowSens, List<double> hfrs)>();
                 long totalStars = 0, totalLow = 0;
                 foreach (var frame in frames) {
-                    using var img = await DiagnosticUtil.LoadFloatMat(frame.Path, profileService);
+                    var img = await DiagnosticUtil.LoadRenderedImage(frame.Path, profileService);
                     var result = await detector.Detect(img, baseParams, null, CancellationToken.None);
                     if (!byPos.TryGetValue(frame.FocuserPosition, out var acc)) {
                         acc = (0, 0, new List<double>());

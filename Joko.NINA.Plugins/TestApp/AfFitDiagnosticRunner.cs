@@ -141,7 +141,9 @@ namespace TestApp {
             var detector = new StarDetector(new AlglibAPI());
             var rows = new List<PointRow>();
             foreach (var frame in frames.OrderByDescending(f => f.FocuserPosition)) {
-                using var img = await DiagnosticUtil.LoadFloatMat(frame.Path, profileService);
+                // Detect on the IRenderedImage: the CFA hotpixel filter + debayer run inside Detect at these params,
+                // so the per-frame HFR this fit is built from is the one the live AF engine would measure.
+                var img = await DiagnosticUtil.LoadRenderedImage(frame.Path, profileService);
                 var result = await detector.Detect(img, baseParams, null, CancellationToken.None);
                 var hfrs = result.DetectedStars.Select(s => s.HFR).ToList();
                 if (hfrs.Count <= 1) {

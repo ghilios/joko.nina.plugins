@@ -108,8 +108,9 @@ namespace TestApp {
                 var largeBboxes = new List<double>();
                 foreach (var frame in extremes) {
                     try {
-                        using var mat = await DiagnosticUtil.LoadFloatMat(frame.Path, profileService);
-                        var result = await detector.Detect(mat, detectorParams, progress: null, CancellationToken.None);
+                        // IRenderedImage route: the donut heuristic is measured on the image the live app detects on.
+                        var rendered = await DiagnosticUtil.LoadRenderedImage(frame.Path, profileService);
+                        var result = await detector.Detect(rendered, detectorParams, progress: null, CancellationToken.None);
                         var hfrs = result.DetectedStars.Select(s => HocusFocusStarDetection.ToDetectedStar(s).HFR)
                             .Where(h => h > 0 && double.IsFinite(h)).ToList();
                         if (hfrs.Count == 0) { continue; }

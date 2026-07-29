@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using OpenCvSharp;
@@ -46,12 +47,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
     /// <c>review</c> dev tool and the in-NINA optimization wizard build their reviews through this helper, so the
     /// detection, accepted/rejected extraction, and the MTF-stretch image-provider wiring can never drift.
     ///
-    /// <para>Disk loading is decoupled via the <paramref name="floatMatLoader"/> delegate: TestApp supplies its
-    /// profile-aware <c>DiagnosticUtil.LoadFloatMat</c>; the wizard supplies a plugin-side loader. The plugin helper
-    /// therefore never references TestApp. Detection is equivalent to the legacy StarReviewRunner path — load the
-    /// frame's normalized float Mat, clone it (Detect mutates its input), run <see cref="StarDetector.Detect(Mat,
-    /// StarDetectorParams, IProgress{NINA.Core.Model.ApplicationStatus}, CancellationToken)"/>, capture each accepted
-    /// star's REAL bounding box + center + HFR, and flatten the per-reason rejection bounds.</para>
+    /// <para>Disk loading is decoupled via loader delegates so the plugin helper never references TestApp. Two
+    /// detection routes are offered and they share everything downstream: the <see cref="IRenderedImage"/> overload
+    /// (what the LIVE app does — the CFA hotpixel filter and the debayer run inside <c>Detect</c> at the review's
+    /// params) and the legacy Mat overload. Either way the builder captures each accepted star's REAL bounding box +
+    /// center + HFR and flattens the per-reason rejection bounds.</para>
     /// </summary>
     public static class FrameReviewBuilder {
 
@@ -65,29 +65,78 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         /// <param name="descriptors">The frames to build reviews for (paths + positions + runId).</param>
         /// <param name="detectorParams">The detector params to detect each frame with (e.g. the optimized BestParams).</param>
         /// <param name="detector">The star detector (constructed by the caller with its AlglibAPI).</param>
-        /// <param name="floatMatLoader">Profile-aware (or .tif-direct) loader producing a CV_32F [0,1] Mat for a path.</param>
+        /// <param name="floatMatLoader">Profile-aware (or .tif-direct) loader producing a CV_32F [0,1] Mat for a path.
+        /// Used for BOTH detection and the display stretch on this overload.</param>
         /// <param name="token">Cancellation token honored between frames and during detection.</param>
         /// <param name="progress">Optional determinate per-frame progress (each detected frame), used by the wizard's
         /// "Detecting frames for review" bar. Null (the default) reports nothing — byte-identical to the old behavior,
         /// so TestApp and other callers are unaffected.</param>
-        public static async Task<List<FrameReview>> BuildAsync(
+        public static Task<List<FrameReview>> BuildAsync(
             IEnumerable<FrameReviewDescriptor> descriptors,
             StarDetectorParams detectorParams,
             StarDetector detector,
             Func<string, Task<Mat>> floatMatLoader,
             CancellationToken token,
             IProgress<RunLoadProgress> progress = null) {
+            if (detector == null) {
+                throw new ArgumentNullException(nameof(detector));
+            }
+            if (floatMatLoader == null) {
+                throw new ArgumentNullException(nameof(floatMatLoader));
+            }
+            return BuildAsync(descriptors, detectorParams,
+                detectAsync: async (path, p, ct) => {
+                    using var mat = await floatMatLoader(path).ConfigureAwait(false);
+                    using var clone = mat.Clone(); // Detect(Mat, …) mutates its input in place.
+                    return await detector.Detect(clone, p, null, ct).ConfigureAwait(false);
+                },
+                displayMatLoader: floatMatLoader, token, progress);
+        }
+
+        /// <summary>
+        /// As the Mat overload, but detection goes through <c>StarDetector.Detect(IRenderedImage, …)</c> — the same
+        /// entry point the live app uses, so the CFA hotpixel filter and the debayer happen INSIDE detection at
+        /// <paramref name="detectorParams"/> rather than being skipped (a bayered frame would otherwise be detected
+        /// as a raw Bayer mosaic, and the labels drawn on this review feed the optimizer). Mono frames are
+        /// byte-identical to the Mat overload: a non-bayered frame is not an <c>IDebayeredImage</c>, so detection
+        /// falls through to <c>ToOpenCVMat(RawImageData)</c>.
+        /// </summary>
+        public static Task<List<FrameReview>> BuildAsync(
+            IEnumerable<FrameReviewDescriptor> descriptors,
+            StarDetectorParams detectorParams,
+            StarDetector detector,
+            Func<string, Task<IRenderedImage>> renderedImageLoader,
+            Func<string, Task<Mat>> displayMatLoader,
+            CancellationToken token,
+            IProgress<RunLoadProgress> progress = null) {
+            if (detector == null) {
+                throw new ArgumentNullException(nameof(detector));
+            }
+            if (renderedImageLoader == null) {
+                throw new ArgumentNullException(nameof(renderedImageLoader));
+            }
+            return BuildAsync(descriptors, detectorParams,
+                // Detect(IRenderedImage, …) builds its own source Mat per call, so there is nothing to clone.
+                detectAsync: async (path, p, ct) => await detector.Detect(
+                    await renderedImageLoader(path).ConfigureAwait(false), p, null, ct).ConfigureAwait(false),
+                displayMatLoader, token, progress);
+        }
+
+        private static async Task<List<FrameReview>> BuildAsync(
+            IEnumerable<FrameReviewDescriptor> descriptors,
+            StarDetectorParams detectorParams,
+            Func<string, StarDetectorParams, CancellationToken, Task<HocusFocusStarDetectorResult>> detectAsync,
+            Func<string, Task<Mat>> displayMatLoader,
+            CancellationToken token,
+            IProgress<RunLoadProgress> progress) {
             if (descriptors == null) {
                 throw new ArgumentNullException(nameof(descriptors));
             }
             if (detectorParams == null) {
                 throw new ArgumentNullException(nameof(detectorParams));
             }
-            if (detector == null) {
-                throw new ArgumentNullException(nameof(detector));
-            }
-            if (floatMatLoader == null) {
-                throw new ArgumentNullException(nameof(floatMatLoader));
+            if (displayMatLoader == null) {
+                throw new ArgumentNullException(nameof(displayMatLoader));
             }
 
             // Materialize so we know the total up-front for determinate progress.
@@ -95,7 +144,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             var reviews = new List<FrameReview>(descriptorList.Count);
             for (var i = 0; i < descriptorList.Count; i++) {
                 token.ThrowIfCancellationRequested();
-                reviews.Add(await BuildOneAsync(descriptorList[i], detectorParams, detector, floatMatLoader, token).ConfigureAwait(false));
+                reviews.Add(await BuildOneAsync(descriptorList[i], detectorParams, detectAsync, displayMatLoader, token).ConfigureAwait(false));
                 progress?.Report(new RunLoadProgress(i + 1, descriptorList.Count));
             }
             return reviews;
@@ -104,8 +153,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
         private static async Task<FrameReview> BuildOneAsync(
             FrameReviewDescriptor d,
             StarDetectorParams detectorParams,
-            StarDetector detector,
-            Func<string, Task<Mat>> floatMatLoader,
+            Func<string, StarDetectorParams, CancellationToken, Task<HocusFocusStarDetectorResult>> detectAsync,
+            Func<string, Task<Mat>> displayMatLoader,
             CancellationToken token) {
             // Collect the rich per-rejected-candidate records so the in-wizard "Optimize with feedback" analyzer can
             // attribute each labeled star to the gate that killed it. The flag is a bit-identical side channel
@@ -114,11 +163,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
             var diagParams = detectorParams.Clone();
             diagParams.CollectRejectedCandidateDiagnostics = true;
 
-            HocusFocusStarDetectorResult result;
-            using (var mat = await floatMatLoader(d.FramePath).ConfigureAwait(false))
-            using (var clone = mat.Clone()) { // Detect mutates its input in place.
-                result = await detector.Detect(clone, diagParams, null, token).ConfigureAwait(false);
-            }
+            var result = await detectAsync(d.FramePath, diagParams, token).ConfigureAwait(false);
 
             var accepted = result.DetectedStars ?? new List<Star>();
             var framePath = d.FramePath;
@@ -129,7 +174,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review {
                 // The decoupling seam: reload the frame from disk and run the shared plugin MTF stretch off-thread.
                 // The VM marshals the resulting frozen BitmapSource back to the UI.
                 ImageProvider = () => Task.Run(async () => {
-                    using var srcFloat = await floatMatLoader(framePath).ConfigureAwait(false);
+                    using var srcFloat = await displayMatLoader(framePath).ConfigureAwait(false);
                     return StarReviewImaging.BuildStretchedBitmap(srcFloat);
                 }),
                 // Each accepted star's REAL StarBoundingBox so the overlay draws actual-size boxes and the

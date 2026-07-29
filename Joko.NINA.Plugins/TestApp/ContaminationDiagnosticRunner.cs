@@ -167,20 +167,23 @@ namespace TestApp {
                 Console.WriteLine("DefocusAwareCentering=OFF");
             }
 
-            // Load the original image once (CV_32F, normalized [0,1]). Detection mutates its input in place,
-            // so each run gets a clone and the original is kept for the annotated background.
-            using var srcFloat = await DiagnosticUtil.LoadFloatMat(imagePath, profileService);
-            Console.WriteLine($"Image dimensions: {srcFloat.Width} x {srcFloat.Height}");
-            Logger.Info($"Loaded image {srcFloat.Width}x{srcFloat.Height} from {imagePath}");
+            // Load the original image once. .xisf/.fits are carried as the IRenderedImage the live app detects on
+            // (CFA hotpixel filter + debayer inside Detect, at these params); .tif keeps the legacy Mat route.
+            using var source = await DetectionSource.LoadAsync(imagePath, profileService);
+            Console.WriteLine($"Image dimensions: {source.Width} x {source.Height}");
+            Logger.Info($"Loaded image {source.Width}x{source.Height} from {imagePath}");
 
             var sweepArg = DiagnosticUtil.GetArg(args, "--sensitivity-sweep");
             if (!string.IsNullOrWhiteSpace(sweepArg)) {
-                await RunSweep(srcFloat, baseParams, sweepArg, outDir);
+                await RunSweep(source, baseParams, sweepArg, outDir);
                 return;
             }
 
             // Single run
-            var result = await DetectClone(srcFloat, baseParams);
+            var result = await source.DetectAsync(Detector, baseParams, CancellationToken.None);
+            // Rendering background only (debayered luminance for an OSC frame, never CFA-filtered): star boxes are
+            // full-frame pixel coordinates, which the debayer preserves.
+            using var srcFloat = source.CreateDisplayMat();
             var diagnostics = result.ContaminationDiagnostics ?? new List<ContaminationDiagnosticRecord>();
             int total = result.DetectedStars.Count;
             int suspected = result.Metrics.ContaminationSuspected;
@@ -195,7 +198,7 @@ namespace TestApp {
             Console.WriteLine($"Wrote contamination_stars.csv, contamination_summary.txt, contamination_annotated.png, gr_sweep.csv to {outDir}");
         }
 
-        private static async Task RunSweep(Mat srcFloat, StarDetectorParams baseParams, string sweepArg, string outDir) {
+        private static async Task RunSweep(DetectionSource source, StarDetectorParams baseParams, string sweepArg, string outDir) {
             var parts = sweepArg.Split(',');
             if (parts.Length != 3) {
                 throw new ArgumentException("--sensitivity-sweep expects <a,b,step>");
@@ -211,7 +214,7 @@ namespace TestApp {
             // Detect only reads its params, so reusing the same (mutable) instance per value is safe.
             for (double s = a; s <= b + 1e-9; s += step) {
                 baseParams.ContaminationSensitivity = s;
-                var result = await DetectClone(srcFloat, baseParams);
+                var result = await source.DetectAsync(Detector, baseParams, CancellationToken.None);
                 var diagnostics = result.ContaminationDiagnostics ?? new List<ContaminationDiagnosticRecord>();
                 int total = result.DetectedStars.Count;
                 int suspected = result.Metrics.ContaminationSuspected;
@@ -226,11 +229,9 @@ namespace TestApp {
             Console.WriteLine($"Wrote sweep.csv (+ per-value CSVs) to {outDir}");
         }
 
-        private static async Task<HocusFocusStarDetectorResult> DetectClone(Mat srcFloat, StarDetectorParams p) {
-            using var clone = srcFloat.Clone();
-            var detector = new StarDetector(new AlglibAPI());
-            return await detector.Detect(clone, p, null, CancellationToken.None);
-        }
+        /// <summary>The single detector instance every detection in this runner goes through (it is stateless
+        /// beyond its Alglib handle, so one instance serves the single run and every sweep value).</summary>
+        private static readonly StarDetector Detector = new StarDetector(new AlglibAPI());
 
         private static void LogResolvedOptions(StarDetectionOptions o) {
             // Proves the real profile was read (e.g. ContaminationSensitivity differs from the 4.0 default)
