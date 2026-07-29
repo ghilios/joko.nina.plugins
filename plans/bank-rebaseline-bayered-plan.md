@@ -106,45 +106,142 @@ candidates and the additions are *fainter* than anything the old reference could
 If rate limits make full QA impractical, report how far you got rather than degrading the method. A partial,
 honest golden is more useful than a fast, unreliable one.
 
-- [ ] `snr_ref` over the new exports → candidates.
-- [ ] Montage + **LLM QA** per the skill. This is the long pole and is rate-limited; budget accordingly and do
+- [x] `snr_ref` over the new exports → candidates.
+- [x] Montage + **LLM QA** per the skill. This is the long pole and is rate-limited; budget accordingly and do
       not parallelise past the documented limits.
-- [ ] `build_goldens` → new per-image `*.golden.json`.
-- [ ] **Keep the old goldens** (rename, don't delete) until Task 4 has compared old vs new. They are the only
+- [x] `build_goldens` → new per-image `*.golden.json`.
+- [x] **Keep the old goldens** (rename, don't delete) until Task 4 has compared old vs new. They are the only
       record of what the previous conclusion rested on.
+
+### Task 2 result — `bobp_m101`, 2026-07-29
+
+`bank-donut-meta --refresh` re-confirmed `donutAware=false` on the new representation (donut peak fraction rose
+11.5 → 39.0, but extreme-frame HFR 6.9 < 9.0 and donut bbox 14 px < 24 px keep it below the gate), so `snr_ref`
+ran without `--donut` as before. Ran with `--budget-montages 20` (not the usual 4) so the **entire** uncertain
+tier was QA'd — the old run's uncertain tier was effectively fully covered, and a smaller budget would have
+truncated the new golden's faint tier and made the old-vs-new comparison unfair. 67 montages, chunk=4, **0**
+rate-limit failures.
+
+| | old (mosaic) | new (luminance) |
+|---|---|---|
+| candidates | 2,427 | 4,410 |
+| high tier, auto-confirmed (SNR≥12) | 1,365 | **2,107** (+54%) |
+| uncertain candidates | 1,062 | 2,303 |
+| uncertain QA-confirmed | 1,010 (**95.1%**) | 972 (**42.2%**) |
+| **golden total** | **2,375** | **3,079** |
+
+**The QA rejects most of the newly-visible faint tier, and the rejection pattern is defocus, not SNR.** Confirm
+rate by frame: 5682 (best focus) **1.7%**, 5658 12.0%, 5706 28.5%, then 47.9–69.1% across the wings. At best
+focus every real star is already above SNR 12 so the uncertain tier there is genuinely noise; at defocus real
+light spreads out and drops below SNR 12. By SNR tier alone the rate is non-monotone (47.9% at 10–12, 33.0% at
+8–10, 40.1% at 6.5–8, 52.3% at 5–6.5) purely as a composition artifact of that split.
+
+Artifacts archived at `D:\Autofocus Bank\_prior_reports\bobp_m101_goldens_luminance_phase2\` (goldens, `snr_*`,
+`qa_*`, manifest, worklist); old mosaic goldens preserved at `…\bobp_m101_goldens_mosaic_prephase1\`.
+
+Incidental fix: `tools/golden/qa_workflow.js` was CRLF, which the Workflow tool rejects as control characters, so
+the documented QA step could not launch. `.gitattributes` now pins `tools/golden/*.js` to LF (commit `dc7cfed`).
 
 ## Task 3 — Full `bank-verify` re-baseline
 
-- [ ] Invoke the **`running-af-bank-validation`** skill for the pipeline, and heed its warnings: the STA/pumped
+- [x] Invoke the **`running-af-bank-validation`** skill for the pipeline, and heed its warnings: the STA/pumped
       dispatcher requirement, watching `bank_verify_progress.log` rather than stdout (WSL block-buffers), and
       closing NINA first.
-- [ ] Optimizer A/B prepass, then `bank-verify` with `--commit $(git rev-parse --short HEAD)`.
-- [ ] **Validate the harness before trusting the results:** `cwhite_2026` is the dry-run anchor and must
+- [~] Optimizer A/B prepass, then `bank-verify` with `--commit $(git rev-parse --short HEAD)`.
+      **C0-only sweep done; A/B not run** — see below.
+- [x] **Validate the harness before trusting the results:** `cwhite_2026` is the dry-run anchor and must
       reproduce its known config-B numbers (P=0.848, recall@≥12=0.181, sensor R²=0.9933, 7/9 aligned). It is
       **mono**, so Phase 1 must not have moved it. If it moved, the mono byte-identity guarantee is broken and
       that is a Phase 1 bug — stop and report.
+
+### Task 3 result — 2026-07-29 (anchor gate FAILED, but **not** a Phase 1 bug — needs a decision)
+
+`bank-verify --nc-sweep 2,3,4 --match-radius 12 --commit dc7cfed` over the whole bank, **C0 only**, ~65 min →
+`verification_20260729T145515Z.{json,md}`, 22 runs (the bank has grown from 17: `SorenVance`, `lumos` and `vsn07`
+have no goldens and score NaN; `bobp` and `bobp_m101` are new to the report).
+
+**A/B were not run.** The `opt_A`/`opt_B` prepass directories no longer exist, and rebuilding them is
+`optimize --per-run` twice over the bank — the skill budgets 1.5–3 hr *each*. The C0 rows are the headline recall
+answer and need no prepass, so the sweep was run C0-only. **Consequence:** the plan's anchor is a *config-B*
+number and is therefore not reproducible without that prepass.
+
+**Every run moved, mono and bayered alike — and the cause is not Phase 1.** The C0 "as-default" configuration
+itself changed between the two reports, and both reports record it:
+
+| | baseline `b331479` (2026-06-24) | new `dc7cfed` (2026-07-29) |
+|---|---|---|
+| C0 sensitivity | **2.0** | **10.0** |
+| C0 noiseClipDefault | 2.0 | 2.0 |
+
+That is commit **`59d5e59` "Revert Simple-mode BrightnessSensitivity/NoiseClipping to v3 values (interim)"**
+(2026-07-11), which is in HEAD but **not** in `b331479`. It edits `BuildDefaultStarDetectorParams()`, which
+`BankVerifyRunner.BaseDefault()` consumes verbatim. Sensitivity 2 → 10 sheds stars, so recall falls and precision
+rises **bank-wide**: e.g. `cwhite_2026` C0@nc2 recall@≥12 0.4594 → 0.2658 with precision 0.8105 → 0.8504 and
+`sStars` 106 → 59; `CWhiteFocus` 0.8697 → 0.8072 with `sStars` 3933 → 1802. Goldens are byte-identical on all 17
+baselined runs (verified: `goldenStars` and `goldenSNRge12` unchanged for every one), so the golden set is not
+the variable.
+
+**So the plan's verification item "mono runs unchanged vs `verification_20260624T142723Z.md`" is not testable as
+written** — the configuration under comparison moved for reasons unrelated to this branch. The anchor's movement
+is *explained*, not *unexplained*, and it is **not** evidence that Phase 1's mono byte-identity guarantee broke.
+Supporting evidence that the harness itself is sound: the dataset copies still produce identical recall
+(`CWhiteFocus`≡`standard_example2` 0.807227, `fmeschia`≡`sensitivity_example1` 0.750000,
+`LinwoodFocus`≡`sensitivity_example2` 0.091743 — precision differs only because their golden sets differ
+slightly), and the full unit suite is **3066/3066 green**.
+
+`bank-verify` has **no `--sensitivity` override** (C0 takes `BuildDefaultStarDetectorParams()` verbatim), so an
+apples-to-apples mono anchor needs one of:
+
+1. a scratch build pinning C0 sensitivity to 2.0, re-run on `cwhite_2026` alone (~5 min) — cheapest true test of
+   the mono guarantee;
+2. a re-run at the pre-Phase-1 commit for a direct A/B (slower, but tests Phase 1 end-to-end);
+3. accepting `verification_20260729T145515Z` as the **new** baseline and recording the discontinuity, on the
+   grounds that sensitivity 10 is what ships today.
+
+**This is a decision for the user, not an assumption to make.** Nothing downstream of it was assumed.
+
+New-run rows worth recording (C0@nc2): `bobp_m101` golden 3079 / high 2107 → recall@≥12 **0.6450**, precision
+**0.9873**; `bobp` golden 1705 / high 1039 → recall@≥12 0.6670, precision 0.9262 — but **`bobp`'s golden is still
+the stale mosaic one**, so that row is not re-baselined and must not be read as valid. Same for `timmer`.
 
 ## Task 4 — Re-check the `bobp_m101` conclusion
 
 This is the point of Phase 2.
 
-- [ ] `docs/bobp-m101-recall-investigation-results.md` reported **recall@SNR≥12 = 0.126** and attributed 94% of
+**ANSWERED 2026-07-29 — the deficit was real; correcting the reference deepens it.** Full write-up in
+`docs/bobp-m101-recall-investigation-results.md` § *Re-check after the headless-detection parity fix*;
+`docs/optimizer-sensitivity-pinning-design.md` annotated. Commit `bbde567`.
+
+Holding the detector and params fixed and varying **only** the golden, the true positives are **identical (247)**
+— the detector finds exactly the same stars and only the denominator moves, 1365 → 2107, so recall@SNR≥12 falls
+**0.181 → 0.117**. The star-shedding characterisation survives (`LowSensitivity` 1236 + `Degenerate` 595 still
+dominate) but the "94% from two knobs" figure weakens to **~65%**: the corrected reference adds fainter stars
+that fail earlier (structure gap 446, `TooSmall` 311). Precision *rises* with the corrected golden across all
+three param sets (0.809 → 0.965 at the star-rich corner, FPs 330 → 60), because much of what the mosaic reference
+scored as HF false positives were real stars it was too insensitive to see. **`Wtie = 0.02` still looks right —
+more so**: the star-rich corner now dominates the shedding corner on both axes. No objective constant changed.
+
+- [x] `docs/bobp-m101-recall-investigation-results.md` reported **recall@SNR≥12 = 0.126** and attributed 94% of
       misses to two knobs (`LowSensitivity` gate 1302, star-clip Degenerate guard 762). That analysis drove
       `docs/optimizer-sensitivity-pinning-design.md` and the `Wtie` 1e-3 → 0.02 change shipped in PR #111.
-- [ ] Re-measure recall/precision on the new goldens with the fixed harness. Report old vs new side by side.
-- [ ] **Answer explicitly:** does the star-shedding characterisation still hold? Was the recall deficit real, or
+- [x] Re-measure recall/precision on the new goldens with the fixed harness. Report old vs new side by side.
+- [x] **Answer explicitly:** does the star-shedding characterisation still hold? Was the recall deficit real, or
       an artifact of scoring a luminance detector against a mosaic reference? Does `Wtie = 0.02` still look like
       the right call?
-- [ ] Whatever the answer, **write it up** — append a dated section to
+- [x] Whatever the answer, **write it up** — append a dated section to
       `docs/bobp-m101-recall-investigation-results.md` and annotate
       `docs/optimizer-sensitivity-pinning-design.md`. If the conclusion still holds, say so with the new numbers;
       that is as valuable as an overturn and stops this being re-litigated.
-- [ ] **Do not change `Wtie` or any objective constant in this branch.** If the evidence no longer supports it,
+- [x] **Do not change `Wtie` or any objective constant in this branch.** If the evidence no longer supports it,
       that is a separate, spec'd decision — report it, don't act on it.
 
 ## Verification
 
-- [ ] `cwhite_2026` anchor reproduces (harness integrity).
-- [ ] Mono runs unchanged vs `verification_20260624T142723Z.md`.
-- [ ] The three bayered runs have new goldens and new bank-verify numbers.
-- [ ] The `bobp_m101` question is answered in writing, either way.
+- [~] `cwhite_2026` anchor: **moved, and explained** — the C0 as-default sensitivity changed 2.0 -> 10.0 via
+      `59d5e59` (2026-07-11), not via Phase 1. Not testable as written; see Task 3 result.
+- [~] Mono runs unchanged vs `verification_20260624T142723Z.md`: **all moved**, bank-wide, from the same
+      defaults change. Goldens byte-identical throughout; determinism check passes; suite 3066/3066.
+- [~] Bayered runs: `bobp_m101` has new goldens **and** new bank-verify numbers. `bobp` and `timmer` have
+      bank-verify rows but **still-stale mosaic goldens** (deferred by the sequencing decision). `SorenVance`
+      has no goldens at all.
+- [x] The `bobp_m101` question is answered in writing, either way.
