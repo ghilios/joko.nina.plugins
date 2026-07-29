@@ -350,6 +350,7 @@ namespace TestApp {
             public List<RunEvaluationResult> PerRunBaseline;   // per-run eval of CURRENT settings (the "before" columns)
             public List<RunEvaluationResult> PerRunBest;
             public List<LoadedHarnessRun> LoadedRuns;
+            public ObjectiveConstants ObjectiveConstants; // the SAME constants the runs were scored with (ExposureRecommender needs NTarget)
         }
 
         // ---- Joint mode (default): optimize ALL discovered runs together (N=1 reduces; N>1 is the balanced blend).
@@ -411,9 +412,15 @@ namespace TestApp {
                     if (!outcome.HardFloorPassed) {
                         anyFailure = true;
                     }
-                    aggregate.Add(BuildAggregateRow(d.RunId, ctx, outcome));
+                    var row = BuildAggregateRow(d.RunId, ctx, outcome);
+                    aggregate.Add(row);
                     Console.WriteLine($"  -> {d.RunId}: currentJ={F(outcome.BaselineJ)} bestJ={F(outcome.Result.BestJ)} " +
                         $"hard-floor {(outcome.HardFloorPassed ? "PASS" : "FAIL")}; outputs in {subDir}");
+                    Console.WriteLine(row.SensitivityIsAtFloor && row.ExposureRecommendation?.HasRecommendation == true
+                        ? $"     sensitivity={F(row.BrightnessSensitivity)} (AT FLOOR): exposure rec {F(row.ExposureRecommendation.CurrentSeconds)}s -> {F(row.ExposureRecommendation.RecommendedSeconds)}s"
+                        : row.SensitivityIsAtFloor
+                            ? $"     sensitivity={F(row.BrightnessSensitivity)} (AT FLOOR): no exposure recommendation (insufficient data)"
+                            : $"     sensitivity={F(row.BrightnessSensitivity)} (not at floor)");
                 } catch (Exception ex) {
                     anyFailure = true;
                     Console.Error.WriteLine($"  -> {d.RunId}: FAILED to optimize ({ex.Message}); continuing to next run");
@@ -429,8 +436,12 @@ namespace TestApp {
             }
 
             WriteAggregateSummary(Path.Combine(outDir, "aggregate_summary.txt"), runsDir, ctx, aggregate);
+            // JSON twin of aggregate_summary.txt (same AggregateRow data, including the exposure recommendation) for
+            // scripted consumption -- e.g. checking ExposureRecommendation.RecommendedSeconds across a bank without
+            // parsing the text report.
+            File.WriteAllText(Path.Combine(outDir, "aggregate_summary.json"), JsonConvert.SerializeObject(aggregate, Formatting.Indented));
             Console.WriteLine($"Per-run batch complete: {aggregate.Count(r => r.LoadOk)} optimized, " +
-                $"{aggregate.Count(r => !r.LoadOk)} failed. Wrote aggregate_summary.txt to {outDir}");
+                $"{aggregate.Count(r => !r.LoadOk)} failed. Wrote aggregate_summary.txt and aggregate_summary.json to {outDir}");
             if (anyFailure) {
                 Environment.ExitCode = 3;
             }
@@ -442,6 +453,8 @@ namespace TestApp {
         /// <see cref="DisposeRuns"/>, which frees BOTH the <see cref="RunEvaluationData"/>'s cached early-detection
         /// contexts and the loaded-once frame images.
         /// </summary>
+
+
         private static async Task<LoadedHarnessRun> PrepareRunAsync(
             RunDetectionContext ctx, OptimizationRunDiscovery.DiscoveredRun d,
             Dictionary<string, IReadOnlyList<FrameLabels>> labelsByRun) {
@@ -449,6 +462,13 @@ namespace TestApp {
             var runPixelScale = double.NaN;
             var pixelScaleSource = "unset";
             NINA.Image.ImageData.ImageMetaData firstFrameMeta = null;
+            // Captured exposure, in seconds, that the run's frames were actually shot with — read off the FIRST
+            // frame's header only (an AF sweep exposes every point identically, mirroring
+            // RunEvaluationLoader.LoadedRun.CapturedExposureSeconds's "first frame only" convention). NaN when the
+            // header carries no exposure keyword; ExposureRecommender.Recommend treats a non-positive/NaN exposure
+            // as "no recommendation", never a guess. Taken off the rendered image this loop already loads, so the
+            // exposure costs no extra read and comes from the same header the detector's frame does.
+            var capturedExposureSeconds = double.NaN;
             for (var i = 0; i < d.Frames.Count; i++) {
                 var frame = d.Frames[i];
                 // The IRenderedImage the LIVE app detects on (see DiagnosticUtil.LoadRenderedImage). Detection reads
@@ -460,6 +480,7 @@ namespace TestApp {
                 if (i == 0) {
                     firstFrameMeta = rendered.RawImageData?.MetaData;
                     runPixelScale = HarnessSettingsStore.PixelScaleForFrame(firstFrameMeta, ctx.HarnessSettings, out pixelScaleSource);
+                    capturedExposureSeconds = firstFrameMeta?.Image?.ExposureTime ?? double.NaN;
                 }
                 frames.Add(new RunFrame {
                     FrameId = frame.Path,
@@ -491,9 +512,11 @@ namespace TestApp {
 
             var labels = labelsByRun.TryGetValue(d.RunId, out var ls) ? ls : null;
             var data = new RunEvaluationData(d.RunId, frames, splitDetector, ctx.AlglibAPI, fitConfig, labels);
-            Console.WriteLine($"  {d.RunId}: inferred step size {stepSize}" + (labels != null ? $", {labels.Count} labeled position(s)" : ", unlabeled"));
+            var exposureForLog = double.IsFinite(capturedExposureSeconds) ? $"{F(capturedExposureSeconds)}s" : "unrecorded";
+            Console.WriteLine($"  {d.RunId}: inferred step size {stepSize}, exposure {exposureForLog}" + (labels != null ? $", {labels.Count} labeled position(s)" : ", unlabeled"));
             return new LoadedHarnessRun { Discovered = d, Data = data, StepSize = stepSize, Frames = frames,
-                PixelScale = runPixelScale, PixelScaleSource = pixelScaleSource, FirstFrameMeta = firstFrameMeta };
+                PixelScale = runPixelScale, PixelScaleSource = pixelScaleSource, FirstFrameMeta = firstFrameMeta,
+                CapturedExposureSeconds = capturedExposureSeconds };
         }
 
         /// <summary>
@@ -641,7 +664,8 @@ namespace TestApp {
                 BaselineJ = baselineJ,
                 PerRunBaseline = perRunBaseline,
                 PerRunBest = perRunBest,
-                LoadedRuns = loadedRuns
+                LoadedRuns = loadedRuns,
+                ObjectiveConstants = objectiveConstants
             };
         }
 
@@ -734,6 +758,14 @@ namespace TestApp {
             public double BestSigmaFocus = double.NaN;
             public int RecommendedStep;
             public string ChangedParams = string.Empty;
+
+            // Exposure-time recommendation (T8): the winning run's landed Sensitivity gate, whether it is at the
+            // optimizer's search floor (signal-starved frames, see ExposureRecommender), and — only when it is —
+            // the derived recommendation itself. Left null when SensitivityIsAtFloor is false: the offline report
+            // does not compute or print a recommendation for a healthy run.
+            public double BrightnessSensitivity = double.NaN;
+            public bool SensitivityIsAtFloor;
+            public ExposureRecommendation ExposureRecommendation;
         }
 
         /// <summary>Builds an aggregate row from a per-run outcome (exactly one run in the set in --per-run mode).
@@ -750,6 +782,19 @@ namespace TestApp {
                 .Select(v => (v.Name, Cur: v.Read(ctx.Baseline), Best: v.Read(outcome.Result.BestParams)))
                 .Where(t => Math.Abs(t.Cur - t.Best) > 1e-9)
                 .ToList();
+
+            // Exposure-time recommendation (T8): only computed when the WINNING run's landed Sensitivity gate is at
+            // the optimizer's search floor (signal-starved frames) — a healthy run gets a one-line "not at floor"
+            // instead (see WriteAggregateSummary). Same metrics/constants the run was scored with: bestM is this
+            // run's own RunEvaluationMetrics, outcome.ObjectiveConstants is the objective the optimizer actually
+            // searched against (NTarget included), and run.CapturedExposureSeconds is the exposure its frames were
+            // shot with (NaN when the header carried none -- ExposureRecommender then reports no recommendation).
+            var landedSensitivity = outcome.Result.BestParams.Sensitivity;
+            var sensitivityAtFloor = ExposureRecommender.SensitivityIsAtFloor(landedSensitivity);
+            var exposureRecommendation = sensitivityAtFloor
+                ? ExposureRecommender.Recommend(bestM, outcome.ObjectiveConstants, run.CapturedExposureSeconds)
+                : null;
+
             return new AggregateRow {
                 RunId = runId,
                 LoadOk = true,
@@ -762,7 +807,10 @@ namespace TestApp {
                 RecommendedStep = rec.StepSize,
                 ChangedParams = changed.Count == 0
                     ? "(none)"
-                    : string.Join("; ", changed.Select(t => $"{t.Name}: {F(t.Cur)}->{F(t.Best)}"))
+                    : string.Join("; ", changed.Select(t => $"{t.Name}: {F(t.Cur)}->{F(t.Best)}")),
+                BrightnessSensitivity = landedSensitivity,
+                SensitivityIsAtFloor = sensitivityAtFloor,
+                ExposureRecommendation = exposureRecommendation
             };
         }
 
@@ -794,10 +842,35 @@ namespace TestApp {
                 sb.AppendLine($"  sigma_focus : {F(r.BaselineSigmaFocus)} -> {F(r.BestSigmaFocus)}  (current -> optimized)");
                 sb.AppendLine($"  rec. step   : {r.RecommendedStep}");
                 sb.AppendLine($"  changed     : {r.ChangedParams}");
+                AppendExposureRecommendationLines(sb, "  ", r.BrightnessSensitivity, r.SensitivityIsAtFloor, r.ExposureRecommendation);
                 sb.AppendLine();
             }
 
             File.WriteAllText(path, sb.ToString());
+        }
+
+        /// <summary>
+        /// Formats the exposure-time recommendation (T8) for one run into <paramref name="sb"/>, shared by the
+        /// joint-mode optimize_summary.txt and the --per-run aggregate_summary.txt so the two never drift. When
+        /// <paramref name="sensitivityIsAtFloor"/> is false, a single line says so — no recommendation is computed
+        /// or printed for a healthy run. When it fired but <see cref="ExposureRecommendation.HasRecommendation"/> is
+        /// false (thin data or an unrecorded exposure), that is reported explicitly rather than silently omitted.
+        /// </summary>
+        private static void AppendExposureRecommendationLines(StringBuilder sb, string indent, double brightnessSensitivity, bool sensitivityIsAtFloor, ExposureRecommendation rec) {
+            sb.AppendLine($"{indent}sensitivity : {F(brightnessSensitivity)}{(sensitivityIsAtFloor ? "  (AT SEARCH FLOOR -- frames may be signal-starved)" : "")}");
+            if (!sensitivityIsAtFloor) {
+                sb.AppendLine($"{indent}exposure rec: n/a (Sensitivity is not at the search floor)");
+                return;
+            }
+            if (rec == null || !rec.HasRecommendation) {
+                sb.AppendLine($"{indent}exposure rec: NO RECOMMENDATION (usable frames={rec?.UsableFrameCount ?? 0}, short frames={rec?.ShortFrameCount ?? 0}, " +
+                    $"current exposure={(rec != null && double.IsFinite(rec.CurrentSeconds) ? $"{F(rec.CurrentSeconds)}s" : "unrecorded")})");
+                return;
+            }
+            sb.AppendLine($"{indent}exposure rec: {F(rec.CurrentSeconds)}s -> {F(rec.RecommendedSeconds)}s " +
+                $"(increases={rec.IncreasesExposure}, raw={F(rec.RawSeconds)}s, S_now={F(rec.MeasuredSnr)}, " +
+                $"capped={rec.WasCapped}{(rec.WasCapped ? $" [byAbsoluteLimit={rec.CappedByAbsoluteLimit}]" : "")}, " +
+                $"usable frames={rec.UsableFrameCount}, short frames={rec.ShortFrameCount})");
         }
 
         private static void PrintUsage() {
@@ -831,6 +904,10 @@ namespace TestApp {
             public double PixelScale = double.NaN;
             public string PixelScaleSource = "unset";
             public NINA.Image.ImageData.ImageMetaData FirstFrameMeta;
+
+            // The exposure, in seconds, the run's frames were captured with (first frame's header; NaN when
+            // unrecorded) — see PrepareRunAsync. Feeds ExposureRecommender.Recommend's currentExposureSeconds.
+            public double CapturedExposureSeconds = double.NaN;
         }
 
         /// <summary>
@@ -1036,6 +1113,12 @@ namespace TestApp {
                 if (bestM.Recall.HasValue || bestM.Precision.HasValue) {
                     sb.AppendLine($"    recall/prec   : {F(bestM.Recall ?? double.NaN)} / {F(bestM.Precision ?? double.NaN)}");
                 }
+                // Exposure-time recommendation (T8): result.BestParams is the JOINT winner shared by every run in
+                // this set, so its Sensitivity is the same landed value for each row; bestM/run.CapturedExposureSeconds
+                // are this run's own metrics/exposure, and c is the same ObjectiveConstants the runs were scored with.
+                var sensitivityIsAtFloor = ExposureRecommender.SensitivityIsAtFloor(result.BestParams.Sensitivity);
+                var exposureRec = sensitivityIsAtFloor ? ExposureRecommender.Recommend(bestM, c, run.CapturedExposureSeconds) : null;
+                AppendExposureRecommendationLines(sb, "    ", result.BestParams.Sensitivity, sensitivityIsAtFloor, exposureRec);
             }
             sb.AppendLine();
 
