@@ -244,8 +244,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// The frame payload is the loaded <see cref="IRenderedImage"/>; the opaque context is a
         /// <see cref="HocusFocusDetectionContext"/>. The <see cref="FrameDetectionResult"/> mapping is identical to
         /// the legacy monolithic delegate (HFR, σ, accepted-star count + centers), so results are unchanged.
+        ///
+        /// <para><c>internal</c> rather than <c>private</c> so the offline harness (TestApp, covered by
+        /// <c>InternalsVisibleTo</c>) drives the SAME detector façade the wizard does instead of maintaining its own
+        /// mirror of this mapping. Zero behaviour change for the wizard.</para>
         /// </summary>
-        private sealed class HocusFocusSplitFrameDetector : RunEvaluationData.ISplitFrameDetector {
+        internal sealed class HocusFocusSplitFrameDetector : RunEvaluationData.ISplitFrameDetector {
             private readonly IHocusFocusStarDetection detection;
             private readonly HocusFocusDetectionParams hocusParams;
 
