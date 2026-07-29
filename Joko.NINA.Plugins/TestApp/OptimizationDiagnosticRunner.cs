@@ -13,6 +13,7 @@
 using Newtonsoft.Json;
 using NINA.Core.Enum;
 using NINA.Core.Utility;
+using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
@@ -201,6 +202,11 @@ namespace TestApp {
                 p.Region = StarDetectionRegion.Full;
                 p.ModelPSF = false;
                 p.SaveIntermediateFilesPath = string.Empty;
+                // Mirrors RunEvaluationLoader: every detection here is an OPTIMIZER evaluation (thousands per run),
+                // and the plugin's BuildStarDetectionResult logs a per-region "Average HFR" INFO line for each. The
+                // flag is output-neutral and excluded from the detection cache key, so results stay byte-identical;
+                // it only stops one optimization from emitting ~10k+ INFO lines. Candidates inherit it via Clone.
+                p.SuppressInfoLogging = true;
                 return p;
             }
             var baseline = ApplyAfContext(HocusFocusStarDetection.BuildStarDetectorParams(starDetectionOptions));
@@ -263,11 +269,23 @@ namespace TestApp {
 
             var alglibAPI = new AlglibAPI();
             var detector = new StarDetector(alglibAPI);
+            // The plugin's OWN detection facade, so the optimizer drives the same RunEvaluationLoader split detector
+            // the wizard does instead of a harness mirror of its FrameDetectionResult mapping. Only GetInfo() and the
+            // inner StarDetector are exercised on the split path; the remaining dependencies are headless stubs (see
+            // StubFocuserMediator / StubPerFilterStarDetectionStore), and imageStatisticsVM is never touched.
+            var detection = new HocusFocusStarDetection(
+                imageStatisticsVM: null,
+                profileService: profileService,
+                focuserMediator: new StubFocuserMediator(),
+                starDetectionOptions: starDetectionOptions,
+                alglibAPI: alglibAPI,
+                perFilterStore: new StubPerFilterStarDetectionStore());
             var ctx = new RunDetectionContext {
                 ProfileService = profileService,
                 AfOptions = afOptions,
                 AlglibAPI = alglibAPI,
                 Detector = detector,
+                Detection = detection,
                 MeasurementAverage = starDetectionOptions.MeasurementAverage,
                 HighSigmaOutlierRejection = highSigmaOutlierRejection,
                 LowSigmaOutlierRejection = lowSigmaOutlierRejection,
@@ -301,6 +319,11 @@ namespace TestApp {
             public AutoFocusOptions AfOptions;
             public AlglibAPI AlglibAPI;
             public StarDetector Detector;
+
+            /// <summary>The plugin's detection facade — the optimizer's split detector is the wizard's own
+            /// <c>HocusFocusSplitFrameDetector</c> driven through this, so the two can never drift.</summary>
+            public IHocusFocusStarDetection Detection;
+
             public MeasurementAverageEnum MeasurementAverage;
             public double HighSigmaOutlierRejection;
             public double LowSigmaOutlierRejection;
@@ -399,23 +422,26 @@ namespace TestApp {
         }
 
         /// <summary>
-        /// Loads a discovered run's frames as float Mats once, wires the harness detection delegate, infers the
+        /// Loads a discovered run's frames as IRenderedImages once, wires the plugin's split detector, infers the
         /// fit config, and builds its <see cref="RunEvaluationData"/>. Caller owns disposing the returned run via
         /// <see cref="DisposeRuns"/>, which frees BOTH the <see cref="RunEvaluationData"/>'s cached early-detection
-        /// contexts and the loaded-once frame Mats.
+        /// contexts and the loaded-once frame images.
         /// </summary>
         private static async Task<LoadedHarnessRun> PrepareRunAsync(
             RunDetectionContext ctx, OptimizationRunDiscovery.DiscoveredRun d,
             Dictionary<string, IReadOnlyList<FrameLabels>> labelsByRun) {
             var frames = new List<RunFrame>(d.Frames.Count);
             foreach (var frame in d.Frames) {
-                // LoadFloatMat returns a fresh Mat each call; the optimizer detect delegate clones before
-                // detection (Detect mutates its input), so the cached Mat here is never mutated.
-                var mat = await DiagnosticUtil.LoadFloatMat(frame.Path, ctx.ProfileService).ConfigureAwait(false);
+                // The IRenderedImage the LIVE app detects on (see DiagnosticUtil.LoadRenderedImage). Detection reads
+                // it without mutating it — Detect/BuildDetectionContext build their own source Mat per call — so one
+                // load per frame serves every candidate evaluation. NOTHING is CFA-filtered here: the filter and the
+                // debayer belong inside Detect, at each candidate's own HotpixelThreshold/HotpixelThresholdingEnabled,
+                // which is what keeps those two searched axes meaningful.
+                var rendered = await DiagnosticUtil.LoadRenderedImage(frame.Path, ctx.ProfileService).ConfigureAwait(false);
                 frames.Add(new RunFrame {
                     FrameId = frame.Path,
                     FocuserPosition = frame.FocuserPosition,
-                    Image = mat
+                    Image = rendered
                 });
             }
 
@@ -425,14 +451,20 @@ namespace TestApp {
                 UseWeights = ctx.AfOptions.WeightedHyperbolicFitEnabled,
                 MaxOutlierRejections = ctx.AfOptions.MaxOutlierRejections,
                 RejectionConfidence = ctx.AfOptions.OutlierRejectionConfidence,
-                PreferredModel = null
+                // Was hard-coded null while the wizard's loader passes afOptions.HyperbolicFitModel. Currently
+                // informational (the evaluator always runs the Hybrid best-fit selection), but a silent divergence
+                // from the wizard is exactly what this work exists to remove.
+                PreferredModel = ctx.AfOptions.HyperbolicFitModel
             };
 
-            // Split detector: caches the expensive early detection per (frame, early key) and reuses it across the
-            // many candidate evaluations that change only late-stage gate params (the ~2× speedup). The
-            // FrameDetectionResult mapping is the SAME ToFrameDetectionResult the legacy delegate used, so results
-            // are unchanged.
-            var splitDetector = new MatSplitFrameDetector(ctx.Detector, ctx.MeasurementAverage, ctx.HighSigmaOutlierRejection, ctx.LowSigmaOutlierRejection);
+            // Split detector: the WIZARD'S OWN HocusFocusSplitFrameDetector (RunEvaluationLoader), not a harness
+            // mirror of it. It caches the expensive early detection per (frame, early key) and reuses it across the
+            // many candidate evaluations that change only late-stage gate params (the ~2× speedup), and its
+            // FrameDetectionResult mapping is by definition the one the wizard uses. hocusParams mirrors the loader's:
+            // IsAutoFocus with NumberOfAFStars = 0, so every accepted star is scored (no brightest-N trim) and the
+            // sigma rejections stay at the HocusFocusDetectionParams class defaults (high 4.0 / low 3.0).
+            var splitDetector = new RunEvaluationLoader.HocusFocusSplitFrameDetector(
+                ctx.Detection, new HocusFocusDetectionParams { IsAutoFocus = true, NumberOfAFStars = 0 });
 
             var labels = labelsByRun.TryGetValue(d.RunId, out var ls) ? ls : null;
             var data = new RunEvaluationData(d.RunId, frames, splitDetector, ctx.AlglibAPI, fitConfig, labels);
@@ -654,9 +686,11 @@ namespace TestApp {
                 // Release the per-frame cached early-detection contexts the RunEvaluationData pinned (each holds a
                 // ~244 MB source Mat at 61 MP); a long --per-run batch accumulates them otherwise. Idempotent.
                 r.Data?.Dispose();
-                // Release the cached frame Mats (each RunFrame.Image is a Mat the harness loaded once).
+                // Drop the cached frames (each RunFrame.Image is an IRenderedImage the harness loaded once, holding
+                // the raw ushort[] plus its rendered BitmapSources). Nothing here is IDisposable, so releasing the
+                // references is what frees them; a long --per-run batch would otherwise pin every run's frame set.
                 foreach (var rf in r.Frames) {
-                    (rf.Image as Mat)?.Dispose();
+                    rf.Image = null;
                 }
             }
         }
@@ -767,7 +801,7 @@ namespace TestApp {
             public OptimizationRunDiscovery.DiscoveredRun Discovered;
             public RunEvaluationData Data;
             public int StepSize;
-            public List<RunFrame> Frames; // the loaded-once frame Mats, retained for disposal
+            public List<RunFrame> Frames; // the loaded-once frame images, retained for release
         }
 
         /// <summary>
@@ -779,7 +813,7 @@ namespace TestApp {
             return positions.Count > 1 ? Math.Abs(positions[0] - positions[1]) : 0;
         }
 
-        // ---- HFR aggregation + split detector now live in HarnessDetection / MatSplitFrameDetector
+        // ---- Detection + HFR aggregation live in the PLUGIN: RunEvaluationLoader.HocusFocusSplitFrameDetector
         //      (TestApp/HarnessSplitDetector.cs), shared with the tilt-calibration harness so the two can never drift.
 
         // ---- Labels ----------------------------------------------------------------------------------------
@@ -1088,11 +1122,13 @@ namespace TestApp {
                 }
 
                 foreach (var frame in toAnnotate) {
-                    // Reuse the already-loaded float Mat (it is never mutated — detection always clones it). This
-                    // also sidesteps re-loading .xisf/.fits, which would need the profile again.
-                    var srcFloat = (Mat)frame.Image;
-                    using var detectClone = srcFloat.Clone();
-                    var result = await detector.Detect(detectClone, optimizedParams, null, CancellationToken.None).ConfigureAwait(false);
+                    // Reuse the already-loaded rendered image (detection never mutates it). This also sidesteps
+                    // re-loading .xisf/.fits, which would need the profile again. The PNG background is a
+                    // display-only Mat (debayered luminance for an OSC frame, never CFA-filtered); star boxes are
+                    // full-frame pixel coordinates, which the debayer preserves.
+                    var rendered = (IRenderedImage)frame.Image;
+                    var result = await detector.Detect(rendered, optimizedParams, null, CancellationToken.None).ConfigureAwait(false);
+                    using var srcFloat = DiagnosticUtil.ToDisplayMat(rendered);
 
                     var fileName = $"{SanitizeFileName(run.Discovered.RunId)}_Focuser{frame.FocuserPosition}_optimized.png";
                     var outPath = Path.Combine(outDir, fileName);

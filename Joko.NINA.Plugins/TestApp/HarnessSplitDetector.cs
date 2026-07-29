@@ -25,9 +25,16 @@ using System.Threading.Tasks;
 namespace TestApp {
 
     /// <summary>
-    /// Shared headless detection helpers used by the offline harnesses (optimize + tilt). Keeps the HFR
-    /// aggregation that mirrors the wizard's <see cref="RunEvaluationLoader"/> and the Mat-based split detector
-    /// in one place so the two runners can never drift from each other or from production.
+    /// Mat-based detection helpers for the TILT harness only. <c>optimize</c> and <c>bank-verify</c> no longer use
+    /// them: they carry the <c>IRenderedImage</c> the live app detects on and drive the plugin's own
+    /// <c>RunEvaluationLoader.HocusFocusSplitFrameDetector</c>, so their mapping IS the wizard's rather than a copy
+    /// of it. What remains here is the last mirror, kept alive by <c>TiltCalibrationRunner</c>, whose Mat-based
+    /// pipeline (with its own explicit <c>--debayer</c> opt-in) has not been migrated.
+    ///
+    /// <para>Because this path detects on whatever Mat it is handed, a BAYERED frame reaches the detector as a raw
+    /// Bayer mosaic unless the caller debayered it at load time — which is not what the live app does (it CFA
+    /// hotpixel filters and debayers inside <c>Detect</c>, at the caller's params). Treat tilt results on bayered
+    /// runs accordingly.</para>
     /// </summary>
     internal static class HarnessDetection {
 
@@ -88,9 +95,10 @@ namespace TestApp {
     }
 
     /// <summary>
-    /// Mat-based split detector for the offline harnesses: caches the expensive early detection per (frame, early
-    /// key) and reuses it across candidate evaluations that change only late-stage gate params. The result mapping
-    /// is <see cref="HarnessDetection.ToFrameDetectionResult"/>, identical to the wizard's loader.
+    /// Mat-based split detector for the TILT harness: caches the expensive early detection per (frame, early key)
+    /// and reuses it across candidate evaluations that change only late-stage gate params. The result mapping is
+    /// <see cref="HarnessDetection.ToFrameDetectionResult"/>, a copy of the wizard loader's. optimize/bank-verify use
+    /// the plugin's <c>HocusFocusSplitFrameDetector</c> directly instead.
     /// </summary>
     internal sealed class MatSplitFrameDetector : RunEvaluationData.ISplitFrameDetector {
         private readonly StarDetector detector;

@@ -14,6 +14,7 @@ using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Utility;
 using Newtonsoft.Json;
+using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Inspection;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
@@ -136,6 +137,16 @@ namespace TestApp {
             var pixelScale = MathUtility.ArcsecPerPixel(activeProfile.CameraSettings.PixelSize, activeProfile.TelescopeSettings.FocalLength) * binning;
             var alglib = new AlglibAPI();
             var detector = new StarDetector(alglib);
+            // The plugin's OWN detection facade, so the AF-fit path drives the wizard's HocusFocusSplitFrameDetector
+            // rather than a harness mirror of its FrameDetectionResult mapping. Only GetInfo() and the inner
+            // StarDetector are exercised on the split path; the rest are headless stubs.
+            var detection = new HocusFocusStarDetection(
+                imageStatisticsVM: null,
+                profileService: profileService,
+                focuserMediator: new StubFocuserMediator(),
+                starDetectionOptions: starDetectionOptions,
+                alglibAPI: alglib,
+                perFilterStore: new StubPerFilterStarDetectionStore());
 
             var discovery = OptimizationRunDiscovery.Discover(runs);
             Console.WriteLine($"bank-verify: {discovery.Runs.Count} run(s) under {runs}; NC sweep [{string.Join(",", ncSweep.Select(x => x.ToString(CultureInfo.InvariantCulture)))}]; " +
@@ -148,7 +159,7 @@ namespace TestApp {
                 Console.WriteLine($"[{idx}/{discovery.Runs.Count}] {run.RunId}");
                 try {
                     var rr = await VerifyRunAsync(run, runs, outDir, ncSweep, optA, optB, goldenDir, matchRadius,
-                        profileService, activeProfile, starDetectionOptions, inspectorOptions, autoFocusOptions, detector, alglib, pixelScale,
+                        profileService, activeProfile, starDetectionOptions, inspectorOptions, autoFocusOptions, detector, detection, alglib, pixelScale,
                         adaptiveBinarize, adaptiveBlockSize);
                     runResults.Add(rr);
                 } catch (Exception ex) {
@@ -169,19 +180,22 @@ namespace TestApp {
             OptimizationRunDiscovery.DiscoveredRun run, string runsRoot, string outDir, double[] ncSweep, string optA, string optB,
             string goldenDir, double matchRadius, ProfileService profileService, NINA.Profile.Interfaces.IProfile activeProfile,
             StarDetectionOptions sdOptions, InspectorOptions inspectorOptions, AutoFocusOptions afOptions,
-            StarDetector detector, AlglibAPI alglib, double pixelScale, bool adaptiveBinarize, int adaptiveBlockSize) {
+            StarDetector detector, IHocusFocusStarDetection detection, AlglibAPI alglib, double pixelScale, bool adaptiveBinarize, int adaptiveBlockSize) {
 
             var runFolder = Path.GetDirectoryName(run.Frames.First().Path);
             var ordered = run.Frames.OrderBy(f => f.FocuserPosition).ToList();
 
-            // Load frames once (shared by AF eval + golden + sensor across all configs).
+            // Load frames once (shared by AF eval + golden + sensor across all configs) as the IRenderedImage the
+            // LIVE app detects on: the CFA hotpixel filter and the debayer then run inside Detect at each config's
+            // own params. Verifying recall/precision against an image the app never sees measures the wrong thing.
             Prog($"{run.RunId}: loading {ordered.Count} frames");
-            var loaded = new List<(int focuser, string path, Mat mat)>();
+            var loaded = new List<(int focuser, string path, IRenderedImage image)>();
             foreach (var f in ordered) {
-                loaded.Add((f.FocuserPosition, f.Path, await DiagnosticUtil.LoadFloatMat(f.Path, profileService)));
+                loaded.Add((f.FocuserPosition, f.Path, await DiagnosticUtil.LoadRenderedImage(f.Path, profileService)));
                 Prog($"  loaded focuser {f.FocuserPosition}");
             }
-            var imageSize = new DrawingSize(loaded[0].mat.Width, loaded[0].mat.Height);
+            var firstProps = loaded[0].image.RawImageData.Properties;
+            var imageSize = new DrawingSize(firstProps.Width, firstProps.Height);
 
             // Golden sidecars per frame (shared across configs — detector-independent).
             var goldenByFocuser = new Dictionary<int, GoldenFrame>();
@@ -198,15 +212,23 @@ namespace TestApp {
 
             // RunEvaluationData for the AF fit (mirrors OptimizationDiagnosticRunner.PrepareRunAsync).
             var stepSize = InferStepSize(ordered.Select(f => (double)f.FocuserPosition).ToList());
-            var runFrames = loaded.Select(l => new RunFrame { FrameId = l.path, FocuserPosition = l.focuser, Image = l.mat }).ToList();
+            var runFrames = loaded.Select(l => new RunFrame { FrameId = l.path, FocuserPosition = l.focuser, Image = l.image }).ToList();
             var fitConfig = new RunFitConfig {
                 StepSize = stepSize,
                 UseWeights = afOptions.WeightedHyperbolicFitEnabled,
                 MaxOutlierRejections = afOptions.MaxOutlierRejections,
                 RejectionConfidence = afOptions.OutlierRejectionConfidence,
-                PreferredModel = null
+                // Was hard-coded null while the wizard's loader passes afOptions.HyperbolicFitModel. Currently
+                // informational (the evaluator always runs the Hybrid best-fit selection), but the divergence itself
+                // is what this work exists to remove.
+                PreferredModel = afOptions.HyperbolicFitModel
             };
-            var splitDetector = new MatSplitFrameDetector(detector, sdOptions.MeasurementAverage, 4.0, 3.0);
+            // The WIZARD'S OWN split detector, driven through the plugin's detection facade — not a harness mirror of
+            // its FrameDetectionResult mapping. hocusParams mirrors RunEvaluationLoader's: IsAutoFocus with
+            // NumberOfAFStars = 0, so every accepted star is scored and the sigma rejections stay at the
+            // HocusFocusDetectionParams class defaults (high 4.0 / low 3.0).
+            var splitDetector = new RunEvaluationLoader.HocusFocusSplitFrameDetector(
+                detection, new HocusFocusDetectionParams { IsAutoFocus = true, NumberOfAFStars = 0 });
             using var evalData = new RunEvaluationData(run.RunId, runFrames, splitDetector, alglib, fitConfig, null);
 
             var rr = new RunResult {
@@ -224,6 +246,10 @@ namespace TestApp {
             StarDetectorParams BaseDefault() {
                 var p = HocusFocusStarDetection.BuildDefaultStarDetectorParams();
                 p.PixelScale = pixelScale; p.Region = StarDetectionRegion.Full; p.ModelPSF = false; p.SaveIntermediateFilesPath = string.Empty;
+                // Output-neutral and excluded from the detection cache key (see RunEvaluationLoader): the AF-fit path
+                // re-detects every frame per config, and the plugin logs a per-region "Average HFR" INFO line each
+                // time. Suppress it so a bank sweep does not flood the log.
+                p.SuppressInfoLogging = true;
                 return p;
             }
 
@@ -263,7 +289,8 @@ namespace TestApp {
                 Console.WriteLine($"    B (opt donutON, NC→{Fmt(cm.nc)}): recall@high={Fmt(cm.recallHigh)} prec={Fmt(cm.precision)} σ={Fmt(cm.sigmaFocus)} sR²={Fmt(cm.sR2)}");
             }
 
-            foreach (var (_, _, mat) in loaded) { mat.Dispose(); }
+            // Nothing to dispose: an IRenderedImage is not IDisposable — dropping the list releases the frames.
+            loaded.Clear();
 
             // Per-run sidecar JSON.
             var runOut = Path.Combine(outDir, "bank_verify", OptimizationRunDiscovery.SanitizeForFileName(run.RunId));
@@ -276,7 +303,7 @@ namespace TestApp {
         /// sensor-model fit; the AF fit comes from the validated <see cref="RunEvaluationData.EvaluateAndFitAsync"/>.</summary>
         private static async Task<ConfigMetrics> ScoreConfigAsync(
             string label, double nc, bool donut, StarDetectorParams p, RunEvaluationData evalData,
-            List<(int focuser, string path, Mat mat)> loaded, Dictionary<int, GoldenFrame> goldenByFocuser, double matchRadius,
+            List<(int focuser, string path, IRenderedImage image)> loaded, Dictionary<int, GoldenFrame> goldenByFocuser, double matchRadius,
             InspectorOptions inspectorOptions, AlglibAPI alglib, ProfileService profileService, NINA.Profile.Interfaces.IProfile activeProfile, int stepSize,
             StarDetector detector) {
 
@@ -292,12 +319,11 @@ namespace TestApp {
             int tp = 0, fp = 0, fn = 0, matchedHigh = 0, totalHigh = 0, matchedAll = 0, totalAll = 0;
             var sensorFrames = new List<SensorDetectedStars>();
             DrawingSize imageSize = DrawingSize.Empty;
-            foreach (var (focuser, path, mat) in loaded) {
-                imageSize = new DrawingSize(mat.Width, mat.Height);
-                HocusFocusStarDetectorResult result;
-                using (var clone = mat.Clone()) {
-                    result = await detector.Detect(clone, p, null, CancellationToken.None);
-                }
+            foreach (var (focuser, path, image) in loaded) {
+                var props = image.RawImageData.Properties;
+                imageSize = new DrawingSize(props.Width, props.Height);
+                // Detect(IRenderedImage) builds its own source Mat per call, so no clone is needed.
+                var result = await detector.Detect(image, p, null, CancellationToken.None);
                 var stars = result.DetectedStars ?? new List<Star>();
                 Prog($"    [{label}] detected focuser {focuser}: {stars.Count} stars");
 
@@ -316,7 +342,7 @@ namespace TestApp {
 
                 // Sensor model: same raster ordering as production (BuildStarDetectionResult).
                 var starList = stars.Select(HocusFocusStarDetection.ToDetectedStar)
-                    .OrderBy(s => s.Position.Y * (long)mat.Width + s.Position.X).ToList();
+                    .OrderBy(s => s.Position.Y * (long)props.Width + s.Position.X).ToList();
                 sensorFrames.Add(new SensorDetectedStars(focuser, new HocusFocusStarDetectionResult { StarList = starList, ImageSize = imageSize }, image: null));
             }
 
