@@ -86,6 +86,26 @@ stars are *fainter* than any the old reference could see. If HF's misses skew fa
 
 ## Task 2 — Regenerate the reference and the goldens
 
+> **START HERE** in a fresh session. Task 1 is complete (see its result above). Be on
+> `ghilios/bank-rebaseline-bayered`; the working tree should be clean. **Invoke the
+> `generating-af-golden-data` skill first** for the exact pipeline and its gotchas — do not improvise the
+> commands. Scope is `bobp_m101` **alone** (`bobp_m101/AutoFocus_20260626_225408/attempt01`), per the
+> sequencing decision above.
+
+**What the QA step must report, because it decides Task 4's answer.** The new reference has ~54% more
+candidates and the additions are *fainter* than anything the old reference could resolve. So:
+
+- **How many candidates does the LLM QA confirm vs reject, and at which SNR tiers?** If it rejects most of the
+  newly-visible faint ones, the effective golden barely changes and Task 4's answer is "the old conclusion
+  stands". If it confirms them, the recall denominator genuinely grows and the deficit likely deepens.
+- **Any systematic rejection pattern.** If the faint additions are mostly noise, say so plainly — that is a real
+  finding, not a failure of the method.
+- Per-frame golden counts, old vs new. The old high-tier per-frame counts were
+  27/44/93/246/450/305/100/54/29/17 (= 1,365).
+
+If rate limits make full QA impractical, report how far you got rather than degrading the method. A partial,
+honest golden is more useful than a fast, unreliable one.
+
 - [ ] `snr_ref` over the new exports → candidates.
 - [ ] Montage + **LLM QA** per the skill. This is the long pole and is rate-limited; budget accordingly and do
       not parallelise past the documented limits.
