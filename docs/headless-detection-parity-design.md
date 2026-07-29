@@ -162,11 +162,30 @@ luminance-scoring objective.
 **2. `ExportLinearRunner` contradicts its own documentation.** Its comment (`:29-34`) states it "debayers Bayered
 frames to luminance … the SAME linear luminance the HocusFocus detector consumes", but `:69` uses the
 `debayerToLuminance: false` default. The doc is right and the code is wrong. This matters beyond tidiness: the
-export feeds `tools/golden/snr_ref.py`, the **detector-independent reference** the golden sets are built from. A
-reference computed on a mosaic while HocusFocus detects on luminance scores every mosaic-only find as an HF recall
-gap HF could never close — i.e. the golden audit measures the wrong thing. "Linear" means no MTF/auto-stretch, not
-no debayer. It must **not** gain the CFA filter, though: the reference's independent blind spots are the point, and
-hot-pixel rejection is already assigned to the LLM montage QA step (`.claude/docs/golden-star-set.md:37`).
+export feeds `tools/golden/snr_ref.py`, the **detector-independent reference** the golden sets are built from.
+"Linear" means no MTF/auto-stretch, not no debayer. It must **not** gain the CFA filter, though: the reference's
+independent blind spots are the point, and hot-pixel rejection is already assigned to the LLM montage QA step
+(`.claude/docs/golden-star-set.md:37`).
+
+**The mechanism, measured on `bobp_m101` (2026-07-29) — not the one first assumed.** An earlier draft of this
+document asserted that mosaic-only reference finds were being scored as HF recall gaps HF could never close. That
+is **false**, at least on this run: cross-matched at the `golden eval` radius (12 px), **1,365 / 1,365 (100%)** of
+the old high-tier candidates are reproduced by the luminance reference, all still high-tier. There are **zero**
+mosaic-only finds.
+
+What actually happens is the reverse. The CFA checkerboard dominates `snr_ref`'s block-MAD noise estimate,
+inflating σ by **3.0–3.25×** (17.8–19.3 ADU vs 5.93). Both the 5σ detection threshold and the SNR tiering scale
+with it, so the mosaic reference is roughly **3× less sensitive**. The old golden is a strict **subset** of the
+correct one, not a polluted superset: 209 of the new 2,107 high-tier stars match no old candidate at any tier, and
+a further 533 existed but were tiered medium/low.
+
+**This inverts the expected direction of any recall correction.** The `recall@SNR≥12` denominator grows ~54%
+(1,365 → 2,107) and the added stars are *fainter* than anything the old reference could resolve. If HocusFocus's
+misses skew faint — precisely what a "star-shedding" characterisation predicts — the corrected recall goes **down**,
+not up. Do not approach the `bobp_m101` re-check assuming the deficit was a scoring artifact.
+
+Measured on one run only; `bobp` and `timmer` are not yet re-exported, so the generality of this mechanism is
+unestablished.
 
 **3. `TiltCalibrationRunner` was the runner the `DiagnosticUtil` warning was written about.** That warning names
 tilt explicitly — detecting on the mosaic "biases the per-star sensor-model tilt the Tilt Adapter Wizard calibrates
