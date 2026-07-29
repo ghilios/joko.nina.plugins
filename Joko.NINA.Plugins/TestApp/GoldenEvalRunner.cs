@@ -270,7 +270,7 @@ namespace TestApp {
                 Console.WriteLine($"  run '{run.RunId}': no per-image golden sidecars found; nothing scored.");
                 return;
             }
-            WriteReports(runOut, run.RunId, paramsLabel, sourceLabel, p, frameEvals);
+            WriteReports(runOut, run.RunId, paramsLabel, sourceLabel, p, frameEvals, matchMode, tau, matchRadius);
         }
 
         // ---- Params bundle ---------------------------------------------------------------------------------
@@ -490,7 +490,7 @@ namespace TestApp {
         // ---- Reporting -------------------------------------------------------------------------------------
 
         private static void WriteReports(string runOut, string runId, string paramsLabel, string sourceLabel,
-            StarDetectorParams p, List<FrameEval> frames) {
+            StarDetectorParams p, List<FrameEval> frames, GoldenMatchMode matchMode, double tau, double matchRadius) {
 
             // CSV (per-frame).
             var csv = new StringBuilder();
@@ -522,7 +522,14 @@ namespace TestApp {
             var sb = new StringBuilder();
             sb.AppendLine($"GOLDEN EVAL — run '{runId}'");
             sb.AppendLine($"params: {paramsLabel}   (source: {sourceLabel})");
-            sb.AppendLine($"match: center-in-box OR IoU; key detector knobs: Sensitivity={p.Sensitivity}, StarClip={p.StarClippingMultiplier}, " +
+            // Report the mode actually used — a hardcoded label here silently misattributes every stored report.
+            var matchLabel = matchMode switch {
+                GoldenMatchMode.Center => "center-in-box",
+                GoldenMatchMode.Iou => $"IoU>={tau}",
+                GoldenMatchMode.Centroid => $"centroid within {matchRadius}px",
+                _ => $"center-in-box OR IoU>={tau}"
+            };
+            sb.AppendLine($"match: {matchLabel}; key detector knobs: Sensitivity={p.Sensitivity}, StarClip={p.StarClippingMultiplier}, " +
                 $"NoiseClip={p.NoiseClippingMultiplier}, PeakResponse={p.PeakResponse}, MaxDistortion={p.MaxDistortion}, StarCenterTol={p.StarCenterTolerance}, " +
                 $"StructureLayers={p.StructureLayers}, MinHFR={p.MinHFR}, MinBox={p.MinimumStarBoundingBoxSize}");
             sb.AppendLine($"defocus: Donut={p.DefocusAwareDonutDetection}, Distortion={p.DefocusAwareDistortion}, Centering={p.DefocusAwareCentering}, " +
