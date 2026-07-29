@@ -395,6 +395,10 @@ namespace TestApp {
                 p.Region = StarDetectionRegion.Full;
                 p.ModelPSF = false;
                 p.SaveIntermediateFilesPath = string.Empty;
+                // Output-neutral and excluded from the detection cache key, exactly as the wizard sets it: now that
+                // detection runs through the plugin's facade, every one of the ~200 measurement detections (and the
+                // thousands the optimizer makes) would otherwise emit a per-region "Average HFR" INFO line.
+                p.SuppressInfoLogging = true;
                 return p;
             }
 
@@ -417,12 +421,6 @@ namespace TestApp {
                 seed.DefocusAwareDonutDetection = true;
                 baseline.DefocusAwareDonutDetection = true;
             }
-            // Output-neutral and excluded from the detection cache key: the optimizer re-detects every frame per
-            // candidate and the plugin logs a per-region "Average HFR" INFO line each time. Exactly what the wizard
-            // sets, for exactly the same reason.
-            seed.SuppressInfoLogging = true;
-            baseline.SuppressInfoLogging = true;
-
             var objectiveConstants = new ObjectiveConstants();
 
             var loaded = new List<(RunStep Run, RunEvaluationData Data)>();

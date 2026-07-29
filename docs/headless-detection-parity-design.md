@@ -209,6 +209,12 @@ Two facts worth not rediscovering.
   loop is precisely the load-time-filtering scheme this design rejects — it would turn two searched axes into
   silent no-ops. The live wizard pays the same cost for the same reason. (The early-context cache already avoids
   the repeat within a matching early key; what remains is the irreducible per-early-key work.)
+- **`tilt`'s 4-corner phase went ~20 s → ~215 s per step** on a bayered 4-run dataset — a bigger factor than the
+  optimizer's, because its params are FIXED and its five regions are five different early keys, so one loaded frame
+  is CFA-filtered + debayered five times where it used to be cloned five times. The honest fix is not to pre-filter
+  (same objection as above) but to cache the *prepared source image* per (frame, hot-pixel params) inside
+  `StarDetector` — the debayer only depends on those. Not done here; ~15 min for a full tilt validation is
+  acceptable for a diagnostic harness, and the correctness gain is the point.
 
 ## Known remaining divergence: per-filter star detection
 
@@ -232,6 +238,24 @@ feature off for the comparison.
 |---|---|
 | `bobp` (bayered) | `Sensitivity 9.25 → 10` (not at floor), hard-floor PASS with **min stars = 27**, no exposure recommendation, `HotpixelThreshold 0.0005 → 0.00035` (the axis still moves). Matches the in-app wizard's `10.000` / 27–31. Optimize phase 300.0 s, 324 early-context builds / 1926 reuses. |
 | `uneven` (mono) | `Sensitivity 31.2083`, min stars 51, `J 0.997449 → 0.996368`, σ_focus `6.62139 → 6.95275` — identical to the pre-change baseline, down to **310 early-context builds / 2190 reuses (87.6%)**. Mono is untouched. |
+
+**Tilt results move, and they should.** `tilt --dataset "D:\Tilt Calibration Bank\astrodet"` (bayered, 4-step,
+stored detection settings), old binary vs new, same profile `ce3f3e63`:
+
+| | old (raw mosaic) | new (live parity) |
+|---|---|---|
+| Baseline plane (A, B) | −3.73, 13.46 (dir 195.5°) | −10.85, −7.84 (dir 305.8°) |
+| ReBaseline2 plane | 9.60, −13.73 (dir 34.9°) | −27.04, −30.68 (dir 318.6°) |
+| Screw 1 angle | 303.31° | **256.26°** (a 47° move) |
+| Confidence SNR (4-corner) | 1.9858 → **FAIL** (<2) | 2.2988 → **PASS** |
+| Noise floor | 30.28 | 28.00 |
+| Screw move-magnitude ratio | 3.61× | **1.79×** (ideal 1×) |
+| Stars in the per-star sensor model | 58 / 59 / 59 / 68 | 70 / 68 / 74 / 68 |
+
+Three of the run's quality indicators improve (noise floor, move balance, and the confidence gate it now clears),
+and the sensor model fits ~15% more stars — consistent with detecting on a better-conditioned image. The dataset
+itself is still flagged unreliable (`move ratio` far from 1×, "re-capture turning each screw the same amount"), so
+this is evidence that the representation mattered, **not** a claim that the new screw geometry is correct.
 
 Unit coverage: `HeadlessDetectionParityTests` (mechanism: mono byte-identity, `SaveLumChannel == false`, the
 hot-pixel axis still biting, the debayer gate and CFA-pattern precedence) and `HeadlessDetectionParityGuardTests`

@@ -45,9 +45,12 @@ Rules, in order of how easy they are to get wrong:
   the mechanism (mono byte-identity, `SaveLumChannel == false`, the hot-pixel axis still biting).
 
 **Costs, both inherent.** A bayered run holds an extra `Rgb48` `BitmapSource` (~+20% peak working set;
-`bobp_m101` 6.0 → 7.2 GB). `bobp`'s optimize phase went 87.6 s → 295 s because the CFA filter + debayer now run
-per early-context build rather than once at load — **do not "optimize" that back**, it is the same work the live
-wizard does, and hoisting it out of the loop is the load-time filtering the spec rejects.
+`bobp_m101` 6.0 → 7.2 GB). `bobp`'s optimize phase went 87.6 s → ~300 s, and `tilt`'s 4-corner phase ~20 s → ~215 s
+per step (fixed params, five regions = five early keys, so one frame is filtered+debayered five times), because
+the CFA filter + debayer now run per early-context build rather than once at load — **do not "optimize" that
+back**, it is the same work the live wizard does, and hoisting it out of the loop is the load-time filtering the
+spec rejects. The legitimate speedup, if it is ever needed, is caching the prepared source image per (frame,
+hot-pixel params) inside `StarDetector`.
 
 **Per-filter caveat.** With per-filter star detection enabled, live resolves the captured filter's snapshot and a
 headless run cannot (it has no filter wheel, and seeding one would write to the profile). The runners warn to
