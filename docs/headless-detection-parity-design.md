@@ -37,9 +37,10 @@ changes exactly one thing:
 | **In-app wizard** | **10.000** | 27–31 |
 
 **The decisive factor is the CFA hot-pixel filter, not the debayer.** Debayering alone leaves the optimum floored;
-adding the CFA filter reproduces the app exactly, including the star-count scale and the absence of the exposure
-recommendation. Unfiltered hot pixels present as faint stars, so the harness can drive the Sensitivity gate to its
-floor and harvest them — an incentive that does not exist on the filtered image the app detects on.
+adding the CFA filter reproduces the app exactly, including the star-count scale and the fact that the landed
+gate is no longer at the search floor. Unfiltered hot pixels present as faint stars, so the harness can drive the
+Sensitivity gate to its floor and harvest them — an incentive that does not exist on the filtered image the app
+detects on.
 
 **Row 2 is not a live-reachable state, and that is the real lesson.** `ImageControlVM.PrepareImage:609` sets
 `saveLumChannel = ImageSettings.DebayeredHFR && detectStars`, and *every* HocusFocus caller passes
@@ -236,7 +237,7 @@ feature off for the comparison.
 
 | Run | Result |
 |---|---|
-| `bobp` (bayered) | `Sensitivity 9.25 → 10` (not at floor), hard-floor PASS with **min stars = 27**, no exposure recommendation, `HotpixelThreshold 0.0005 → 0.00035` (the axis still moves). Matches the in-app wizard's `10.000` / 27–31. Optimize phase 300.0 s, 324 early-context builds / 1926 reuses. |
+| `bobp` (bayered) | `Sensitivity 9.25 → 10` (not at floor), hard-floor PASS with **min stars = 27**, `HotpixelThreshold 0.0005 → 0.00035` (the axis still moves), `J 0.990408 → 0.997172`. Matches the in-app wizard's `10.000` / 27–31. Optimize phase ~300 s, 324 early-context builds / 1926 reuses. |
 | `uneven` (mono) | `Sensitivity 31.2083`, min stars 51, `J 0.997449 → 0.996368`, σ_focus `6.62139 → 6.95275` — identical to the pre-change baseline, down to **310 early-context builds / 2190 reuses (87.6%)**. Mono is untouched. |
 
 **Tilt results move, and they should.** `tilt --dataset "D:\Tilt Calibration Bank\astrodet"` (bayered, 4-step,

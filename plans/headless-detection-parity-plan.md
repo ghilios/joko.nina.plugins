@@ -7,8 +7,9 @@
 optimizer does, so headless results predict in-app behaviour. Mono runs must stay byte-identical.
 
 **Spec:** `docs/headless-detection-parity-design.md` (approved, revised after the Task-1 investigation).
-Branch: `ghilios/headless-detection-parity`, off `ghilios/exposure-recommendation` — rebase onto `develop` once
-that PR merges.
+Branch: `ghilios/headless-detection-parity`, off `develop`. (First written on top of
+`ghilios/exposure-recommendation`, which edits the same TestApp call sites; re-parented onto `develop` so the
+harness fix can be verified and merged independently of that PR.)
 
 **Phase 2 (separate branch):** regenerate the four bayered goldens, full `bank-verify` re-baseline, and re-check
 the `bobp_m101` recall conclusion behind PR #111. Not in this plan.
@@ -135,6 +136,6 @@ optimum floored). This is the runner `DiagnosticUtil`'s own warning was written 
 
 ## Verification
 
-- [x] `bobp` headless reproduces the wizard: `Sensitivity = 10`, min stars ≈ 29, no exposure recommendation.
+- [x] `bobp` headless reproduces the wizard: `Sensitivity = 10`, min stars ≈ 29.
 - [x] A mono run (e.g. `uneven`, previously `31.21`) is unchanged.
 - [x] Full suite green.
