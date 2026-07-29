@@ -3523,32 +3523,41 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                         // INSIDE detection at the review's params — exactly as the live app does them.
                         path => LoadRenderedImageFromDisk(path, profileService, imageDataFactory, cameraSensorType, token),
                         // Display: the same debayer WITHOUT the CFA filter. A mosaic renders as a visible
-                        // checkerboard, which is unreviewable, and the stretch is not a detection input.
+                        // checkerboard, which is unreviewable, and the stretch is not a detection input. Straight
+                        // off the image data, so a big OSC frame does not also build the Rgb48 debayered source
+                        // this path would immediately discard.
                         async path => RenderedImageLoading.ToDebayeredLuminanceMat(
-                            await LoadRenderedImageFromDisk(path, profileService, imageDataFactory, cameraSensorType, token).ConfigureAwait(false)),
+                            await LoadImageDataFromDisk(path, profileService, imageDataFactory, token).ConfigureAwait(false),
+                            profileService, cameraSensorType?.Invoke()),
                         token, progress),
                     token);
             };
         }
 
         /// <summary>
-        /// Loads one review frame the way the optimizer step loads its run frames: NINA's image-data factory (which
-        /// covers XISF/FITS/TIFF/RAW), with the frame's REAL <c>isBayered</c> + bit depth recovered from the AF
-        /// engine's file name (<see cref="SavedAutoFocusImage.TryParseFileName"/> — the same token
-        /// <c>AutoFocusEngine.LoadSavedAutoFocusAttempt</c> hands the optimizer), then
-        /// <see cref="RenderedImageLoading.ForDetection"/> for the profile-gated debayer.
-        ///
-        /// <para>A file that is not an AF-engine saved frame falls back to not-bayered at the profile's bit depth,
-        /// which is what the previous loader assumed for every file.</para>
+        /// The DETECTION input for one review frame: loaded exactly as the optimizer step loads its run frames,
+        /// then handed to <see cref="RenderedImageLoading.ForDetection"/> for the profile-gated debayer, so
+        /// <c>Detect</c> — not this loader — decides whether to CFA-filter.
         /// </summary>
         private static async Task<IRenderedImage> LoadRenderedImageFromDisk(
             string path, IProfileService profileService, IImageDataFactory imageDataFactory, Func<SensorType?> cameraSensorType, CancellationToken token) {
+            var imageData = await LoadImageDataFromDisk(path, profileService, imageDataFactory, token).ConfigureAwait(false);
+            return RenderedImageLoading.ForDetection(imageData, profileService, cameraSensorType?.Invoke());
+        }
+
+        /// <summary>
+        /// The disk read behind both review loaders: NINA's image-data factory with the frame's REAL
+        /// <c>isBayered</c> + bit depth recovered from the AF engine's file name. A file that is not an AF-engine
+        /// saved frame falls back to not-bayered at the profile's bit depth — what the previous loader assumed for
+        /// every file.
+        /// </summary>
+        private static Task<IImageData> LoadImageDataFromDisk(
+            string path, IProfileService profileService, IImageDataFactory imageDataFactory, CancellationToken token) {
             var saved = SavedAutoFocusImage.TryParseFileName(path);
             var bitDepth = saved?.BitDepth ?? (int)profileService.ActiveProfile.CameraSettings.BitDepth;
-            var imageData = await imageDataFactory.CreateFromFile(
+            return imageDataFactory.CreateFromFile(
                 path, bitDepth, saved?.IsBayered ?? false,
-                profileService.ActiveProfile.CameraSettings.RawConverter, token).ConfigureAwait(false);
-            return RenderedImageLoading.ForDetection(imageData, profileService, cameraSensorType?.Invoke());
+                profileService.ActiveProfile.CameraSettings.RawConverter, token);
         }
 
         private void Cancel() {

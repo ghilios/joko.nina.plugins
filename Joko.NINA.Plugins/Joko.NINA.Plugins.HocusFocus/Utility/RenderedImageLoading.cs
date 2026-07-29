@@ -113,13 +113,31 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
         /// </summary>
         public static Mat ToDebayeredLuminanceMat(IRenderedImage image) {
             if (image is IDebayeredImage debayered && !debayered.SaveLumChannel) {
-                var props = image.RawImageData.Properties;
-                var bitmapSource = ImageUtility.CreateSourceFromArray(image.RawImageData.Data, props, PixelFormats.Gray16);
-                var lum = ImageUtility.Debayer(bitmapSource, pf: System.Drawing.Imaging.PixelFormat.Format16bppGrayScale,
-                    saveColorChannels: false, saveLumChannel: true, bayerPattern: debayered.BayerPattern);
-                return CvImageUtility.ToOpenCVMat(lum.Data.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
+                return DebayerToLuminance(image.RawImageData, debayered.BayerPattern);
             }
             return CvImageUtility.ToOpenCVMat(image);
+        }
+
+        /// <summary>
+        /// As <see cref="ToDebayeredLuminanceMat(IRenderedImage)"/>, but straight off the loaded image data, taking
+        /// the same debayer decision <see cref="ForDetection"/> takes. For callers that want ONLY the luminance
+        /// Mat: going via <see cref="ForDetection"/> would first build the <c>Rgb48</c> debayered
+        /// <c>BitmapSource</c> (~6 B/px) and then debayer a second time for the luminance, which on a big OSC
+        /// sensor is a wasted pass and a wasted allocation.
+        /// </summary>
+        public static Mat ToDebayeredLuminanceMat(IImageData imageData, IProfileService profileService, SensorType? cameraSensorType = null) {
+            if (!imageData.Properties.IsBayered || !profileService.ActiveProfile.ImageSettings.DebayerImage) {
+                return CvImageUtility.ToOpenCVMat(imageData);
+            }
+            return DebayerToLuminance(imageData, ResolveBayerPattern(imageData, profileService, cameraSensorType));
+        }
+
+        private static Mat DebayerToLuminance(IImageData imageData, SensorType bayerPattern) {
+            var props = imageData.Properties;
+            var bitmapSource = ImageUtility.CreateSourceFromArray(imageData.Data, props, PixelFormats.Gray16);
+            var lum = ImageUtility.Debayer(bitmapSource, pf: System.Drawing.Imaging.PixelFormat.Format16bppGrayScale,
+                saveColorChannels: false, saveLumChannel: true, bayerPattern: bayerPattern);
+            return CvImageUtility.ToOpenCVMat(lum.Data.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
         }
     }
 }

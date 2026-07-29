@@ -150,7 +150,10 @@ namespace TestApp {
             if (!IsNinaLoaderFormat(path)) {
                 return await LoadFloatMat(path, profileService).ConfigureAwait(false);
             }
-            return RenderedImageLoading.ToDebayeredLuminanceMat(await LoadRenderedImage(path, profileService).ConfigureAwait(false));
+            // Straight off the image data rather than via LoadRenderedImage: this path wants only the luminance,
+            // and going through the detection product would build (then discard) the Rgb48 debayered source.
+            var imageData = await LoadImageDataAsync(path, profileService, isBayered: IsBayeredFrameFileName(path)).ConfigureAwait(false);
+            return RenderedImageLoading.ToDebayeredLuminanceMat(imageData, profileService);
         }
 
         private static async Task<IImageData> LoadImageDataAsync(string path, IProfileService profileService, bool isBayered) {
