@@ -91,7 +91,7 @@ namespace TestApp {
 
                 // Overlay background only (never detection): a bayered frame is debayered to luminance so the
                 // annotated PNG is legible, but is NEVER CFA hotpixel filtered.
-                using var floatMat = await DiagnosticUtil.LoadDisplayFloatMat(frame, profileService);
+                using var floatMat = await DiagnosticUtil.LoadDebayeredFloatMat(frame, profileService);
                 using var bgr = BuildStretchedBgr(floatMat);
                 foreach (var b in boxes) {
                     var rect = new OpenCvSharp.Rect((int)Math.Round(b.X - b.W / 2.0), (int)Math.Round(b.Y - b.H / 2.0),

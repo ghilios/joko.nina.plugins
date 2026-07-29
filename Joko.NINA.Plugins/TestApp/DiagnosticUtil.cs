@@ -10,7 +10,6 @@
 
 #endregion "copyright"
 
-using NINA.Core.Enum;
 using NINA.Image.FileFormat.FITS;
 using NINA.Image.FileFormat.XISF;
 using NINA.Image.ImageAnalysis;
@@ -23,7 +22,6 @@ using NINA.Profile.Interfaces;
 using OpenCvSharp;
 using System;
 using System.IO;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -52,16 +50,6 @@ namespace TestApp {
             return false;
         }
 
-        /// <summary>
-        /// The AF engine's saved-frame filename pattern (<c>AutoFocusEngine.IMAGE_FILE_REGEX</c>), used here ONLY to
-        /// recover the <c>_BayeredN_</c> token — the same source of truth the live app uses
-        /// (<c>SavedAutoFocusImage.IsBayered</c> is parsed from this name and handed to
-        /// <c>imageDataFactory.CreateFromFile</c>).
-        /// </summary>
-        private static readonly Regex SavedFrameRegex = new Regex(
-            @"^(?<IMAGE_INDEX>\d+)_Frame(?<FRAME_NUMBER>\d+)_BitDepth(?<BITDEPTH>\d+)_Bayered(?<BAYERED>\d)_Focuser(?<FOCUSER>\d+)(_HFR(?<HFR>(\d+)(\.\d+)?))?$",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
         private static readonly string[] NinaLoaderExtensions = { ".xisf", ".fits", ".fit" };
 
         /// <summary>
@@ -77,27 +65,27 @@ namespace TestApp {
         /// <summary>
         /// True when the saved-frame filename carries <c>_Bayered1_</c>. This is exactly what the live app keys off
         /// (<c>AutoFocusEngine.LoadSavedAutoFocusAttempt</c> parses the flag out of the filename and passes it to the
-        /// image-data factory); it only sets <c>ImageProperties.IsBayered</c> — pixel data is untouched either way.
+        /// image-data factory), parsed here through the SAME <see cref="SavedAutoFocusImage.TryParseFileName"/> the
+        /// engine uses; it only sets <c>ImageProperties.IsBayered</c> — pixel data is untouched either way.
         /// Files that do not match the AF sweep pattern report false, which is the pre-existing behavior for the
         /// arbitrary single images the contamination/annotate tools accept.
         /// </summary>
-        public static bool IsBayeredFrameFileName(string path) {
-            var match = SavedFrameRegex.Match(Path.GetFileNameWithoutExtension(path) ?? string.Empty);
-            return match.Success && match.Groups["BAYERED"].Value != "0";
-        }
+        public static bool IsBayeredFrameFileName(string path) => SavedAutoFocusImage.TryParseFileName(path)?.IsBayered == true;
 
         /// <summary>
-        /// Loads an image file as a CV_32F Mat normalized to [0,1]. .tif/.tiff are read directly; .xisf/.fits/.fit
-        /// go through NINA's loaders (which need a profile). profileService may be null for .tif-only callers.
+        /// Loads an image file as a CV_32F Mat normalized to [0,1] — the RAW frame, exactly as stored. .tif/.tiff are
+        /// read directly; .xisf/.fits/.fit go through NINA's loaders (which need a profile). profileService may be
+        /// null for .tif-only callers.
         ///
-        /// <para>NOTE: this returns the RAW frame — for a bayered frame that is the Bayer MOSAIC, which is NOT what
-        /// the live app feeds star detection. Detecting runners must use <see cref="LoadRenderedImage"/> +
-        /// <c>StarDetector.Detect(IRenderedImage, …)</c> instead, so the CFA hotpixel filter and the debayer happen
-        /// inside <c>Detect</c> at the caller's params exactly as live. This overload remains for the paths that
-        /// genuinely want the untouched frame (the linear export that feeds the detector-INDEPENDENT golden
-        /// reference, and the tilt harness's explicit opt-in).</para>
+        /// <para><b>Not a detection input for a NINA-loader format.</b> For a bayered frame this returns the Bayer
+        /// MOSAIC, which is not what the live app feeds star detection. Detecting runners use
+        /// <see cref="LoadRenderedImage"/> + <c>StarDetector.Detect(IRenderedImage, …)</c> so the CFA hotpixel filter
+        /// and the debayer happen inside <c>Detect</c> at the caller's params exactly as live; the surfaces a human
+        /// or the golden reference reads use <see cref="LoadDebayeredFloatMat"/>. What is left for this method is the
+        /// <c>.tif</c> carve-out (no CFA, and NINA's TIFF decoder normalizes differently), which is why
+        /// <c>DiagnosticUtil</c> is its only caller — <c>HeadlessDetectionParityGuardTests</c> enforces that.</para>
         /// </summary>
-        public static async Task<Mat> LoadFloatMat(string path, IProfileService profileService, bool debayerToLuminance = false, bool applyCfaHotpixel = false, double hotpixelThreshold = 0.001) {
+        public static async Task<Mat> LoadFloatMat(string path, IProfileService profileService) {
             var ext = Path.GetExtension(path).ToLowerInvariant();
             if (ext == ".tif" || ext == ".tiff") {
                 using var src = new Mat(path, ImreadModes.Unchanged);
@@ -106,10 +94,8 @@ namespace TestApp {
                 return dst;
             }
             if (IsNinaLoaderFormat(path)) {
-                var imageData = await LoadImageDataAsync(path, profileService, isBayered: debayerToLuminance).ConfigureAwait(false);
-                return (debayerToLuminance && imageData.Properties.IsBayered)
-                    ? DebayerToLuminanceMat(imageData, ResolveBayerPattern(imageData, profileService), applyCfaHotpixel, hotpixelThreshold)
-                    : CvImageUtility.ToOpenCVMat(imageData);
+                var imageData = await LoadImageDataAsync(path, profileService, isBayered: false).ConfigureAwait(false);
+                return CvImageUtility.ToOpenCVMat(imageData);
             }
             throw new NotSupportedException($"Unsupported image extension '{ext}'. Supported: .tif/.tiff, .xisf, .fits/.fit");
         }
@@ -146,39 +132,25 @@ namespace TestApp {
                     $"'{Path.GetExtension(path)}' has no NINA loader and no CFA; use LoadFloatMat for it. Supported: .xisf, .fits/.fit");
             }
             var imageData = await LoadImageDataAsync(path, profileService, isBayered: IsBayeredFrameFileName(path)).ConfigureAwait(false);
-            var rendered = imageData.RenderImage();
-            if (imageData.Properties.IsBayered && profileService.ActiveProfile.ImageSettings.DebayerImage) {
-                rendered = rendered.Debayer(saveColorChannels: false, saveLumChannel: false,
-                    bayerPattern: ResolveBayerPattern(imageData, profileService));
-            }
-            return rendered;
+            // The plugin's own seam (the in-NINA wizard's Review step loads through the same call), so the harness
+            // mirrors nothing: the debayer decision, the CFA-pattern precedence, and the fail-loud on an
+            // unresolvable pattern all live in one place.
+            return RenderedImageLoading.ForDetection(imageData, profileService);
         }
 
         /// <summary>
-        /// The DISPLAY/analysis counterpart of <see cref="LoadRenderedImage"/>: a CV_32F [0,1] Mat that is debayered
-        /// to luminance for a bayered frame (so a mosaic does not render as a visible checkerboard) but is NEVER
-        /// CFA hotpixel filtered. Used by the surfaces a human or an LLM looks at (golden tiles, annotated overlays)
-        /// and by the annotated-frame backgrounds — none of which detect. Mono frames and .tif/.tiff take exactly the
-        /// same route as <see cref="LoadFloatMat"/>, so they are byte-identical to today.
+        /// The DISPLAY/detector-INDEPENDENT counterpart of <see cref="LoadRenderedImage"/>: a CV_32F [0,1] Mat that
+        /// is debayered to luminance for a bayered frame (so a mosaic does not render as a visible checkerboard) but
+        /// is NEVER CFA hotpixel filtered. Used by the surfaces a human or an LLM looks at (golden tiles, annotated
+        /// overlays), by the annotated-frame backgrounds, and by the linear export feeding the golden reference —
+        /// none of which detect. Mono frames and .tif/.tiff take exactly the same route as
+        /// <see cref="LoadFloatMat"/>, so they are byte-identical to today.
         /// </summary>
-        public static async Task<Mat> LoadDisplayFloatMat(string path, IProfileService profileService) {
+        public static async Task<Mat> LoadDebayeredFloatMat(string path, IProfileService profileService) {
             if (!IsNinaLoaderFormat(path)) {
                 return await LoadFloatMat(path, profileService).ConfigureAwait(false);
             }
-            return ToDisplayMat(await LoadRenderedImage(path, profileService).ConfigureAwait(false));
-        }
-
-        /// <summary>
-        /// A CV_32F [0,1] Mat for DISPLAY from an already-loaded <see cref="IRenderedImage"/>. A bayered image is
-        /// debayered to luminance (the same <c>ImageUtility.Debayer</c> conversion the detector's OSC path performs,
-        /// minus the CFA hotpixel filter); anything else is <c>ToOpenCVMat</c>, i.e. the raw frame. This is a
-        /// rendering helper only — never a detection input.
-        /// </summary>
-        public static Mat ToDisplayMat(IRenderedImage image) {
-            if (image is IDebayeredImage debayered && !debayered.SaveLumChannel) {
-                return DebayerToLuminanceMat(image.RawImageData, debayered.BayerPattern, applyCfaHotpixel: false, hotpixelThreshold: 0.0);
-            }
-            return CvImageUtility.ToOpenCVMat(image);
+            return RenderedImageLoading.ToDebayeredLuminanceMat(await LoadRenderedImage(path, profileService).ConfigureAwait(false));
         }
 
         private static async Task<IImageData> LoadImageDataAsync(string path, IProfileService profileService, bool isBayered) {
@@ -194,51 +166,6 @@ namespace TestApp {
                 : await FITS.Load(uri, isBayered, factory, CancellationToken.None).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// Resolves the CFA pattern EXACTLY as <c>ImageControlVM.PrepareImage</c> does: the profile's
-        /// <c>CameraSettings.BayerPattern</c> wins when it is not <c>Auto</c>, otherwise the frame's own
-        /// <c>MetaData.Camera.SensorType</c> when it names a real CFA (Mono/Color are placeholder categories, not
-        /// patterns). Live's remaining fallback is the CONNECTED camera's reported sensor type, which a headless run
-        /// has no access to — so rather than silently substituting RGGB (which would debayer the frame with a
-        /// possibly wrong phase and quietly bias every downstream number), this throws.
-        /// </summary>
-        private static SensorType ResolveBayerPattern(IImageData imageData, IProfileService profileService) {
-            var profilePattern = profileService.ActiveProfile.CameraSettings.BayerPattern;
-            if (profilePattern != BayerPatternEnum.Auto) {
-                return (SensorType)profilePattern;
-            }
-            var metadataSensorType = imageData.MetaData?.Camera?.SensorType;
-            if (metadataSensorType.HasValue && metadataSensorType.Value != SensorType.Monochrome && metadataSensorType.Value != SensorType.Color) {
-                return metadataSensorType.Value;
-            }
-            throw new InvalidOperationException(
-                $"Cannot resolve the CFA pattern for a bayered frame: the profile's Camera > Bayer pattern is 'Auto' and the file's " +
-                $"BAYERPAT/SensorType metadata is '{metadataSensorType?.ToString() ?? "absent"}'. Set the profile's Bayer pattern " +
-                $"explicitly (headless runs have no connected camera to fall back on).");
-        }
-
-        /// <summary>
-        /// Debayers a bayered frame to a luminance Mat with <c>ImageUtility.Debayer(saveLumChannel: true)</c> — the
-        /// same conversion <c>StarDetector.PrepareSrcImageFromRenderedImage</c> performs on the OSC path. Optionally
-        /// runs the CFA hotpixel filter on the raw mosaic first (the tilt harness's explicit opt-in); the display and
-        /// linear-export callers pass false, keeping their independent blind spots.
-        /// </summary>
-        private static Mat DebayerToLuminanceMat(IImageData imageData, SensorType bayerPattern, bool applyCfaHotpixel, double hotpixelThreshold) {
-            var props = imageData.Properties;
-            var dataArray = imageData.Data;
-            if (applyCfaHotpixel) {
-                var copy = new ushort[imageData.Data.FlatArray.Length];
-                Buffer.BlockCopy(imageData.Data.FlatArray, 0, copy, 0, copy.Length * sizeof(ushort));
-                var raw = new RawImageData(copy, width: props.Width, height: props.Height);
-                var threshold = (ushort)(hotpixelThreshold * (1 << props.BitDepth));
-                HotpixelFiltering.CFAHotpixelFilter(raw, bayerPattern, threshold);
-                dataArray = new ImageArray(copy);
-            }
-            var bitmapSource = ImageUtility.CreateSourceFromArray(dataArray, props, System.Windows.Media.PixelFormats.Gray16);
-            var debayered = ImageUtility.Debayer(bitmapSource, pf: System.Drawing.Imaging.PixelFormat.Format16bppGrayScale,
-                saveColorChannels: false, saveLumChannel: true, bayerPattern: bayerPattern);
-            return CvImageUtility.ToOpenCVMat(debayered.Data.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
-        }
     }
 
     /// <summary>
@@ -289,7 +216,7 @@ namespace TestApp {
         }
 
         /// <summary>A fresh CV_32F [0,1] Mat for rendering/annotation backgrounds. The caller owns it.</summary>
-        public Mat CreateDisplayMat() => rendered != null ? DiagnosticUtil.ToDisplayMat(rendered) : mat.Clone();
+        public Mat CreateDisplayMat() => rendered != null ? RenderedImageLoading.ToDebayeredLuminanceMat(rendered) : mat.Clone();
 
         public void Dispose() => mat?.Dispose();
     }

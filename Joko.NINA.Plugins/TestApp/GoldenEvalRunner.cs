@@ -261,7 +261,7 @@ namespace TestApp {
                 if (annotate) {
                     // Display only (debayered luminance for an OSC frame, never CFA-filtered) — the overlay boxes
                     // are full-frame pixel coordinates, which the debayer preserves.
-                    using var displayMat = DiagnosticUtil.ToDisplayMat(rendered);
+                    using var displayMat = RenderedImageLoading.ToDebayeredLuminanceMat(rendered);
                     WriteAnnotated(displayMat, gf, stars, match, runOut, frame.FocuserPosition);
                 }
             }

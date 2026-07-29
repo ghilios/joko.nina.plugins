@@ -45,6 +45,44 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public int FocuserPosition { get; set; }
         public int BitDepth { get; set; }
         public bool IsBayered { get; set; }
+
+        /// <summary>
+        /// The AF engine's saved-frame filename pattern. This is the ONLY place it is written down: the engine's
+        /// own attempt loader, the wizard's Review loader, and the offline harness all parse through
+        /// <see cref="TryParseFileName"/>, because <c>_BayeredN_</c> is what tells a loader whether a frame is a
+        /// CFA mosaic — and a loader that gets that wrong detects on the wrong image.
+        /// </summary>
+        private static readonly System.Text.RegularExpressions.Regex FileNameRegex = new System.Text.RegularExpressions.Regex(
+            @"^(?<IMAGE_INDEX>\d+)_Frame(?<FRAME_NUMBER>\d+)_BitDepth(?<BITDEPTH>\d+)_Bayered(?<BAYERED>\d)_Focuser(?<FOCUSER>\d+)(_HFR(?<HFR>(\d+)(\.\d+)?))?$",
+            System.Text.RegularExpressions.RegexOptions.Compiled | System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        /// <summary>
+        /// Parses an AF-engine saved-frame path into its descriptor, or returns null when the name does not match
+        /// the engine's pattern (an arbitrary image a diagnostic tool was pointed at, an annotation PNG, a result
+        /// JSON). <see cref="Path"/> is set to <paramref name="path"/> verbatim; the extension is ignored.
+        /// </summary>
+        public static SavedAutoFocusImage TryParseFileName(string path) {
+            if (string.IsNullOrEmpty(path)) {
+                return null;
+            }
+            var match = FileNameRegex.Match(System.IO.Path.GetFileNameWithoutExtension(path) ?? string.Empty);
+            if (!match.Success
+                || !int.TryParse(match.Groups["IMAGE_INDEX"].Value, out var imageIndex)
+                || !int.TryParse(match.Groups["FRAME_NUMBER"].Value, out var frameNumber)
+                || !int.TryParse(match.Groups["FOCUSER"].Value, out var focuserPosition)
+                || !int.TryParse(match.Groups["BITDEPTH"].Value, out var bitDepth)
+                || !int.TryParse(match.Groups["BAYERED"].Value, out var isBayeredInt)) {
+                return null;
+            }
+            return new SavedAutoFocusImage() {
+                Path = path,
+                ImageNumber = imageIndex,
+                FrameNumber = frameNumber,
+                FocuserPosition = focuserPosition,
+                BitDepth = bitDepth,
+                IsBayered = isBayeredInt != 0
+            };
+        }
     }
 
     /// <summary>

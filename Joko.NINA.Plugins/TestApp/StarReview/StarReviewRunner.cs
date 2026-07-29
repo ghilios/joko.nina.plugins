@@ -159,7 +159,7 @@ namespace TestApp.StarReview {
             var reviews = FrameReviewBuilder.BuildAsync(
                 descriptors, detectionParams, detector,
                 renderedImageLoader: framePath => DiagnosticUtil.LoadRenderedImage(framePath, profileService),
-                displayMatLoader: framePath => DiagnosticUtil.LoadDisplayFloatMat(framePath, profileService),
+                displayMatLoader: framePath => DiagnosticUtil.LoadDebayeredFloatMat(framePath, profileService),
                 CancellationToken.None).GetAwaiter().GetResult();
 
             var allFrames = new List<StarReviewFrame>();

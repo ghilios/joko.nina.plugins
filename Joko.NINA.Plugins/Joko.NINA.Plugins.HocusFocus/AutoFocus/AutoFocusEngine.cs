@@ -3000,7 +3000,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private static readonly Regex ATTEMPT_REGEX = new Regex(@"^attempt(?<ATTEMPT>\d+)$", RegexOptions.Compiled);
-        private static readonly Regex IMAGE_FILE_REGEX = new Regex(@"^(?<IMAGE_INDEX>\d+)_Frame(?<FRAME_NUMBER>\d+)_BitDepth(?<BITDEPTH>\d+)_Bayered(?<BAYERED>\d)_Focuser(?<FOCUSER>\d+)(_HFR(?<HFR>(\d+)(\.\d+)?))?$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         public SavedAutoFocusAttempt LoadSavedFinalAttempt(string path) {
             var attemptFolder = new DirectoryInfo(path);
@@ -3036,36 +3035,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var allFiles = attemptFolder.GetFiles();
             var savedImages = new List<SavedAutoFocusImage>();
             foreach (var file in allFiles) {
-                var fileNameNoExtension = Path.GetFileNameWithoutExtension(file.Name);
-                var match = IMAGE_FILE_REGEX.Match(fileNameNoExtension);
-                if (!match.Success) {
+                // SavedAutoFocusImage owns the file-name pattern (see SavedAutoFocusImage.TryParseFileName): the
+                // wizard's Review loader and the offline harness need the same _BayeredN_ token to decide whether a
+                // frame is a CFA mosaic, and a second copy of this regex is exactly how they came to disagree.
+                var savedImage = SavedAutoFocusImage.TryParseFileName(file.FullName);
+                if (savedImage == null) {
                     continue;
                 }
-                if (!int.TryParse(match.Groups["IMAGE_INDEX"].Value, out var imageIndex)) {
-                    continue;
-                }
-                if (!int.TryParse(match.Groups["FRAME_NUMBER"].Value, out var frameNumber)) {
-                    continue;
-                }
-                if (!int.TryParse(match.Groups["FOCUSER"].Value, out var focuserPosition)) {
-                    continue;
-                }
-                if (!int.TryParse(match.Groups["BITDEPTH"].Value, out var bitdepth)) {
-                    continue;
-                }
-                if (!int.TryParse(match.Groups["BAYERED"].Value, out var isBayeredInt)) {
-                    continue;
-                }
-
-                var isBayered = isBayeredInt != 0;
-                var savedImage = new SavedAutoFocusImage() {
-                    Path = file.FullName,
-                    BitDepth = bitdepth,
-                    IsBayered = isBayered,
-                    FocuserPosition = focuserPosition,
-                    FrameNumber = frameNumber,
-                    ImageNumber = imageIndex,
-                };
                 savedImages.Add(savedImage);
             }
             if (savedImages.Count < minNumImages) {

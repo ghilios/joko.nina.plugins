@@ -1128,7 +1128,7 @@ namespace TestApp {
                     // full-frame pixel coordinates, which the debayer preserves.
                     var rendered = (IRenderedImage)frame.Image;
                     var result = await detector.Detect(rendered, optimizedParams, null, CancellationToken.None).ConfigureAwait(false);
-                    using var srcFloat = DiagnosticUtil.ToDisplayMat(rendered);
+                    using var srcFloat = RenderedImageLoading.ToDebayeredLuminanceMat(rendered);
 
                     var fileName = $"{SanitizeFileName(run.Discovered.RunId)}_Focuser{frame.FocuserPosition}_optimized.png";
                     var outPath = Path.Combine(outDir, fileName);

@@ -15,6 +15,7 @@ using Newtonsoft.Json.Serialization;
 using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Utility;
+using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Inspection;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
@@ -54,10 +55,12 @@ namespace TestApp {
     /// <see cref="StarDetectorParams"/>, never to the profile. The optimization result is persisted only to the
     /// dataset's own <c>&lt;name&gt;.tilt.json</c> metadata file (which this tool owns).
     ///
-    /// NOTE on detection: like the headless <c>optimize</c> harness, detection runs on the loaded float Mats and
-    /// (for bayered frames) is not debayered through NINA's render pipeline — the two harnesses therefore use an
-    /// identical detection representation. Tilt is a relative cross-region measure of the focus-curve minimum, so
-    /// a uniform detection bias largely cancels in the tilt plane.
+    /// NOTE on detection: like the headless <c>optimize</c> harness, every frame is loaded as the
+    /// <see cref="IRenderedImage"/> the LIVE app detects on (<c>DiagnosticUtil.LoadRenderedImage</c>) and detected
+    /// through the plugin's own <c>RunEvaluationLoader.HocusFocusSplitFrameDetector</c>, so the CFA hotpixel filter
+    /// and the debayer happen inside <c>Detect</c> at the caller's params. That matters most HERE: the wizard
+    /// calibrates a per-star sensor-model tilt, and detecting a bayered run on the raw Bayer mosaic biases exactly
+    /// that measurement.
     /// </summary>
     internal static class TiltCalibrationRunner {
 
@@ -96,10 +99,16 @@ namespace TestApp {
 
             var profileId = DiagnosticUtil.GetArg(args, "--profile-id");
             bool reoptimize = DiagnosticUtil.HasFlag(args, "--reoptimize");
-            // Match the live app: when the profile debayers (ImageSettings.DebayerImage), detection runs on the
-            // debayered luminance, not the raw Bayer mosaic. The wizard's per-star sensor-model tilt is sensitive
-            // to this, so replaying a bayered run faithfully requires it.
-            bool debayer = DiagnosticUtil.HasFlag(args, "--debayer");
+            // --debayer used to be the opt-in that debayered bayered frames at load time. Matching the live app is
+            // now unconditional (and profile-gated on ImageSettings.DebayerImage, which is what live gates it on),
+            // so the flag has nothing left to switch. Accepted-and-warned rather than rejected: a script that still
+            // passes it gets exactly the behaviour it asked for, and hears that it need not ask.
+            if (DiagnosticUtil.HasFlag(args, "--debayer")) {
+                Console.Error.WriteLine(
+                    "WARNING: --debayer is obsolete and ignored. Detection now always runs on the image the live app " +
+                    "detects on (the CFA hotpixel filter and the debayer happen inside Detect, at the detection params), " +
+                    "gated on the profile's Image Options > Debayer image exactly as the app gates it.");
+            }
             int? maxEvals = null;
             var maxEvalsArg = DiagnosticUtil.GetArg(args, "--max-evals");
             if (!string.IsNullOrWhiteSpace(maxEvalsArg)) {
@@ -168,6 +177,16 @@ namespace TestApp {
             var afOptions = new AutoFocusOptions(profileService);
             var inspectorOptions = new InspectorOptions(profileService);
             var alglibAPI = new AlglibAPI();
+            // The plugin's OWN detection facade, so this harness drives the wizard's split detector (and its
+            // FrameDetectionResult mapping) rather than a copy of it. Only GetInfo() and the inner StarDetector are
+            // exercised; the rest are headless stubs.
+            var detection = new HocusFocusStarDetection(
+                imageStatisticsVM: null,
+                profileService: profileService,
+                focuserMediator: new StubFocuserMediator(),
+                starDetectionOptions: starDetectionOptions,
+                alglibAPI: alglibAPI,
+                perFilterStore: new StubPerFilterStarDetectionStore());
 
             // Map the run folders to the wizard steps (explicit override in metadata, else folder-name order).
             var orderedRuns = MapRunsToSteps(metadata, runFolders, datasetDir);
@@ -182,11 +201,12 @@ namespace TestApp {
             // optimizer is forced via --reoptimize. The result is applied only to this transient params object.
             var (detectionParams, optimizationSource) = await ResolveDetectionParamsAsync(
                 metadata, metadataPath, outDir, reoptimize, maxEvals, orderedRuns,
-                profileService, starDetectionOptions, afOptions, alglibAPI, pixelScale, debayer).ConfigureAwait(false);
+                profileService, starDetectionOptions, afOptions, detection, alglibAPI, pixelScale).ConfigureAwait(false);
             Console.WriteLine($"Detection params: source={optimizationSource}, Sensitivity={F(detectionParams.Sensitivity)}, " +
                 $"StarClippingMultiplier={F(detectionParams.StarClippingMultiplier)}, StructureLayers={detectionParams.StructureLayers}, " +
                 $"DefocusAwareDonutDetection={detectionParams.DefocusAwareDonutDetection}");
-            Console.WriteLine($"Debayer bayered frames to luminance (match live app): {debayer}");
+            Console.WriteLine($"Detection representation: the live app's (debayer + CFA hotpixel filter inside Detect); " +
+                $"profile Debayer image = {activeProfile.ImageSettings.DebayerImage}");
 
             // Measure the tilt plane for each run.
             var detector = new StarDetector(alglibAPI);
@@ -197,9 +217,9 @@ namespace TestApp {
             foreach (var run in orderedRuns) {
                 Console.WriteLine($"Measuring 4-corner tilt for {run.Step} ({Path.GetFileName(run.Folder)}, {run.Frames.Count} frames × 5 regions) ...");
                 var sw4c = System.Diagnostics.Stopwatch.StartNew();
-                var stepResult = await MeasureTiltAsync(run, detector, detectionParams, regions, fRatio,
-                    metadata.FocuserStepSizeMicrons, metadata.PixelSizeMicrons, starDetectionOptions.MeasurementAverage,
-                    profileService, alglibAPI, afOptions.HyperbolicFitModel, debayer).ConfigureAwait(false);
+                var stepResult = await MeasureTiltAsync(run, detection, detectionParams, regions, fRatio,
+                    metadata.FocuserStepSizeMicrons, metadata.PixelSizeMicrons,
+                    profileService, alglibAPI, afOptions.HyperbolicFitModel).ConfigureAwait(false);
                 perStep.Add(stepResult);
                 Console.WriteLine($"    [4-corner {run.Step}] done in {sw4c.ElapsedMilliseconds} ms");
                 Console.WriteLine($"    A={F(stepResult.Gradient.A)}, B={F(stepResult.Gradient.B)}, " +
@@ -241,7 +261,7 @@ namespace TestApp {
                 Console.WriteLine($"Paraboloid (per-star) tilt for {run.Step} ...");
                 var mean = byStep[run.Step].Gradient.MeanFocuserPosition;
                 var ps = await MeasureTiltViaParaboloidAsync(run, detector, detectionParams, metadata.FocuserStepSizeMicrons,
-                    metadata.PixelSizeMicrons, mean, profileService, inspectorOptions, afOptions, alglibAPI, debayer,
+                    metadata.PixelSizeMicrons, mean, profileService, inspectorOptions, afOptions, alglibAPI,
                     diagDir: Path.Combine(outDir, "diag")).ConfigureAwait(false);
                 paraboloidSteps.Add(ps);
                 Console.WriteLine(ps.Fitted
@@ -369,7 +389,7 @@ namespace TestApp {
         private static async Task<(StarDetectorParams Params, string Source)> ResolveDetectionParamsAsync(
             TiltCalibrationMetadata metadata, string metadataPath, string outDir, bool reoptimize, int? maxEvals,
             List<RunStep> orderedRuns, ProfileService profileService, StarDetectionOptions starDetectionOptions,
-            AutoFocusOptions afOptions, AlglibAPI alglibAPI, double pixelScale, bool debayer) {
+            AutoFocusOptions afOptions, IHocusFocusStarDetection detection, AlglibAPI alglibAPI, double pixelScale) {
 
             StarDetectorParams ApplyAfContext(StarDetectorParams p) {
                 p.PixelScale = pixelScale;
@@ -398,27 +418,35 @@ namespace TestApp {
                 seed.DefocusAwareDonutDetection = true;
                 baseline.DefocusAwareDonutDetection = true;
             }
+            // Output-neutral and excluded from the detection cache key: the optimizer re-detects every frame per
+            // candidate and the plugin logs a per-region "Average HFR" INFO line each time. Exactly what the wizard
+            // sets, for exactly the same reason.
+            seed.SuppressInfoLogging = true;
+            baseline.SuppressInfoLogging = true;
 
-            var detector = new StarDetector(alglibAPI);
-            var measurementAverage = starDetectionOptions.MeasurementAverage;
             var objectiveConstants = new ObjectiveConstants();
 
-            var loaded = new List<(RunStep Run, List<(int Focuser, Mat Mat)> Frames, RunEvaluationData Data)>();
+            var loaded = new List<(RunStep Run, RunEvaluationData Data)>();
             try {
                 foreach (var run in orderedRuns) {
-                    var mats = await LoadRunMatsAsync(run, profileService, debayer).ConfigureAwait(false);
-                    var frames = mats.Select(m => new RunFrame { FrameId = m.Path, FocuserPosition = m.Focuser, Image = m.Mat }).ToList();
+                    var images = await LoadRunImagesAsync(run, profileService).ConfigureAwait(false);
+                    var frames = images.Select(m => new RunFrame { FrameId = m.Path, FocuserPosition = m.Focuser, Image = m.Image }).ToList();
                     var stepSize = InferStepSize(run.Frames.Select(f => f.Focuser));
                     var fitConfig = new RunFitConfig {
                         StepSize = stepSize,
                         UseWeights = afOptions.WeightedHyperbolicFitEnabled,
                         MaxOutlierRejections = afOptions.MaxOutlierRejections,
                         RejectionConfidence = afOptions.OutlierRejectionConfidence,
-                        PreferredModel = null
+                        // Was hard-coded null while the wizard's loader passes afOptions.HyperbolicFitModel.
+                        PreferredModel = afOptions.HyperbolicFitModel
                     };
-                    var splitDetector = new MatSplitFrameDetector(detector, measurementAverage, HighSigmaOutlierRejection, LowSigmaOutlierRejection);
+                    // The WIZARD'S OWN split detector over the IRenderedImage the live app detects on, so the CFA
+                    // hotpixel filter and the debayer run inside Detect at each candidate's params — which is what
+                    // keeps HotpixelThreshold/HotpixelThresholdingEnabled meaningful as SEARCHED axes.
+                    var splitDetector = new RunEvaluationLoader.HocusFocusSplitFrameDetector(
+                        detection, new HocusFocusDetectionParams { IsAutoFocus = true, NumberOfAFStars = 0 });
                     var data = new RunEvaluationData(run.Folder, frames, splitDetector, alglibAPI, fitConfig, null);
-                    loaded.Add((run, mats.Select(m => (m.Focuser, m.Mat)).ToList(), data));
+                    loaded.Add((run, data));
                 }
 
                 var settings = new OptimizerSettings();
@@ -457,12 +485,12 @@ namespace TestApp {
                 var detectionParams = ApplyAfContext(CloneParamsViaDefault(result.BestParams));
                 return (detectionParams, reoptimize ? "reoptimized" : "optimized");
             } finally {
+                // An IRenderedImage is not IDisposable; disposing the RunEvaluationData frees the cached early
+                // detection contexts, and dropping the list releases the frames.
                 foreach (var l in loaded) {
                     l.Data?.Dispose();
-                    foreach (var (_, mat) in l.Frames) {
-                        mat?.Dispose();
-                    }
                 }
+                loaded.Clear();
             }
         }
 
@@ -516,26 +544,32 @@ namespace TestApp {
         }
 
         private static async Task<StepResult> MeasureTiltAsync(
-            RunStep run, StarDetector detector, StarDetectorParams baseParams, List<StarDetectionRegion> regions,
-            double fRatio, double focuserStepMicrons, double pixelSizeMicrons, MeasurementAverageEnum measurementAverage,
-            ProfileService profileService, IAlglibAPI alglibAPI, HyperbolicFitModel hyperbolicModel, bool debayer) {
+            RunStep run, IHocusFocusStarDetection detection, StarDetectorParams baseParams, List<StarDetectionRegion> regions,
+            double fRatio, double focuserStepMicrons, double pixelSizeMicrons,
+            ProfileService profileService, IAlglibAPI alglibAPI, HyperbolicFitModel hyperbolicModel) {
 
-            var mats = await LoadRunMatsAsync(run, profileService, debayer).ConfigureAwait(false);
+            // The wizard's own split detector: BuildContext + GateAndMeasure IS Detect, and its FrameDetectionResult
+            // mapping (HFR aggregation at the HocusFocusDetectionParams defaults, high 4.0 / low 3.0) is by
+            // definition the wizard's rather than a harness copy of it.
+            var splitDetector = new RunEvaluationLoader.HocusFocusSplitFrameDetector(
+                detection, new HocusFocusDetectionParams { IsAutoFocus = true, NumberOfAFStars = 0 });
+            var images = await LoadRunImagesAsync(run, profileService).ConfigureAwait(false);
             try {
-                var imageSize = new DrawingSize(mats[0].Mat.Width, mats[0].Mat.Height);
+                var firstProps = images[0].Image.RawImageData.Properties;
+                var imageSize = new DrawingSize(firstProps.Width, firstProps.Height);
 
                 // Per region (1..5): collect (focuser, HFR, sigma) then fit the focus curve -> minimum.
                 var regionFinal = new double[6];
                 var regionR2 = new double[6];
                 for (int ri = 1; ri <= 5; ri++) {
                     var region = regions[ri];
-                    var points = new List<ScatterErrorPoint>(mats.Count);
-                    foreach (var (focuser, _, mat) in mats) {
+                    var points = new List<ScatterErrorPoint>(images.Count);
+                    foreach (var (focuser, _, image) in images) {
                         baseParams.Region = region;
-                        using var frameCopy = mat.Clone(); // Detect mutates its input
-                        var result = await detector.Detect(frameCopy, baseParams, progress: null, CancellationToken.None).ConfigureAwait(false);
-                        var agg = HarnessDetection.ToFrameDetectionResult(result, measurementAverage, HighSigmaOutlierRejection, LowSigmaOutlierRejection, imageSize,
-                            baseParams.ExcludeSaturatedStarsFromHFR, baseParams.SaturationThreshold);
+                        // Detect(IRenderedImage, ...) builds its own source Mat per call, so nothing is cloned and
+                        // nothing is mutated: the same loaded frame serves all 5 regions.
+                        using var ctx = await splitDetector.BuildContextAsync(image, baseParams, CancellationToken.None).ConfigureAwait(false);
+                        var agg = splitDetector.GateAndMeasure(ctx, baseParams);
                         if (agg.AverageHFR > 0 && agg.StarCount > 1) {
                             var sigma = agg.HFRStdDev > 0 ? agg.HFRStdDev : 1.0;
                             points.Add(new ScatterErrorPoint(focuser, agg.AverageHFR, 0, sigma));
@@ -564,9 +598,8 @@ namespace TestApp {
                     RegionPositions = regionFinal.Select(d => (int)Math.Round(d)).ToArray()
                 };
             } finally {
-                foreach (var (_, _, mat) in mats) {
-                    mat?.Dispose();
-                }
+                // An IRenderedImage is not IDisposable; dropping the list releases the frames.
+                images.Clear();
             }
         }
 
@@ -593,10 +626,10 @@ namespace TestApp {
         private static async Task<ParaboloidStepResult> MeasureTiltViaParaboloidAsync(
             RunStep run, StarDetector detector, StarDetectorParams baseParams, double focuserStepMicrons,
             double pixelSizeMicrons, double fourCornerMean, ProfileService profileService,
-            InspectorOptions inspectorOptions, AutoFocusOptions afOptions, IAlglibAPI alglibAPI, bool debayer,
+            InspectorOptions inspectorOptions, AutoFocusOptions afOptions, IAlglibAPI alglibAPI,
             string diagDir = null) {
 
-            var mats = await LoadRunMatsAsync(run, profileService, debayer).ConfigureAwait(false);
+            var images = await LoadRunImagesAsync(run, profileService).ConfigureAwait(false);
             try {
                 // Opt-in observation-only diagnostics: per-star/point/iteration CSV dumps of this step's
                 // sensor-model fit, named after the step (e.g. Screw1_points.csv). Cleared in the finally below.
@@ -604,20 +637,22 @@ namespace TestApp {
                     SensorModel.DiagnosticsDirectory = diagDir;
                     SensorModel.DiagnosticsLabel = run.Step;
                 }
-                var imageSize = new DrawingSize(mats[0].Mat.Width, mats[0].Mat.Height);
-                var sensorFrames = new List<SensorDetectedStars>(mats.Count);
+                var firstProps = images[0].Image.RawImageData.Properties;
+                var imageSize = new DrawingSize(firstProps.Width, firstProps.Height);
+                var sensorFrames = new List<SensorDetectedStars>(images.Count);
                 baseParams.Region = StarDetectionRegion.Full;
                 int fi = 0;
-                foreach (var (focuser, _, mat) in mats) {
+                foreach (var (focuser, _, image) in images) {
                     var swDet = System.Diagnostics.Stopwatch.StartNew();
-                    using var frameCopy = mat.Clone();
-                    var result = await detector.Detect(frameCopy, baseParams, progress: null, CancellationToken.None).ConfigureAwait(false);
+                    // Detect(IRenderedImage, ...) — the live app's entry point, so the CFA hotpixel filter and the
+                    // debayer happen inside detection at baseParams. It builds its own source Mat, so no clone.
+                    var result = await detector.Detect(image, baseParams, progress: null, CancellationToken.None).ConfigureAwait(false);
                     var stars = result.DetectedStars ?? new List<Star>();
                     var starList = stars.Select(HocusFocusStarDetection.ToDetectedStar)
                         .OrderBy(s => s.Position.Y * (long)imageSize.Width + s.Position.X).ToList();
                     sensorFrames.Add(new SensorDetectedStars(
                         focuser, new HocusFocusStarDetectionResult { StarList = starList, ImageSize = imageSize }, image: null));
-                    Console.WriteLine($"    [paraboloid {run.Step}] full-sensor detect {++fi}/{mats.Count} focuser {focuser}: {starList.Count} stars ({swDet.ElapsedMilliseconds} ms)");
+                    Console.WriteLine($"    [paraboloid {run.Step}] full-sensor detect {++fi}/{images.Count} focuser {focuser}: {starList.Count} stars ({swDet.ElapsedMilliseconds} ms)");
                 }
 
                 int stepSize = InferStepSize(run.Frames.Select(f => f.Focuser));
@@ -669,9 +704,7 @@ namespace TestApp {
             } finally {
                 SensorModel.DiagnosticsDirectory = null;
                 SensorModel.DiagnosticsLabel = null;
-                foreach (var (_, _, mat) in mats) {
-                    mat?.Dispose();
-                }
+                images.Clear();
             }
         }
 
@@ -705,11 +738,17 @@ namespace TestApp {
 
         // ---- Image loading + regions ----------------------------------------------------------------------
 
-        private static async Task<List<(int Focuser, string Path, Mat Mat)>> LoadRunMatsAsync(RunStep run, ProfileService profileService, bool debayer) {
-            var result = new List<(int, string, Mat)>(run.Frames.Count);
+        /// <summary>
+        /// Loads a step's frames as the <see cref="IRenderedImage"/>s the LIVE app detects on, so a bayered run is
+        /// not measured on its raw Bayer mosaic. Detection reads them without mutating them (Detect and
+        /// BuildDetectionContext each build their own source Mat), so one load per frame serves every region and
+        /// every candidate evaluation.
+        /// </summary>
+        private static async Task<List<(int Focuser, string Path, IRenderedImage Image)>> LoadRunImagesAsync(RunStep run, ProfileService profileService) {
+            var result = new List<(int, string, IRenderedImage)>(run.Frames.Count);
             foreach (var (focuser, path) in run.Frames.OrderBy(f => f.Focuser)) {
-                var mat = await DiagnosticUtil.LoadFloatMat(path, profileService, debayer).ConfigureAwait(false);
-                result.Add((focuser, path, mat));
+                var image = await DiagnosticUtil.LoadRenderedImage(path, profileService).ConfigureAwait(false);
+                result.Add((focuser, path, image));
             }
             return result;
         }
@@ -953,7 +992,7 @@ namespace TestApp {
             Console.Error.WriteLine("  --profile-id (default active) NINA profile id (settings + focal length).");
             Console.Error.WriteLine("  --out        (default %LOCALAPPDATA%\\NINA\\Logs\\hf-diag\\tilt\\<timestamp>) output directory.");
             Console.Error.WriteLine("  --reoptimize force re-running star-detection optimization and overwrite the stored settings in metadata.");
-            Console.Error.WriteLine("  --debayer    debayer bayered frames to luminance before detection (matches the live app when the profile debayers); required to reproduce the wizard's per-star sensor-model tilt on a bayered run.");
+            Console.Error.WriteLine("  --debayer    OBSOLETE and ignored: detection always runs on the image the live app detects on (profile-gated debayer + the CFA hotpixel filter, both inside Detect).");
             Console.Error.WriteLine("  --max-evals  (optional) override the optimizer's MaxEvaluations budget.");
             Console.Error.WriteLine("Metadata lives at <parent>/<datasetName>.tilt.json; a template is written if it is missing.");
         }
