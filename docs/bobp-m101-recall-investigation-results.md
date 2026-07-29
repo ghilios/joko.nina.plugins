@@ -213,8 +213,16 @@ Per the plan, no objective constant was changed in this branch. On the evidence:
   corner scores **precision 0.965** at recall@≥12 0.617. It is not a precision disaster.
 - So the star-rich corner now **dominates** the shedding corner on both axes (0.617 @ 0.965 vs 0.117 @ 1.000),
   and a tie-breaker that pushes the optimizer away from shedding is more clearly correct, not less.
-- Consistent with this, a fresh `optimize` on the corrected representation lands at **sens 0 / clip 0.25** — the
-  star-rich corner — and `--params optimized` reproduces the config-F row above exactly.
+- **The optimizer does *not* reliably avoid the shedding corner, and this is by design rather than a `Wtie`
+  failure.** Three separate `optimize --per-run` invocations on the corrected representation landed `bobp_m101` at
+  three different points — `sens 0 / clip 0.25` (2026-07-29 05:24), `sens 0 / clip 6.875` (prepass A) and
+  `sens 30.1 / clip 3.44` (prepass B, donut-on) — so a single landing is not evidence about the corner the
+  optimizer prefers. Bank-wide the A/B configs shed heavily on most runs (see
+  `verification_20260729T205904Z.md`): `timmer` B at `sens 33.3 / clip 7.0` scores recall@≥12 **0.055**, and
+  `mccomiskey` A at `clip 10.0` (the ceiling) scores **0.079** against C0's 0.869. That is the documented
+  behaviour of the optimizer — it optimises σ_focus, not star count, and `Wtie` only arbitrates *genuine*
+  plateaus, so a real σ improvement still wins as intended. It does mean the tie-breaker should not be described
+  as preventing star-shedding in general; what it prevents is shedding chosen on a σ-wiggle.
 
 **Caveat on the precision comparison:** row (c)'s 0.572 was measured at sens 0 / **clip 0.375** on the mosaic, and
 the 0.965 here is at sens 0 / **clip 0.25** on luminance. They are not the same operating point, so treat

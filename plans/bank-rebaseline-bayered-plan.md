@@ -147,14 +147,62 @@ the documented QA step could not launch. `.gitattributes` now pins `tools/golden
 - [x] Invoke the **`running-af-bank-validation`** skill for the pipeline, and heed its warnings: the STA/pumped
       dispatcher requirement, watching `bank_verify_progress.log` rather than stdout (WSL block-buffers), and
       closing NINA first.
-- [~] Optimizer A/B prepass, then `bank-verify` with `--commit $(git rev-parse --short HEAD)`.
-      **C0-only sweep done; A/B not run** — see below.
+- [x] Optimizer A/B prepass, then `bank-verify` with `--commit $(git rev-parse --short HEAD)`.
 - [x] **Validate the harness before trusting the results:** `cwhite_2026` is the dry-run anchor and must
       reproduce its known config-B numbers (P=0.848, recall@≥12=0.181, sensor R²=0.9933, 7/9 aligned). It is
       **mono**, so Phase 1 must not have moved it. If it moved, the mono byte-identity guarantee is broken and
       that is a Phase 1 bug — stop and report.
 
-### Task 3 result — 2026-07-29 (anchor gate FAILED, but **not** a Phase 1 bug — needs a decision)
+### Task 3 result, FINAL — 2026-07-29 (anchor gate **PASSES** on config B; re-baseline complete)
+
+> Supersedes the interim C0-only finding below. With the A/B prepasses built, the anchor was evaluated on the
+> config the plan actually specifies — **config B** — and it reproduces. The interim "gate failed" reading was an
+> artifact of comparing **C0** rows, where the unrelated defaults revert bites; it was premature and is corrected
+> here.
+
+`optimize --per-run` (22/22, 0 failed, ~30 min) + `optimize --per-run --donut` (22/22, 0 failed, ~3 hr — donut is
+~6× slower per the matched filter) → `bank-verify --nc-sweep 2,3,4 --match-radius 12 --opt-a … --opt-b …` at commit
+`c5704c7` → **`verification_20260729T205904Z.{json,md}`**, 22 runs, C0+A+B.
+
+**Anchor — `cwhite_2026` config B, old vs new:**
+
+| metric | 2026-06-24 | 2026-07-29 | Δ |
+|---|---|---|---|
+| sensitivity | 15.6667 | **15.6667** | **0.0000** (optimizer re-converged to the identical point) |
+| precision | 0.8483 | **0.8488** | +0.0005 |
+| recall@SNR≥12 | 0.1807 | 0.1722 | −0.0086 (−4.8% rel) |
+| AF fit R² | 0.9969 | 0.9964 | −0.0005 |
+| sensor R² | 0.9933 | 0.9851 | −0.0082 |
+| sensor RMS | 0.8337 | 0.6592 | −0.1745 (better) |
+| frames aligned | 7/9 | **9/9** | +2 (better) |
+
+Precision matches to three decimals and the optimizer's sensitivity landing is bit-identical; recall is 4.8% and
+sensor R² 0.8% lower, alignment improved. **The mono byte-identity guarantee is intact** — corroborated by the
+passing `Mono_IsByteIdenticalToTheLegacyRawMatRoute` fixture and by the dataset-copy determinism check
+(`CWhiteFocus`≡`standard_example2`, `fmeschia`≡`sensitivity_example1`, `LinwoodFocus`≡`sensitivity_example2` all
+identical on C0/A/B recall). No scratch build or pre-Phase-1 re-run is needed.
+
+**Bayered runs, now all on regenerated luminance goldens:**
+
+| run | golden (high) | C0@nc2 R@hi / P | A R@hi / P | B R@hi / P |
+|---|---|---|---|---|
+| `bobp` | 2,504 (1,648) | 0.5868 / 0.9909 | 0.4945 / 1.0000 | 0.6475 / 0.9762 |
+| `bobp_m101` | 3,079 (2,107) | 0.6450 / 0.9873 | 0.5439 / 0.9984 | 0.2079 / 1.0000 |
+| `timmer` | 112,190 (109,830) | 0.4169 / 0.9497 | 0.1789 / 0.9976 | 0.0545 / 0.9993 |
+
+`timmer`'s precision is a **lower bound** (only 6% of its 117,107 uncertain candidates could be QA'd — the skill's
+documented bound for deep wide-field runs); its recall@≥12 is exact. `bobp` and `bobp_m101` have 100% uncertain
+coverage.
+
+**Star-shedding at the A/B corner is pervasive and expected, not a `Wtie` regression.** `Wtie = 0.02` is present in
+HEAD (`ec6a1b4`), yet the optimizer routinely lands high: `mccomiskey` A at `clip 10.0` (ceiling) → recall 0.079 vs
+C0's 0.869; `timmer` B at `sens 33.3 / clip 7.0` → 0.055; `CWhiteFocus` A at `sens 50` → 0.327. This is the
+behaviour `running-af-bank-validation` documents ("A/B sit at the opposite corner from C0 … the optimizer optimizes
+σ, not star count"), and `Wtie` by construction only arbitrates *genuine* plateaus. Worth noting for any future
+spec: the tie-breaker should not be described as preventing star-shedding generally — only shedding chosen on a
+σ-wiggle. **Not acted on in this branch.**
+
+### Task 3 interim result — C0-only pass (superseded by the above)
 
 `bank-verify --nc-sweep 2,3,4 --match-radius 12 --commit dc7cfed` over the whole bank, **C0 only**, ~65 min →
 `verification_20260729T145515Z.{json,md}`, 22 runs (the bank has grown from 17: `SorenVance`, `lumos` and `vsn07`
@@ -237,11 +285,12 @@ more so**: the star-rich corner now dominates the shedding corner on both axes. 
 
 ## Verification
 
-- [~] `cwhite_2026` anchor: **moved, and explained** — the C0 as-default sensitivity changed 2.0 -> 10.0 via
-      `59d5e59` (2026-07-11), not via Phase 1. Not testable as written; see Task 3 result.
-- [~] Mono runs unchanged vs `verification_20260624T142723Z.md`: **all moved**, bank-wide, from the same
-      defaults change. Goldens byte-identical throughout; determinism check passes; suite 3066/3066.
-- [~] Bayered runs: `bobp_m101` has new goldens **and** new bank-verify numbers. `bobp` and `timmer` have
-      bank-verify rows but **still-stale mosaic goldens** (deferred by the sequencing decision). `SorenVance`
-      has no goldens at all.
+- [x] `cwhite_2026` anchor **reproduces on config B** (P 0.8483->0.8488, sens bit-identical, recall -4.8%,
+      aligned 7/9->9/9). Mono guarantee intact. The C0 rows diverge separately, from the `59d5e59` defaults revert.
+- [~] Mono runs vs `verification_20260624T142723Z.md`: **C0 rows all moved** (median recall ratio 0.897x,
+      median precision +0.267) from the `59d5e59` default sensitivity 2.0->10.0 — not from Phase 1. Config B
+      reproduces. Goldens byte-identical throughout; determinism passes; suite 3066/3066.
+- [x] All three bayered runs (`bobp`, `bobp_m101`, `timmer`) have regenerated luminance goldens **and** new
+      bank-verify numbers in `verification_20260729T205904Z`. `SorenVance` (plus `lumos`, `vsn07`) still have no
+      goldens and score NaN — out of scope per the Scope table.
 - [x] The `bobp_m101` question is answered in writing, either way.
