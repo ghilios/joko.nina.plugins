@@ -131,6 +131,9 @@ namespace TestApp {
             var activeProfile = profileService.ActiveProfile
                 ?? throw new InvalidOperationException("No active NINA profile could be loaded. Pass --profile-id.");
             var starDetectionOptions = new StarDetectionOptions(profileService);
+            var pluginGuid = PluginOptionsAccessor.GetAssemblyGuid(typeof(StarDetectionOptions))
+                ?? throw new InvalidOperationException("Could not resolve the HocusFocus plugin assembly GUID");
+            var accessor = new PluginOptionsAccessor(profileService, pluginGuid);
             var inspectorOptions = new InspectorOptions(profileService);
             var autoFocusOptions = new AutoFocusOptions(profileService);
             const int binning = 1;
@@ -146,7 +149,7 @@ namespace TestApp {
                 focuserMediator: new StubFocuserMediator(),
                 starDetectionOptions: starDetectionOptions,
                 alglibAPI: alglib,
-                perFilterStore: new StubPerFilterStarDetectionStore());
+                perFilterStore: new StubPerFilterStarDetectionStore(accessor));
 
             var discovery = OptimizationRunDiscovery.Discover(runs);
             Console.WriteLine($"bank-verify: {discovery.Runs.Count} run(s) under {runs}; NC sweep [{string.Join(",", ncSweep.Select(x => x.ToString(CultureInfo.InvariantCulture)))}]; " +

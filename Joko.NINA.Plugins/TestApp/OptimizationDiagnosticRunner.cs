@@ -279,7 +279,7 @@ namespace TestApp {
                 focuserMediator: new StubFocuserMediator(),
                 starDetectionOptions: starDetectionOptions,
                 alglibAPI: alglibAPI,
-                perFilterStore: new StubPerFilterStarDetectionStore());
+                perFilterStore: new StubPerFilterStarDetectionStore(accessor));
             var ctx = new RunDetectionContext {
                 ProfileService = profileService,
                 AfOptions = afOptions,

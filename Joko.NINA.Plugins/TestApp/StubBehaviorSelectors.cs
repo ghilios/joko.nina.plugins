@@ -22,6 +22,8 @@ using NINA.Image.ImageData;
 using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter;
+using NINA.Profile.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -143,8 +145,28 @@ namespace TestApp {
     /// Headless <see cref="IPerFilterStarDetectionStore"/> that is always DISABLED. Per-filter star detection
     /// resolves the TARGET filter's settings snapshot from the live filter wheel, which a headless run has no access
     /// to — so the harness runs the profile-level settings and says so, rather than inventing a filter.
+    ///
+    /// <para><b>That is a real divergence when the user has the feature ON</b>: live would resolve the captured
+    /// filter's snapshot (<c>HocusFocusStarDetection.ResolveEffectiveOptions</c>) while the harness silently uses
+    /// profile-level settings, so a headless "baseline" would be measured with settings the app would not have
+    /// used. Pass the plugin's options accessor and this warns at construction — the flag is read by
+    /// <see cref="PerFilterStarDetectionStore.IsEnabledForActiveProfile"/>, i.e. from the class that owns the
+    /// persisted key, not from a copy of the key here.</para>
     /// </summary>
     internal sealed class StubPerFilterStarDetectionStore : IPerFilterStarDetectionStore {
+
+        public StubPerFilterStarDetectionStore(IPluginOptionsAccessor optionsAccessor = null) {
+            if (optionsAccessor == null || !PerFilterStarDetectionStore.IsEnabledForActiveProfile(optionsAccessor)) {
+                return;
+            }
+            var message =
+                "WARNING: per-filter star detection is ENABLED in this profile, but a headless run has no filter wheel. " +
+                "The live app would resolve the captured filter's settings snapshot for these frames; this run uses the " +
+                "PROFILE-LEVEL star detection settings instead, so its numbers may not match what the app would produce. " +
+                "Compare against the target filter's settings, or disable the feature for the comparison.";
+            Console.Error.WriteLine(message);
+            Logger.Warning(message);
+        }
 
         public bool Enabled {
             get => false;

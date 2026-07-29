@@ -68,9 +68,8 @@ namespace TestApp {
         // live wizard via TiltCalibrationMetadata so a wizard-saved run replays both in-app and headlessly.
         private static readonly string[] StepOrder = TiltCalibrationMetadata.StepOrder;
 
-        // Sigma rejections matching the wizard's RunEvaluationLoader / the optimize harness (HocusFocusDetectionParams defaults).
-        private const double HighSigmaOutlierRejection = 4.0;
-        private const double LowSigmaOutlierRejection = 3.0;
+        // The sigma rejections this harness used to restate (4.0 / 3.0) now come from where they are defined:
+        // HocusFocusDetectionParams' own defaults, applied by the wizard's HocusFocusSplitFrameDetector.
 
         private static readonly JsonSerializerSettings MetadataJsonSettings = TiltCalibrationMetadata.JsonSettings;
 
@@ -186,7 +185,7 @@ namespace TestApp {
                 focuserMediator: new StubFocuserMediator(),
                 starDetectionOptions: starDetectionOptions,
                 alglibAPI: alglibAPI,
-                perFilterStore: new StubPerFilterStarDetectionStore());
+                perFilterStore: new StubPerFilterStarDetectionStore(accessor));
 
             // Map the run folders to the wizard steps (explicit override in metadata, else folder-name order).
             var orderedRuns = MapRunsToSteps(metadata, runFolders, datasetDir);
