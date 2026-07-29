@@ -26,12 +26,21 @@ namespace TestApp {
 
     /// <summary>
     /// Writes a linear, mono, 16-bit FITS sidecar (<c>&lt;frame&gt;.linear.fits</c>) for every AF sweep frame in
-    /// every discovered run, using NINA's own loader (<see cref="DiagnosticUtil.LoadFloatMat"/>) — which reads BOTH
-    /// FITS and XISF and debayers Bayered frames to luminance. This lets the detector-independent golden reference
-    /// (<c>tools/golden/snr_ref.py</c>, which only parses mono FITS) cover the bank's XISF and Bayered runs, not
-    /// just the mono-FITS ones. The exported pixels are the SAME linear luminance the HocusFocus detector consumes,
-    /// scaled [0,1]→[0,65535], so the reference operates on the data the detector sees. Idempotent: skips frames
-    /// whose sidecar already exists unless <c>--overwrite</c>. Read-only on the source frames.
+    /// every discovered run, using NINA's own loader (<see cref="DiagnosticUtil.LoadDebayeredFloatMat"/>) — which
+    /// reads BOTH FITS and XISF and debayers Bayered frames to luminance. This lets the detector-independent golden
+    /// reference (<c>tools/golden/snr_ref.py</c>, which only parses mono FITS) cover the bank's XISF and Bayered
+    /// runs, not just the mono-FITS ones. "Linear" means no MTF/auto-stretch — it does NOT mean no debayer: a
+    /// reference computed on a Bayer mosaic while HocusFocus detects on luminance scores every mosaic-only find as
+    /// an HF recall gap HF could never close.
+    ///
+    /// <para><b>Deliberately NOT CFA hotpixel filtered</b>, unlike the detector's own OSC path. The reference's
+    /// value is having blind spots that differ from the detector's, and hot-pixel rejection is already assigned to
+    /// the LLM montage QA step (<c>.claude/docs/golden-star-set.md</c>). So the export shares the detector's
+    /// DEBAYER but not its filtering, which is exactly what <c>LoadDebayeredFloatMat</c> is.</para>
+    ///
+    /// <para>Idempotent: skips frames whose sidecar already exists unless <c>--overwrite</c>. Read-only on the
+    /// source frames. Regenerate the sidecars for the four bayered bank runs — they were exported from the
+    /// mosaic before this was fixed.</para>
     /// </summary>
     public static class ExportLinearRunner {
 
@@ -66,7 +75,7 @@ namespace TestApp {
                         continue;
                     }
                     try {
-                        using var mat = await DiagnosticUtil.LoadFloatMat(frame.Path, profileService);
+                        using var mat = await DiagnosticUtil.LoadDebayeredFloatMat(frame.Path, profileService);
                         WriteMonoFits16(outPath, mat);
                         written++;
                         Console.WriteLine($"      Focuser {frame.FocuserPosition}: {mat.Width}x{mat.Height} -> {Path.GetFileName(outPath)}");

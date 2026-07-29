@@ -11,21 +11,19 @@
 #endregion "copyright"
 
 using CommunityToolkit.Mvvm.Input;
+using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Model.Equipment;
 using NINA.Core.MyMessageBox;
 using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
 using NINA.Equipment.Interfaces.Mediator;
-using NINA.Image.FileFormat.FITS;
-using NINA.Image.FileFormat.XISF;
 using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
-using OpenCvSharp;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
@@ -495,7 +493,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // Production review builder: the SHARED FrameReviewBuilder over a real StarDetector + a profile-aware
                 // disk loader (mirrors the TestApp `review` path; single source of truth). Built lazily so the
                 // detector/loader only allocate when the user actually enters Review.
-                frameReviewBuilder: BuildProductionReviewBuilder(profileService, imageDataFactory),
+                frameReviewBuilder: BuildProductionReviewBuilder(profileService, imageDataFactory,
+                    cameraSensorType: () => cameraMediator?.GetInfo()?.SensorType),
                 // Live pre-flight: probe the camera/focuser mediators for the connection check on Start.
                 isCameraConnected: () => cameraMediator?.GetInfo()?.Connected == true,
                 isFocuserConnected: () => focuserMediator?.GetInfo()?.Connected == true,
@@ -3498,12 +3497,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         /// <summary>
         /// Builds the production review-builder seam: the SHARED <see cref="FrameReviewBuilder.BuildAsync"/> over a
-        /// real <see cref="StarDetector"/> and a profile-aware disk loader (.xisf/.fits via NINA's loaders →
-        /// normalized float Mat; .tif direct). Mirrors the TestApp <c>review</c> path so detection + overlay
-        /// extraction + the MTF-stretch image provider are byte-identical between the offline tool and the wizard.
+        /// real <see cref="StarDetector"/> and the SAME disk-load path the optimizer step itself uses (NINA's
+        /// <see cref="IImageDataFactory"/> + <see cref="RenderedImageLoading.ForDetection"/>), so Review detects on
+        /// the image the optimizer scored rather than on a differently-loaded copy of it.
+        ///
+        /// <para>This used to load a bare float Mat with <c>isBayered: false</c>, which for an OSC run meant Review
+        /// detected and displayed the raw Bayer MOSAIC while the optimizer step ran on CFA-filtered luminance — and
+        /// the labels a user draws here are what "Optimize with feedback" subsequently trusts.</para>
         /// </summary>
+        /// <param name="cameraSensorType">The connected camera's sensor type, live's last-resort CFA source (see
+        /// <see cref="RenderedImageLoading.ResolveBayerPattern"/>). Probed per call so connecting the camera between
+        /// wizard steps is picked up.</param>
         private static Func<IReadOnlyList<FrameReviewDescriptor>, StarDetectorParams, IProgress<RunLoadProgress>, CancellationToken, Task<List<FrameReview>>>
-            BuildProductionReviewBuilder(IProfileService profileService, IImageDataFactory imageDataFactory) {
+            BuildProductionReviewBuilder(IProfileService profileService, IImageDataFactory imageDataFactory, Func<SensorType?> cameraSensorType) {
             return (descriptors, p, progress, token) => {
                 var detector = new StarDetector(HocusFocusPlugin.AlglibAPI);
                 // Hop to the threadpool so the WHOLE build (disk load + detection) runs off the captured UI context.
@@ -3513,37 +3519,36 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return Task.Run(
                     () => FrameReviewBuilder.BuildAsync(
                         descriptors, p, detector,
-                        path => LoadFloatMatFromDisk(path, profileService, imageDataFactory),
+                        // Detection: Detect(IRenderedImage, …), so the CFA hotpixel filter and the debayer happen
+                        // INSIDE detection at the review's params — exactly as the live app does them.
+                        path => LoadRenderedImageFromDisk(path, profileService, imageDataFactory, cameraSensorType, token),
+                        // Display: the same debayer WITHOUT the CFA filter. A mosaic renders as a visible
+                        // checkerboard, which is unreviewable, and the stretch is not a detection input.
+                        async path => RenderedImageLoading.ToDebayeredLuminanceMat(
+                            await LoadRenderedImageFromDisk(path, profileService, imageDataFactory, cameraSensorType, token).ConfigureAwait(false)),
                         token, progress),
                     token);
             };
         }
 
         /// <summary>
-        /// Loads an image file as a CV_32F Mat normalized to [0,1] for the review detection input. .tif/.tiff are
-        /// read directly; .xisf/.fits/.fit go through NINA's loaders (which need the active profile). Mirrors the
-        /// TestApp <c>DiagnosticUtil.LoadFloatMat</c> body so the wizard and the offline tool share one float-Mat
-        /// load path — but lives in the plugin (no TestApp dependency).
+        /// Loads one review frame the way the optimizer step loads its run frames: NINA's image-data factory (which
+        /// covers XISF/FITS/TIFF/RAW), with the frame's REAL <c>isBayered</c> + bit depth recovered from the AF
+        /// engine's file name (<see cref="SavedAutoFocusImage.TryParseFileName"/> — the same token
+        /// <c>AutoFocusEngine.LoadSavedAutoFocusAttempt</c> hands the optimizer), then
+        /// <see cref="RenderedImageLoading.ForDetection"/> for the profile-gated debayer.
+        ///
+        /// <para>A file that is not an AF-engine saved frame falls back to not-bayered at the profile's bit depth,
+        /// which is what the previous loader assumed for every file.</para>
         /// </summary>
-        private static async Task<Mat> LoadFloatMatFromDisk(string path, IProfileService profileService, IImageDataFactory imageDataFactory) {
-            var ext = Path.GetExtension(path).ToLowerInvariant();
-            if (ext == ".tif" || ext == ".tiff") {
-                // Normalize by ushort.MaxValue, matching DiagnosticUtil.LoadFloatMat for 16-bit TIFFs (the real case
-                // — AF/review frames are 16-bit). For non-16-bit TIFFs the scale factor would differ, but those are
-                // not produced by this pipeline.
-                using var src = new Mat(path, ImreadModes.Unchanged);
-                var dst = new Mat();
-                src.ConvertTo(dst, MatType.CV_32F, 1.0 / ushort.MaxValue);
-                return dst;
-            }
-            if (ext == ".xisf" || ext == ".fits" || ext == ".fit") {
-                var uri = new Uri(Path.GetFullPath(path));
-                IImageData imageData = ext == ".xisf"
-                    ? await XISF.Load(uri, false, imageDataFactory, CancellationToken.None).ConfigureAwait(false)
-                    : await FITS.Load(uri, false, imageDataFactory, CancellationToken.None).ConfigureAwait(false);
-                return CvImageUtility.ToOpenCVMat(imageData);
-            }
-            throw new NotSupportedException($"Unsupported image extension '{ext}'. Supported: .tif/.tiff, .xisf, .fits/.fit");
+        private static async Task<IRenderedImage> LoadRenderedImageFromDisk(
+            string path, IProfileService profileService, IImageDataFactory imageDataFactory, Func<SensorType?> cameraSensorType, CancellationToken token) {
+            var saved = SavedAutoFocusImage.TryParseFileName(path);
+            var bitDepth = saved?.BitDepth ?? (int)profileService.ActiveProfile.CameraSettings.BitDepth;
+            var imageData = await imageDataFactory.CreateFromFile(
+                path, bitDepth, saved?.IsBayered ?? false,
+                profileService.ActiveProfile.CameraSettings.RawConverter, token).ConfigureAwait(false);
+            return RenderedImageLoading.ForDetection(imageData, profileService, cameraSensorType?.Invoke());
         }
 
         private void Cancel() {
