@@ -41,6 +41,19 @@ adding the CFA filter reproduces the app exactly, including the star-count scale
 recommendation. Unfiltered hot pixels present as faint stars, so the harness can drive the Sensitivity gate to its
 floor and harvest them — an incentive that does not exist on the filtered image the app detects on.
 
+**Row 2 is not a live-reachable state, and that is the real lesson.** `ImageControlVM.PrepareImage:609` sets
+`saveLumChannel = ImageSettings.DebayeredHFR && detectStars`, and *every* HocusFocus caller passes
+`detectStars: false` (`RunEvaluationLoader.cs:268`, `AutoFocusEngine.cs:1241`, `InspectorVM.cs:963`, `:1003`). So
+live `SaveLumChannel` is always false and `DebayeredData` is always null, which means
+`PrepareSrcImageFromRenderedImage` has exactly two live outcomes:
+
+- `HotpixelFiltering && HotpixelThresholdingEnabled` → CFA filter **and its own debayer** → luminance
+- either flag off → `ToOpenCVMat(RawImageData)` → **the raw Bayer mosaic**
+
+The debayer and the CFA filter are the *same branch*; there is no live configuration that debayers without
+CFA-filtering. The representation the app detects on is therefore **params-dependent**, not fixed — which is
+precisely why any load-time filtering scheme is wrong, and why the harness must let the detector decide.
+
 Debayering is nonetheless a real parity defect in its own right and must also be fixed: it moved the measured
 per-star SNR from `S_now = 23.3` to `79.2` and shifted `StarClippingMultiplier` (0.25 → 3.5) and `MinHFR`
 (0.95 → 0.89). Both changes are required for parity; only one of them moves the sensitivity landing.
@@ -84,18 +97,43 @@ went on searching `HotpixelThreshold` against an image it could no longer affect
 Note also that the profile setting `ImageSettings.DebayerImage` gates whether the app debayers at all; it is `true`
 on both profiles tested here. A faithful harness must honour it rather than hard-coding the behaviour.
 
-### Two groups
+### Share the app's path at the detector seam
 
-**Group 1 — fixed-params runners.** `GoldenRunner`, `GoldenEvalRunner`, `AnnotateRunner`,
-`ContaminationDiagnosticRunner`, `RecommendRunner`, `AfFitDiagnosticRunner`, `BankDonutMetaRunner`,
-`DiagnoseLabelsRunner`, `ExportLinearRunner`, and `FocusSweepDiagnosticRunner:235`. These call the detector once at
-fixed params, so `FocusSweepDiagnosticRunner:190`'s existing pattern is exactly faithful: debayer to luminance, CFA
-hot-pixel filter at those params, and set `HotpixelFiltering = false` so the detector does not filter twice.
+`RunEvaluationLoader.LoadSavedRunAsync` cannot be adopted wholesale — its `imagingMediator.PrepareImage` is
+genuinely unsatisfiable headlessly (`ImageControlVM`'s constructor touches
+`Application.Current.Resources` and registers a camera consumer). **But it does not need to be**, because
+detection never reads the rendered product: `ToOpenCVMat(IRenderedImage)` (`CvImageUtility.cs:90-98`) reads
+`DebayeredData.Lum` or `RawImageData` and never `image.Image`. `DebayeredImage.Stretch` returns the same
+`RawImageData`/`BayerPattern`/`SaveLumChannel` and only swaps the `BitmapSource`, so skipping the stretch is
+provably detection-identical.
 
-**Group 2 — the optimizer.** `OptimizationDiagnosticRunner` and `BankVerifyRunner`'s optimized (A/B) configs must
-**carry the debayered image end-to-end** rather than a pre-loaded `Mat`, so the detector performs its own
-per-candidate CFA filtering exactly as live. This is the decided approach: it is the only option under which the
-hot-pixel axes retain their live meaning, and the optimizer is precisely the tool whose output we want to trust.
+The shareable seam is one layer down:
+
+1. Build a real `IDebayeredImage` with two public NINA calls and no mediator:
+   `imageData.RenderImage().Debayer(saveColorChannels: false, saveLumChannel: false, bayerPattern: resolved)`.
+   `saveLumChannel` **must** be false — true would flip `ToOpenCVMat`'s guard and make the hotpixel-off branch read
+   luminance where live reads the mosaic.
+2. **Fixed-params runners** switch to the already-public `StarDetector.Detect(IRenderedImage, …)`
+   (`StarDetector.cs:278`), same return type — CFA filter and debayer come for free, at the caller's params.
+3. **The optimizer** puts that image in `RunFrame.Image` (already typed `object`) and uses the plugin's own
+   `HocusFocusSplitFrameDetector`, promoted from `private` to `internal`. `MatSplitFrameDetector` and
+   `HarnessDetection.ToFrameDetectionResult` are then deleted for the optimize/bank-verify paths.
+
+This removes both mirrors and needs exactly one plugin change: an access modifier.
+
+**Mono byte-identity comes free by construction** — a non-bayered frame is not `IDebayeredImage`, so detection
+falls to `ToOpenCVMat(image.RawImageData)`, the identical call `DiagnosticUtil` makes today.
+
+### Rejected: the `HotpixelFiltering = false` pre-filter pattern
+
+An earlier draft prescribed `FocusSweepDiagnosticRunner:190`'s pattern (pre-filter at load, then disable the
+detector's filter). **It is not faithful.** Live sets `hotpixelFilterAlreadyApplied = true`, so `StarDetector.cs:523`
+skips re-filtering and `:544` takes the plain `CopyTo` branch. The pre-filter pattern leaves that flag false, so
+with the shipped defaults (`NoiseReductionRadius = 3`, `StarMeasurementNoiseReductionEnabled = false`) `:544` is
+false and the `else` at `:549` runs `ApplyHotpixelFilter(noiseReducedImage, p)` — a **spatial** hot-pixel filter on
+the structure-detection source that live never applies. Different structure map, different candidates, different
+detection, and a clobbered `metrics.HotpixelCount`. The `Detect(Mat, …)` overload cannot fix this either: it
+hard-codes `hotpixelFilterAlreadyApplied: false` (`StarDetector.cs:412`).
 
 ### Rejected alternatives
 
@@ -108,6 +146,26 @@ hot-pixel axes retain their live meaning, and the optimizer is precisely the too
 - **Make `debayerToLuminance` default to `true`.** Tempting as a one-line fix, but it silently changes every
   caller including ones that may legitimately want the mosaic, and it does not address the CFA-ordering problem at
   all. Opt-in per runner, with the decision documented at each site, is safer.
+
+## Two further defects found while scoping
+
+**1. The wizard's own Review Frames step detects on the raw mosaic — a live-app bug.**
+`StarDetectionOptimizerWizardVM.LoadFloatMatFromDisk` (`:4152-4171`) is a *third* copy of the loader, inside the
+plugin. It hard-codes `isBayered: false` and `CvImageUtility.ToOpenCVMat(imageData)`, then feeds
+`FrameReviewBuilder.BuildAsync` (`:4138`), which detects via `StarDetector.Detect(Mat, …)`
+(`FrameReviewBuilder.cs:118`). So for an OSC run the wizard's optimizer step uses CFA-filtered luminance while its
+Review step shows and detects the raw Bayer mosaic. This is worse than the harness bug: the labels the user draws
+there are the labels the optimizer subsequently trusts, so a mosaic-authored label set is fed to a
+luminance-scoring objective.
+
+**2. `ExportLinearRunner` contradicts its own documentation.** Its comment (`:29-34`) states it "debayers Bayered
+frames to luminance … the SAME linear luminance the HocusFocus detector consumes", but `:69` uses the
+`debayerToLuminance: false` default. The doc is right and the code is wrong. This matters beyond tidiness: the
+export feeds `tools/golden/snr_ref.py`, the **detector-independent reference** the golden sets are built from. A
+reference computed on a mosaic while HocusFocus detects on luminance scores every mosaic-only find as an HF recall
+gap HF could never close — i.e. the golden audit measures the wrong thing. "Linear" means no MTF/auto-stretch, not
+no debayer. It must **not** gain the CFA filter, though: the reference's independent blind spots are the point, and
+hot-pixel rejection is already assigned to the LLM montage QA step (`.claude/docs/golden-star-set.md:37`).
 
 ## Consequences for stored artifacts
 
