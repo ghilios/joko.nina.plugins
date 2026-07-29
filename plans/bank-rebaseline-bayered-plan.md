@@ -5,7 +5,8 @@ recall conclusion that motivated PR #111 — so `ghilios/exposure-recommendation
 harness whose numbers mean what they say.
 
 **Depends on:** `ghilios/headless-detection-parity` (Phase 1, complete). Branch:
-`ghilios/bank-rebaseline-bayered`, off Phase 1. Rebase both onto `develop` in order once the exposure PR merges.
+`ghilios/bank-rebaseline-bayered`, off Phase 1, which is itself off `develop` — both were re-parented off
+`ghilios/exposure-recommendation` so this re-baseline can run, and Phase 1 can merge, before PR #159 does.
 
 **Spec:** `docs/headless-detection-parity-design.md` §Consequences for stored artifacts.
 
