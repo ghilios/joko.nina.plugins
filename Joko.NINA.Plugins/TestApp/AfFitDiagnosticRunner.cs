@@ -143,8 +143,10 @@ namespace TestApp {
             foreach (var frame in frames.OrderByDescending(f => f.FocuserPosition)) {
                 // Detect on the IRenderedImage: the CFA hotpixel filter + debayer run inside Detect at these params,
                 // so the per-frame HFR this fit is built from is the one the live AF engine would measure.
-                var img = await DiagnosticUtil.LoadRenderedImage(frame.Path, profileService);
-                var result = await detector.Detect(img, baseParams, null, CancellationToken.None);
+                // DetectionSource keeps the .tif carve-out (this runner's frame match is extension-agnostic, so a
+                // focus-sweep --synthesize folder of .tif frames reaches it).
+                using var img = await DetectionSource.LoadAsync(frame.Path, profileService);
+                var result = await img.DetectAsync(detector, baseParams, CancellationToken.None);
                 var hfrs = result.DetectedStars.Select(s => s.HFR).ToList();
                 if (hfrs.Count <= 1) {
                     Console.WriteLine($"  pos {frame.FocuserPosition}: {hfrs.Count} stars (skipped — Y would be 0)");

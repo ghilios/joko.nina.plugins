@@ -233,8 +233,8 @@ namespace TestApp {
                 var byPos = new SortedDictionary<int, (int stars, long lowSens, List<double> hfrs)>();
                 long totalStars = 0, totalLow = 0;
                 foreach (var frame in frames) {
-                    var img = await DiagnosticUtil.LoadRenderedImage(frame.Path, profileService);
-                    var result = await detector.Detect(img, baseParams, null, CancellationToken.None);
+                    using var img = await DetectionSource.LoadAsync(frame.Path, profileService);
+                    var result = await img.DetectAsync(detector, baseParams, CancellationToken.None);
                     if (!byPos.TryGetValue(frame.FocuserPosition, out var acc)) {
                         acc = (0, 0, new List<double>());
                     }
