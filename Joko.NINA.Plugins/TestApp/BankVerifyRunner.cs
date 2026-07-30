@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -57,6 +57,10 @@ namespace TestApp {
 
         private const double MatchRadiusDefault = 12.0;
 
+        /// <summary>The LocallyAdaptiveBinarization C0 actually runs with: the shipped default unless forced.</summary>
+        private static bool EffectiveAdaptiveBinarize(bool? overrideValue)
+            => overrideValue ?? HocusFocusStarDetection.BuildDefaultStarDetectorParams().LocallyAdaptiveBinarization;
+
         // Flushed file-based progress trace (stdout is block-buffered through WSL interop, so a file log is the only
         // way to observe where a long run is). Each line is appended + flushed immediately.
         private static string _progressPath;
@@ -102,7 +106,7 @@ namespace TestApp {
             if (string.IsNullOrWhiteSpace(runs) || !Directory.Exists(runs)) {
                 Console.Error.WriteLine("Usage: TestApp bank-verify --runs <bank-root> [--out <dir>] [--nc-sweep 2,3,4] " +
                     "[--opt-a <dir>] [--opt-b <dir>] [--golden <dir>] [--match-radius 12] [--commit <hash>] [--profile-id <guid>] " +
-                    "[--adaptive-binarize] [--adaptive-block 128]");
+                    "[--adaptive-binarize|--no-adaptive-binarize] [--adaptive-block 128]");
                 Environment.ExitCode = 2;
                 return;
             }
@@ -118,9 +122,18 @@ namespace TestApp {
             var profileId = DiagnosticUtil.GetArg(args, "--profile-id");
             var ncSweep = ParseNcSweep(DiagnosticUtil.GetArg(args, "--nc-sweep") ?? "2,3,4");
             // Spatially-adaptive binarization override for the C0 (as-default) configs — the flag-on-vs-off A/B that
-            // the adaptive-noiseclip feature is validated by (docs/adaptive-noiseclip-design.md). Default OFF mirrors
-            // the shipped default. The optimized A/B configs instead receive these via OverlayOptimized.
-            var adaptiveBinarize = DiagnosticUtil.HasFlag(args, "--adaptive-binarize");
+            // the adaptive-noiseclip feature is validated by (docs/adaptive-noiseclip-design.md). The optimized A/B
+            // configs instead receive these via OverlayOptimized.
+            //
+            // NEITHER flag given ⇒ C0 keeps whatever BuildDefaultStarDetectorParams() ships, so "as-default" cannot
+            // drift from the product again. It did once: 9a80324 introduced this override when the shipped default was
+            // OFF, c59a4b1 flipped the default ON the same day and did not update here, so every C0 row between then
+            // and this fix ran with the feature OFF while the product shipped it ON — and the report recorded neither
+            // fact. Pass --adaptive-binarize / --no-adaptive-binarize to force a side for the validation A/B.
+            bool? adaptiveBinarizeOverride =
+                DiagnosticUtil.HasFlag(args, "--adaptive-binarize") ? true
+                : DiagnosticUtil.HasFlag(args, "--no-adaptive-binarize") ? false
+                : (bool?)null;
             var adaptiveBlock = DiagnosticUtil.GetArg(args, "--adaptive-block");
             int adaptiveBlockSize = (adaptiveBlock != null && int.TryParse(adaptiveBlock, NumberStyles.Integer, CultureInfo.InvariantCulture, out var abv)) ? abv : 128;
 
@@ -153,7 +166,10 @@ namespace TestApp {
 
             var discovery = OptimizationRunDiscovery.Discover(runs);
             Console.WriteLine($"bank-verify: {discovery.Runs.Count} run(s) under {runs}; NC sweep [{string.Join(",", ncSweep.Select(x => x.ToString(CultureInfo.InvariantCulture)))}]; " +
-                $"A={(optA ?? "(none)")} B={(optB ?? "(none)")}; matchRadius={matchRadius}; adaptiveBinarize={adaptiveBinarize}" + (adaptiveBinarize ? $"(block={adaptiveBlockSize})" : ""));
+                $"A={(optA ?? "(none)")} B={(optB ?? "(none)")}; matchRadius={matchRadius}; "
+                + $"adaptiveBinarize={EffectiveAdaptiveBinarize(adaptiveBinarizeOverride)}"
+                + (adaptiveBinarizeOverride.HasValue ? " (forced)" : " (shipped default)")
+                + $"(block={adaptiveBlockSize})");
 
             var runResults = new List<RunResult>();
             int idx = 0;
@@ -163,7 +179,7 @@ namespace TestApp {
                 try {
                     var rr = await VerifyRunAsync(run, runs, outDir, ncSweep, optA, optB, goldenDir, matchRadius,
                         profileService, activeProfile, starDetectionOptions, inspectorOptions, autoFocusOptions, detector, detection, alglib, pixelScale,
-                        adaptiveBinarize, adaptiveBlockSize);
+                        adaptiveBinarizeOverride, adaptiveBlockSize);
                     runResults.Add(rr);
                 } catch (Exception ex) {
                     Console.Error.WriteLine($"  FAILED: {ex.GetType().Name}: {ex.Message}");
@@ -173,7 +189,8 @@ namespace TestApp {
             }
 
             var utc = DateTime.UtcNow.ToString("yyyyMMddTHHmmssZ", CultureInfo.InvariantCulture);
-            WriteReport(outDir, utc, commit, ncSweep, runResults);
+            WriteReport(outDir, utc, commit, ncSweep, runResults,
+                EffectiveAdaptiveBinarize(adaptiveBinarizeOverride), adaptiveBinarizeOverride.HasValue, adaptiveBlockSize);
             Console.WriteLine($"bank-verify: wrote verification_{utc}.{{json,md}} to {outDir} ({runResults.Count(r => r.error == null)} ok, {runResults.Count(r => r.error != null)} failed).");
         }
 
@@ -183,7 +200,7 @@ namespace TestApp {
             OptimizationRunDiscovery.DiscoveredRun run, string runsRoot, string outDir, double[] ncSweep, string optA, string optB,
             string goldenDir, double matchRadius, ProfileService profileService, NINA.Profile.Interfaces.IProfile activeProfile,
             StarDetectionOptions sdOptions, InspectorOptions inspectorOptions, AutoFocusOptions afOptions,
-            StarDetector detector, IHocusFocusStarDetection detection, AlglibAPI alglib, double pixelScale, bool adaptiveBinarize, int adaptiveBlockSize) {
+            StarDetector detector, IHocusFocusStarDetection detection, AlglibAPI alglib, double pixelScale, bool? adaptiveBinarizeOverride, int adaptiveBlockSize) {
 
             var runFolder = Path.GetDirectoryName(run.Frames.First().Path);
             var ordered = run.Frames.OrderBy(f => f.FocuserPosition).ToList();
@@ -260,7 +277,9 @@ namespace TestApp {
             foreach (var nc in ncSweep) {
                 var p = BaseDefault();
                 p.NoiseClippingMultiplier = nc;
-                p.LocallyAdaptiveBinarization = adaptiveBinarize;
+                if (adaptiveBinarizeOverride.HasValue) {
+                    p.LocallyAdaptiveBinarization = adaptiveBinarizeOverride.Value;
+                }
                 p.AdaptiveNoiseBlockSize = adaptiveBlockSize;
                 var cm = await ScoreConfigAsync($"C0@nc{nc:0.#}", nc, false, p, evalData, loaded, goldenByFocuser, matchRadius,
                     inspectorOptions, alglib, profileService, activeProfile, stepSize, detector);
@@ -442,7 +461,8 @@ namespace TestApp {
 
         // ---- report ----------------------------------------------------------------------------------------------
 
-        private static void WriteReport(string outDir, string utc, string commit, double[] ncSweep, List<RunResult> runs) {
+        private static void WriteReport(string outDir, string utc, string commit, double[] ncSweep, List<RunResult> runs,
+            bool adaptiveBinarizeEffective, bool adaptiveBinarizeForced, int adaptiveBlockSize) {
             var ok = runs.Where(r => r.error == null && r.configs != null && r.configs.Count > 0).ToList();
 
             // NC-sweep aggregate (C0 only).
@@ -476,7 +496,14 @@ namespace TestApp {
                 schema = "afbank-verify/2",
                 generatedUtc = utc,
                 detectorCommit = commit,
-                noiseClipDefault = 2.0,
+                // Read from the product rather than hardcoded: a literal here said 2.0 while the shipped default was
+                // 4.0, so the report misdescribed the very baseline it was measuring.
+                noiseClipDefault = HocusFocusStarDetection.BuildDefaultStarDetectorParams().NoiseClippingMultiplier,
+                // C0's adaptive-binarization state is part of what "as-default" MEANT for this report. Recording it
+                // is what would have made the 9a80324/c59a4b1 drift visible instead of silent.
+                c0AdaptiveBinarization = adaptiveBinarizeEffective,
+                c0AdaptiveBinarizationForced = adaptiveBinarizeForced,
+                c0AdaptiveNoiseBlockSize = adaptiveBlockSize,
                 ncSweep,
                 runCount = ok.Count,
                 failed = runs.Count(r => r.error != null),
