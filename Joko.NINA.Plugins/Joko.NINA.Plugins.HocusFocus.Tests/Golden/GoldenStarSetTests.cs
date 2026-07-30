@@ -82,6 +82,45 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Golden {
         }
 
         [Test]
+        public void Deserialize_SchemaV1_LeavesUnresolvedNull() {
+            // Backward compatibility is load-bearing: 13 untouched runs must score bit-identically.
+            var json = @"{""imageFile"":""a.fits"",""focuserPosition"":100,""schemaVersion"":1,
+                          ""stars"":[{""x"":1,""y"":2,""w"":3,""h"":4,""confidence"":""high""}]}";
+            var frame = GoldenStarSetStore.Deserialize(json);
+            Assert.Multiple(() => {
+                Assert.That(frame.SchemaVersion, Is.EqualTo(1));
+                Assert.That(frame.Stars, Has.Count.EqualTo(1));
+                Assert.That(frame.Unresolved, Is.Null);
+                Assert.That(frame.Coverage, Is.Null);
+            });
+        }
+
+        [Test]
+        public void Deserialize_SchemaV2_ReadsUnresolvedAndCoverage() {
+            var json = @"{""imageFile"":""a.fits"",""focuserPosition"":100,""schemaVersion"":2,
+                          ""stars"":[{""x"":1,""y"":2,""w"":3,""h"":4,""confidence"":""high""}],
+                          ""unresolved"":[{""x"":9,""y"":9,""w"":36,""h"":36,""confidence"":""medium""}],
+                          ""coverage"":{""high"":{""examined"":10,""total"":20}},
+                          ""qaVotes"":3,""qaVersion"":""sonnet/golden-qa-v2""}";
+            var frame = GoldenStarSetStore.Deserialize(json);
+            Assert.Multiple(() => {
+                Assert.That(frame.SchemaVersion, Is.EqualTo(2));
+                Assert.That(frame.Unresolved, Has.Count.EqualTo(1));
+                Assert.That(frame.Unresolved[0].W, Is.EqualTo(36.0));
+                Assert.That(frame.Coverage["high"].Examined, Is.EqualTo(10));
+                Assert.That(frame.Coverage["high"].Fraction, Is.EqualTo(0.5));
+                Assert.That(frame.QaVotes, Is.EqualTo(3));
+                Assert.That(frame.QaVersion, Is.EqualTo("sonnet/golden-qa-v2"));
+            });
+        }
+
+        [Test]
+        public void Serialize_OmitsUnresolvedWhenAbsent() {
+            var frame = new GoldenFrame { ImageFile = "a.fits", FocuserPosition = 100 };
+            Assert.That(GoldenStarSetStore.Serialize(frame), Does.Not.Contain("unresolved"));
+        }
+
+        [Test]
         public void Confidence_Rank_OrdersHighMedLow_AndDefaultsToHigh() {
             Assert.Multiple(() => {
                 Assert.That(GoldenConfidence.Rank("high"), Is.EqualTo(3));
