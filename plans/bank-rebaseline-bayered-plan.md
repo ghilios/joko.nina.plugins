@@ -161,8 +161,12 @@ the documented QA step could not launch. `.gitattributes` now pins `tools/golden
 > here.
 
 `optimize --per-run` (22/22, 0 failed, ~30 min) + `optimize --per-run --donut` (22/22, 0 failed, ~3 hr — donut is
-~6× slower per the matched filter) → `bank-verify --nc-sweep 2,3,4 --match-radius 12 --opt-a … --opt-b …` at commit
-`c5704c7` → **`verification_20260729T205904Z.{json,md}`**, 22 runs, C0+A+B.
+~6× slower per the matched filter) → `bank-verify --nc-sweep 2,3,4 --match-radius 12 --opt-a … --opt-b …`, 22 runs,
+C0+A+B, ~110 min.
+
+**The authoritative report is `verification_20260730T005833Z.{json,md}` (commit `2c91e1b`)**, re-run after the C0
+as-default fix below. `verification_20260729T205904Z` (commit `c5704c7`) is superseded: its A/B rows are identical
+(verified: 44/44 config-evals bit-identical) but its C0 rows measured a configuration the product does not ship.
 
 **Anchor — `cwhite_2026` config B, old vs new:**
 
@@ -186,13 +190,39 @@ identical on C0/A/B recall). No scratch build or pre-Phase-1 re-run is needed.
 
 | run | golden (high) | C0@nc2 R@hi / P | A R@hi / P | B R@hi / P |
 |---|---|---|---|---|
-| `bobp` | 2,504 (1,648) | 0.5868 / 0.9909 | 0.4945 / 1.0000 | 0.6475 / 0.9762 |
-| `bobp_m101` | 3,079 (2,107) | 0.6450 / 0.9873 | 0.5439 / 0.9984 | 0.2079 / 1.0000 |
-| `timmer` | 112,190 (109,830) | 0.4169 / 0.9497 | 0.1789 / 0.9976 | 0.0545 / 0.9993 |
+| `bobp` | 2,504 (1,648) | 0.5801 / 0.9907 | 0.4945 / 1.0000 | 0.6475 / 0.9762 |
+| `bobp_m101` | 3,079 (2,107) | 0.6374 / 0.9905 | 0.5439 / 0.9984 | 0.2079 / 1.0000 |
+| `timmer` | 112,190 (109,830) | 0.4217 / 0.9541 | 0.1789 / 0.9976 | 0.0545 / 0.9993 |
 
 `timmer`'s precision is a **lower bound** (only 6% of its 117,107 uncertain candidates could be QA'd — the skill's
 documented bound for deep wide-field runs); its recall@≥12 is exact. `bobp` and `bobp_m101` have 100% uncertain
 coverage.
+
+### Task 3 addendum — `bank-verify`'s C0 was not as-default (found + fixed, 2026-07-29)
+
+C0 is documented as the shipped-defaults reference, but it force-overrode `LocallyAdaptiveBinarization` to a flag
+defaulting **false**. `9a80324` added that override when the shipped default was OFF; `c59a4b1` flipped the default
+**ON** the same day and did not update `BankVerifyRunner`. So every C0 row from 2026-06-24 until this fix measured a
+configuration the product does not ship. Two provenance holes let it hide: `noiseClipDefault` was the literal `2.0`
+while the shipped default is `4.0`, and no report recorded C0's adaptive state at all.
+
+Fixed in `2c91e1b`: C0 now keeps whatever `BuildDefaultStarDetectorParams()` ships unless
+`--adaptive-binarize` / `--no-adaptive-binarize` forces a side; the report emits `c0AdaptiveBinarization`,
+`c0AdaptiveBinarizationForced`, `c0AdaptiveNoiseBlockSize`, and reads `noiseClipDefault` from the product.
+`--no-adaptive-binarize` reproduces the old numbers exactly (`mccomiskey` C0@nc4 σ 3.370, recall 0.828).
+
+**Impact is small.** Median Δrecall@high across all C0 rows is **−0.0003**, max |Δ| 0.0524 (`cwhite_2026`
+0.2658 → 0.3183). σ_focus moves both ways — better on `CWhiteFocus` (3.000 → 2.502) and `mufti` (6.917 → 5.894),
+worse on `caboose` (1.398 → 4.196) and `uneven` (14.107 → 20.123) — so adaptive binarization is not uniformly a
+win for AF fit on the as-default config. Not investigated further here.
+
+**σ_focus attribution on `mccomiskey`, measured by one-at-a-time ablation** (C0 3.370 → config B 0.441):
+adaptive binarization **~3%** (3.370 → 3.263), donut master **~49%** (3.263 → 1.648), and the sensitivity × star-clip
+**interaction ~73%** (1.648 → 0.441). The interaction is the striking part: at clip 2 sensitivity barely matters
+(1.648 → 1.503), while at clip 10 it is decisive (2.960 → 0.441); raising clip *hurts* at default sensitivity and
+*helps* strongly at sens 33.3. Neither knob does anything useful alone — a diagonal valley, not two independent
+axes, which is a concrete mechanism for the plateau this design doc describes. Donut master halving σ_focus on a
+run with **no donuts** (max HFR 2.01") is unexplained and worth its own look.
 
 **Star-shedding at the A/B corner is pervasive and expected, not a `Wtie` regression.** `Wtie = 0.02` is present in
 HEAD (`ec6a1b4`), yet the optimizer routinely lands high: `mccomiskey` A at `clip 10.0` (ceiling) → recall 0.079 vs
@@ -287,9 +317,10 @@ more so**: the star-rich corner now dominates the shedding corner on both axes. 
 
 - [x] `cwhite_2026` anchor **reproduces on config B** (P 0.8483->0.8488, sens bit-identical, recall -4.8%,
       aligned 7/9->9/9). Mono guarantee intact. The C0 rows diverge separately, from the `59d5e59` defaults revert.
-- [~] Mono runs vs `verification_20260624T142723Z.md`: **C0 rows all moved** (median recall ratio 0.897x,
-      median precision +0.267) from the `59d5e59` default sensitivity 2.0->10.0 — not from Phase 1. Config B
-      reproduces. Goldens byte-identical throughout; determinism passes; suite 3066/3066.
+- [~] Mono runs vs `verification_20260624T142723Z.md`: **C0 rows all moved** (median recall ratio 0.922x,
+      median precision +0.265, measured against the fixed `verification_20260730T005833Z`) — from the `59d5e59`
+      default sensitivity 2.0->10.0 plus the adaptive-binarization feature that did not exist at baseline, not
+      from Phase 1. Config B reproduces. Goldens byte-identical; determinism passes; suite 3066/3066.
 - [x] All three bayered runs (`bobp`, `bobp_m101`, `timmer`) have regenerated luminance goldens **and** new
       bank-verify numbers in `verification_20260729T205904Z`. `SorenVance` (plus `lumos`, `vsn07`) still have no
       goldens and score NaN — out of scope per the Scope table.
