@@ -13,6 +13,7 @@ Pure functions, no I/O and no numpy, so the estimator is testable without a 116M
 """
 import math
 
+
 TOP_FRAC_DEFAULT = 0.005
 MIN_TOP_DEFAULT = 20
 MIN_RATIO_DEFAULT = 0.3
@@ -73,8 +74,17 @@ def check_scale(scale, frame_label, min_scale=MIN_SCALE_DEFAULT):
 
 
 def plausibility(c, scale):
-    """Candidate size relative to the frame's own star scale. 1.0 is a full-size star."""
-    return candidate_box(c) / float(scale)
+    """Candidate size relative to the frame's own star scale, SATURATING at 1.0.
+
+    The cap matters. Without it the measure rewards oversized candidates without limit, and on a
+    near-focus frame the matched filter's largest-radius responses (36 px boxes) outrank the real stars
+    (13 px on LinwoodFocus foc 21209) purely for being bigger. Rendering that queue showed 719 of 720
+    crops were noise. A candidate far larger than the frame's star scale is no more plausible than one
+    far smaller; it is simply not penalised, because genuinely bright stars do exceed the median size.
+
+    Capping does not affect is_plausible(): everything it clips was already above the 0.3 gate.
+    """
+    return min(candidate_box(c) / float(scale), 1.0)
 
 
 def is_plausible(c, scale, min_ratio=MIN_RATIO_DEFAULT):
@@ -84,11 +94,38 @@ def is_plausible(c, scale, min_ratio=MIN_RATIO_DEFAULT):
 
 
 def qa_order(cands, scale):
-    """QA worklist order -- plausibility descending, then SNR descending. Returns global indices.
+    """QA worklist order. Returns global indices.
 
-    Ordering, not filtering: a candidate the gate mis-scores is demoted in the queue, never deleted,
-    so the gate can never permanently lose a real donut.
+    Sorted by plausibility descending; ties are broken by INTERLEAVING the two detection paths on their
+    within-path rank. Both halves are load-bearing:
+
+      * Plausibility must stay the primary key, or a pixel-scale spike jumps ahead of a full-size donut
+        merely because its path is under-represented -- which would hand lumos half its budget in spikes.
+      * Interleaving the ties matters because the matched filter emits far more candidates than the
+        connected-component path (40,435 vs 4,676 on one lumos frame). Once defocus puts both paths at
+        plausibility 1.0, a single merged ranking lets the matched filter take the entire budget; on
+        LinwoodFocus foc 21209 that put 719 noise crops in front of every real star.
+
+    Note the two paths' 'snr' fields are NOT comparable (peak/sigma vs disk-integrated response) -- which
+    is the very confusion behind F16 -- so SNR is only ever used to rank WITHIN a path, never across.
+
+    Ordering, not filtering: a candidate the measure mis-scores is demoted in the queue, never deleted,
+    so it can never permanently lose a real donut.
     """
-    idx = list(range(len(cands)))
-    idx.sort(key=lambda i: (-plausibility(cands[i], scale), -float(cands[i]['snr'])))
-    return idx
+    def is_mf(i):
+        return bool(cands[i].get('src') == 'mf' or cands[i].get('donut'))
+
+    def rank(indices):
+        return sorted(indices, key=lambda i: (-plausibility(cands[i], scale), -float(cands[i]['snr'])))
+
+    within = {}
+    for path in (rank([i for i in range(len(cands)) if not is_mf(i)]),
+                 rank([i for i in range(len(cands)) if is_mf(i)])):
+        for r, i in enumerate(path):
+            within[i] = r
+
+    # Plausibility stays the PRIMARY key -- a pixel-scale spike must never jump ahead of a full-size
+    # donut just because its path is under-represented. Interleaving only breaks ties among candidates
+    # of equal plausibility, which is exactly where the monopoly problem lives.
+    return sorted(range(len(cands)),
+                  key=lambda i: (-plausibility(cands[i], scale), within[i], 1 if is_mf(i) else 0))
