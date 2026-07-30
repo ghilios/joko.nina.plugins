@@ -9,6 +9,15 @@ import sys, json, struct, math
 import numpy as np
 from scipy import ndimage
 
+DONUT_K_DEFAULT = 8.0
+"""Matched-filter response threshold. Was 6.0, which sat inside the noise: on LinwoodFocus the response
+distribution's median was 6.41 against a 6.0 cut, so ~98% of the candidate pool was junk and the bounded LLM
+QA budget was spent confirming that. Confirmed real donuts there had min 7.48 / median 14.46, so 8.0 drops
+94% of the candidates for 7% of the real donuts. The 7% is a lower bound -- the confirmed sample was itself
+drawn from the 6.0 pool."""
+
+
+
 def read_fits(path):
     with open(path, 'rb') as f:
         cards = {}
@@ -56,7 +65,12 @@ def matched_filter_donuts(signal, sig, radii, k, minsep=12):
     response (one detection per donut, not a flood of thresholded pixels). For each radius the disk-integrated
     SNR is mean_in_disk*sqrt(Npix)/sigma; we take the per-pixel MAX response across radii, then keep strict
     local maxima above k (a donut gives one clean peak; noise gives many small scattered ones that the local-max
-    + separation suppress). Returns list of (cy, cx, response, radius)."""
+    + separation suppress). Returns list of (cy, cx, response, radius).
+
+    On k: the original 6.0 sat inside the noise. Measured over LinwoodFocus's 48,047 matched-filter candidates,
+    the response distribution has p50 = 6.41 -- half of all "detections" within 7% of the threshold -- while
+    LLM-confirmed real donuts have min 7.48 and median 14.46. Raising k to 8.0 discards 94% of the candidates
+    and 7% of the confirmed donuts. See DONUT_K_DEFAULT."""
     best = np.zeros(signal.shape, dtype=np.float32)
     bestr = np.zeros(signal.shape, dtype=np.int16)
     for r in radii:
@@ -82,7 +96,7 @@ def saturation_mask(img, sat_level=60000.0, radius=0.0):
     return dist < radius
 
 def detect_from_arrays(img, bg, sig, k=5.0, min_area=3, max_area=20000, close=2, donut=False,
-                       donut_radii=(6,10,14,18), donut_k=6.0, sat_radius=0.0):
+                       donut_radii=(6,10,14,18), donut_k=DONUT_K_DEFAULT, sat_radius=0.0):
     """Candidate extraction from already-loaded arrays. Split out of detect() so tests can drive it
     with a synthetic frame instead of a FITS file."""
     signal = img - bg
@@ -135,7 +149,7 @@ def detect_from_arrays(img, bg, sig, k=5.0, min_area=3, max_area=20000, close=2,
     return cands
 
 
-def detect(path, k=5.0, min_area=3, max_area=20000, close=2, donut=False, donut_radii=(6,10,14,18), donut_k=6.0, sat_radius=0.0):
+def detect(path, k=5.0, min_area=3, max_area=20000, close=2, donut=False, donut_radii=(6,10,14,18), donut_k=DONUT_K_DEFAULT, sat_radius=0.0):
     img = read_fits(path)
     bg, sig = coarse_bg(img)
     cands = detect_from_arrays(img, bg, sig, k=k, min_area=min_area, max_area=max_area, close=close,
