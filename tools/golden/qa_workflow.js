@@ -4,11 +4,12 @@ export const meta = {
   phases: [{ title: 'QA' }]
 }
 // COMPACT arg-driven (Workflow scripts have no filesystem): the driver passes a few ints per frame, and the script
-// reconstructs montage paths + global indices itself (golden_prep renders the uncertain tier contiguously, so a
-// cell's GLOBAL index into snr_<foc>.json = b + m*grid^2 + cell, b = the frame's auto-confirmed high-tier size).
-//   args = { base, grid?:6, runs:[ { tag, frames:[ { foc, n, b } ] } ] }
-// The HIGH tier (SNR>=threshold) is auto-confirmed by build_goldens.py and is NOT in this worklist.
-// Returns { byKey: { "<tag> <foc>": { confirmed:[globalIdx...], donut:[globalIdx...] } } } for persist_qa.py.
+// reconstructs montage paths itself.
+//   args = { base, grid?:6, votes?:1, runs:[ { tag, frames:[ { foc, n } ] } ] }
+// Returns { byKey: { "<tag> <foc>": { real:[cellPosition...], donut:[cellPosition...] } } }. Positions are montage-cell
+// ordinals (m*grid^2 + cell); persist_qa.py maps them to global candidate indices through qaorder_<foc>.json, because
+// the worklist is plausibility-ordered rather than a contiguous SNR prefix.
+// On --donut runs the HIGH tier is NOT auto-confirmed and IS in this worklist.
 let A = args
 if (typeof A === 'string') { try { A = JSON.parse(A) } catch (e) { A = {} } }
 const base = A && A.base
@@ -20,8 +21,8 @@ const work = []
 for (const r of runs)
   for (const fr of r.frames)
     for (let m = 0; m < fr.n; m++)
-      work.push({ tag: r.tag, foc: fr.foc, m, b: fr.b, file: `${base}/${r.tag}/f${fr.foc}/montage_${pad3(m)}.png` })
-log(`QA ${work.length} uncertain-tier montages across ${runs.length} run(s)`)
+      work.push({ tag: r.tag, foc: fr.foc, m, file: `${base}/${r.tag}/f${fr.foc}/montage_${pad3(m)}.png` })
+log(`QA ${work.length} montages across ${runs.length} run(s)`)
 const SCHEMA = { type:'object', additionalProperties:false,
   properties:{ real:{type:'array',items:{type:'integer'}}, donut:{type:'array',items:{type:'integer'}} }, required:['real'] }
 function prompt(path, g) {
@@ -45,10 +46,10 @@ for (let i = 0; i < work.length; i += CHUNK) {
 const byKey = {}
 for (const it of results.filter(Boolean)) {
   const key = `${it.w.tag} ${it.w.foc}`
-  if (!byKey[key]) byKey[key] = { confirmed: [], donut: [] }
-  const g0 = it.w.b + it.w.m * per
-  for (const cell of it.real) if (cell >= 0 && cell < per) byKey[key].confirmed.push(g0 + cell)
-  for (const cell of it.donut) if (cell >= 0 && cell < per) byKey[key].donut.push(g0 + cell)
+  if (!byKey[key]) byKey[key] = { real: [], donut: [] }
+  const p0 = it.w.m * per
+  for (const cell of it.real) if (cell >= 0 && cell < per) byKey[key].real.push(p0 + cell)
+  for (const cell of it.donut) if (cell >= 0 && cell < per) byKey[key].donut.push(p0 + cell)
 }
-for (const k of Object.keys(byKey)) log(`${k}: ${byKey[k].confirmed.length} confirmed`)
+for (const k of Object.keys(byKey)) log(`${k}: ${byKey[k].real.length} confirmed`)
 return { byKey }
