@@ -34,14 +34,30 @@ Return JSON {"real":[cell indices 0..${g*g-1} with a real CENTERED star], "donut
 // Server-side rate-limiting throttles sustained image-heavy bursts at the default ~16-way pipeline concurrency,
 // so process in small SEQUENTIAL chunks (effective concurrency = CHUNK) — slower but it doesn't trip the limiter.
 const CHUNK = (A && A.chunk) || 4
+// Independent repeats per montage, majority-confirmed. Two regenerations of the same LinwoodFocus frames agreed on
+// only 62% of QA-confirmed stars (Jaccard 0.6202), while auto-confirm was bit-for-bit reproducible. A single vote
+// therefore makes recall@SNR>=12 non-reproducible on exactly the defocused runs this pipeline now depends on.
+// 1 = legacy single-vote behaviour; the choice is recorded in the golden sidecar as qaVotes.
+const VOTES = (A && A.votes) || 1
+const NEED = Math.floor(VOTES / 2) + 1
 const results = []
 for (let i = 0; i < work.length; i += CHUNK) {
   const batch = work.slice(i, i + CHUNK)
   const r = await parallel(batch.map(w => () =>
-    agent(prompt(w.file, grid), { label:`qa:${w.tag.slice(0,12)}:${w.foc}:${w.m}`, phase:'QA', schema:SCHEMA, model:'sonnet', effort:'low' })
-      .then(r => ({ w, real:(r&&r.real)?r.real:[], donut:(r&&r.donut)?r.donut:[] }))))
+    parallel(Array.from({ length: VOTES }, (_, v) => () =>
+      agent(prompt(w.file, grid), { label:`qa:${w.tag.slice(0,12)}:${w.foc}:${w.m}:v${v}`, phase:'QA', schema:SCHEMA, model:'sonnet', effort:'low' })))
+      .then(votes => {
+        const real = {}, donut = {}
+        for (const rv of votes.filter(Boolean)) {
+          for (const c of (rv.real || [])) real[c] = (real[c] || 0) + 1
+          for (const c of (rv.donut || [])) donut[c] = (donut[c] || 0) + 1
+        }
+        return { w,
+          real: Object.keys(real).filter(c => real[c] >= NEED).map(Number),
+          donut: Object.keys(donut).filter(c => donut[c] >= NEED).map(Number) }
+      })))
   results.push(...r)
-  if ((i / CHUNK) % 25 === 0) log(`QA progress: ${Math.min(i + CHUNK, work.length)}/${work.length}`)
+  if ((i / CHUNK) % 25 === 0) log(`QA progress: ${Math.min(i + CHUNK, work.length)}/${work.length} montages x${VOTES} votes`)
 }
 const byKey = {}
 for (const it of results.filter(Boolean)) {
