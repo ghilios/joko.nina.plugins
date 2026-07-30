@@ -329,6 +329,36 @@ rather than silent. Re-running at higher vote counts later is purely additive.
 5. The scale guard fires on a `--donut`-less prep of `lumos` rather than emitting a golden.
 6. `dotnet test` passes.
 
+## 9a. What execution changed (2026-07-30)
+
+Three things were wrong in this design and were found only by rendering real output. Recorded here so the
+reasoning is not re-derived.
+
+**The cost model in §7 was wrong by ~20×** — corrected in place. Cost is `budget-montages × frames`, not
+high-tier size.
+
+**Plausibility had to saturate, and the two paths had to be interleaved.** `box / scale` grows without limit, so
+36 px matched-filter responses outranked the real 13 px stars on near-focus frames; rendering the queue showed
+**719 of 720 crops were noise**. Capping at 1.0 fixes the ranking (and cannot affect the auto-confirm gate, since
+everything it clips was already far above 0.3). Interleaving is needed because the matched filter emits ~10× more
+candidates and otherwise takes the whole budget once defocus puts both paths at plausibility 1.0. Plausibility
+must remain the *primary* key — plain round-robin lets a 0.083 spike jump a 1.0 donut.
+
+**`donut_k` = 6.0 was inside the noise.** Median response 6.41 against a 6.0 threshold; confirmed donuts min 7.48
+/ median 14.46. At 8.0 the pool drops 94% for ~7% of real donuts (a *lower* bound — the confirmed sample came
+from the 6.0 pool, so it is blind to donuts never proposed). This mattered more than the tiering work for yield:
+`LinwoodFocus` went from 116 to **716** confirmations at identical QA cost.
+
+**The tier assignment still mixed two quantities.** §4.2 named `snrKind` but `tier()` kept bucketing the raw
+`snr`, which meant peak/σ for connected components and disk-integrated response for the matched filter. On
+`Panos` that put 36 px donuts in the medium tier and smaller components in the high tier — `TIER-INVERSION` on a
+freshly rebuilt golden. Matched-filter candidates now measure a real peak. **The lesson generalises: naming the
+two scales was not enough; every consumer of `snr` had to be checked.**
+
+**Coverage bookkeeping had a silent-overstatement bug.** `persist_qa` marked the whole `qaorder` examined
+regardless of how many montages completed, which would have inflated the one field schema v2 exists to report
+honestly. The workflow now returns a completed-montage count.
+
 ## 10. Out of scope
 
 - Scaling `donut_radii` to the run's defocus (follow-up).

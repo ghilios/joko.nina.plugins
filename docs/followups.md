@@ -200,7 +200,35 @@ its source for any regenerated run — the "6,871 false positives" shape cannot 
 purely the larger `--budget-montages` re-runs on the runs still carrying v1 sidecars.
 
 ### F16 — The SNR≥12 auto-confirm gate inverts on heavily-defocused runs
-**Status:** Fixed — `docs/golden-tier-plausibility-design.md` / `plans/golden-tier-plausibility-plan.md`
+**Status:** Code fixed and merged · **bank rebuild incomplete** — `docs/golden-tier-plausibility-design.md` /
+`plans/golden-tier-plausibility-plan.md`
+
+**Where the bank actually stands (2026-07-30).** The tooling fix is complete and tested; the rebuild ran out of
+LLM budget partway through.
+
+| run | state |
+|---|---|
+| `LinwoodFocus` | **rebuilt**, validator clean (widthRatio 0.71 → 3.00, 99% high-tier coverage) |
+| `FlyData` | **rebuilt**, validator clean (ratio 1.50, coverage recorded) |
+| `Panos` | rebuild came out `TIER-INVERSION` at 10–25% coverage → **restored from backup**, still `WIDTH-FLAT` |
+| `mufti` | untouched (QA never ran) |
+| `lumos`, `SorenVance` | still quarantined and unscored |
+
+`LinwoodFocus` and `FlyData` were built *before* the matched-filter peak-SNR fix below, so regenerate them with
+the rest when the bank rebuild resumes. Salvaged QA for `FlyData`, `Panos` and 3 of 6 `SorenVance` frames is at
+`_prior_reports/salvaged_qa_20260730/` — a resumed run should reuse it rather than re-pay for those montages.
+
+**Two root causes were found beyond the original diagnosis, both by rendering real output rather than trusting
+the metrics:**
+
+1. **`donut_k` = 6.0 sat inside the noise.** The matched-filter response distribution's median was 6.41 against
+   a 6.0 threshold, so ~98% of the candidate pool was junk and the bounded QA budget was spent rejecting it.
+   Confirmed real donuts had min 7.48 / median 14.46. Now 8.0: candidates/frame fell 5,000–7,300 → 649–919 on
+   `LinwoodFocus` and QA coverage rose ~14% → 78–100% at unchanged cost.
+2. **The tier assignment still mixed two quantities.** `tier()` buckets on `snr`, which was peak/σ for connected
+   components but the disk-integrated response for the matched filter — the same confusion F16 is about,
+   surviving in a place the first fix didn't reach. It only shows at low coverage. Matched-filter candidates now
+   carry a measured peak.
 
 The donut matched filter shreds each ring into many tiny high-SNR fragments, which then pass `build_goldens`'
 SNR≥12 **auto-confirm** gate without QA. The gate assumes a high-SNR candidate is a real star — sound for the
