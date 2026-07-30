@@ -193,7 +193,7 @@ Independently of any re-run, **record the coverage fraction in the golden sideca
 a precision figure is a measurement or a bound. Today nothing in `<frame>.golden.json` says how much of the
 uncertain tier was examined, which is why this went unnoticed for so long.
 
-### F16 — `snr_ref --donut` over-detects catastrophically on dense, heavily-defocused frames
+### F16 — The SNR≥12 auto-confirm gate inverts on heavily-defocused runs
 **Status:** Open · **blocks scoring `SorenVance` and `lumos`**; their goldens are quarantined
 
 The donut matched filter shreds each ring into many tiny high-SNR fragments, which then pass `build_goldens`'
@@ -217,15 +217,35 @@ these fields) against a reference claiming ~4,600/frame, giving recall@≥12 of 
 **0.013** (`lumos`) — and **config B (donut-on) is no better than C0**, which is the tell. A real donut-detection
 gap would show B recovering; it doesn't, because the reference is wrong rather than the detector blind.
 
-**What distinguishes the affected runs:** candidate density. `SorenVance` and `lumos` yield ~26–27k
-candidates/frame against `FlyData`'s 2.3k — roughly 10×. `FlyData` came out **better** with `--donut` (median
-width 5 → 11 px, tiny-fraction 41% → 26%), so the filter works as intended at moderate density.
+**ROOT CAUSE (investigated 2026-07-30) — the tiering, not the matched filter, and NOT bad data.**
+`snr_ref`'s SNR is a **per-pixel/peak** measure, so it scales inversely with how far a star's flux is spread. A
+2 px noise spike concentrates its signal and scores high; a 36 px defocused donut spreads the same flux over
+~1,000 px and scores low. `build_goldens` then auto-confirms everything at SNR≥12 **without QA**, assuming high
+SNR implies real. On a heavily-defocused run that assumption **inverts** — the gate keeps the noise and discards
+the stars:
 
-**Next step.** Either add a minimum-area / annularity filter to the donut candidate path in `snr_ref`, or stop
-auto-confirming the high tier when `--donut` is set and QA it like the uncertain tier. Until then these two runs
-cannot be scored: their goldens are quarantined at
-`_prior_reports/{SorenVance,lumos}_BAD_donut_overdetect_20260730/` (recoverable, not deleted) and both runs are
-back to NaN in reports. `verification_20260730T141918Z`'s rows for them must be disregarded.
+| run | extreme HFR | auto-confirmed (SNR≥12) | discarded (SNR<12) | corr(bbox, SNR) |
+|---|---|---|---|---|
+| `lumos` | 10.7 | n=2,268, median **2 px** | n=24,499, median **36 px** | **−0.495** |
+| `SorenVance` | 7.5 | n=4,506, median 3 px | n=21,601, median 12 px | −0.082 |
+| `FlyData` | 5.0 | n=544, median 6 px | n=1,991, median 28 px | −0.054 |
+
+Severity tracks defocus exactly, which is the confirming signature. `FlyData` is mild enough that the ordering
+survives, which is why it produced a good golden.
+
+**The `--donut` matched filter is not at fault** — it *found* the donuts; they sit in the candidate list at 36 px
+(13,170 of them ≥30 px on one `lumos` frame). What fails is the SNR tiering applied afterwards.
+
+**The data is good.** Cropping `lumos`'s large low-SNR candidates shows genuine faint diffuse defocused discs at
+SNR 15–44. These are legitimate low-SNR, heavily-defocused runs — exactly what a validation bank should contain.
+**Do not delete them.**
+
+**Next step.** Tier on *integrated* SNR (flux ÷ noise over the candidate's own footprint) rather than per-pixel
+peak, so a large faint donut and a small bright star are ranked comparably. Cheaper interim options: stop
+auto-confirming when `--donut` is set and QA the high tier like any other, or gate auto-confirm on a minimum
+area so single-pixel spikes can never be auto-confirmed. Until one lands, these two runs cannot be scored: their
+goldens are quarantined at `_prior_reports/{SorenVance,lumos}_BAD_donut_overdetect_20260730/` (recoverable) and
+both runs are back to NaN. `verification_20260730T141918Z`'s rows for them must be disregarded.
 
 ### F12 — `mccomiskey` is a low-SNR run
 **Status:** Open · data-quality note, no action needed
