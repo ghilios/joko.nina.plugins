@@ -172,6 +172,21 @@ namespace TestApp {
         public static bool CenterInRect(double cx, double cy, RectD r) =>
             cx >= r.X && cx <= r.X + r.W && cy >= r.Y && cy <= r.Y + r.H;
 
+        /// <summary>Drops false positives that land on an UNRESOLVED golden box. Those candidates were
+        /// never examined by QA, so a detection there is unjudged rather than wrong — counting it as a
+        /// false positive is what turned montage-budget truncation into thousands of fake FPs (F11).
+        /// A null/empty unresolved list is the schema-v1 case and must be a no-op.</summary>
+        public static List<int> ExcludeUnresolved(
+                IReadOnlyList<int> falsePositives, IReadOnlyList<DetBox> detected, IReadOnlyList<RectD> unresolved) {
+            if (unresolved == null || unresolved.Count == 0) {
+                return falsePositives.ToList();
+            }
+            return falsePositives.Where(di => unresolved.All(u => !Covers(u, detected[di]))).ToList();
+        }
+
+        private static bool Covers(RectD box, DetBox det) =>
+            CenterInRect(det.Cx, det.Cy, box) || BoxMatcher.IoU(box, det.Box) > 0.0;
+
         private struct Cand {
             public int G;
             public int D;

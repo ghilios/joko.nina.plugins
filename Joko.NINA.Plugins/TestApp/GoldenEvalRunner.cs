@@ -192,7 +192,12 @@ namespace TestApp {
                 var rejected = result.RejectedCandidates ?? new List<RejectedCandidateRecord>();
 
                 var goldenRects = gf.Stars.Select(b => new RectD(b.X, b.Y, b.W, b.H)).ToList();
+                // Unresolved candidates are neither stars nor confirmed non-stars, so they are absent from
+                // goldenRects (no effect on recall) and are subtracted from the false positives below.
+                var unresolvedRects = (gf.Unresolved ?? new List<GoldenStarBox>())
+                    .Select(b => new RectD(b.X, b.Y, b.W, b.H)).ToList();
                 var match = GoldenMatch.Match(goldenRects, det, matchMode, tau, matchRadius);
+                var falsePositives = GoldenMatch.ExcludeUnresolved(match.FalsePositives, det, unresolvedRects);
 
                 var fe = new FrameEval {
                     FocuserPosition = frame.FocuserPosition,
@@ -200,7 +205,7 @@ namespace TestApp {
                     GoldenCount = gf.Stars.Count,
                     Accepted = stars.Count,
                     TP = match.Pairs.Count,
-                    FP = match.FalsePositives.Count,
+                    FP = falsePositives.Count,
                     FN = match.FalseNegatives.Count,
                     DefocusOffset = bestFocuser.HasValue && stepSize > 0
                         ? Math.Abs(frame.FocuserPosition - bestFocuser.Value) / (double)stepSize
@@ -241,7 +246,7 @@ namespace TestApp {
                         .ToHashSet();
                     var tp = match.Pairs.Count(pr => gIdx.Contains(pr.Golden));
                     var fn = match.FalseNegatives.Count(gi => gIdx.Contains(gi));
-                    var fp = match.FalsePositives.Count(di => dIdx.Contains(di));
+                    var fp = falsePositives.Count(di => dIdx.Contains(di));
                     fe.PerRegion[region.Index] = PrecisionRecall.Compute(tp, fp, fn);
                 }
 
