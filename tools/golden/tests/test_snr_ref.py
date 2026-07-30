@@ -46,10 +46,24 @@ class SnrRefCandidateFields(unittest.TestCase):
         mf = [c for c in cands if c['src'] == 'mf']
         self.assertTrue(mf, 'expected the faint wide disk to be found by the matched filter')
         c = mf[0]
-        self.assertEqual(c['snrKind'], 'matched')
         self.assertTrue(c['donut'])
-        # fluxSnr = response * sqrt(area): the matched-filter response already carries the sqrt(N) gain.
-        self.assertAlmostEqual(c['fluxSnr'], c['snr'] * np.sqrt(c['area']), delta=0.05 * c['fluxSnr'])
+        # fluxSnr = response * sqrt(area): the matched-filter response carries the sqrt(N) gain.
+        self.assertAlmostEqual(c['fluxSnr'], c['response'] * np.sqrt(c['area']), delta=0.05 * c['fluxSnr'])
+
+    def test_matched_filter_snr_is_a_real_peak_comparable_with_the_cc_path(self):
+        """'snr' must mean ONE thing across both paths, because build_goldens.tier() buckets on it.
+        Leaving the disk-integrated response there tiered donuts on an incomparable scale and inverted
+        the Panos golden at low QA coverage."""
+        cands = self._detect(k=5.0, donut=True)
+        mf = [c for c in cands if c['src'] == 'mf']
+        self.assertTrue(mf)
+        for c in mf:
+            self.assertEqual(c['snrKind'], 'peak', 'both paths must report the same kind of SNR')
+            self.assertGreater(c['peak'], 0.0, 'peak must be measured, not left at the 0.0 placeholder')
+            self.assertNotAlmostEqual(c['snr'], c['response'], places=6,
+                                      msg='snr must be peak/sigma, not the matched-filter response')
+            # A real peak/sigma is bounded by the integrated significance for an extended source.
+            self.assertLess(c['snr'], c['fluxSnr'])
 
     def test_flux_snr_is_comparable_across_paths(self):
         """The whole point: both paths must expose one comparable integrated-flux measure."""

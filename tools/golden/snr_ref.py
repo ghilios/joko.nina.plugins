@@ -137,11 +137,21 @@ def detect_from_arrays(img, bg, sig, k=5.0, min_area=3, max_area=20000, close=2,
             if any((dx-ex)**2 + (dy-ey)**2 <= (r*1.0)**2 for ex, ey in existing):
                 continue
             area = int(math.pi * r * r)
+            # Measure a REAL peak/sigma inside the disk. Without it 'snr' would carry the disk-integrated
+            # response here and peak/sigma on the connected-component path -- two different quantities under
+            # one name, which is the F16 confusion. tier() buckets on 'snr', so leaving the response there
+            # tiers donuts on an incomparable scale: on Panos that put 36px donuts in the medium tier while
+            # smaller components filled the high tier, inverting the golden at low QA coverage.
+            y0, y1 = max(0, dy - r), min(signal.shape[0], dy + r + 1)
+            x0, x1 = max(0, dx - r), min(signal.shape[1], dx + r + 1)
+            sub = signal[y0:y1, x0:x1]
+            sg = float(np.median(sig[y0:y1, x0:x1]))
+            peak = float(sub.max()) if sub.size else 0.0
             cands.append({'x': float(dx), 'y': float(dy), 'bx': dx-r, 'by': dy-r, 'bw': 2*r, 'bh': 2*r,
-                          'peak': 0.0, 'snr': round(resp,2), 'area': area, 'donut': True,
+                          'peak': round(peak, 1), 'snr': round(peak / sg, 2), 'area': area, 'donut': True,
                           # resp = mean*sqrt(N)/sigma, so flux/sigma = resp*sqrt(N).
                           'flux': 0.0, 'fluxSnr': round(resp * math.sqrt(area), 2),
-                          'src': 'mf', 'snrKind': 'matched'})
+                          'response': round(resp, 2), 'src': 'mf', 'snrKind': 'peak'})
             existing.append((dx, dy))
     if satmask is not None:
         H, W = img.shape
