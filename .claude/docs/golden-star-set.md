@@ -24,6 +24,15 @@ audit must not use it.** Measured against the (correct) detector positions on th
 
 ## The method that works: independent SNR reference + LLM montage QA
 
+0. **The LINEAR FITS the reference reads.** `TestApp export-linear --runs <bank>` writes `<frame>.linear.fits`
+   beside each frame (`snr_ref.py` only parses mono FITS, so this is how XISF and **bayered** runs are covered).
+   "Linear" means no MTF/auto-stretch — it does **not** mean no debayer: a bayered frame is debayered to
+   luminance, because a reference computed on the Bayer MOSAIC while HocusFocus detects on luminance scores every
+   mosaic-only find as an HF recall gap HF could never close. It is deliberately **not** CFA hot-pixel filtered
+   (unlike the detector's own OSC path): the reference's independent blind spots are the point, and hot-pixel
+   rejection is step 2's job. Sidecars written before 2026-07 were exported from the mosaic for the four bayered
+   runs (`SorenVance`, `bobp`, `bobp_m101`, `timmer`) — regenerate those with `--overwrite` before rebuilding
+   their goldens. See `docs/headless-detection-parity-design.md`.
 1. **Independent reference detector (code, on the LINEAR FITS).** A simple local-background + per-pixel SNR +
    connected-component detector (`scratchpad`/`tools`: `snr_ref.py`). It is INDEPENDENT of HocusFocus's gates
    (no contamination/distortion/centering/sensitivity/PSF gates, no wavelet structure stage), so stars it finds

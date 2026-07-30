@@ -49,6 +49,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             InitializeOptions();
         }
 
+        /// <summary>
+        /// Reads ONLY the persisted enabled flag for the active profile, without constructing a store (and so
+        /// without its <c>ProfileChanged</c> subscription, and with no chance of the seed-on-enable write path
+        /// running). For callers that must know whether per-filter resolution WOULD apply but cannot participate in
+        /// it — notably the headless harness, which has no filter wheel and therefore runs profile-level settings:
+        /// it needs to warn about the divergence, and it must not learn <see cref="EnabledKey"/> to do so.
+        /// </summary>
+        public static bool IsEnabledForActiveProfile(IPluginOptionsAccessor optionsAccessor) {
+            if (optionsAccessor == null) {
+                throw new ArgumentNullException(nameof(optionsAccessor));
+            }
+            return optionsAccessor.GetValueBoolean(EnabledKey, false);
+        }
+
         private static IPluginOptionsAccessor CreateDefaultAccessor(IProfileService profileService) {
             var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(PerFilterStarDetectionStore));
             if (guid == null) {

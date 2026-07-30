@@ -119,15 +119,20 @@ namespace TestApp {
             var frames = new List<SensorDetectedStars>();
             DrawingSize imageSize = DrawingSize.Empty;
             foreach (var (path, focuser) in frameFiles) {
-                using var mat = await DiagnosticUtil.LoadFloatMat(path, profileService);
-                imageSize = new DrawingSize(mat.Width, mat.Height);
-                var result = await detector.Detect(mat, detectorParams, progress: null, CancellationToken.None);
+                // IRenderedImage route: the sensor model is fit from the star positions the LIVE detector would
+                // produce (the CFA hotpixel filter + debayer run inside Detect at these params). On a bayered rig
+                // the mosaic's checkerboard sampling shifts per-star measurements, which is exactly the bias the
+                // tilt wizard calibrates from.
+                var rendered = await DiagnosticUtil.LoadRenderedImage(path, profileService);
+                var props = rendered.RawImageData.Properties;
+                imageSize = new DrawingSize(props.Width, props.Height);
+                var result = await detector.Detect(rendered, detectorParams, progress: null, CancellationToken.None);
                 // Order stars by raster position EXACTLY as BuildStarDetectionResult does (HocusFocusStarDetection
                 // line 612). The reference triangles are built onePerPoint=true (order-dependent greedy
                 // consumption), so matching the production star-list order is required to reproduce the live
                 // alignment outcome faithfully.
                 var starList = result.DetectedStars.Select(HocusFocusStarDetection.ToDetectedStar)
-                    .OrderBy(s => s.Position.Y * (long)mat.Width + s.Position.X).ToList();
+                    .OrderBy(s => s.Position.Y * (long)props.Width + s.Position.X).ToList();
                 var hfResult = new HocusFocusStarDetectionResult { StarList = starList, ImageSize = imageSize };
                 frames.Add(new SensorDetectedStars(focuser, hfResult, image: null));
                 Console.WriteLine($"  Focuser {focuser}: {starList.Count} stars");

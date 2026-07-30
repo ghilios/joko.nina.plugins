@@ -9,6 +9,53 @@ Build first:
 cmd.exe /c "dotnet build Joko.NINA.Plugins\TestApp\TestApp.csproj -c Debug --nologo"
 ```
 
+## Detection parity — every runner must detect on the image the app detects on
+
+**Non-negotiable.** A headless result is only worth anything if it predicts what a user sees, so every detecting
+runner loads `DiagnosticUtil.LoadRenderedImage` and detects through `StarDetector.Detect(IRenderedImage, …)` (or
+the plugin's own `RunEvaluationLoader.HocusFocusSplitFrameDetector` on the optimizer/AF-fit paths). Spec:
+`docs/headless-detection-parity-design.md`.
+
+**Why it matters.** For a **bayered** run the live app CFA hot-pixel filters and debayers *inside* `Detect`, at the
+caller's params. Detecting on the raw Bayer mosaic instead moved `bobp`'s landed `Sensitivity` from the wizard's
+`10.000` (27–31 min stars) to `0.0` at the search floor (52) — the harness could drive the gate to its floor and
+harvest unfiltered hot pixels as faint stars, an incentive that does not exist on the filtered image. **4 of 22**
+bank runs are bayered (`SorenVance`, `bobp`, `bobp_m101`, `timmer`); the other 18 are mono and byte-identical
+either way.
+
+Rules, in order of how easy they are to get wrong:
+
+- **Never CFA-filter or debayer at load time.** The representation is *params-dependent*: `HotpixelThreshold` and
+  `HotpixelThresholdingEnabled` are **searched optimizer axes**, and a load-time filter silently turns them into
+  no-ops (the probe watched the optimizer keep searching `0.0005 → 0.0015` against an image it could no longer
+  affect). Let `Detect` decide.
+- **Never use the "pre-filter, then set `HotpixelFiltering = false`" pattern.** It is not equivalent: live sets
+  `hotpixelFilterAlreadyApplied = true`, which the pre-filter pattern cannot, so `StarDetector.cs:549` runs a
+  **spatial** hot-pixel filter on the structure-detection source that live never applies — different structure map,
+  different candidates, and a clobbered `metrics.HotpixelCount`. `Detect(Mat, …)` hard-codes that flag false too.
+- **`saveLumChannel` must stay `false`** on every detection path (`RenderedImageLoading.ForDetection` pins it).
+  `true` flips `CvImageUtility.ToOpenCVMat`'s guard and makes the hotpixel-filtering-OFF branch read luminance
+  where live reads the mosaic. It belongs only to display helpers.
+- **Not for detection:** `DiagnosticUtil.LoadFloatMat` returns the frame exactly as stored (the mosaic, for a
+  bayered frame) and exists for the `.tif` carve-out — NINA's TIFF decoder normalizes by `1<<16` vs
+  `ushort.MaxValue`, and a TIFF has no CFA anyway. `LoadDebayeredFloatMat` is the same debayer **without** the CFA
+  filter, for surfaces a human/LLM reads (golden tiles, annotated overlays) and for `export-linear`, whose
+  detector-**independent** blind spots are the point.
+- `HeadlessDetectionParityGuardTests` enforces the above at the source level; `HeadlessDetectionParityTests` pins
+  the mechanism (mono byte-identity, `SaveLumChannel == false`, the hot-pixel axis still biting).
+
+**Costs, both inherent.** A bayered run holds an extra `Rgb48` `BitmapSource` (~+20% peak working set;
+`bobp_m101` 6.0 → 7.2 GB). `bobp`'s optimize phase went 87.6 s → ~300 s, and `tilt`'s 4-corner phase ~20 s → ~215 s
+per step (fixed params, five regions = five early keys, so one frame is filtered+debayered five times), because
+the CFA filter + debayer now run per early-context build rather than once at load — **do not "optimize" that
+back**, it is the same work the live wizard does, and hoisting it out of the loop is the load-time filtering the
+spec rejects. The legitimate speedup, if it is ever needed, is caching the prepared source image per (frame,
+hot-pixel params) inside `StarDetector`.
+
+**Per-filter caveat.** With per-filter star detection enabled, live resolves the captured filter's snapshot and a
+headless run cannot (it has no filter wheel, and seeding one would write to the profile). The runners warn to
+stderr when the profile has the feature on; their numbers are then profile-level, not what the app would use.
+
 ## Contamination diagnostic
 
 `TestApp` doubles as a self-contained, headless diagnostic for the contamination test. It runs detection with per-star diagnostics enabled and `RejectContaminatedStars=false` (so contaminated stars are retained for analysis).

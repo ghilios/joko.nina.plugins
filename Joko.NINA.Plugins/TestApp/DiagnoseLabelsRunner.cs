@@ -286,13 +286,15 @@ namespace TestApp {
                         continue;
                     }
 
-                    // Fresh detection of this frame (Detect mutates its input; clone the loaded Mat). Uses the rich
-                    // per-rejected-candidate records (gate + measured value), so the counter-only gates are attributed.
+                    // Fresh detection of this frame from the IRenderedImage, so the label attribution is made against
+                    // the SAME image the live app detects on (the CFA hotpixel filter + debayer run inside Detect at
+                    // these params). Uses the rich per-rejected-candidate records (gate + measured value), so the
+                    // counter-only gates are attributed.
                     List<Star> accepted;
                     IReadOnlyList<RejectedCandidateRecord> rejectedRecords;
-                    using (var mat = DiagnosticUtil.LoadFloatMat(framePath, profileService).GetAwaiter().GetResult())
-                    using (var clone = mat.Clone()) {
-                        var result = detector.Detect(clone, detectionParams, null, CancellationToken.None).GetAwaiter().GetResult();
+                    {
+                        var rendered = DiagnosticUtil.LoadRenderedImage(framePath, profileService).GetAwaiter().GetResult();
+                        var result = detector.Detect(rendered, detectionParams, null, CancellationToken.None).GetAwaiter().GetResult();
                         accepted = result.DetectedStars ?? new List<Star>();
                         rejectedRecords = result.RejectedCandidates ?? new List<RejectedCandidateRecord>();
                     }

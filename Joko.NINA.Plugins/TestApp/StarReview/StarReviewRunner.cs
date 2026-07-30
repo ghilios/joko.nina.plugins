@@ -148,16 +148,18 @@ namespace TestApp.StarReview {
             // the accepted/rejected overlay, then assemble the review queue. Detection is heavy; doing it up front
             // keeps the window responsive and lets the queue selection use real counts. Detection + the accepted/
             // rejected extraction + the MTF-stretch image-provider wiring all go through the SHARED plugin
-            // FrameReviewBuilder (single source of truth with the in-NINA wizard); only the disk-load delegate is
-            // supplied here (the profile-aware DiagnosticUtil.LoadFloatMat), keeping the plugin free of any TestApp
-            // dependency.
+            // FrameReviewBuilder (single source of truth with the in-NINA wizard); only the disk-load delegates are
+            // supplied here, keeping the plugin free of any TestApp dependency. Detection goes through the
+            // IRenderedImage route so the labels authored in this tool — which the optimizer then trusts — are drawn
+            // against the SAME image the live app detects on; the display stretch debayers but never CFA-filters.
             var detector = new StarDetector(new AlglibAPI());
             var descriptors = discovered
                 .SelectMany(d => d.Frames.Select(f => new FrameReviewDescriptor(d.RunId, f.FocuserPosition, f.Path)))
                 .ToList();
             var reviews = FrameReviewBuilder.BuildAsync(
                 descriptors, detectionParams, detector,
-                framePath => DiagnosticUtil.LoadFloatMat(framePath, profileService),
+                renderedImageLoader: framePath => DiagnosticUtil.LoadRenderedImage(framePath, profileService),
+                displayMatLoader: framePath => DiagnosticUtil.LoadDebayeredFloatMat(framePath, profileService),
                 CancellationToken.None).GetAwaiter().GetResult();
 
             var allFrames = new List<StarReviewFrame>();

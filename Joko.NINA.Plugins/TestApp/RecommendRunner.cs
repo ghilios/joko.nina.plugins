@@ -167,11 +167,14 @@ namespace TestApp {
                         continue;
                     }
 
+                    // Detect on the IRenderedImage so the gate analysis sees the SAME image the live app detects on
+                    // (CFA hotpixel filter + debayer happen inside Detect at these params). Detect(IRenderedImage)
+                    // builds its own source Mat, so no clone is needed.
                     List<Star> accepted;
                     IReadOnlyList<RejectedCandidateRecord> rejected;
-                    using (var mat = DiagnosticUtil.LoadFloatMat(framePath, profileService).GetAwaiter().GetResult())
-                    using (var clone = mat.Clone()) {
-                        var result = detector.Detect(clone, detectionParams, null, CancellationToken.None).GetAwaiter().GetResult();
+                    {
+                        var rendered = DiagnosticUtil.LoadRenderedImage(framePath, profileService).GetAwaiter().GetResult();
+                        var result = detector.Detect(rendered, detectionParams, null, CancellationToken.None).GetAwaiter().GetResult();
                         accepted = result.DetectedStars ?? new List<Star>();
                         rejected = result.RejectedCandidates ?? new List<RejectedCandidateRecord>();
                     }

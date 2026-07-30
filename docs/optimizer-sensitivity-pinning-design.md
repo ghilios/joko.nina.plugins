@@ -1,5 +1,18 @@
 # Optimizer Sensitivity-Pinning / Star-Count Bistability — Design
 
+> **Re-checked 2026-07-29 after the headless-detection parity fix — the conclusion holds; some numbers moved.**
+> Every `bobp_m101` figure quoted below was measured on a Bayer mosaic, for both the detector and the golden set
+> it was scored against (`docs/headless-detection-parity-design.md`). Re-measured on the corrected pipeline:
+> the shedding corner is **worse** than recorded (recall@SNR≥12 **0.117**, not 0.126 — the reference was ~3×
+> under-sensitive, so the deficit was never a scoring artifact), and the flooding corner is **much cleaner** than
+> recorded (**precision ~0.965**, not 0.572, at sens 0 / clip 0.25). The star-rich corner therefore *dominates*
+> the shedding corner on both axes, so **`Wtie = 0.02` looks more justified, not less.** The "94% of the missed
+> stars" attribution below weakens to ~65%: the corrected reference includes fainter stars that fail earlier
+> (structure gap, `TooSmall`), though `LowSensitivity` + `Degenerate` still dominate. The shipped calibration is
+> unaffected — it is unit-test-based, and its real-data demonstration is `muggsie`, a **mono** run the parity fix
+> provably does not touch. Full re-check: `docs/bobp-m101-recall-investigation-results.md` § *Re-check after the
+> headless-detection parity fix*.
+
 ## Problem
 
 The star-detection optimizer can land on settings that **shed most of the real stars** while still scoring
@@ -16,6 +29,12 @@ This is **not** rig-specific. The standard objective is **bistable** in the (sen
 |--------|------|----------|---------------|-----------|---|
 | star-shedding | 50 | 9.5 | 0.126 | 1.000 | ~0.999 |
 | star-flooding | 0 | 0.375 | 0.867 | 0.572 | ~0.999 |
+
+> **2026-07-29:** the recall/precision columns above are mosaic-era. Corrected, the corners read
+> shedding **0.117 @ 1.000** and flooding **0.617 @ 0.965** (the latter at clip 0.25, today's optimizer landing —
+> not the same operating point as clip 0.375, so not a like-for-like precision delta). The bistability in `J`
+> itself is a property of the objective and is unaffected by the representation change; what moves is the claim
+> that flooding is the precision-costly corner. See `docs/bobp-m101-recall-investigation-results.md`.
 
 Both corners score essentially the same J, so **which one the search reaches depends on pixel scale + seed, not
 on AF quality.** Evidence: bobp_m101 landed on the shedding corner on its capture rig; the bobp **sibling** run

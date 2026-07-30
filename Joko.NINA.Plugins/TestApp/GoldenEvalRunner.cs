@@ -175,15 +175,16 @@ namespace TestApp {
                     continue;
                 }
 
-                using var floatMat = await DiagnosticUtil.LoadFloatMat(frame.Path, profileService);
-                var fullW = floatMat.Cols;
-                var fullH = floatMat.Rows;
+                // Detect on the IRenderedImage, exactly as the live app does: the CFA hotpixel filter and the
+                // debayer then run INSIDE Detect at these params (see DiagnosticUtil.LoadRenderedImage). Recall and
+                // precision are only meaningful when the harness scores the image the app actually detects on.
+                var rendered = await DiagnosticUtil.LoadRenderedImage(frame.Path, profileService);
+                var fullW = rendered.RawImageData.Properties.Width;
+                var fullH = rendered.RawImageData.Properties.Height;
                 var regions = ReadRegions(runFolder, fullW, fullH);
 
-                HocusFocusStarDetectorResult result;
-                using (var clone = floatMat.Clone()) {
-                    result = await detector.Detect(clone, p, null, CancellationToken.None);
-                }
+                // Detect(IRenderedImage) builds its own source Mat per call, so the caller's image is never mutated.
+                var result = await detector.Detect(rendered, p, null, CancellationToken.None);
 
                 var stars = result.DetectedStars ?? new List<Star>();
                 var det = stars.Select(s => new DetBox(RectD.FromRect(s.StarBoundingBox), s.Center.X, s.Center.Y)).ToList();
@@ -258,7 +259,10 @@ namespace TestApp {
                     $"P={Fmt(PrecisionRecall.Compute(fe.TP, fe.FP, fe.FN).Precision)} R={Fmt(PrecisionRecall.Compute(fe.TP, fe.FP, fe.FN).Recall)}");
 
                 if (annotate) {
-                    WriteAnnotated(floatMat, gf, stars, match, runOut, frame.FocuserPosition);
+                    // Display only (debayered luminance for an OSC frame, never CFA-filtered) — the overlay boxes
+                    // are full-frame pixel coordinates, which the debayer preserves.
+                    using var displayMat = RenderedImageLoading.ToDebayeredLuminanceMat(rendered);
+                    WriteAnnotated(displayMat, gf, stars, match, runOut, frame.FocuserPosition);
                 }
             }
 
@@ -266,7 +270,7 @@ namespace TestApp {
                 Console.WriteLine($"  run '{run.RunId}': no per-image golden sidecars found; nothing scored.");
                 return;
             }
-            WriteReports(runOut, run.RunId, paramsLabel, sourceLabel, p, frameEvals);
+            WriteReports(runOut, run.RunId, paramsLabel, sourceLabel, p, frameEvals, matchMode, tau, matchRadius);
         }
 
         // ---- Params bundle ---------------------------------------------------------------------------------
@@ -486,7 +490,7 @@ namespace TestApp {
         // ---- Reporting -------------------------------------------------------------------------------------
 
         private static void WriteReports(string runOut, string runId, string paramsLabel, string sourceLabel,
-            StarDetectorParams p, List<FrameEval> frames) {
+            StarDetectorParams p, List<FrameEval> frames, GoldenMatchMode matchMode, double tau, double matchRadius) {
 
             // CSV (per-frame).
             var csv = new StringBuilder();
@@ -518,7 +522,14 @@ namespace TestApp {
             var sb = new StringBuilder();
             sb.AppendLine($"GOLDEN EVAL — run '{runId}'");
             sb.AppendLine($"params: {paramsLabel}   (source: {sourceLabel})");
-            sb.AppendLine($"match: center-in-box OR IoU; key detector knobs: Sensitivity={p.Sensitivity}, StarClip={p.StarClippingMultiplier}, " +
+            // Report the mode actually used — a hardcoded label here silently misattributes every stored report.
+            var matchLabel = matchMode switch {
+                GoldenMatchMode.Center => "center-in-box",
+                GoldenMatchMode.Iou => $"IoU>={tau}",
+                GoldenMatchMode.Centroid => $"centroid within {matchRadius}px",
+                _ => $"center-in-box OR IoU>={tau}"
+            };
+            sb.AppendLine($"match: {matchLabel}; key detector knobs: Sensitivity={p.Sensitivity}, StarClip={p.StarClippingMultiplier}, " +
                 $"NoiseClip={p.NoiseClippingMultiplier}, PeakResponse={p.PeakResponse}, MaxDistortion={p.MaxDistortion}, StarCenterTol={p.StarCenterTolerance}, " +
                 $"StructureLayers={p.StructureLayers}, MinHFR={p.MinHFR}, MinBox={p.MinimumStarBoundingBoxSize}");
             sb.AppendLine($"defocus: Donut={p.DefocusAwareDonutDetection}, Distortion={p.DefocusAwareDistortion}, Centering={p.DefocusAwareCentering}, " +
