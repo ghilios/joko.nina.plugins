@@ -240,12 +240,31 @@ survives, which is why it produced a good golden.
 SNR 15–44. These are legitimate low-SNR, heavily-defocused runs — exactly what a validation bank should contain.
 **Do not delete them.**
 
-**Next step.** Tier on *integrated* SNR (flux ÷ noise over the candidate's own footprint) rather than per-pixel
-peak, so a large faint donut and a small bright star are ranked comparably. Cheaper interim options: stop
-auto-confirming when `--donut` is set and QA the high tier like any other, or gate auto-confirm on a minimum
-area so single-pixel spikes can never be auto-confirmed. Until one lands, these two runs cannot be scored: their
-goldens are quarantined at `_prior_reports/{SorenVance,lumos}_BAD_donut_overdetect_20260730/` (recoverable) and
-both runs are back to NaN. `verification_20260730T141918Z`'s rows for them must be disregarded.
+**Designed 2026-07-30 → `docs/golden-tier-plausibility-design.md`** (plan: `plans/golden-tier-plausibility-plan.md`).
+
+**The integrated-SNR next step proposed here was measured and does not work** — on `lumos@209735` it keeps 2,445
+candidates at 88.0% ≤4 px versus peak SNR's 2,390 at 88.1%, i.e. marginally worse, and on `FlyData@889` it takes
+≤4 px from 16.7% to 29.0%. A 3 px spike at 12σ peak has integrated significance ≈20; a 36 px donut at 0.25σ/px
+has ≈8. Integrated SNR is the *correct* significance ordering and still ranks the spike higher. No
+significance-based statistic can fix this — the gate's error is using significance as a proxy for "is a star".
+
+The design instead keeps the `snr >= 12` tier definition (so `recall@SNR≥12` keeps its meaning), adds a
+frame-relative **star-plausibility** measure (candidate size ÷ the frame's own star scale) that reorders the QA
+worklist, drops auto-confirm entirely on `--donut` runs, and adds an **unresolved** state excluded from both
+recall and precision denominators.
+
+Two findings from that work belong here regardless of when it lands:
+
+- **`LinwoodFocus` is also contaminated** (per-frame high/QA tier width ratio **0.71**: high tier median 13 px vs
+  QA tier 28 px). Its historical `recall@SNR≥12` measures the wrong star population and cannot be rescued by
+  rescoring. `Panos` is inconclusive; `mufti` and `FlyData` are clean.
+- **Not hot pixels, and σ is not mis-estimated.** Zero auto-confirmed `lumos` sites recur in ≥11 of 23 frames
+  (68.3% appear in exactly one), and block-MAD σ agrees with an adjacent-difference estimate (99.33 vs 103.79) at
+  unit z-width. Do not re-investigate either.
+
+Until the fix lands, `lumos` and `SorenVance` cannot be scored: their goldens are quarantined at
+`_prior_reports/{SorenVance,lumos}_BAD_donut_overdetect_20260730/` (recoverable) and both runs are back to NaN.
+`verification_20260730T141918Z`'s rows for them must be disregarded.
 
 ### F12 — `mccomiskey` is a low-SNR run
 **Status:** Open · data-quality note, no action needed
