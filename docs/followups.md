@@ -193,8 +193,14 @@ Independently of any re-run, **record the coverage fraction in the golden sideca
 a precision figure is a measurement or a bound. Today nothing in `<frame>.golden.json` says how much of the
 uncertain tier was examined, which is why this went unnoticed for so long.
 
+**The coverage-recording half of this is done** (schema v2, `docs/golden-tier-plausibility-design.md` §4.5):
+goldens now carry per-tier `examined`/`total`, and candidates the budget never reached are `unresolved` and
+excluded from **both** denominators instead of being counted as false positives. That removes the artifact at
+its source for any regenerated run — the "6,871 false positives" shape cannot recur. The remaining work here is
+purely the larger `--budget-montages` re-runs on the runs still carrying v1 sidecars.
+
 ### F16 — The SNR≥12 auto-confirm gate inverts on heavily-defocused runs
-**Status:** Open · **blocks scoring `SorenVance` and `lumos`**; their goldens are quarantined
+**Status:** Fixed — `docs/golden-tier-plausibility-design.md` / `plans/golden-tier-plausibility-plan.md`
 
 The donut matched filter shreds each ring into many tiny high-SNR fragments, which then pass `build_goldens`'
 SNR≥12 **auto-confirm** gate without QA. The gate assumes a high-SNR candidate is a real star — sound for the
