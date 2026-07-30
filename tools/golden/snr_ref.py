@@ -5,7 +5,7 @@ thresholds (image-bg) > k*sigma, morphologically closes (reconnect donut arcs), 
 components, and emits candidates (intensity-weighted centroid, bbox, peak, SNR, area).
 Independent of HocusFocus's gates (contamination/distortion/centering/PSF), so candidates it finds
 that HF rejects are HF's recall gaps. Donut-aware via the closing + component centroid."""
-import sys, json, struct
+import sys, json, struct, math
 import numpy as np
 from scipy import ndimage
 
@@ -81,9 +81,10 @@ def saturation_mask(img, sat_level=60000.0, radius=0.0):
     dist = ndimage.distance_transform_edt(~sat)
     return dist < radius
 
-def detect(path, k=5.0, min_area=3, max_area=20000, close=2, donut=False, donut_radii=(6,10,14,18), donut_k=6.0, sat_radius=0.0):
-    img = read_fits(path)
-    bg, sig = coarse_bg(img)
+def detect_from_arrays(img, bg, sig, k=5.0, min_area=3, max_area=20000, close=2, donut=False,
+                       donut_radii=(6,10,14,18), donut_k=6.0, sat_radius=0.0):
+    """Candidate extraction from already-loaded arrays. Split out of detect() so tests can drive it
+    with a synthetic frame instead of a FITS file."""
     signal = img - bg
     satmask = saturation_mask(img, radius=sat_radius)
     mask = signal > (k * sig)
@@ -105,23 +106,40 @@ def detect(path, k=5.0, min_area=3, max_area=20000, close=2, donut=False, donut_
         cy = float((yy * sub_sig).sum() / tot)
         cx = float((xx * sub_sig).sum() / tot)
         peak = float(signal[sl][lbl[sl] == i].max())
-        snr = peak / float(np.median(sig[sl]))
+        sg = float(np.median(sig[sl]))
         cands.append({'x': round(cx,1), 'y': round(cy,1),
                       'bx': int(xs.start), 'by': int(ys.start),
                       'bw': int(xs.stop-xs.start), 'bh': int(ys.stop-ys.start),
-                      'peak': round(peak,1), 'snr': round(snr,2), 'area': area})
+                      'peak': round(peak,1), 'snr': round(peak / sg, 2), 'area': area,
+                      # flux in ADU, and flux in units of sigma. fluxSnr is the ONLY quantity comparable
+                      # across the two detection paths -- 'snr' is peak/sigma here but a disk-integrated
+                      # matched-filter response below, which is what F16 tripped over.
+                      'flux': round(float(tot), 1), 'fluxSnr': round(float(tot) / sg, 2),
+                      'src': 'cc', 'snrKind': 'peak'})
     if donut:
         # Add donut local maxima not already covered by a peak candidate (dedup by separation).
         existing = [(c['x'], c['y']) for c in cands]
         for (dy, dx, resp, r) in matched_filter_donuts(signal, sig, donut_radii, donut_k):
             if any((dx-ex)**2 + (dy-ey)**2 <= (r*1.0)**2 for ex, ey in existing):
                 continue
+            area = int(math.pi * r * r)
             cands.append({'x': float(dx), 'y': float(dy), 'bx': dx-r, 'by': dy-r, 'bw': 2*r, 'bh': 2*r,
-                          'peak': 0.0, 'snr': round(resp,2), 'area': int(3.14159*r*r), 'donut': True})
+                          'peak': 0.0, 'snr': round(resp,2), 'area': area, 'donut': True,
+                          # resp = mean*sqrt(N)/sigma, so flux/sigma = resp*sqrt(N).
+                          'flux': 0.0, 'fluxSnr': round(resp * math.sqrt(area), 2),
+                          'src': 'mf', 'snrKind': 'matched'})
             existing.append((dx, dy))
     if satmask is not None:
         H, W = img.shape
         cands = [c for c in cands if not satmask[min(H-1, max(0, int(round(c['y'])))), min(W-1, max(0, int(round(c['x']))))]]
+    return cands
+
+
+def detect(path, k=5.0, min_area=3, max_area=20000, close=2, donut=False, donut_radii=(6,10,14,18), donut_k=6.0, sat_radius=0.0):
+    img = read_fits(path)
+    bg, sig = coarse_bg(img)
+    cands = detect_from_arrays(img, bg, sig, k=k, min_area=min_area, max_area=max_area, close=close,
+                               donut=donut, donut_radii=donut_radii, donut_k=donut_k, sat_radius=sat_radius)
     return img, bg, sig, cands
 
 if __name__ == '__main__':
