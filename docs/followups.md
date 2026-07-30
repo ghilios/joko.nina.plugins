@@ -139,21 +139,57 @@ Use the heuristic's own donut statistics, or render the pixels and classify them
 
 ## Bank data quality
 
-### F11 — Precision is a lower bound on runs whose faint tier was budget-truncated
-**Status:** Open
+### F11 — Precision is a lower bound on runs whose faint tier was budget-truncated → **re-run these with more montages**
+**Status:** Open · the largest known data-quality gap in the bank
 
-`build_goldens` auto-confirms the SNR≥12 tier and LLM-QAs only a bounded slice of the uncertain tier. On deep
-fields that slice is tiny, so real faint detections are scored as false positives.
+`build_goldens` auto-confirms the SNR≥12 tier and LLM-QAs only a bounded slice of the uncertain tier, capped by
+`golden_prep --budget-montages`. On deep fields that slice is a few percent, so real faint detections HocusFocus
+finds are scored as **false positives**. Precision on those runs is a weak lower bound, not a measurement.
 
-**Evidence.** `mccomiskey`'s golden holds 144/132/143/… faint stars per frame — exactly 4 montages × 36 cells, the
-skill default — i.e. ~2% of its ~6,900 uncertain candidates per frame, and **nothing below SNR 8**. Its C0@nc2
-"6,871 false positives" at precision 0.8325 is an artifact. `timmer` is at 6% coverage, `SorenVance` ~3%.
+**recall@SNR≥12 is unaffected everywhere** — the high tier is auto-confirmed in full — and remains the trustworthy
+headline. Only precision (and recall@all) is compromised.
 
-**recall@SNR≥12 is unaffected** and remains the trustworthy headline everywhere.
+**Measured coverage** (rendered ÷ actual uncertain candidates):
 
-**Next step.** Either quote precision only for runs with high uncertain coverage, or record the coverage fraction
-in the golden sidecar so consumers can tell. Regenerating deep-field goldens at full coverage is infeasible
-(~3,250 montages for `timmer` alone).
+| run | frames | rendered | uncertain | coverage | montages | budget used |
+|---|---|---|---|---|---|---|
+| `bobp_m101` | 10 | 2,303 | 2,303 | **100%** | 67 | 20/frame |
+| `bobp` | 9 | 1,870 | 1,870 | **100%** | 56 | 20/frame |
+| `timmer` | 9 | 6,480 | 117,107 | **5.5%** | 180 | 20/frame |
+| `SorenVance` | 6 | 4,320 | 130,932 | **3.3%** | 120 | 20/frame |
+| `lumos` | 23 | ~16,560 | (deep) | **~3%** | ~460 | 20/frame |
+
+**Every pre-existing run in the bank is worse still** — all were built at the skill-default 4 montages/frame,
+which hard-caps the faint tier at 144 cells/frame. Their goldens show exactly that fingerprint:
+
+| run | faint stars/frame | cap |
+|---|---|---|
+| `mccomiskey` | 139 | 144 |
+| `uneven` | 133 | 144 |
+| `muggsie` | 129 | 144 |
+| `toml999` | 124 | 144 |
+| `FlyData` | 102 | 144 |
+
+On `mccomiskey` that is ~2% of its ~6,900 uncertain candidates per frame and **nothing at all below SNR 8**, which
+is why its C0@nc2 "6,871 false positives" at precision 0.8325 is an artifact rather than a finding.
+
+**Next step — re-run the deep runs with a much larger `--budget-montages`.** Cost scales linearly with coverage:
+the 236-montage QA pass took 27 min at chunk=4, so ~7 min per 60 montages.
+
+| target | montages (`timmer`) | QA time | coverage |
+|---|---|---|---|
+| current (20/frame) | 180 | ~20 min | 5.5% |
+| 60/frame | 540 | ~65 min | 17% |
+| 200/frame | 1,800 | ~3.5 hr | 55% |
+| full | 3,253 | ~6 hr | 100% |
+
+Full coverage on every deep run is ~6 hr each and probably not worth it. Suggested: **60–200 montages/frame for
+any run whose precision is quoted in a report**, prioritised as `mccomiskey` (its precision has already been cited
+and is the most misleading), then `timmer`, `SorenVance`, `lumos`, then the remaining default-budget runs.
+
+Independently of any re-run, **record the coverage fraction in the golden sidecar** so a consumer can tell whether
+a precision figure is a measurement or a bound. Today nothing in `<frame>.golden.json` says how much of the
+uncertain tier was examined, which is why this went unnoticed for so long.
 
 ### F12 — `mccomiskey` is a low-SNR run
 **Status:** Open · data-quality note, no action needed
