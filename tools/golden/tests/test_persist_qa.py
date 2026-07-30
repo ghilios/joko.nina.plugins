@@ -37,5 +37,27 @@ class PositionToGlobalIndex(unittest.TestCase):
         self.assertEqual(got['confirmed'], [90])
 
 
+class ExaminedReflectsMontagesActuallyQad(unittest.TestCase):
+    """Coverage must never be overstated: if the worklist is capped below the rendered montage count, only
+    the montages the workflow completed count as examined."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.run = os.path.join(self.root, 'myrun')
+        os.makedirs(self.run)
+        # 3 montages' worth of worklist at grid=2 (4 cells each) = 12 candidates.
+        json.dump(list(range(100, 112)), open(os.path.join(self.run, 'qaorder_7.json'), 'w'))
+
+    def test_capped_worklist_only_marks_completed_montages_examined(self):
+        PQ.persist(self.root, {'myrun 7': {'real': [], 'donut': [], 'montages': 2}}, grid=2)
+        got = json.load(open(os.path.join(self.run, 'qa_7.json')))
+        self.assertEqual(got['examined'], list(range(100, 108)), 'only 2 montages x 4 cells were examined')
+
+    def test_absent_montage_count_falls_back_to_the_whole_worklist(self):
+        PQ.persist(self.root, {'myrun 7': {'real': [], 'donut': []}}, grid=2)
+        got = json.load(open(os.path.join(self.run, 'qa_7.json')))
+        self.assertEqual(got['examined'], list(range(100, 112)))
+
+
 if __name__ == '__main__':
     unittest.main()

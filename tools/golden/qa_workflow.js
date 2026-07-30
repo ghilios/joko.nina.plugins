@@ -62,10 +62,14 @@ for (let i = 0; i < work.length; i += CHUNK) {
 const byKey = {}
 for (const it of results.filter(Boolean)) {
   const key = `${it.w.tag} ${it.w.foc}`
-  if (!byKey[key]) byKey[key] = { real: [], donut: [] }
+  // montages counts SUCCESSFULLY QA'd montages, so persist_qa can record exactly how many candidates were
+  // examined. Without it, a worklist capped below the rendered montage count would mark the whole qaorder
+  // as examined and overstate coverage -- the one number schema v2 exists to get right.
+  if (!byKey[key]) byKey[key] = { real: [], donut: [], montages: 0 }
+  byKey[key].montages++
   const p0 = it.w.m * per
   for (const cell of it.real) if (cell >= 0 && cell < per) byKey[key].real.push(p0 + cell)
   for (const cell of it.donut) if (cell >= 0 && cell < per) byKey[key].donut.push(p0 + cell)
 }
-for (const k of Object.keys(byKey)) log(`${k}: ${byKey[k].real.length} confirmed`)
+for (const k of Object.keys(byKey)) log(`${k}: ${byKey[k].real.length} confirmed over ${byKey[k].montages} montages`)
 return { byKey }

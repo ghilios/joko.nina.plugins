@@ -271,20 +271,32 @@ non-regenerable content — 27 goldens, both `settings.txt` notes, and hand-cura
 
 Measured QA rate: 236 montages in 27 min at chunk 4 → 8.74 montages/min, 36 cells each → ~314 candidates/min.
 
-| run | high tier | montages | QA time (1 vote) | at 3 votes |
-|---|---|---|---|---|
-| `lumos` | 53,015 | 1,473 | ~169 min | ~8.4 hr |
-| `SorenVance` | 27,812 | 773 | ~88 min | ~4.4 hr |
-| `Panos` | 6,733 | 187 | ~21 min | ~63 min |
-| `mufti` | 5,145 | 143 | ~16 min | ~48 min |
-| `FlyData` | 3,511 | 98 | ~11 min | ~33 min |
-| `LinwoodFocus` | 865 | 24 | ~3 min | ~9 min |
+**Cost is `budget-montages × frames`, not the high-tier size.** An earlier version of this table sized each run
+by its high tier, which is wrong: with auto-confirm off, the *entire* candidate list enters the worklist, and
+what actually bounds the work is the per-frame montage cap. `LinwoodFocus` measured 540 montages at
+`--budget-montages 60`, against the 24 the old table predicted from its 865-star high tier — a 20× error.
 
-Plus ~2 hr of `snr_ref` across the six runs, plus the uncertain tier at whatever budget F11 settles on.
+| run | frames | montages @20 | QA @1 vote | montages @60 | QA @1 vote | candidates/frame |
+|---|---|---|---|---|---|---|
+| `lumos` | 23 | 460 | ~53 min | 1,380 | ~158 min | ~26,000 |
+| `LinwoodFocus` | 9 | 180 | ~21 min | 540 | ~62 min | ~5,000–7,300 |
+| `FlyData` | 9 | 180 | ~21 min | 540 | ~62 min | ~2,300 |
+| `Panos` | 7 | 140 | ~16 min | 420 | ~48 min | — |
+| `mufti` | 7 | 140 | ~16 min | 420 | ~48 min | — |
+| `SorenVance` | 6 | 120 | ~14 min | 360 | ~41 min | ~26,000 |
+| **total** | **61** | **1,220** | **~2.3 hr** | **3,660** | **~7.0 hr** | |
 
-Three-vote QA on `lumos` at ~8.4 hr is the one line that may not be worth its price. The plan should treat vote
-count as a per-run knob, default 3, and allow 1 on the largest runs with the reproducibility caveat recorded in
-`qaVotes` — the sidecar makes that choice visible rather than silent.
+Multiply by the vote count. Plus ~2 hr of `snr_ref` across the six runs.
+
+**Plausibility ordering is what makes a small budget defensible.** The queue spends itself on the largest,
+most star-like candidates first, so the first N montages carry far more tier-assignment information than a
+random N would — which was not true under the old SNR ordering, where the queue led with pixel-scale spikes.
+Raising the budget mostly buys coverage on the shallow runs; `lumos` and `SorenVance` have ~26,000 candidates
+per frame and stay budget-bound at any affordable setting.
+
+**Chosen for the initial rebuild: 20 montages/frame, 1 vote** (~2.3 hr total). Single-vote QA is not
+reproducible — see §6 — so every sidecar records `qaVotes: 1`, making the limitation visible to any consumer
+rather than silent. Re-running at higher vote counts later is purely additive.
 
 ## 8. Risks and limitations
 
