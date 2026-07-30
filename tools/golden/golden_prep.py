@@ -26,6 +26,7 @@ from PIL import Image, ImageDraw
 sys.path.insert(0, os.path.dirname(__file__))
 from snr_ref import detect, read_fits, coarse_bg
 from qa_montage import stretch_crop
+from plausibility import check_scale, frame_star_scale, is_plausible, qa_order
 
 FRAME_RE = re.compile(r'Focuser(\d+)', re.IGNORECASE)
 FRAME_EXTS = ('.fits', '.fit', '.xisf')
@@ -88,6 +89,31 @@ def build_montages(fits_path, cands, global_indices, out_dir, crop=48, cell=120,
     return montages
 
 
+def auto_confirmed_indices(cands, scale, donut, threshold):
+    """Which candidates skip LLM QA entirely.
+
+    On --donut runs: NONE. The matched filter shreds rings into fragments and the SNR ordering inverts,
+    so significance alone cannot be trusted and the high tier is QA'd like any other tier.
+
+    Otherwise: significance AND plausibility. Significance was never sufficient -- a 3px spike at 12
+    sigma peak outranks a real donut -- so a candidate must also be a credible size for its frame.
+    """
+    if donut:
+        return set()
+    return {i for i, c in enumerate(cands)
+            if float(c['snr']) >= threshold and is_plausible(c, scale)}
+
+
+def qa_worklist(cands, scale, donut, threshold):
+    """Global indices to render for QA, in priority order: plausibility desc, then SNR desc.
+
+    Ordering, never filtering -- the budget decides how far down the queue we get, and everything past
+    that point is recorded as UNRESOLVED rather than silently treated as not-a-star.
+    """
+    auto = auto_confirmed_indices(cands, scale, donut, threshold)
+    return [i for i in qa_order(cands, scale) if i not in auto]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--run-dir', required=True)
@@ -97,6 +123,9 @@ def main():
     ap.add_argument('--sat-radius', type=float, default=0.0)
     ap.add_argument('--auto-confirm-snr', type=float, default=12.0)
     ap.add_argument('--budget-montages', type=int, default=60)
+    ap.add_argument('--min-scale', type=float, default=5.0,
+                    help="abort if a frame's star-scale estimate falls to/below this (px). The guard "
+                         'against a silently-inert plausibility gate; see design 4.3.')
     ap.add_argument('--grid', type=int, default=6)
     ap.add_argument('--crop', type=int, default=48)
     ap.add_argument('--cell', type=int, default=120)
@@ -117,18 +146,30 @@ def main():
             print(f'  foc {foc}: no readable mono FITS (run TestApp export-linear first); skipped')
             continue
         _, _, _, cands = detect(lin, k=args.k, donut=args.donut, sat_radius=args.sat_radius)
-        cands.sort(key=lambda c: -c['snr'])  # SNR descending → high tier first (contiguous prefix)
+        cands.sort(key=lambda c: -c['snr'])  # stable, human-readable order for snr_<foc>.json
         json.dump(cands, open(os.path.join(args.out, f'snr_{foc}.json'), 'w'))
-        high = sum(1 for c in cands if c['snr'] >= args.auto_confirm_snr)
-        uncertain_idx = [i for i, c in enumerate(cands) if c['snr'] < args.auto_confirm_snr]
-        to_qa = uncertain_idx[: args.budget_montages * per]  # highest-SNR-first (list already sorted desc)
+
+        # Label with the last two path components: every run's leaf is "attempt01", so the basename
+        # alone cannot identify which run failed in a bank-wide sweep.
+        run_label = os.path.join(*os.path.normpath(args.run_dir).split(os.sep)[-2:])
+        scale = check_scale(frame_star_scale(cands), f'{run_label} foc {foc}', min_scale=args.min_scale)
+        auto = auto_confirmed_indices(cands, scale, args.donut, args.auto_confirm_snr)
+        order = qa_worklist(cands, scale, args.donut, args.auto_confirm_snr)
+        to_qa = order[: args.budget_montages * per]
+        # The workflow returns montage CELL POSITIONS; this file translates position -> global index,
+        # which is what lets the worklist be plausibility-ordered instead of a contiguous SNR prefix.
+        json.dump(to_qa, open(os.path.join(args.out, f'qaorder_{foc}.json'), 'w'))
+
         mdir = os.path.join(args.out, f'f{foc}')
         montages = build_montages(lin, [cands[i] for i in to_qa], to_qa, mdir,
                                   crop=args.crop, cell=args.cell, grid=args.grid) if to_qa else []
-        manifest['frames'].append({'foc': foc, 'imageFile': fn, 'total': len(cands), 'high': high,
-                                   'uncertainTotal': len(uncertain_idx), 'uncertainRendered': len(to_qa),
+        manifest['frames'].append({'foc': foc, 'imageFile': fn, 'total': len(cands),
+                                   'starScale': scale, 'autoConfirmed': len(auto),
+                                   'high': sum(1 for c in cands if c['snr'] >= args.auto_confirm_snr),
+                                   'queued': len(order), 'rendered': len(to_qa),
                                    'montageDir': mdir, 'montageCount': len(montages)})
-        print(f'  foc {foc}: {len(cands)} cand, {high} high(auto), {len(to_qa)}/{len(uncertain_idx)} uncertain -> {len(montages)} montages')
+        print(f'  foc {foc}: {len(cands)} cand, scale {scale:.0f}px, {len(auto)} auto-confirmed, '
+              f'{len(to_qa)}/{len(order)} queued -> {len(montages)} montages')
     json.dump(manifest, open(os.path.join(args.out, 'manifest.json'), 'w'), indent=1)
     print(f'wrote manifest: {len(manifest["frames"])} frames -> {args.out}')
 
