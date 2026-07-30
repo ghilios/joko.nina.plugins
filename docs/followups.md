@@ -155,9 +155,11 @@ headline. Only precision (and recall@all) is compromised.
 |---|---|---|---|---|---|---|
 | `bobp_m101` | 10 | 2,303 | 2,303 | **100%** | 67 | 20/frame |
 | `bobp` | 9 | 1,870 | 1,870 | **100%** | 56 | 20/frame |
+| `vsn07` | 7 | 1,362 | 1,362 | **100%** | 42 | 20/frame |
+| `FlyData` | 9 | 6,480 | 17,215 | **37.6%** | 180 | 20/frame |
 | `timmer` | 9 | 6,480 | 117,107 | **5.5%** | 180 | 20/frame |
-| `SorenVance` | 6 | 4,320 | 130,932 | **3.3%** | 120 | 20/frame |
-| `lumos` | 23 | ~16,560 | (deep) | **~3%** | ~460 | 20/frame |
+| `SorenVance` | 6 | 4,320 | 130,932 | **3.3%** | 120 | 20/frame (golden invalid — see F16) |
+| `lumos` | 23 | 16,560 | 564,813 | **2.9%** | 460 | 20/frame (golden invalid — see F16) |
 
 **Every pre-existing run in the bank is worse still** — all were built at the skill-default 4 montages/frame,
 which hard-caps the faint tier at 144 cells/frame. Their goldens show exactly that fingerprint:
@@ -191,6 +193,40 @@ Independently of any re-run, **record the coverage fraction in the golden sideca
 a precision figure is a measurement or a bound. Today nothing in `<frame>.golden.json` says how much of the
 uncertain tier was examined, which is why this went unnoticed for so long.
 
+### F16 — `snr_ref --donut` over-detects catastrophically on dense, heavily-defocused frames
+**Status:** Open · **blocks scoring `SorenVance` and `lumos`**; their goldens are quarantined
+
+The donut matched filter shreds each ring into many tiny high-SNR fragments, which then pass `build_goldens`'
+SNR≥12 **auto-confirm** gate without QA. The gate assumes a high-SNR candidate is a real star — sound for the
+per-pixel-SNR path it was validated on, **not** for the matched-filter path.
+
+**Evidence.** Golden star widths, donut runs old vs newly generated:
+
+| run | mode | stars | median W | p90 W | **≤4 px** |
+|---|---|---|---|---|---|
+| `lumos` | donut, new | 60,348 | 3 px | 4 px | **91%** |
+| `SorenVance` | donut, new | 28,935 | 3 px | 36 px | **67%** |
+| `FlyData` | donut, new | 5,462 | 11 px | 22 px | 26% ✅ |
+| `mufti` | donut, existing | 5,612 | 18 px | 36 px | 1% |
+| `Panos` | donut, existing | 7,178 | 12 px | 36 px | 11% |
+| `LinwoodFocus` | donut, existing | 1,640 | 20 px | 36 px | 19% |
+
+`lumos`'s donuts measure ~21 px and `SorenVance`'s ~26 px per the donut heuristic, so a golden whose stars are
+median **3 px** is fragments, not stars. The scored consequence: HocusFocus finds 8–813 stars/frame (plausible for
+these fields) against a reference claiming ~4,600/frame, giving recall@≥12 of **0.036** (`SorenVance`) and
+**0.013** (`lumos`) — and **config B (donut-on) is no better than C0**, which is the tell. A real donut-detection
+gap would show B recovering; it doesn't, because the reference is wrong rather than the detector blind.
+
+**What distinguishes the affected runs:** candidate density. `SorenVance` and `lumos` yield ~26–27k
+candidates/frame against `FlyData`'s 2.3k — roughly 10×. `FlyData` came out **better** with `--donut` (median
+width 5 → 11 px, tiny-fraction 41% → 26%), so the filter works as intended at moderate density.
+
+**Next step.** Either add a minimum-area / annularity filter to the donut candidate path in `snr_ref`, or stop
+auto-confirming the high tier when `--donut` is set and QA it like the uncertain tier. Until then these two runs
+cannot be scored: their goldens are quarantined at
+`_prior_reports/{SorenVance,lumos}_BAD_donut_overdetect_20260730/` (recoverable, not deleted) and both runs are
+back to NaN in reports. `verification_20260730T141918Z`'s rows for them must be disregarded.
+
 ### F12 — `mccomiskey` is a low-SNR run
 **Status:** Open · data-quality note, no action needed
 
@@ -201,10 +237,12 @@ band, breaking every pixel-unit knob). Longer exposure is the only lever. Worth 
 noisy.
 
 ### F13 — `SorenVance` was the one bayered run never scored
-**Status:** In progress (2026-07-30)
+**Status:** Blocked by F16
 
-Bayered, 6 frames, and had no goldens or linear exports at all, so it produced NaN in every report. Golden
-generation is under way; it is donut-aware (frac 12.00, bbox 26 px).
+Bayered, 6 frames, and had no goldens or linear exports at all, so it produced NaN in every report. Linear exports
+now exist and the donut heuristic flags it (frac 12.00, bbox 26 px), but its generated golden proved invalid — see
+F16 — so it remains unscored. `lumos` (23 frames, mono, donut-aware) is in the same position. `vsn07` (7 frames,
+mono, no donut) succeeded and is now scored, at 100% uncertain coverage.
 
 ### F14 — `astrodet` is frameless
 **Status:** Won't fix
