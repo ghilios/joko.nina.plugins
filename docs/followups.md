@@ -158,8 +158,8 @@ headline. Only precision (and recall@all) is compromised.
 | `vsn07` | 7 | 1,362 | 1,362 | **100%** | 42 | 20/frame |
 | `FlyData` | 9 | 6,480 | 17,215 | **37.6%** | 180 | 20/frame |
 | `timmer` | 9 | 6,480 | 117,107 | **5.5%** | 180 | 20/frame |
-| `SorenVance` | 6 | 4,320 | 130,932 | **3.3%** | 120 | 20/frame (golden invalid — see F16) |
-| `lumos` | 23 | 16,560 | 564,813 | **2.9%** | 460 | 20/frame (golden invalid — see F16) |
+| `SorenVance` | 6 | 4,320 | 130,932 | **3.3%** | 120 | 20/frame (golden invalid — still unscored, see F17) |
+| `lumos` | 23 | 16,560 | 564,813 | **2.9%** | 460 | 20/frame (golden invalid — still unscored, see F17) |
 
 **Every pre-existing run in the bank is worse still** — all were built at the skill-default 4 montages/frame,
 which hard-caps the faint tier at 144 cells/frame. Their goldens show exactly that fingerprint:
@@ -200,23 +200,7 @@ its source for any regenerated run — the "6,871 false positives" shape cannot 
 purely the larger `--budget-montages` re-runs on the runs still carrying v1 sidecars.
 
 ### F16 — The SNR≥12 auto-confirm gate inverts on heavily-defocused runs
-**Status:** Code fixed and merged · **bank rebuild incomplete** — `docs/golden-tier-plausibility-design.md` /
-`plans/golden-tier-plausibility-plan.md`
-
-**Where the bank actually stands (2026-07-30).** The tooling fix is complete and tested; the rebuild ran out of
-LLM budget partway through.
-
-| run | state |
-|---|---|
-| `LinwoodFocus` | **rebuilt**, validator clean (widthRatio 0.71 → 3.00, 99% high-tier coverage) |
-| `FlyData` | **rebuilt**, validator clean (ratio 1.50, coverage recorded) |
-| `Panos` | rebuild came out `TIER-INVERSION` at 10–25% coverage → **restored from backup**, still `WIDTH-FLAT` |
-| `mufti` | untouched (QA never ran) |
-| `lumos`, `SorenVance` | still quarantined and unscored |
-
-`LinwoodFocus` and `FlyData` were built *before* the matched-filter peak-SNR fix below, so regenerate them with
-the rest when the bank rebuild resumes. Salvaged QA for `FlyData`, `Panos` and 3 of 6 `SorenVance` frames is at
-`_prior_reports/salvaged_qa_20260730/` — a resumed run should reuse it rather than re-pay for those montages.
+**Status:** **Tooling fixed and merged** (PR #163) · the bank rebuild it enables is incomplete — see **F17**
 
 **Two root causes were found beyond the original diagnosis, both by rendering real output rather than trusting
 the metrics:**
@@ -296,9 +280,48 @@ Two findings from that work belong here regardless of when it lands:
   (68.3% appear in exactly one), and block-MAD σ agrees with an adjacent-difference estimate (99.33 vs 103.79) at
   unit z-width. Do not re-investigate either.
 
-Until the fix lands, `lumos` and `SorenVance` cannot be scored: their goldens are quarantined at
-`_prior_reports/{SorenVance,lumos}_BAD_donut_overdetect_20260730/` (recoverable) and both runs are back to NaN.
-`verification_20260730T141918Z`'s rows for them must be disregarded.
+`verification_20260730T141918Z`'s rows for `lumos` and `SorenVance` must still be disregarded.
+
+### F17 — The bank rebuild F16 enables is only 2 runs deep
+**Status:** Open · **`lumos` and `SorenVance` are still unscored — this is the remaining gap in the bank**
+
+F16's tooling is merged and tested, but the rebuild it exists to enable ran out of LLM budget at **396 of 1,040
+montages**. Two of six donut-aware runs are rebuilt; the rest are untouched or restored. Nothing is corrupted —
+`build_goldens` never ran for the incomplete runs — but the bank is now of **mixed provenance**, and any report
+that mixes these rows must say so.
+
+| run | state | schema | action needed |
+|---|---|---|---|
+| `LinwoodFocus` | rebuilt, validator clean (widthRatio 0.71 → **3.00**, 99% high-tier coverage) | v2 | regenerate — predates the peak-SNR fix |
+| `FlyData` | rebuilt, validator clean (ratio 1.50, coverage recorded) | v2 | regenerate — predates the peak-SNR fix |
+| `Panos` | rebuild came out `TIER-INVERSION` (0.75) at 10–25% coverage → **restored from backup**; still `WIDTH-FLAT` | v1 | full rebuild |
+| `mufti` | untouched, QA never ran | v1 | full rebuild |
+| `lumos` | **quarantined, unscored** | — | full rebuild |
+| `SorenVance` | **quarantined, unscored** | — | full rebuild |
+
+**Do not compare a v2 row against a v1 row.** The v2 goldens exclude `unresolved` candidates from both
+denominators and record per-tier coverage; the v1 goldens auto-confirmed their high tier without QA. The 11
+non-donut runs are all v1 and remain internally comparable, exactly as before.
+
+**To resume.** Salvaged QA for `FlyData` (9/9 frames), `Panos` (7/7) and `SorenVance` (3/6) is preserved at
+`_prior_reports/salvaged_qa_20260730/` — **reuse it rather than re-paying for those montages**. Per-run backups of
+every overwritten golden are at `_prior_reports/<run>_pre_plausibility_20260730/`. The pipeline is
+`golden_prep.py --donut --budget-montages N` → `build_qa_worklist.py` → `qa_workflow.js` → `persist_qa.py` →
+`build_goldens.py` → `golden_health.py`, per `.claude/docs/golden-star-set.md`.
+
+**Cost, measured rather than estimated:** montages = `budget-montages × frames`, at ~8.74 montages/min. The five
+outstanding runs at 20/frame are ~1,040 montages ≈ **2 hr at one vote**. Coverage at that budget was 78–100% on
+`LinwoodFocus` but only ~10% on `lumos` and ~4% on `SorenVance`, which have 7k and 18k candidates per frame.
+
+**Two things to fix before the next attempt, since they change the yield:**
+
+- **`donut_radii` is hardcoded `(6,10,14,18)`**, capping the matched filter at a 36 px box. `mufti` measures star
+  scales of **42–52 px**, so its largest donuts exceed what the reference can represent, and on near-focus frames
+  r=18 kernels can only return noise. The per-frame star scale that `plausibility.frame_star_scale` already
+  computes is the natural input for sizing these.
+- **Single-vote QA is not reproducible.** Two independent passes over the same `LinwoodFocus` frames agreed on
+  only 62% of confirmed stars (Jaccard 0.6202) while auto-confirm reproduced bit-for-bit. Everything rebuilt so
+  far records `qaVotes: 1`. If `recall@SNR≥12` on donut runs is going to be quoted, the high tier wants ≥3 votes.
 
 ### F12 — `mccomiskey` is a low-SNR run
 **Status:** Open · data-quality note, no action needed
@@ -310,12 +333,18 @@ band, breaking every pixel-unit knob). Longer exposure is the only lever. Worth 
 noisy.
 
 ### F13 — `SorenVance` was the one bayered run never scored
-**Status:** Blocked by F16
+**Status:** Blocked by **F17** (F16's tooling fix is merged; the rebuild is not done)
 
 Bayered, 6 frames, and had no goldens or linear exports at all, so it produced NaN in every report. Linear exports
 now exist and the donut heuristic flags it (frac 12.00, bbox 26 px), but its generated golden proved invalid — see
 F16 — so it remains unscored. `lumos` (23 frames, mono, donut-aware) is in the same position. `vsn07` (7 frames,
 mono, no donut) succeeded and is now scored, at 100% uncertain coverage.
+
+Post-F16 prep is encouraging for both: `lumos`'s star scale now traces a proper focus curve
+(36…36,35,27,17,28,**8**,16,27,36,36) where it was previously flat at 3 px on all 23 frames — the flatness that
+first proved its reference was measuring noise. `SorenVance` is the harder case: its candidate pool barely shrank
+under `donut_k=8` (19,752/frame vs `lumos`'s 7,000), so it lands at ~4% coverage and may need a larger budget or
+the `donut_radii` work in F17 before it yields a usable denominator.
 
 ### F14 — `astrodet` is frameless
 **Status:** Won't fix
