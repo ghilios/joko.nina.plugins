@@ -292,6 +292,32 @@ public class StarSignalCopyTests {
     }
 
     [Test]
+    public void ExposureCopy_EveryFrameShort_BlamesCandidateFormation_NotExposure() {
+        // The 3800mm case. EVERY frame fell short of the star-count target while the stars that WERE found
+        // comfortably clear the default gate. That combination is not a signal problem: the frames are not
+        // yielding candidates to accept, so no exposure and no gate change can reach the target. Saying "the low
+        // gate is scraping for count in a star-poor field" here points at the gate, which is not the lever.
+        var text = Body(Starved(advice: Advice(5, 5, 24.0, exposureIsNotTheLimit: true, shortFrameCount: 9)), live: true);
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("All 9 frames found fewer stars than the star-count target"));
+            Assert.That(text, Does.Contain("how many stars these frames yield at all"));
+            Assert.That(text, Does.Not.Contain("scraping for count in a star-poor field"),
+                "that phrasing blames the gate; with every frame short the limit is candidate formation");
+        });
+    }
+
+    [Test]
+    public void ExposureCopy_SomeFramesShort_KeepsTheStarPoorWording() {
+        // Guard the boundary: a PARTIAL shortfall is still the old situation — some frames did reach the target,
+        // so the field is thin rather than incapable, and the existing wording remains the accurate one.
+        var text = Body(Starved(advice: Advice(5, 5, 22.0, exposureIsNotTheLimit: true, shortFrameCount: 8)), live: true);
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("8 of 9 frames found fewer stars than the star-count target, so the low gate is scraping for count in a star-poor field."));
+            Assert.That(text, Does.Not.Contain("how many stars these frames yield at all"));
+        });
+    }
+
+    [Test]
     public void ExposureCopy_RelativeCapOnly_SaysPartialStep_AndNeverMentionsFilters() {
         // The reviewer's case: current 2 s, S_now 4.5 => raw 9.88 s, trimmed to 8 s by the 4x RUN-RELATIVE cap.
         // 9.9 s is an ordinary auto-focus exposure nowhere near the 30 s ceiling, so filter-swap advice would be

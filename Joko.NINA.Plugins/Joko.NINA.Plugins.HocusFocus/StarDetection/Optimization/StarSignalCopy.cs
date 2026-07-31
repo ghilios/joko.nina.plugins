@@ -146,7 +146,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     // it reads as refuting the "low-confidence detections" clause before it. The tail clause
                     // reconciles the two facts instead of leaving them looking contradictory.
                     text += $" Exposure is not what is limiting this run: your brightest stars measure S/N {advice.MeasuredSnr:0.#}, which already meets the default gate of {ExposureRecommender.TargetSensitivity:0.#}; the low gate is admitting a long tail of far fainter candidates below them.";
-                    if (advice.ShortFrameCount > 0) {
+                    // EVERY frame short, with the stars that were found comfortably clearing the gate, is a
+                    // different situation from a merely thin field: the frames are not producing candidates to
+                    // accept in the first place, so neither a longer exposure nor a different gate can reach the
+                    // target. Measured on a 3800mm rig: 9 candidates formed per frame and 7 were accepted, while
+                    // sweeping the gate across its whole range changed the star count by at most one. Naming the
+                    // gate there ("scraping for count") points at the one knob that provably cannot help.
+                    if (advice.UsableFrameCount > 0 && advice.ShortFrameCount == advice.UsableFrameCount) {
+                        text += $" All {advice.UsableFrameCount} frames found fewer stars than the star-count target, so what limits this run is how many stars these frames yield at all — a longer exposure or a different gate cannot raise that. Long focal lengths and small sensors see few stars per frame; detection binning and the structure-detection settings are the levers, or accept that this field supports fewer stars than the target.";
+                    } else if (advice.ShortFrameCount > 0) {
                         text += $" {advice.ShortFrameCount} of {advice.UsableFrameCount} frames found fewer stars than the star-count target, so the low gate is scraping for count in a star-poor field.";
                     }
                 } else if (!advice.IncreasesExposure) {
