@@ -19,8 +19,18 @@ Pipeline:
    real centered star (robust classification, not localization). Edit its `CFG.frames` for your run. Returns the
    confirmed candidate indices per frame.
 
-4. **`build_goldens.py`** — writes per-image `<image>.golden.json` sidecars = QA-confirmed candidates, with the
-   SNR value mapped to a `confidence` tier (≥12 high, 8–12 medium, 5–8 low).
+4. **`golden_prep.py`** — runs the reference over each frame, estimates the frame's **star scale** (median box of
+   the top-flux candidates over the CC+MF union), and renders the QA worklist in **plausibility order** so a
+   bounded montage budget lands on candidates that could be stars. Auto-confirms nothing when `--donut` is set,
+   and requires plausibility as well as SNR otherwise. Aborts if the scale estimate collapses to the pixel scale
+   — which is what a missing `--donut` on a defocused run looks like.
+
+5. **`build_goldens.py`** — writes schema-v2 per-image `<image>.golden.json` sidecars: `stars[]` (confirmed, with
+   the SNR value mapped to a `confidence` tier — ≥12 high, 8–12 medium, 5–8 low), `unresolved[]` (never examined,
+   excluded from both denominators), and per-tier `coverage`.
+
+6. **`golden_health.py`** — validates a golden from its sidecars alone (no FITS, no LLM). Run it after any rebuild
+   and before quoting any number: `golden_health.py --bank "D:/Autofocus Bank"`.
 
 Then score with `TestApp golden eval --runs <run> --params <current|default|optimized> --match centroid
 --match-radius 12` (recall/precision overall + per-region + per-SNR-tier + false-negative gate attribution).

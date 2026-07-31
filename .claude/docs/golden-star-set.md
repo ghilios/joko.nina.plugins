@@ -47,7 +47,15 @@ audit must not use it.** Measured against the (correct) detector positions on th
    is robust to the thumbnail downscale because it needs only "is there a concentrated source under the reticle",
    not coordinates. Use sonnet + low effort (cheap).
 3. **Golden = QA-confirmed candidates**, each carrying its **SNR as the confidence tier** (objective:
-   SNR≥12 high, 8–12 medium, 5–8 low) — better than subjective LLM tiers.
+   SNR≥12 high, 8–12 medium, 5–8 low) — better than subjective LLM tiers. Candidates the montage budget
+   never reached are **unresolved**, not rejected, and are excluded from both the recall and precision
+   denominators.
+   **Significance alone never establishes that a candidate is a star.** On a heavily-defocused run a 3 px
+   noise spike at 12σ peak is *more* significant than a 36 px donut, so auto-confirming on SNR keeps the
+   noise and discards the stars (this is F16, which invalidated two goldens). Auto-confirm therefore also
+   requires **plausibility** — the candidate's size relative to the frame's own star scale — and is
+   disabled outright when `--donut` is set. Integrated SNR does **not** fix this and was measured; see
+   `docs/golden-tier-plausibility-design.md` §2.
 4. **Score** with `TestApp golden eval --params <current|default|optimized> --match centroid --match-radius ~12`
    (centroid match absorbs the few-px reference/HF offset). It reports recall (overall / per-region / per-SNR-tier
    / per-frame) + precision + **FN gate attribution** (`NO CANDIDATE` = structure/candidate-formation gap vs
@@ -56,7 +64,10 @@ audit must not use it.** Measured against the (correct) detector positions on th
 **Donut caveat:** the per-pixel-SNR reference UNDER-counts heavily defocused donuts (their surface brightness is
 spread below the per-pixel threshold), so candidate counts fall toward the focus-sweep extremes. For donut-recall
 on the most-defocused frames, extend the reference with a matched filter (convolve `(img-bg)/σ` with a disk/annulus
-kernel) before thresholding. Near-focus and moderately-defocused frames are reliable as-is.
+kernel) before thresholding. Near-focus and moderately-defocused frames are reliable as-is. **Validate any
+golden with `tools/golden/golden_health.py --run-dir <run>` before trusting its numbers** — it reads the stored
+sidecars alone (no FITS, no LLM) and flags high-tier size collapse, tier–size inversion, and a
+non-responsive width-vs-focus curve.
 
 ## Data format — per-image `golden.json` sidecar
 

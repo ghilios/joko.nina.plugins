@@ -50,6 +50,16 @@ namespace TestApp {
         [JsonIgnore] public double CenterY => Y + H / 2.0;
     }
 
+    /// <summary>How much of one SNR tier was actually examined. Lets a consumer tell a precision
+    /// MEASUREMENT from a lower bound: with a bounded montage budget, most of the faint tier on a deep
+    /// field is never looked at.</summary>
+    public sealed class GoldenTierCoverage {
+        [JsonProperty("examined")] public int Examined { get; set; }
+        [JsonProperty("total")] public int Total { get; set; }
+
+        [JsonIgnore] public double Fraction => Total > 0 ? Examined / (double)Total : 0.0;
+    }
+
     /// <summary>Per-image golden stars (the unit stored in one <c>&lt;image&gt;.golden.json</c>). <see cref="CoveredTiles"/>
     /// records which tiles were actually inspected so false-positive scoring can be restricted to covered area
     /// (partial coverage is honest).</summary>
@@ -62,6 +72,28 @@ namespace TestApp {
 
         [JsonProperty("coveredTiles", NullValueHandling = NullValueHandling.Ignore)]
         public List<string> CoveredTiles { get; set; }
+
+        /// <summary>Candidates the QA budget never reached — NEITHER stars nor confirmed non-stars.
+        /// A detection landing on one of these is excluded from the false-positive count, and these
+        /// boxes are never counted as missed stars. Absent (schema v1) ⇒ empty, so every pre-v2 golden
+        /// scores exactly as it did before this field existed.</summary>
+        [JsonProperty("unresolved", NullValueHandling = NullValueHandling.Ignore)]
+        public List<GoldenStarBox> Unresolved { get; set; }
+
+        /// <summary>Per-tier ("high"|"medium"|"low") examined/total counts.</summary>
+        [JsonProperty("coverage", NullValueHandling = NullValueHandling.Ignore)]
+        public Dictionary<string, GoldenTierCoverage> Coverage { get; set; }
+
+        /// <summary>Independent LLM votes per candidate (majority-confirmed). 1 or absent ⇒ single vote,
+        /// which is NOT reproducible: two passes over the same defocused frames agreed on 62% of
+        /// confirmed stars.</summary>
+        [JsonProperty("qaVotes", NullValueHandling = NullValueHandling.Ignore)]
+        public int? QaVotes { get; set; }
+
+        /// <summary>Model + prompt revision that produced the QA verdicts, so a reproducibility
+        /// regression is attributable.</summary>
+        [JsonProperty("qaVersion", NullValueHandling = NullValueHandling.Ignore)]
+        public string QaVersion { get; set; }
     }
 
     /// <summary>An in-memory aggregate of per-image golden frames for a run (NOT the on-disk unit — storage is one

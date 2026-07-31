@@ -175,5 +175,31 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Golden {
             Assert.That(allFp.Precision, Is.EqualTo(0.0));
             Assert.That(double.IsNaN(allFp.Recall), Is.True);
         }
+
+        [Test]
+        public void DetectionOnUnresolvedBox_IsNotAFalsePositive() {
+            var unresolved = new List<RectD> { new RectD(100, 100, 20, 20) };
+            var det = new List<DetBox> {
+                new DetBox(new RectD(102, 102, 16, 16), 110, 110),  // inside an unresolved box
+                new DetBox(new RectD(500, 500, 10, 10), 505, 505)   // genuinely spurious
+            };
+            var kept = GoldenMatch.ExcludeUnresolved(new List<int> { 0, 1 }, det, unresolved);
+            Assert.That(kept, Is.EqualTo(new List<int> { 1 }));
+        }
+
+        [Test]
+        public void ExcludeUnresolved_WithNoUnresolvedBoxes_KeepsEveryFalsePositive() {
+            var det = new List<DetBox> { new DetBox(new RectD(0, 0, 10, 10), 5, 5) };
+            Assert.That(GoldenMatch.ExcludeUnresolved(new List<int> { 0 }, det, null),
+                        Is.EqualTo(new List<int> { 0 }));
+        }
+
+        [Test]
+        public void ExcludeUnresolved_MatchesOnOverlapNotOnlyCentre() {
+            // A detection whose centre is outside the unresolved box but which overlaps it is still unjudged.
+            var unresolved = new List<RectD> { new RectD(100, 100, 20, 20) };
+            var det = new List<DetBox> { new DetBox(new RectD(115, 115, 20, 20), 125, 125) };
+            Assert.That(GoldenMatch.ExcludeUnresolved(new List<int> { 0 }, det, unresolved), Is.Empty);
+        }
     }
 }

@@ -5,9 +5,18 @@ thresholds (image-bg) > k*sigma, morphologically closes (reconnect donut arcs), 
 components, and emits candidates (intensity-weighted centroid, bbox, peak, SNR, area).
 Independent of HocusFocus's gates (contamination/distortion/centering/PSF), so candidates it finds
 that HF rejects are HF's recall gaps. Donut-aware via the closing + component centroid."""
-import sys, json, struct
+import sys, json, struct, math
 import numpy as np
 from scipy import ndimage
+
+DONUT_K_DEFAULT = 8.0
+"""Matched-filter response threshold. Was 6.0, which sat inside the noise: on LinwoodFocus the response
+distribution's median was 6.41 against a 6.0 cut, so ~98% of the candidate pool was junk and the bounded LLM
+QA budget was spent confirming that. Confirmed real donuts there had min 7.48 / median 14.46, so 8.0 drops
+94% of the candidates for 7% of the real donuts. The 7% is a lower bound -- the confirmed sample was itself
+drawn from the 6.0 pool."""
+
+
 
 def read_fits(path):
     with open(path, 'rb') as f:
@@ -56,7 +65,12 @@ def matched_filter_donuts(signal, sig, radii, k, minsep=12):
     response (one detection per donut, not a flood of thresholded pixels). For each radius the disk-integrated
     SNR is mean_in_disk*sqrt(Npix)/sigma; we take the per-pixel MAX response across radii, then keep strict
     local maxima above k (a donut gives one clean peak; noise gives many small scattered ones that the local-max
-    + separation suppress). Returns list of (cy, cx, response, radius)."""
+    + separation suppress). Returns list of (cy, cx, response, radius).
+
+    On k: the original 6.0 sat inside the noise. Measured over LinwoodFocus's 48,047 matched-filter candidates,
+    the response distribution has p50 = 6.41 -- half of all "detections" within 7% of the threshold -- while
+    LLM-confirmed real donuts have min 7.48 and median 14.46. Raising k to 8.0 discards 94% of the candidates
+    and 7% of the confirmed donuts. See DONUT_K_DEFAULT."""
     best = np.zeros(signal.shape, dtype=np.float32)
     bestr = np.zeros(signal.shape, dtype=np.int16)
     for r in radii:
@@ -81,9 +95,10 @@ def saturation_mask(img, sat_level=60000.0, radius=0.0):
     dist = ndimage.distance_transform_edt(~sat)
     return dist < radius
 
-def detect(path, k=5.0, min_area=3, max_area=20000, close=2, donut=False, donut_radii=(6,10,14,18), donut_k=6.0, sat_radius=0.0):
-    img = read_fits(path)
-    bg, sig = coarse_bg(img)
+def detect_from_arrays(img, bg, sig, k=5.0, min_area=3, max_area=20000, close=2, donut=False,
+                       donut_radii=(6,10,14,18), donut_k=DONUT_K_DEFAULT, sat_radius=0.0):
+    """Candidate extraction from already-loaded arrays. Split out of detect() so tests can drive it
+    with a synthetic frame instead of a FITS file."""
     signal = img - bg
     satmask = saturation_mask(img, radius=sat_radius)
     mask = signal > (k * sig)
@@ -105,23 +120,50 @@ def detect(path, k=5.0, min_area=3, max_area=20000, close=2, donut=False, donut_
         cy = float((yy * sub_sig).sum() / tot)
         cx = float((xx * sub_sig).sum() / tot)
         peak = float(signal[sl][lbl[sl] == i].max())
-        snr = peak / float(np.median(sig[sl]))
+        sg = float(np.median(sig[sl]))
         cands.append({'x': round(cx,1), 'y': round(cy,1),
                       'bx': int(xs.start), 'by': int(ys.start),
                       'bw': int(xs.stop-xs.start), 'bh': int(ys.stop-ys.start),
-                      'peak': round(peak,1), 'snr': round(snr,2), 'area': area})
+                      'peak': round(peak,1), 'snr': round(peak / sg, 2), 'area': area,
+                      # flux in ADU, and flux in units of sigma. fluxSnr is the ONLY quantity comparable
+                      # across the two detection paths -- 'snr' is peak/sigma here but a disk-integrated
+                      # matched-filter response below, which is what F16 tripped over.
+                      'flux': round(float(tot), 1), 'fluxSnr': round(float(tot) / sg, 2),
+                      'src': 'cc', 'snrKind': 'peak'})
     if donut:
         # Add donut local maxima not already covered by a peak candidate (dedup by separation).
         existing = [(c['x'], c['y']) for c in cands]
         for (dy, dx, resp, r) in matched_filter_donuts(signal, sig, donut_radii, donut_k):
             if any((dx-ex)**2 + (dy-ey)**2 <= (r*1.0)**2 for ex, ey in existing):
                 continue
+            area = int(math.pi * r * r)
+            # Measure a REAL peak/sigma inside the disk. Without it 'snr' would carry the disk-integrated
+            # response here and peak/sigma on the connected-component path -- two different quantities under
+            # one name, which is the F16 confusion. tier() buckets on 'snr', so leaving the response there
+            # tiers donuts on an incomparable scale: on Panos that put 36px donuts in the medium tier while
+            # smaller components filled the high tier, inverting the golden at low QA coverage.
+            y0, y1 = max(0, dy - r), min(signal.shape[0], dy + r + 1)
+            x0, x1 = max(0, dx - r), min(signal.shape[1], dx + r + 1)
+            sub = signal[y0:y1, x0:x1]
+            sg = float(np.median(sig[y0:y1, x0:x1]))
+            peak = float(sub.max()) if sub.size else 0.0
             cands.append({'x': float(dx), 'y': float(dy), 'bx': dx-r, 'by': dy-r, 'bw': 2*r, 'bh': 2*r,
-                          'peak': 0.0, 'snr': round(resp,2), 'area': int(3.14159*r*r), 'donut': True})
+                          'peak': round(peak, 1), 'snr': round(peak / sg, 2), 'area': area, 'donut': True,
+                          # resp = mean*sqrt(N)/sigma, so flux/sigma = resp*sqrt(N).
+                          'flux': 0.0, 'fluxSnr': round(resp * math.sqrt(area), 2),
+                          'response': round(resp, 2), 'src': 'mf', 'snrKind': 'peak'})
             existing.append((dx, dy))
     if satmask is not None:
         H, W = img.shape
         cands = [c for c in cands if not satmask[min(H-1, max(0, int(round(c['y'])))), min(W-1, max(0, int(round(c['x']))))]]
+    return cands
+
+
+def detect(path, k=5.0, min_area=3, max_area=20000, close=2, donut=False, donut_radii=(6,10,14,18), donut_k=DONUT_K_DEFAULT, sat_radius=0.0):
+    img = read_fits(path)
+    bg, sig = coarse_bg(img)
+    cands = detect_from_arrays(img, bg, sig, k=k, min_area=min_area, max_area=max_area, close=close,
+                               donut=donut, donut_radii=donut_radii, donut_k=donut_k, sat_radius=sat_radius)
     return img, bg, sig, cands
 
 if __name__ == '__main__':

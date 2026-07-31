@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 """Bridge golden_prep -> qa_workflow: assemble a COMPACT QA worklist (Workflow `args`) from per-run prep manifests.
 
-golden_prep renders the uncertain-tier montages CONTIGUOUSLY (SNR-desc), so a montage cell's GLOBAL index into the
-full snr_<foc>.json is simply  high_count + montageIndex*grid^2 + cell  (high_count = the frame's auto-confirmed
-SNR>=12 tier size, where the uncertain tier begins). That means the whole bank's QA fan-out needs only a few ints
-per frame — not every montage path — so the worklist stays small enough to pass inline as Workflow args. The
-workflow reconstructs montage paths from <base>/<tag>/f<foc>/montage_<m>.png and maps cells via the base index.
+The workflow returns montage CELL POSITIONS, not global candidate indices: golden_prep renders the QA worklist in
+PLAUSIBILITY order, which is not a contiguous prefix of snr_<foc>.json, so no arithmetic can recover a global index
+from a cell. persist_qa.py maps position -> global index through qaorder_<foc>.json. That keeps the worklist small
+enough to pass inline as Workflow args while supporting an arbitrary ordering. The workflow reconstructs montage
+paths from <base>/<tag>/f<foc>/montage_<m>.png.
 
-Emits: { base, grid, runs:[ { tag, frames:[ { foc, n (montages to QA, capped), b (high_count base index) } ] } ] }
+Emits: { base, grid, runs:[ { tag, frames:[ { foc, n (montages to QA, capped) } ] } ] }
 
 Usage:
   build_qa_worklist.py --scratch-root <dir> --out worklist.json [--grid 6] [--max-montages-per-frame N]
@@ -37,7 +37,7 @@ def main():
                 n = min(n, args.max_montages_per_frame)
             if n <= 0:
                 continue
-            frames.append({'foc': fr['foc'], 'n': n, 'b': fr['high']})
+            frames.append({'foc': fr['foc'], 'n': n})
             total_montages += n
         if frames:
             runs.append({'tag': entry, 'frames': frames})
