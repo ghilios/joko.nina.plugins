@@ -669,6 +669,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 measures.Add(new MeasureAndError { Measure = detection.AverageHFR, Stdev = detection.HFRStdDev });
             }
 
+            // A position with NO detected stars still lands in byPosition, carrying a NON-FINITE pooled HFR. Such a
+            // point cannot be a fit input: least squares propagates the NaN and the fit returns NaN for EVERY
+            // output, so one empty frame discards an otherwise perfect curve. Filtering is not merely an
+            // optimization — it is the difference between a usable σ(focus) and none.
+            //
+            // This matters most on the WEIGHTED path (WeightedHyperbolicFitEnabled, the shipped default). There,
+            // recovery positions are ADDED with an inflated error rather than excluded, so tagging an empty wing as
+            // "recovery" does NOT keep its NaN out of the fit — no weight rescues a NaN. Excluding by finiteness
+            // here is what makes the recovery exemption actually work under the default settings.
+            //
             // Focus-recovery: identify the outermost RecoveryStepsPerSide DISTINCT sweep positions per side (the
             // far-from-focus extremes). Null when the feature is off / too few positions / the cap collapses perSide to
             // 0, in which case every downstream value is byte-identical to the baseline (see ComputeRecoveryPositions).
@@ -689,10 +699,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var pooledHfr = new Dictionary<int, double>(byPosition.Count);
             int nonRecoveryPooledPointCount;
             if (recoveryPositions == null) {
-                // Baseline path — verbatim: pool every position and add exactly one fit point each (byte-identical).
+                // Baseline path: pool every position and add exactly one fit point each. Positions whose pooled
+                // measure is NON-FINITE are recorded in pooledHfr but kept OUT of the fit — see the note below.
                 foreach (var kvp in byPosition) {
                     var pooled = kvp.Value.AverageMeasurement();
                     pooledHfr[kvp.Key] = pooled.Measure;
+                    if (!double.IsFinite(pooled.Measure)) {
+                        continue;
+                    }
                     points.Add(new ScatterErrorPoint(kvp.Key, pooled.Measure, 0, SafeDisplayError(pooled.Stdev)));
                 }
                 nonRecoveryPooledPointCount = points.Count;
@@ -704,6 +718,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 foreach (var kvp in byPosition) {
                     var pooled = kvp.Value.AverageMeasurement();
                     pooledHfr[kvp.Key] = pooled.Measure;
+                    if (!double.IsFinite(pooled.Measure)) {
+                        continue; // never a fit input at any weight — see the note below
+                    }
                     var displayError = SafeDisplayError(pooled.Stdev);
                     var isRecovery = recoveryPositions.Contains(kvp.Key);
                     pooledByPosition.Add((kvp.Key, pooled.Measure, displayError, isRecovery));
