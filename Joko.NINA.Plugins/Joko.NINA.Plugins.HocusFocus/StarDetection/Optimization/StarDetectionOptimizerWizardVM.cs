@@ -1309,6 +1309,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         public bool HasError => !string.IsNullOrEmpty(ErrorMessage);
 
+        private string recoveryWidenedNotice;
+
+        /// <summary>
+        /// Set when the guard widened the focus-recovery exemption to make the sweep fittable (see
+        /// <c>SeedFitIsUsableAsync</c>). This is NOT an error — the run proceeds — but it changes WHICH positions
+        /// the curve was fitted from, so it has to be visible rather than silently applied: the user chose the
+        /// step size and the recovery count that produced those empty wings, and they are the ones who can fix it.
+        /// </summary>
+        public string RecoveryWidenedNotice {
+            get => recoveryWidenedNotice;
+            private set {
+                if (recoveryWidenedNotice != value) {
+                    recoveryWidenedNotice = value;
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(HasRecoveryWidenedNotice));
+                }
+            }
+        }
+
+        public bool HasRecoveryWidenedNotice => !string.IsNullOrEmpty(RecoveryWidenedNotice);
+
         #endregion State
 
         #region Progress
@@ -2372,6 +2393,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
 
             ErrorMessage = null;
+            // Belongs to the run that raised it, so a fresh Start clears it alongside the error.
+            RecoveryWidenedNotice = null;
             // A fresh run always uses the PERSISTED factor: any pending optimize-again factor from a previous
             // summary was abandoned when the user came back here.
             pendingDetectionBinning = null;
@@ -2784,28 +2807,99 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
 
             var results = await AnalyzeWithProgressAsync(runs, guardParams, token).ConfigureAwait(true);
-            var anyUsable = false;
-            foreach (var eval in results) {
-                // Gate on the NON-recovery positions: with recovery frames the raw PooledPointCount is trivially >= 3, so
-                // a starless-near-focus run could pass on recovery positions alone. RecoveryStepsPerSide == 0 =>
-                // NonRecoveryPooledPointCount == PooledPointCount, so Replay/N=0 behavior is unchanged.
-                if (double.IsFinite(eval.Metrics.SigmaFocus) && eval.NonRecoveryPooledPointCount >= MinPositionsForFit) {
-                    anyUsable = true;
-                    break;
+            if (AnyRunIsFittable(results, MinPositionsForFit)) {
+                return true;
+            }
+
+            // Not fittable as configured. Before refusing, try WIDENING the focus-recovery exemption: on a wide
+            // sweep the far wings can be too defocused for any settings to find stars, and one starless position
+            // contributes a NaN HFR that poisons the fit for the whole run. Exempting the starless wings hands the
+            // fit the interior positions, which is usually a clean curve. See
+            // RunEvaluationData.RecoveryStepsToExcludeStarlessWings.
+            //
+            // Deliberately widened only to what the FIT needs, not to what the objective's per-frame hard floor
+            // wants. Star counts depend on the detection params, so a position sitting just under the floor at the
+            // seed may clear it once the search moves the gate -- that is the search's job, and exempting those
+            // positions up front would discard the very evidence it needs. This guard only answers "is a curve
+            // determinable at all", which is what it was always for.
+            if (SourceMode == SourceMode.Live) {
+                var widened = WidenedRecoveryStepsForStarlessWings(results);
+                if (widened > capturedRecoveryStepsPerSide) {
+                    var previous = capturedRecoveryStepsPerSide;
+                    // Field, not local: every reload path stamps runs from it (see LoadRunStampedAsync), so the
+                    // optimize pass and any continue/re-optimize see the same exemption this guard validated.
+                    capturedRecoveryStepsPerSide = widened;
+                    foreach (var run in runs) {
+                        if (run?.Data != null) {
+                            run.Data.RecoveryStepsPerSide = widened;
+                        }
+                    }
+                    results = await AnalyzeWithProgressAsync(runs, guardParams, token).ConfigureAwait(true);
+                    if (AnyRunIsFittable(results, MinPositionsForFit)) {
+                        Logger.Info($"Star detection optimizer: focus-recovery exemption widened {previous} -> {widened} " +
+                                    "steps/side; the sweep's outermost positions yielded no stars at the seed settings, " +
+                                    "and exempting them makes the focus curve fittable.");
+                        RecoveryWidenedNotice =
+                            $"The sweep's outermost {widened} position(s) per side found no stars, so they were excluded " +
+                            "from the focus curve. Optimization continued on the remaining positions. A smaller step size " +
+                            "would put those frames to better use.";
+                        return true;
+                    }
+                    capturedRecoveryStepsPerSide = previous; // widening did not help; report against the real setting
+                    foreach (var run in runs) {
+                        if (run?.Data != null) {
+                            run.Data.RecoveryStepsPerSide = previous;
+                        }
+                    }
                 }
             }
 
-            if (!anyUsable) {
-                ErrorMessage = SourceMode == SourceMode.Live
-                    ? "The captured sweep does not produce a usable focus curve even at the default detection settings: " +
-                      "too few focuser positions yielded detectable stars to fit a curve. Increase the exposure and run the sweep again."
-                    : "The selected auto-focus run(s) do not produce a usable focus curve at the current settings: " +
-                      "too few focuser positions yielded detectable stars to fit a curve. Pick a run with stars across " +
-                      "most frames, or re-acquire with a longer exposure before optimizing.";
-                CurrentStep = WizardStep.SelectSource;
-                return false;
+            ErrorMessage = SourceMode == SourceMode.Live
+                ? "The captured sweep does not produce a usable focus curve at the default detection settings, and " +
+                  "excluding its outermost positions does not help. Frames without stars in the middle of the sweep, " +
+                  "or too few positions overall, both cause this. Try a smaller step size so more positions land near " +
+                  "focus, a longer exposure, or the recommended detection binning."
+                : "The selected auto-focus run(s) do not produce a usable focus curve at the current settings: " +
+                  "too few focuser positions yielded detectable stars to fit a curve. Pick a run with stars across " +
+                  "most frames, or re-acquire with a longer exposure before optimizing.";
+            CurrentStep = WizardStep.SelectSource;
+            return false;
+        }
+
+        /// <summary>
+        /// Whether ANY run yields a determinable focus curve: a finite σ(focus) backed by ≥
+        /// <paramref name="minPositionsForFit"/> NON-recovery positions. Gating on the non-recovery count matters
+        /// because with recovery frames the raw PooledPointCount is trivially ≥ 3, so a starless-near-focus run
+        /// could otherwise pass on its recovery positions alone. RecoveryStepsPerSide == 0 ⇒
+        /// NonRecoveryPooledPointCount == PooledPointCount, so Replay / N=0 behaviour is unchanged.
+        /// </summary>
+        private static bool AnyRunIsFittable(IReadOnlyList<RunEvaluationResult> results, int minPositionsForFit) {
+            foreach (var eval in results) {
+                if (double.IsFinite(eval.Metrics.SigmaFocus) && eval.NonRecoveryPooledPointCount >= minPositionsForFit) {
+                    return true;
+                }
             }
-            return true;
+            return false;
+        }
+
+        /// <summary>
+        /// The smallest per-side exemption that clears the starless wings on the run that needs the LEAST widening
+        /// — the guard passes when ANY run is fittable, so the cheapest run to rescue is the one to size for.
+        /// 0 when no run has starless wings, or when every run's starless positions are interior (unfixable here).
+        /// </summary>
+        private static int WidenedRecoveryStepsForStarlessWings(IReadOnlyList<RunEvaluationResult> results) {
+            var best = 0;
+            foreach (var eval in results) {
+                var needed = RunEvaluationData.RecoveryStepsToExcludeStarlessWings(
+                    eval.Metrics?.FrameFocuserPositions, eval.Metrics?.FrameStarCounts);
+                if (needed <= 0) {
+                    continue; // -1 unfixable, 0 nothing starless
+                }
+                if (best == 0 || needed < best) {
+                    best = needed;
+                }
+            }
+            return best;
         }
 
         /// <summary>
