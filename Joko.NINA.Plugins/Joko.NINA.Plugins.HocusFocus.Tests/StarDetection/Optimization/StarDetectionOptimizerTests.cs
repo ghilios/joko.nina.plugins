@@ -418,6 +418,121 @@ public class StarDetectionOptimizerTests {
         });
     }
 
+    // ---- Inert-axis (free-rider) landscape -------------------------------------------------------------
+    // Reproduces a real 3800mm run: J depends ONLY on StarClippingMultiplier; Sensitivity is provably inert
+    // (a gate sweep over 0..15 produced bit-identical star counts and HFRs on every frame, because the
+    // sensitivity gate rejected 0 of ~1300 candidates). Phase A grids Sensitivity x StarClip with Sensitivity
+    // as the OUTER loop and level 0 = v.Lower, so the winning StarClip is first found in the Sensitivity=0
+    // row and drags Sensitivity to its lower bound; later rows tie exactly and are refused by the strict `>`.
+    // The delivered Sensitivity=0 then reads to the user as "gate at the bottom of its range".
+    // StarClip's optimum sits exactly ON a Phase-A grid level (levels over [0.25, 10] at 4 levels are
+    // 0.25 / 3.5 / 6.75 / 10), and InertSeed starts far from it, so the coarse grid genuinely improves via
+    // StarClip -- which is the precondition for Sensitivity to ride along as a free rider.
+    private const double InertOptStarClip = 3.5;
+
+    private static StarDetectorParams InertSeed() => new StarDetectorParams {
+        Sensitivity = 2.0,
+        StarClippingMultiplier = 0.5,
+    };
+
+    private static Func<StarDetectorParams, CancellationToken, Task<IReadOnlyList<RunEvaluationMetrics>>> InertSensitivityEvaluator() {
+        return (p, token) => {
+            var dClip = (p.StarClippingMultiplier - InertOptStarClip) / 4.5;   // Sensitivity deliberately unread
+            var stepSize = 100.0;
+            IReadOnlyList<RunEvaluationMetrics> runs = new[] {
+                new RunEvaluationMetrics {
+                    SigmaFocus = stepSize * (0.02 + Math.Abs(dClip)),
+                    LooStdError = double.NaN,
+                    StepSize = stepSize,
+                    RSquared = 0.99,
+                    ReducedChiSquared = 1.0,
+                    FrameStarCounts = Enumerable.Repeat(50, 10).ToList()
+                }
+            };
+            return Task.FromResult(runs);
+        };
+    }
+
+    [Test]
+    public async Task Optimize_LeavesAnInertAxisAtItsSeedValue_RatherThanItsLowerBound() {
+        var optimizer = new StarDetectionOptimizer();
+        var seed = InertSeed();   // Sensitivity = 2.0
+        var variables = OptimizerVariable.CreateCuratedSet();
+
+        var result = await optimizer.OptimizeAsync(
+            seed, variables, InertSensitivityEvaluator(), DefaultSettings(), null, CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(result.BestParams.Sensitivity, Is.EqualTo(seed.Sensitivity).Within(1e-9),
+                "Sensitivity cannot change J at all here, so the search must not report having changed it");
+            Assert.That(result.ChangedVariables.Any(v => v.Name == nameof(StarDetectorParams.Sensitivity)), Is.False,
+                "an inert axis must not appear in ChangedVariables");
+            Assert.That(result.BestJ, Is.GreaterThanOrEqualTo(result.SeedJ),
+                "reverting inert axes must never cost J");
+        });
+    }
+
+    [Test]
+    public async Task Optimize_PullsAnAxisBackToTheNearestEqualJPoint_WhenTheSeedIsOutsideThePlateau() {
+        // The real 3800mm case, and the one a revert-all-the-way-to-seed rule cannot fix. Sensitivity is inert
+        // across a PLATEAU of [0, 15] but genuinely (slightly) worse above it, while the seed sits at 33.3 —
+        // outside the plateau. Reverting fully to 33.3 correctly costs J and is refused, which would strand the
+        // axis at 0 and keep raising the false "gate is at the bottom of its range" banner. The search must
+        // instead pull back to the point NEAREST the seed that costs nothing, landing inside the plateau but
+        // well clear of the floor.
+        const double plateauTop = 15.0;
+        Func<StarDetectorParams, CancellationToken, Task<IReadOnlyList<RunEvaluationMetrics>>> plateau = (p, token) => {
+            var dClip = (p.StarClippingMultiplier - InertOptStarClip) / 4.5;
+            // Flat in Sensitivity up to plateauTop, then a gentle real penalty above it.
+            var sensPenalty = p.Sensitivity <= plateauTop ? 0.0 : (p.Sensitivity - plateauTop) / 100.0;
+            var stepSize = 100.0;
+            IReadOnlyList<RunEvaluationMetrics> runs = new[] {
+                new RunEvaluationMetrics {
+                    SigmaFocus = stepSize * (0.02 + Math.Abs(dClip) + sensPenalty),
+                    LooStdError = double.NaN,
+                    StepSize = stepSize,
+                    RSquared = 0.99,
+                    ReducedChiSquared = 1.0,
+                    FrameStarCounts = Enumerable.Repeat(50, 10).ToList()
+                }
+            };
+            return Task.FromResult(runs);
+        };
+
+        var seed = new StarDetectorParams { Sensitivity = 33.3333, StarClippingMultiplier = 0.5 };
+        var variables = OptimizerVariable.CreateCuratedSet();
+        var result = await new StarDetectionOptimizer().OptimizeAsync(
+            seed, variables, plateau, DefaultSettings(), null, CancellationToken.None);
+
+        Assert.Multiple(() => {
+            // Asserted against the search-floor BAND rather than a bit-exact 0: a genuinely-floored search
+            // lands on 0.125/0.25/0.5 as often as on 0 (Sensitivity's step halves to InitialStep x
+            // StepFloorFraction), so `== 0` would miss most real cases. Consumers that warn about a floored
+            // gate use the same one-full-step band.
+            const double sensitivityFloorBand = 1.0;
+            Assert.That(result.BestParams.Sensitivity, Is.GreaterThan(sensitivityFloorBand),
+                "an axis with a wide equal-J plateau must not be left sitting at its floor");
+            Assert.That(result.BestParams.Sensitivity, Is.LessThanOrEqualTo(plateauTop + 1e-9),
+                "must stay inside the plateau — pulling past it would cost real J");
+            Assert.That(result.BestJ, Is.GreaterThanOrEqualTo(result.SeedJ),
+                "the pull-back must never regress J");
+        });
+    }
+
+    [Test]
+    public async Task Optimize_KeepsAnAxisThatActuallyEarnedItsChange() {
+        // The guard must not undo real improvements: StarClip genuinely drives J in this landscape.
+        var optimizer = new StarDetectionOptimizer();
+        var seed = InertSeed();   // StarClippingMultiplier = 0.5, optimum 3.5
+        var variables = OptimizerVariable.CreateCuratedSet();
+
+        var result = await optimizer.OptimizeAsync(
+            seed, variables, InertSensitivityEvaluator(), DefaultSettings(), null, CancellationToken.None);
+
+        Assert.That(result.BestParams.StarClippingMultiplier, Is.Not.EqualTo(seed.StarClippingMultiplier).Within(1e-9),
+            "the axis that actually moves J must still be optimized");
+    }
+
     /// <summary>
     /// A synchronous <see cref="IProgress{T}"/> test double: <see cref="Report"/> appends directly to a list
     /// on the calling thread, so reports are captured deterministically (unlike <see cref="Progress{T}"/>,

@@ -104,11 +104,11 @@ namespace TestApp {
             Console.WriteLine($"Profile: {activeProfile.Name} ({activeProfile.Id})");
             Logger.Info($"Loaded profile {activeProfile.Name} ({activeProfile.Id})");
 
-            var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(StarDetectionOptions));
-            if (guid == null) {
-                throw new InvalidOperationException("Could not resolve the HocusFocus plugin assembly GUID");
-            }
-            var accessor = new PluginOptionsAccessor(profileService, guid.Value);
+            // Detector settings come from the harness's LOCAL settings file, not the NINA profile: a
+            // profile-sourced value is mutable machine state nothing records, and the ACTIVE profile can
+            // even be a different telescope between runs. See HarnessSettingsStore.
+            var harnessSettings = HarnessSettingsStore.Resolve(args, profileService, activeProfile);
+            var accessor = harnessSettings.Accessor;
             var options = new StarDetectionOptions(profileService, accessor);
             LogResolvedOptions(options);
 

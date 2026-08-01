@@ -128,8 +128,11 @@ namespace TestApp {
                     throw new InvalidOperationException("No active NINA profile. Pass --profile-id, run NINA once, or use --default-params.");
                 }
                 Console.WriteLine($"Profile: {profileService.ActiveProfile.Name} ({profileService.ActiveProfile.Id})");
-                var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(StarDetectionOptions));
-                var accessor = new PluginOptionsAccessor(profileService, guid.Value);
+                // Detector settings come from the harness's LOCAL settings file, not the NINA profile: a
+                // profile-sourced value is mutable machine state nothing records, and the ACTIVE profile can
+                // even be a different telescope between runs. See HarnessSettingsStore.
+                var harnessSettings = HarnessSettingsStore.Resolve(args, profileService, profileService.ActiveProfile);
+                var accessor = harnessSettings.Accessor;
                 var options = new StarDetectionOptions(profileService, accessor);
                 // F11 step 6: optionally apply a NoiseLevel preset's exact params (for the None/High recalibration
                 // measurement) by switching the in-memory options to simple mode at the requested preset with the
