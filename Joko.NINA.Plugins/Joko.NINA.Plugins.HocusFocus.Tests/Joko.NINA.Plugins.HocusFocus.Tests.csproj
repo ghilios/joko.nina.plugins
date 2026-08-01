@@ -25,6 +25,7 @@
     <Compile Include="..\TestApp\GoldenStarSet.cs" Link="Golden\GoldenStarSet.cs" />
     <Compile Include="..\TestApp\GoldenGeometry.cs" Link="Golden\GoldenGeometry.cs" />
     <Compile Include="..\TestApp\BankVerification.cs" Link="Bank\BankVerification.cs" />
+    <Compile Include="..\TestApp\HarnessSettingsStore.cs" Link="Harness\HarnessSettingsStore.cs" />
   </ItemGroup>
 
   <ItemGroup>

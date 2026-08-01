@@ -110,8 +110,11 @@ namespace TestApp {
             if (activeProfile == null) {
                 throw new InvalidOperationException("No active NINA profile could be loaded. Pass --profile-id, or run NINA once to create a profile.");
             }
-            var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(StarDetectionOptions));
-            var accessor = new PluginOptionsAccessor(profileService, guid.Value);
+            // Detector settings come from the harness's LOCAL settings file, not the NINA profile: a
+            // profile-sourced value is mutable machine state nothing records, and the ACTIVE profile can
+            // even be a different telescope between runs. See HarnessSettingsStore.
+            var harnessSettings = HarnessSettingsStore.Resolve(args, profileService, activeProfile);
+            var accessor = harnessSettings.Accessor;
             var options = new StarDetectionOptions(profileService, accessor);
 
             Directory.CreateDirectory(outDir);

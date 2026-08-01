@@ -170,11 +170,11 @@ namespace TestApp {
             Console.WriteLine($"Profile: {activeProfile.Name} ({activeProfile.Id})");
             Logger.Info($"Loaded profile {activeProfile.Name} ({activeProfile.Id})");
 
-            var guid = PluginOptionsAccessor.GetAssemblyGuid(typeof(StarDetectionOptions));
-            if (guid == null) {
-                throw new InvalidOperationException("Could not resolve the HocusFocus plugin assembly GUID");
-            }
-            var accessor = new PluginOptionsAccessor(profileService, guid.Value);
+            // Detector settings come from the harness's LOCAL settings file, never the NINA profile: a
+            // profile-sourced seed is mutable machine state nothing records, and TryLoad("") picks whichever
+            // profile is ACTIVE -- two runs of the same data minutes apart were seeded from different telescopes.
+            var harnessSettings = HarnessSettingsStore.Resolve(args, profileService, activeProfile);
+            var accessor = harnessSettings.Accessor;
             var starDetectionOptions = new StarDetectionOptions(profileService, accessor);
             var afOptions = new AutoFocusOptions(profileService);
 
@@ -183,12 +183,12 @@ namespace TestApp {
             // (image.RawImageData.MetaData.Camera.BinX, which defaults to 1 when unset); the harness loads raw
             // float Mats with no NINA metadata, so binning = 1 is used (the same value an unbinned/unset frame
             // yields in production). PixelScale only feeds PixelScale-dependent detection gates, not the curve fit.
+            // PixelScale is resolved PER RUN from each run's own frame headers (see PrepareRunAsync). The bank is
+            // other people's data -- true scales span 0.277-5.966 arcsec/px -- so one harness-wide value taken from
+            // the local profile was wrong for nearly every run. This is only the fallback for callers that never
+            // load a frame; every detecting path overwrites it from the frame header.
             const int binning = 1;
-            var pixelScale = MathUtility.ArcsecPerPixel(activeProfile.CameraSettings.PixelSize, activeProfile.TelescopeSettings.FocalLength) * binning;
-            if (double.IsNaN(pixelScale)) {
-                Console.WriteLine("WARNING: PixelScale is NaN (pixel size / focal length not set in the profile). Detection will still run; PixelScale-dependent gates use NaN.");
-                Logger.Warning("PixelScale is NaN; pixel size / focal length not set in the profile");
-            }
+            var pixelScale = MathUtility.ArcsecPerPixel(harnessSettings.PixelSizeMicrons, harnessSettings.FocalLengthMm) * binning;
 
             // Mirror the wizard's seed/baseline split (optimizer default seed + current-settings baseline):
             //  - Seed = fully-DEFAULT params (BuildDefaultStarDetectorParams) — the bundle the optimizer STARTS from,
@@ -282,6 +282,7 @@ namespace TestApp {
                 perFilterStore: new StubPerFilterStarDetectionStore(accessor));
             var ctx = new RunDetectionContext {
                 ProfileService = profileService,
+                HarnessSettings = harnessSettings,
                 AfOptions = afOptions,
                 AlglibAPI = alglibAPI,
                 Detector = detector,
@@ -329,6 +330,7 @@ namespace TestApp {
             public double LowSigmaOutlierRejection;
             public StarDetectorParams Seed;       // optimizer start = fully-default params (wizard's LoadedRun.Seed)
             public StarDetectorParams Baseline;    // current settings = displayed "before" (wizard's LoadedRun.Baseline)
+            public HarnessSettingsStore.Resolved HarnessSettings;  // local settings file; fallback for PixelScale
             public IReadOnlyList<OptimizerVariable> Variables;
             public int? MaxEvals;
             public string LabelsDir;
@@ -390,7 +392,20 @@ namespace TestApp {
                 var subDir = Path.Combine(outDir, OptimizationRunDiscovery.SanitizeForFileName(d.RunId));
                 var loadedRuns = new List<LoadedHarnessRun>(1);
                 try {
-                    loadedRuns.Add(await PrepareRunAsync(ctx, d, labelsByRun).ConfigureAwait(false));
+                    var loaded = await PrepareRunAsync(ctx, d, labelsByRun).ConfigureAwait(false);
+                    loadedRuns.Add(loaded);
+                    // PixelScale from THIS run's frames. Per-run mode optimizes each run independently, so each
+                    // carries the scale its data actually has. Joint mode cannot express this (one bundle, many scales).
+                    if (double.IsFinite(loaded.PixelScale)) {
+                        ctx.Seed.PixelScale = loaded.PixelScale;
+                        ctx.Baseline.PixelScale = loaded.PixelScale;
+                    }
+                    Console.WriteLine($"  {d.RunId}: PixelScale {F(ctx.Seed.PixelScale)} arcsec/px ({loaded.PixelScaleSource})");
+                    // Per-dataset settings, derived from THIS run and recorded beside it.
+                    var runFolder = Path.GetDirectoryName(d.Frames.First().Path);
+                    HarnessSettingsStore.ResolveForRun(
+                        runFolder, ctx.HarnessSettings, loaded.FirstFrameMeta,
+                        HarnessSettingsStore.ReadInFocusHfr(runFolder));
                     Directory.CreateDirectory(subDir);
                     var outcome = await OptimizeRunSetAsync(ctx, runsDir, subDir, loadedRuns).ConfigureAwait(false);
                     if (!outcome.HardFloorPassed) {
@@ -431,13 +446,21 @@ namespace TestApp {
             RunDetectionContext ctx, OptimizationRunDiscovery.DiscoveredRun d,
             Dictionary<string, IReadOnlyList<FrameLabels>> labelsByRun) {
             var frames = new List<RunFrame>(d.Frames.Count);
-            foreach (var frame in d.Frames) {
+            var runPixelScale = double.NaN;
+            var pixelScaleSource = "unset";
+            NINA.Image.ImageData.ImageMetaData firstFrameMeta = null;
+            for (var i = 0; i < d.Frames.Count; i++) {
+                var frame = d.Frames[i];
                 // The IRenderedImage the LIVE app detects on (see DiagnosticUtil.LoadRenderedImage). Detection reads
                 // it without mutating it — Detect/BuildDetectionContext build their own source Mat per call — so one
                 // load per frame serves every candidate evaluation. NOTHING is CFA-filtered here: the filter and the
                 // debayer belong inside Detect, at each candidate's own HotpixelThreshold/HotpixelThresholdingEnabled,
                 // which is what keeps those two searched axes meaningful.
                 var rendered = await DiagnosticUtil.LoadRenderedImage(frame.Path, ctx.ProfileService).ConfigureAwait(false);
+                if (i == 0) {
+                    firstFrameMeta = rendered.RawImageData?.MetaData;
+                    runPixelScale = HarnessSettingsStore.PixelScaleForFrame(firstFrameMeta, ctx.HarnessSettings, out pixelScaleSource);
+                }
                 frames.Add(new RunFrame {
                     FrameId = frame.Path,
                     FocuserPosition = frame.FocuserPosition,
@@ -469,7 +492,8 @@ namespace TestApp {
             var labels = labelsByRun.TryGetValue(d.RunId, out var ls) ? ls : null;
             var data = new RunEvaluationData(d.RunId, frames, splitDetector, ctx.AlglibAPI, fitConfig, labels);
             Console.WriteLine($"  {d.RunId}: inferred step size {stepSize}" + (labels != null ? $", {labels.Count} labeled position(s)" : ", unlabeled"));
-            return new LoadedHarnessRun { Discovered = d, Data = data, StepSize = stepSize, Frames = frames };
+            return new LoadedHarnessRun { Discovered = d, Data = data, StepSize = stepSize, Frames = frames,
+                PixelScale = runPixelScale, PixelScaleSource = pixelScaleSource, FirstFrameMeta = firstFrameMeta };
         }
 
         /// <summary>
@@ -802,6 +826,11 @@ namespace TestApp {
             public RunEvaluationData Data;
             public int StepSize;
             public List<RunFrame> Frames; // the loaded-once frame images, retained for release
+            // PixelScale (arcsec/binned-px) from this run's OWN first frame header, and that frame's metadata for
+            // the per-dataset settings derivation. NaN when neither frame nor settings file supplies one.
+            public double PixelScale = double.NaN;
+            public string PixelScaleSource = "unset";
+            public NINA.Image.ImageData.ImageMetaData FirstFrameMeta;
         }
 
         /// <summary>

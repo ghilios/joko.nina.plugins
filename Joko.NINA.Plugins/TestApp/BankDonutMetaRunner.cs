@@ -78,7 +78,11 @@ namespace TestApp {
             if (profileService.ActiveProfile == null) {
                 throw new InvalidOperationException("No active NINA profile could be loaded. Pass --profile-id.");
             }
-            var starDetectionOptions = new StarDetectionOptions(profileService);
+            // Detector settings come from the harness's LOCAL settings file, not the NINA profile: a
+            // profile-sourced value is mutable machine state nothing records, and the ACTIVE profile can
+            // even be a different telescope between runs. See HarnessSettingsStore.
+            var harnessSettings = HarnessSettingsStore.Resolve(args, profileService, profileService.ActiveProfile);
+            var starDetectionOptions = new StarDetectionOptions(profileService, harnessSettings.Accessor);
 
             // Donut detection ON so the extreme frames' bloated/donut stars are actually measured.
             var detectorParams = HocusFocusStarDetection.BuildDefaultStarDetectorParams();

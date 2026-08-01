@@ -128,6 +128,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // Phase B — compass/pattern search.
             (bestTheta, bestJ) = await ctx.PatternSearch(bestTheta, bestJ, seedJ).ConfigureAwait(false);
 
+            // Phase C — revert every axis that did not earn its change (see RevertNeutralAxes).
+            (bestTheta, bestJ) = await ctx.RevertNeutralAxes(theta0, bestTheta, bestJ, seedJ).ConfigureAwait(false);
+
             // Materialize the winning params.
             var bestParams = ctx.Materialize(bestTheta);
 
@@ -156,6 +159,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private sealed class SearchContext {
             // Fixed compass directions tried for every variable each sweep: + then −, deterministic order.
             private static readonly double[] Directions = { +1.0, -1.0 };
+
+            /// <summary>Phase-C pull-back fractions along incumbent → seed, MOST SEED-WARD FIRST so the first
+            /// accepted one is the nearest-to-seed neutral point. Four coarse steps rather than a bisection: the
+            /// question is "is this axis inert over a wide region", which does not need sub-step resolution, and a
+            /// fixed ladder keeps the phase deterministic and its cost bounded at ≤4 evals per changed axis.</summary>
+            private static readonly double[] PullBackFractions = { 1.0, 0.75, 0.5, 0.25 };
 
             private readonly StarDetectionOptimizer owner;
             private readonly StarDetectorParams seed;
@@ -316,6 +325,77 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     }
                 }
                 Report("CoarseGrid", bestTheta, bestJ, seedJ);
+                return (bestTheta, bestJ);
+            }
+
+            /// <summary>
+            /// Phase C. For every axis the search moved, try putting it BACK to its seed value and keep the
+            /// revert when doing so costs no J. Deterministic order (variable order), one pass, at most one
+            /// evaluation per changed axis — and most are memo hits, since the seed value on that axis was
+            /// usually visited during the search.
+            ///
+            /// <para><b>Why this is needed.</b> An axis that cannot move J at all is a FREE RIDER: Phase A grids
+            /// Sensitivity × StarClippingMultiplier with Sensitivity as the OUTER loop and level 0 = <c>Lower</c>,
+            /// so the winning StarClip is first discovered in the <c>Sensitivity = Lower</c> row and drags
+            /// Sensitivity to its lower bound. Later rows re-test the same StarClip at higher Sensitivity, score
+            /// EXACTLY the same, and are refused by the strict <c>j &gt; bestJ</c> — so nothing can ever undo it.
+            /// Phase B cannot undo it either: <see cref="CompassStage"/> moves one axis at a time and also demands
+            /// strict improvement, so a flat axis is frozen wherever Phase A left it.</para>
+            ///
+            /// <para>Measured on a real 3800 mm run: sweeping the Sensitivity gate over 0–15 produced BIT-IDENTICAL
+            /// star counts and median HFRs on all 11 frames (the gate rejected 0 of ~1300 candidates), yet the
+            /// optimizer reported <c>Sensitivity: 33.3→0</c>. That spurious floor is user-visible — it raises the
+            /// "star acceptance gate is at the bottom of its range" banner and drives
+            /// <see cref="ExposureRecommender"/> to answer a question about exposure that the run never posed.</para>
+            ///
+            /// <para><b>Exact ties only.</b> The comparison is <c>j &gt;= bestJ</c> with no tolerance: a genuinely
+            /// inert axis produces a bit-identical J (identical detector inputs ⇒ identical metrics), so no epsilon
+            /// is required to catch it, and introducing one would let this phase trade away real, if small,
+            /// improvements. This can never regress the result — a revert is kept only when J does not drop, and
+            /// <see cref="OptimizationResult.BestJ"/> is updated to the (equal-or-better) reverted value.</para>
+            ///
+            /// <para>Axes are pulled back INDEPENDENTLY and greedily, each against the current incumbent, so a
+            /// pull-back that is only neutral BECAUSE an earlier axis already moved is still caught; conversely two
+            /// axes that are individually neutral but jointly matter cannot both move, because the second is
+            /// evaluated against the first's already-updated incumbent.</para>
+            ///
+            /// <para><b>Graded, not all-or-nothing.</b> Reverting only to the seed exactly is not enough: the flat
+            /// region is a PLATEAU, and the seed can sit outside it. On the measured run the plateau was
+            /// Sensitivity ∈ [0, 15] while the seed was 33.3 — a full revert genuinely costs J and is correctly
+            /// refused, which would strand the axis at 0 and keep raising the false floor banner. So each axis is
+            /// tried at a few fixed fractions along the path from the incumbent BACK toward the seed, most
+            /// seed-ward first, and the first that costs no J wins: the axis ends at the point nearest its seed
+            /// that the data cannot distinguish from the search's answer.</para>
+            /// </summary>
+            public async Task<(double[] theta, double j)> RevertNeutralAxes(double[] theta0, double[] bestTheta, double bestJ, double seedJ) {
+                var moved = false;
+                for (var i = 0; i < variables.Count; i++) {
+                    if (bestTheta[i] == theta0[i]) {
+                        continue; // never moved
+                    }
+                    foreach (var t in PullBackFractions) {
+                        if (BudgetExhausted) {
+                            break;
+                        }
+                        // t = 1 is the seed itself; smaller t stays nearer the search's answer.
+                        var value = variables[i].Quantize(bestTheta[i] + t * (theta0[i] - bestTheta[i]));
+                        if (value == bestTheta[i]) {
+                            continue; // quantized back onto the incumbent: nothing to test
+                        }
+                        var candidate = (double[])bestTheta.Clone();
+                        candidate[i] = value;
+                        var j = await EvalJ(candidate).ConfigureAwait(false);
+                        if (j >= bestJ) {
+                            bestTheta = candidate;
+                            bestJ = j;
+                            moved = true;
+                            break; // most seed-ward neutral point for this axis; go to the next axis
+                        }
+                    }
+                }
+                if (moved) {
+                    Report("RevertNeutral", bestTheta, bestJ, seedJ);
+                }
                 return (bestTheta, bestJ);
             }
 
