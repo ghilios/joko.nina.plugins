@@ -126,6 +126,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public bool ExposureIsNotTheLimit { get; set; }
 
         /// <summary>
+        /// True when <see cref="MeasuredSnr"/> meets <see cref="ExposureRecommender.TargetSensitivity"/> but EVERY
+        /// usable frame still found fewer than <c>NTarget</c> stars: the stars that were found are bright enough,
+        /// there are just too few of them.
+        ///
+        /// <para><b>Why this is not <see cref="ExposureIsNotTheLimit"/>.</b> The per-frame statistic answers "are
+        /// the stars I found bright enough?" — and under all-frames-short it is a median of FAINTEST SURVIVORS
+        /// (see <see cref="ExposureRecommender.Recommend"/>'s per-frame reduction), so it cannot also answer "are
+        /// there enough stars?". On a star-poor field the two questions have opposite answers, and treating a
+        /// healthy S/N as proof that a longer exposure cannot help is simply wrong: exposure acts UPSTREAM of the
+        /// gate, on candidate formation. Measured on a 3800 mm rig, 2 s → 5 s raised structure candidates 181 →
+        /// 201 and detected stars 76 → 101 while the stars already found were comfortably above the gate.</para>
+        ///
+        /// <para><b>What it promises.</b> Only a direction. <see cref="RecommendedSeconds"/> is a fixed
+        /// <see cref="ExposureRecommender.StarCountProbeFactor"/> probe, not a derived figure — whether more
+        /// exposure reveals more stars depends on the field. If the star count does not rise, the field is the
+        /// limit and no exposure will fix it; callers must say so rather than let the user climb to the cap.</para>
+        /// </summary>
+        public bool StarCountIsTheLimit { get; set; }
+
+        /// <summary>
         /// True when this recommendation actually asks for a LONGER exposure than <see cref="CurrentSeconds"/>.
         /// Exactly equivalent to "the capped-but-unrounded exposure exceeds <see cref="CurrentSeconds"/>" (see
         /// <see cref="RecommendedSeconds"/> for why this is exact rather than approximate). False in two distinct
@@ -250,6 +270,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// exposure that makes the sweep itself time out — the opposite of the fix this class exists to offer.
         /// </summary>
         public const double MaxRecommendedExposureSeconds = 30.0;
+
+        /// <summary>
+        /// The factor to probe with under <see cref="ExposureRecommendation.StarCountIsTheLimit"/>, where the
+        /// sky-limited derivation does not apply and there is nothing to derive a magnitude FROM. Whether a longer
+        /// exposure reveals more stars depends on the field's luminosity function — how many stars sit just below
+        /// the structure-detection threshold — which a single sweep cannot measure. So this state offers a
+        /// DIRECTION to test rather than an answer: double it, look at the star count, and decide from that. A
+        /// doubling is the smallest step big enough to read off the star count unambiguously, and it stays well
+        /// inside <see cref="MaxExposureFactor"/> so the user can repeat it before the run-relative cap binds.
+        /// Measured on a 3800 mm rig: 2 s → 5 s took detected stars 76 → 101 and structure candidates 181 → 201,
+        /// so the probe does find stars when they are there — but that is one field, which is precisely why this
+        /// is a probe and not a formula.
+        /// </summary>
+        public const double StarCountProbeFactor = 2.0;
 
         /// <summary>
         /// The minimum number of usable (non-recovery, non-empty) frames before <see cref="Recommend"/> will
@@ -406,10 +440,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
 
             var (sNow, _) = perFrameValues.MedianMAD(); // median across frames; all contributing values are already > 0
-            var exposureIsNotTheLimit = sNow >= TargetSensitivity;
 
+            // A sufficient S/N splits two ways, because sNow answers only "are the stars I found bright enough?".
+            // When every frame is short of NTarget, sNow is a median of faintest-survivors and there is no
+            // un-degraded sample anywhere in the run, so it cannot also answer "are there enough stars?" — see
+            // StarCountIsTheLimit. A run with any full frame keeps a real NTarget-th-star measurement, which is why
+            // the split is all-short rather than any-short (it also leaves the star-flooding corner, rich frames at
+            // a floored gate, reporting ExposureIsNotTheLimit exactly as before).
+            var signalIsSufficient = sNow >= TargetSensitivity;
+            var everyFrameShort = usableFrameCount > 0 && shortFrameCount == usableFrameCount;
+            var starCountIsTheLimit = signalIsSufficient && everyFrameShort;
+            var exposureIsNotTheLimit = signalIsSufficient && !everyFrameShort;
+
+            // Sky-limited scaling answers the S/N question only. Under starCountIsTheLimit the ratio is <= 1, so it
+            // would ask for a SHORTER exposure — backwards for a run whose problem is too few stars. That state
+            // probes with a fixed factor instead; there is nothing here to derive a magnitude from.
             var ratio = TargetSensitivity / sNow;
-            var rawFactor = ratio * ratio;
+            var rawFactor = starCountIsTheLimit ? StarCountProbeFactor : ratio * ratio;
             var rawSeconds = currentExposureSeconds * rawFactor;
 
             var factorCap = currentExposureSeconds * MaxExposureFactor;
@@ -445,7 +492,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 ShortFrameCount = shortFrameCount,
                 WasCapped = wasCapped,
                 CappedByAbsoluteLimit = cappedByAbsoluteLimit,
-                ExposureIsNotTheLimit = exposureIsNotTheLimit
+                ExposureIsNotTheLimit = exposureIsNotTheLimit,
+                StarCountIsTheLimit = starCountIsTheLimit
             };
         }
 
@@ -460,7 +508,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 ShortFrameCount = shortFrameCount,
                 WasCapped = false,
                 CappedByAbsoluteLimit = false,
-                ExposureIsNotTheLimit = false
+                ExposureIsNotTheLimit = false,
+                StarCountIsTheLimit = false
             };
         }
 

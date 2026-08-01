@@ -35,7 +35,7 @@ public class StarSignalCopyTests {
     private static ExposureRecommendation Advice(
         double current, double recommended, double snr,
         double raw = double.NaN, bool wasCapped = false, bool cappedByAbsoluteLimit = false,
-        bool exposureIsNotTheLimit = false, int shortFrameCount = 0) =>
+        bool exposureIsNotTheLimit = false, int shortFrameCount = 0, bool starCountIsTheLimit = false) =>
         new ExposureRecommendation {
             HasRecommendation = true,
             CurrentSeconds = current,
@@ -45,6 +45,7 @@ public class StarSignalCopyTests {
             WasCapped = wasCapped,
             CappedByAbsoluteLimit = cappedByAbsoluteLimit,
             ExposureIsNotTheLimit = exposureIsNotTheLimit,
+            StarCountIsTheLimit = starCountIsTheLimit,
             ShortFrameCount = shortFrameCount,
             UsableFrameCount = 9
         };
@@ -71,10 +72,10 @@ public class StarSignalCopyTests {
     /// <summary>The unconditional first sentence, in its two shapes — spelled out here so the golden whole-string
     /// assertions below stay readable while still being whole-string.</summary>
     private const string LowSignalOpening =
-        "Stars in these frames barely cleared the noise, and Brightness Sensitivity sits at 0.125, at the bottom of its range, so this focus result rests on low-confidence detections.";
+        "Stars barely cleared the noise and Brightness Sensitivity is at the bottom of its range (0.125): this focus result rests on low-confidence detections.";
 
     private const string NeutralOpening =
-        "Brightness Sensitivity sits at 0.125, at the bottom of its range, so this focus result rests on low-confidence detections.";
+        "Brightness Sensitivity is at the bottom of its range (0.125): this focus result rests on low-confidence detections.";
 
     private const string ReplayReassurance =
         " You can still accept these settings; they are the best fit for frames like these.";
@@ -82,7 +83,7 @@ public class StarSignalCopyTests {
     /// <summary>Live's one instruction: it names the capture action sitting directly below the paragraph, and
     /// quotes no seconds (the row above and the editable box below both carry the number).</summary>
     private const string LiveCaptureInstruction =
-        " Capture a new sweep at the longer exposure to re-tune these settings on frames that have real signal.";
+        " Capture a new sweep at the longer exposure and re-tune these settings on frames with real signal.";
 
     [TestCase(0.0, true)]
     [TestCase(0.125, true)]
@@ -231,7 +232,7 @@ public class StarSignalCopyTests {
         var text = Body(Starved(advice: Advice(3, 12, 4.1)), live: true, useCurrent: true);
         Assert.That(text, Is.EqualTo(
             LowSignalOpening
-            + " To capture a new sweep at the longer exposure, run this wizard in Optimize mode; settings must be re-tuned for the new frames."));
+            + " Run this wizard in Optimize mode to capture a new sweep at the longer exposure and re-tune for the new frames."));
         Assert.Multiple(() => {
             Assert.That(text, Does.Not.Contain("Capture a new sweep at the longer exposure to re-tune"),
                 "the instruction that names the button must not appear while the button is hidden");
@@ -248,9 +249,9 @@ public class StarSignalCopyTests {
         var text = Body(Starved(advice: advice, offsetSteps: 5), live: true, useCurrent: true);
         Assert.That(text, Is.EqualTo(
             LowSignalOpening
-            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so the recommendation above stops at 30 s."
-            + " To capture a new sweep at the longer exposure, run this wizard in Optimize mode; settings must be re-tuned for the new frames"
-            + "; if you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead."));
+            + " Reaching the default S/N target would need more time per frame than a sweep can spend; the recommendation above stops at 30 s."
+            + " Run this wizard in Optimize mode to capture a new sweep at the longer exposure and re-tune for the new frames"
+            + "; or, if you shoot narrowband, auto-focus through a broadband filter with a filter offset instead."));
     }
 
     [Test]
@@ -274,8 +275,8 @@ public class StarSignalCopyTests {
         var text = Body(Starved(advice: Advice(5, 5, 22.0, exposureIsNotTheLimit: true)), live: true);
         Assert.That(text, Is.EqualTo(
             NeutralOpening
-            + " Exposure is not what is limiting this run: your brightest stars measure S/N 22, which already meets the default gate of 10;"
-            + " the low gate is admitting a long tail of far fainter candidates below them."));
+            + " Star brightness is not the problem: your brightest stars measure S/N 22, meeting the default S/N target of 10."
+            + " Brightness Sensitivity is low, so far fainter candidates are being admitted below them."));
         Assert.Multiple(() => {
             Assert.That(text, Does.Not.Contain("barely cleared"));
             Assert.That(text, Does.Not.Contain("star-poor"), "nothing measured says the field is thin");
@@ -288,22 +289,34 @@ public class StarSignalCopyTests {
         // ShortFrameCount is the ONLY measured evidence that a field was too thin: those frames had fewer than the
         // star-count target to offer, so the per-frame statistic fell back to their faintest survivor.
         var text = Body(Starved(advice: Advice(5, 5, 22.0, exposureIsNotTheLimit: true, shortFrameCount: 4)), live: true);
-        Assert.That(text, Does.Contain("4 of 9 frames found fewer stars than the star-count target, so the low gate is scraping for count in a star-poor field."));
+        Assert.That(text, Does.Contain("4 of 9 frames found fewer stars than the star-count target; Brightness Sensitivity is low to scrape for count in a star-poor field."));
     }
 
     [Test]
-    public void ExposureCopy_EveryFrameShort_BlamesCandidateFormation_NotExposure() {
-        // The 3800mm case. EVERY frame fell short of the star-count target while the stars that WERE found
-        // comfortably clear the default gate. That combination is not a signal problem: the frames are not
-        // yielding candidates to accept, so no exposure and no gate change can reach the target. Saying "the low
-        // gate is scraping for count in a star-poor field" here points at the gate, which is not the lever.
-        var text = Body(Starved(advice: Advice(5, 5, 24.0, exposureIsNotTheLimit: true, shortFrameCount: 9)), live: true);
+    public void ExposureCopy_EveryFrameShort_OffersTheProbe_AndClaimsNothingAboutWhetherItWillWork() {
+        // The 3800mm case: EVERY frame short of the star-count target while the stars that WERE found comfortably
+        // clear the gate. This copy previously asserted that "a longer exposure or a different gate cannot raise
+        // that" -- false, and never measured: 2 s -> 5 s on the reported rig took detected stars 76 -> 101. The
+        // replacement must offer the experiment WITHOUT promising it works, and must carry its own stopping rule,
+        // or a genuinely sparse field gets walked up to the cap for nothing.
+        var text = Body(Starved(advice: Advice(2, 4, 24.0, starCountIsTheLimit: true, shortFrameCount: 9)), live: true);
         Assert.Multiple(() => {
             Assert.That(text, Does.Contain("All 9 frames found fewer stars than the star-count target"));
-            Assert.That(text, Does.Contain("how many stars these frames yield at all"));
+            Assert.That(text, Does.Contain("try doubling it"));
+            Assert.That(text, Does.Contain("if the star count does not rise, the field is the limit"),
+                "the stopping rule is what keeps this from walking the user to the cap");
+            Assert.That(text, Does.Not.Contain("cannot raise"), "the false claim this test exists to prevent");
             Assert.That(text, Does.Not.Contain("scraping for count in a star-poor field"),
-                "that phrasing blames the gate; with every frame short the limit is candidate formation");
+                "that phrasing blames the gate for a shortfall the gate did not cause");
         });
+    }
+
+    [Test]
+    public void ExposureCopy_EveryFrameShort_NeverSaysExposureIsNotTheLimit() {
+        // The regression that started this: the block must not diagnose starvation and then tell the user the one
+        // thing that helps cannot help. Asserted on the whole body so no branch can reintroduce it.
+        var text = Body(Starved(advice: Advice(2, 4, 24.0, starCountIsTheLimit: true, shortFrameCount: 9)), live: true);
+        Assert.That(text, Does.Not.Contain("Exposure is not"));
     }
 
     [Test]
@@ -312,8 +325,8 @@ public class StarSignalCopyTests {
         // so the field is thin rather than incapable, and the existing wording remains the accurate one.
         var text = Body(Starved(advice: Advice(5, 5, 22.0, exposureIsNotTheLimit: true, shortFrameCount: 8)), live: true);
         Assert.Multiple(() => {
-            Assert.That(text, Does.Contain("8 of 9 frames found fewer stars than the star-count target, so the low gate is scraping for count in a star-poor field."));
-            Assert.That(text, Does.Not.Contain("how many stars these frames yield at all"));
+            Assert.That(text, Does.Contain("8 of 9 frames found fewer stars than the star-count target; Brightness Sensitivity is low to scrape for count in a star-poor field."));
+            Assert.That(text, Does.Not.Contain("try doubling it"), "a partial shortfall is the star-poor case, not the probe case");
         });
     }
 
@@ -331,7 +344,7 @@ public class StarSignalCopyTests {
         // ABSOLUTE cap, and 8 s is nowhere near the ceiling.
         Assert.That(text, Is.EqualTo(
             LowSignalOpening
-            + " The recommendation above is a partial step: one run should not raise the exposure by more than 4x, so expect to repeat this."
+            + " The recommendation above is a partial step: one run raises exposure at most 4x. Expect to repeat this."
             + LiveCaptureInstruction));
         Assert.Multiple(() => {
             Assert.That(text, Does.Not.Contain("filter"), "the exposure route is nowhere near exhausted");
@@ -356,10 +369,10 @@ public class StarSignalCopyTests {
         var text = Body(Starved(advice: advice, offsetSteps: 5), live: false);
         Assert.That(text, Is.EqualTo(
             LowSignalOpening
-            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so the recommendation above stops at 30 s."
+            + " Reaching the default S/N target would need more time per frame than a sweep can spend; the recommendation above stops at 30 s."
             + ReplayReassurance
-            + " For a more reliable tune, raise your auto-focus exposure to about 30 s in NINA's focuser options and run this wizard again in Live mode;"
-            + " if you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead."));
+            + " Raise your auto-focus exposure to about 30 s in NINA's focuser options, then run this wizard again in Live mode;"
+            + " or, if you shoot narrowband, auto-focus through a broadband filter with a filter offset instead."));
     }
 
     [Test]
@@ -372,9 +385,9 @@ public class StarSignalCopyTests {
         var text = Body(Starved(advice: advice, offsetSteps: 5), live: true);
         Assert.That(text, Is.EqualTo(
             LowSignalOpening
-            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so the recommendation above stops at 30 s."
+            + " Reaching the default S/N target would need more time per frame than a sweep can spend; the recommendation above stops at 30 s."
             + LiveCaptureInstruction.TrimEnd('.')
-            + "; if you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead."));
+            + "; or, if you shoot narrowband, auto-focus through a broadband filter with a filter offset instead."));
         Assert.That(text, Does.Not.Contain("You can still accept"), "that reassurance is Replay's, not Live's");
     }
 
@@ -391,9 +404,9 @@ public class StarSignalCopyTests {
         var text = Body(Starved(advice: advice), live: false);
         Assert.That(text, Is.EqualTo(
             LowSignalOpening
-            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so there is no longer exposure to offer."
+            + " Reaching the default S/N target would need more time per frame than an auto-focus sweep can spend; no longer exposure is offered."
             + ReplayReassurance
-            + " If you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead."));
+            + " If you shoot narrowband, auto-focus through a broadband filter with a filter offset instead."));
         Assert.That(text, Does.Not.Contain("40 s"), "the row carries the numbers; the body must not re-offer them");
     }
 
@@ -408,8 +421,8 @@ public class StarSignalCopyTests {
         var text = Body(Starved(advice: advice), live: true);
         Assert.That(text, Is.EqualTo(
             LowSignalOpening
-            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so there is no longer exposure to offer."
-            + " If you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead."));
+            + " Reaching the default S/N target would need more time per frame than an auto-focus sweep can spend; no longer exposure is offered."
+            + " If you shoot narrowband, auto-focus through a broadband filter with a filter offset instead."));
         Assert.That(text, Does.Not.Contain("Capture a new sweep"), "there is nothing longer to capture at");
     }
 
@@ -429,7 +442,7 @@ public class StarSignalCopyTests {
         Assert.That(text, Is.EqualTo(
             LowSignalOpening
             + ReplayReassurance
-            + " For a more reliable tune, raise your auto-focus exposure to about 12 s in NINA's focuser options and run this wizard again in Live mode."));
+            + " Raise your auto-focus exposure to about 12 s in NINA's focuser options, then run this wizard again in Live mode."));
     }
 
     [Test]
@@ -450,9 +463,9 @@ public class StarSignalCopyTests {
         var text = Body(s, live: false);
         Assert.That(text, Is.EqualTo(
             LowSignalOpening
-            + " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so the recommendation above stops at 30 s."
+            + " Reaching the default S/N target would need more time per frame than a sweep can spend; the recommendation above stops at 30 s."
             + ReplayReassurance
-            + " The detection binning change recommended below also raises measured star signal, so the two are not additive: change the factor first and let the next run re-measure the exposure."));
+            + " The detection binning change recommended below also raises measured star signal. Change the binning factor first and let the next run re-measure the exposure."));
         Assert.Multiple(() => {
             Assert.That(text, Does.Not.Contain("broadband"), "the ordering instruction is the only instruction");
             Assert.That(text, Does.Not.Contain("NINA's focuser options"));
@@ -465,7 +478,7 @@ public class StarSignalCopyTests {
         var s = Starved(advice: advice, offsetSteps: 5, runBinning: 1, recommendedBinning: 2);
         var text = Body(s, live: true);
         Assert.Multiple(() => {
-            Assert.That(text, Does.Contain("not additive"));
+            Assert.That(text, Does.Contain("Change the binning factor first"));
             Assert.That(text, Does.Not.Contain("broadband"));
             Assert.That(text, Does.Not.Contain("You can still accept"), "that reassurance is Replay's, not Live's");
         });
@@ -491,9 +504,9 @@ public class StarSignalCopyTests {
         var text = Body(Starved(advice: Advice(3, 12, 4.1), runExposureSeconds: 3.0, runExposureIsAssumed: true), live: false);
         Assert.That(text, Is.EqualTo(
             LowSignalOpening
-            + " These frames record no exposure, so this assumes your profile's 3 s auto-focus exposure."
+            + " These frames record no exposure; the numbers assume your profile's 3 s auto-focus exposure."
             + ReplayReassurance
-            + " For a more reliable tune, raise your auto-focus exposure to about 12 s in NINA's focuser options and run this wizard again in Live mode."));
+            + " Raise your auto-focus exposure to about 12 s in NINA's focuser options, then run this wizard again in Live mode."));
     }
 
     // ---- Star signal derivation tooltip ----------------------------------------------------------------------
@@ -511,7 +524,7 @@ public class StarSignalCopyTests {
                 + " Capped at 30 s: 30 s per frame is the ceiling a sweep can sustain."));
             Assert.That(relative, Is.EqualTo(
                 "Sky-limited scaling: 2 s × (10 / 4.5)² = 9.9 s per frame."
-                + " Capped at 8 s: one run may not raise the exposure by more than 4x, so a second run refines it."));
+                + " Capped at 8 s: one run raises exposure at most 4x. Run again to refine."));
         });
     }
 
@@ -536,7 +549,7 @@ public class StarSignalCopyTests {
         var text = Detail(Starved(advice: Advice(40, 40, 6.0, raw: 111.1, wasCapped: true, cappedByAbsoluteLimit: true), offsetSteps: 5));
         Assert.That(text, Is.EqualTo(
             "Sky-limited scaling: 40 s × (10 / 6)² = 111 s per frame, roughly 20 minutes per auto-focus run."
-            + " That is past the 30 s this recommendation will suggest, and past what you already use, so nothing longer is offered."));
+            + " That is past the 30 s this recommendation will suggest, and past what you already use; nothing longer is offered."));
         Assert.That(text, Does.Not.Contain("a sweep can sustain"));
     }
 
@@ -545,13 +558,13 @@ public class StarSignalCopyTests {
         // The scaling would read "5 s × (10 / 22)² = 1 s", i.e. an invitation to SHORTEN — which the recommender
         // refuses to do and the tooltip must not imply.
         var text = Detail(Starved(advice: Advice(5, 5, 22.0, exposureIsNotTheLimit: true)));
-        Assert.That(text, Is.EqualTo("The measured S/N of 22 already meets the target of 10, so no longer exposure is derived."));
+        Assert.That(text, Is.EqualTo("Measured S/N 22 already meets the S/N target of 10: the S/N math derives no longer exposure."));
     }
 
     [Test]
     public void ExposureDetail_ShortFrames_SaysTheDerivationUnderStatesTheNeed() {
         var text = Detail(Starved(advice: Advice(3, 12, 4.1, raw: 17.8, shortFrameCount: 2)));
-        Assert.That(text, Does.Contain("2 of 9 frames had fewer stars than the star-count target, so this under-states what is needed."));
+        Assert.That(text, Does.Contain("2 of 9 frames had fewer stars than the star-count target; the derived exposure under-states what is needed."));
     }
 
     [Test]

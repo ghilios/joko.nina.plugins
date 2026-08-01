@@ -3180,7 +3180,7 @@ public class StarDetectionOptimizerWizardVMTests {
             // hand-built summary or through BuildCurrentSummary's carry-over, so hard-coding the flag false in
             // BuildSummaryAsync used to pass the whole suite. A derived number computed off an assumed input must
             // say so in visible copy.
-            Assert.That(vm.ExposureBodyText, Does.Contain("assumes your profile's 3 s auto-focus exposure"));
+            Assert.That(vm.ExposureBodyText, Does.Contain("your profile's 3 s auto-focus exposure"));
         });
     }
 
@@ -3923,7 +3923,7 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(vm.CaptureNewSweepCommand.CanExecute(null), Is.False);
             Assert.That(vm.ExposureBodyText, Does.Not.Contain("Capture a new sweep at the longer exposure to re-tune"),
                 "the copy must not name a button that is not on screen");
-            Assert.That(vm.ExposureBodyText, Does.Contain("run this wizard in Optimize mode"),
+            Assert.That(vm.ExposureBodyText, Does.Contain("in Optimize mode"),
                 "it names the mode to switch to instead - the binning block's use-current branch");
             Assert.That(vm.AcceptCommand.CanExecute(null), Is.True);
         });

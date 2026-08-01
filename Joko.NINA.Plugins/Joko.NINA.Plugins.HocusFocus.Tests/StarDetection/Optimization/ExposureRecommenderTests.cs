@@ -12,6 +12,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NUnit.Framework;
@@ -24,6 +25,17 @@ public class ExposureRecommenderTests {
     private static ObjectiveConstants DefaultConstants() => new ObjectiveConstants(); // NTarget = 20
 
     private static IReadOnlyList<double> Frame(params double[] values) => values;
+
+    /// <summary>
+    /// A frame carrying <paramref name="nTarget"/> stars, all at <paramref name="snr"/> — i.e. a frame that MEETS
+    /// the star-count target, so the verdict turns on signal alone. Use this, not <see cref="Frame(double[])"/>,
+    /// whenever a test means "the S/N already meets the target": a one-star <c>Frame(12.0)</c> is SHORT at
+    /// NTarget=20, which is now <see cref="ExposureRecommendation.StarCountIsTheLimit"/> rather than
+    /// <see cref="ExposureRecommendation.ExposureIsNotTheLimit"/>. Every star is identical, so the NTarget-th
+    /// brightest is exactly <paramref name="snr"/> and the measured value is unchanged from the one-star fixture.
+    /// </summary>
+    private static IReadOnlyList<double> FullFrame(double snr, int nTarget = 20) =>
+        Enumerable.Repeat(snr, nTarget).ToArray();
 
     private static RunEvaluationMetrics BuildMetrics(IReadOnlyList<IReadOnlyList<double>> frameStarSnrs, IReadOnlyList<bool> frameIsRecovery = null) {
         return new RunEvaluationMetrics {
@@ -380,7 +392,9 @@ public class ExposureRecommenderTests {
         // S_now = 12 >= TargetSensitivity(10): the raw factor is < 1, so without the explicit floor this would
         // recommend a SHORTER exposure than the 5s the run actually used. If the never-shorter guard were removed,
         // RecommendedSeconds would round(RawSeconds) ~= 3.5s instead of staying at (or above) 5s.
-        var metrics = BuildMetrics(new[] { Frame(12.0), Frame(12.0), Frame(12.0) });
+        // Full frames: this test is about the never-shorter GUARD, so the frames must meet the star-count target.
+        // With short frames the run is StarCountIsTheLimit instead and never reaches the guard being tested.
+        var metrics = BuildMetrics(new[] { FullFrame(12.0), FullFrame(12.0), FullFrame(12.0) });
 
         var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 5.0);
 
@@ -504,7 +518,9 @@ public class ExposureRecommenderTests {
         //     3.5s", the exact no-op-affordance contradiction IncreasesExposure exists to prevent.
         // The pair assertion below (ExposureIsNotTheLimit == true AND IncreasesExposure == false) is what makes
         // the state space non-contradictory; either one alone would not catch the bug.
-        var metrics = BuildMetrics(new[] { Frame(12.0), Frame(12.0), Frame(12.0) });
+        // Full frames: the ordering bug under test lives on the ExposureIsNotTheLimit branch, which requires the
+        // frames to meet the star-count target as well as the S/N target.
+        var metrics = BuildMetrics(new[] { FullFrame(12.0), FullFrame(12.0), FullFrame(12.0) });
 
         var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 3.2);
 
@@ -526,7 +542,8 @@ public class ExposureRecommenderTests {
         //   correct (round ONLY IF cappedSeconds > current): 3.10 > 3.2 is false -> return current EXACTLY = 3.2s.
         // As with the sibling test above, the pair assertion (ExposureIsNotTheLimit && !IncreasesExposure) is what
         // makes the state space non-contradictory.
-        var metrics = BuildMetrics(new[] { Frame(10.16), Frame(10.16), Frame(10.16) });
+        // Full frames, for the same reason as the sibling test above.
+        var metrics = BuildMetrics(new[] { FullFrame(10.16), FullFrame(10.16), FullFrame(10.16) });
 
         var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 3.2);
 
@@ -534,6 +551,99 @@ public class ExposureRecommenderTests {
             Assert.That(rec.ExposureIsNotTheLimit, Is.True);
             Assert.That(rec.IncreasesExposure, Is.False, "must not simultaneously claim the exposure is fine AND propose raising it");
             Assert.That(rec.RecommendedSeconds, Is.EqualTo(3.2).Within(1e-9), "returns current EXACTLY -- not a rounded-then-maxed approximation");
+        });
+    }
+
+    // ── StarCountIsTheLimit: bright enough, but too few ─────────────────────────────────────────────────────
+
+    [Test]
+    public void Recommend_EveryFrameShort_WithHealthySnr_IsStarCountLimited_NotExposureIsFine() {
+        // THE 3800mm DEFECT. Five bright stars per frame against NTarget=20: every frame is short, so S_now is a
+        // median of FAINTEST SURVIVORS (20.0), which clears the target and used to assert "exposure is not what is
+        // limiting this run". That reasoning is circular -- a star that survived the gate sits at or above it -- and
+        // it is contradicted by measurement: on the real rig 2s -> 5s took structure candidates 181 -> 201 and
+        // detected stars 76 -> 101 while the stars already found were comfortably bright.
+        var frame = Frame(20.0, 21.0, 22.0, 23.0, 24.0);
+        var metrics = BuildMetrics(new[] { frame, frame, frame });
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 2.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.MeasuredSnr, Is.EqualTo(20.0), "faintest survivor, every frame being short");
+            Assert.That(rec.ShortFrameCount, Is.EqualTo(3));
+            Assert.That(rec.UsableFrameCount, Is.EqualTo(3));
+            Assert.That(rec.StarCountIsTheLimit, Is.True);
+            Assert.That(rec.ExposureIsNotTheLimit, Is.False,
+                "a healthy S/N on too-few stars must NOT claim a longer exposure cannot help");
+            Assert.That(rec.RawSeconds, Is.EqualTo(4.0).Within(1e-9), "a fixed doubling probe, not the sky-limited derivation");
+            Assert.That(rec.IncreasesExposure, Is.True, "the probe must be offerable, or the user has nothing to try");
+        });
+    }
+
+    [Test]
+    public void Recommend_NoShortFrames_WithHealthySnr_StillReportsExposureIsNotTheLimit() {
+        // The star-FLOODING corner (the `bobp` bank run: 52-61 stars/frame at a floored gate). Frames meet the
+        // count target, so the NTarget-th-star measurement is real and "exposure is not the limit" is sound. This
+        // is the case StarCountIsTheLimit must NOT capture -- the split is all-frames-short, not any-frames-short.
+        var metrics = BuildMetrics(new[] { FullFrame(23.3), FullFrame(23.3), FullFrame(23.3) });
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 2.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.ShortFrameCount, Is.EqualTo(0));
+            Assert.That(rec.ExposureIsNotTheLimit, Is.True);
+            Assert.That(rec.StarCountIsTheLimit, Is.False);
+            Assert.That(rec.IncreasesExposure, Is.False, "nothing to offer: the frames are rich AND bright");
+        });
+    }
+
+    [Test]
+    public void Recommend_SomeFramesShort_WithHealthySnr_IsNotStarCountLimited() {
+        // The boundary. One full frame leaves a real NTarget-th-star measurement in the run, so the statistic is
+        // not degenerate and the old verdict still holds.
+        var metrics = BuildMetrics(new[] { FullFrame(12.0), Frame(20.0, 21.0), Frame(20.0, 21.0) });
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 2.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.ShortFrameCount, Is.EqualTo(2));
+            Assert.That(rec.UsableFrameCount, Is.EqualTo(3));
+            Assert.That(rec.StarCountIsTheLimit, Is.False, "all-frames-short is the trigger, not any-frames-short");
+            Assert.That(rec.ExposureIsNotTheLimit, Is.True);
+        });
+    }
+
+    [Test]
+    public void Recommend_EveryFrameShort_WithWeakSnr_KeepsTheDerivedRecommendation() {
+        // Short frames must NOT hijack the case the derivation genuinely answers. S_now = 5 is below the target, so
+        // this is ordinary signal starvation: keep the sky-limited number (2s x (10/5)^2 = 8s), not the probe.
+        var frame = Frame(5.0, 6.0, 7.0);
+        var metrics = BuildMetrics(new[] { frame, frame, frame });
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 2.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.MeasuredSnr, Is.EqualTo(5.0));
+            Assert.That(rec.StarCountIsTheLimit, Is.False, "the S/N target is not met, so the derivation applies");
+            Assert.That(rec.ExposureIsNotTheLimit, Is.False);
+            Assert.That(rec.RawSeconds, Is.EqualTo(8.0).Within(1e-9), "sky-limited, not the doubling probe");
+        });
+    }
+
+    [Test]
+    public void Recommend_StarCountProbe_IsStillBoundedByTheAbsoluteCap() {
+        // The probe is a direction, not a licence to climb: a 20s run doubles to 40s, past the 30s ceiling a sweep
+        // can sustain, so the same cap that bounds the derived path bounds this one.
+        var frame = Frame(20.0, 21.0, 22.0);
+        var metrics = BuildMetrics(new[] { frame, frame, frame });
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 20.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.StarCountIsTheLimit, Is.True);
+            Assert.That(rec.RawSeconds, Is.EqualTo(40.0).Within(1e-9));
+            Assert.That(rec.RecommendedSeconds, Is.EqualTo(ExposureRecommender.MaxRecommendedExposureSeconds));
+            Assert.That(rec.CappedByAbsoluteLimit, Is.True);
         });
     }
 

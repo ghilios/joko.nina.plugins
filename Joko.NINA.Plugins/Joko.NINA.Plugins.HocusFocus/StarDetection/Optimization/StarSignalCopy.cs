@@ -125,47 +125,52 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // cannot show the same number differently ("0.13" vs "0.125"). The range is described rather than
             // quoted — its upper bound has already been widened once (20 -> 50), and the tooltip is where the
             // actual numbers belong.
-            var gate = $"{summary.VariantSensitivity:F3}, at the bottom of its range";
+            var gate = $"the bottom of its range ({summary.VariantSensitivity:F3})";
             var text = starsBarelyCleared
-                ? $"Stars in these frames barely cleared the noise, and Brightness Sensitivity sits at {gate}, so this focus result rests on low-confidence detections."
-                : $"Brightness Sensitivity sits at {gate}, so this focus result rests on low-confidence detections.";
+                ? $"Stars barely cleared the noise and Brightness Sensitivity is at {gate}: this focus result rests on low-confidence detections."
+                : $"Brightness Sensitivity is at {gate}: this focus result rests on low-confidence detections.";
 
             // The derivation rests on an exposure nothing recorded — say so BEFORE quoting any of it. Gated on
             // `measured` as well as on the flag: with no derivation there is no row and no tooltip, so "this
             // assumes your profile's 3 s exposure" would have nothing on screen for "this" to refer to.
             if (measured && summary.RunExposureIsAssumed && double.IsFinite(summary.RunExposureSeconds)) {
-                text += $" These frames record no exposure, so this assumes your profile's {summary.RunExposureSeconds:0.##} s auto-focus exposure.";
+                text += $" These frames record no exposure; the numbers assume your profile's {summary.RunExposureSeconds:0.##} s auto-focus exposure.";
             }
 
             // Diagnosis continued — facts, no instructions. The magnitudes live in the row and its tooltip.
             if (measured) {
                 if (advice.ExposureIsNotTheLimit) {
-                    // Name what was actually measured. MeasuredSnr is the NTarget-th BRIGHTEST accepted star
-                    // (median across frames), NOT a property of "the stars that were accepted" — at a 0.125 gate
-                    // the accepted set runs from 0.125 upward, so claiming they all measure 22 is simply false, and
-                    // it reads as refuting the "low-confidence detections" clause before it. The tail clause
-                    // reconciles the two facts instead of leaving them looking contradictory.
-                    text += $" Exposure is not what is limiting this run: your brightest stars measure S/N {advice.MeasuredSnr:0.#}, which already meets the default gate of {ExposureRecommender.TargetSensitivity:0.#}; the low gate is admitting a long tail of far fainter candidates below them.";
-                    // EVERY frame short, with the stars that were found comfortably clearing the gate, is a
-                    // different situation from a merely thin field: the frames are not producing candidates to
-                    // accept in the first place, so neither a longer exposure nor a different gate can reach the
-                    // target. Measured on a 3800mm rig: 9 candidates formed per frame and 7 were accepted, while
-                    // sweeping the gate across its whole range changed the star count by at most one. Naming the
-                    // gate there ("scraping for count") points at the one knob that provably cannot help.
-                    if (advice.UsableFrameCount > 0 && advice.ShortFrameCount == advice.UsableFrameCount) {
-                        text += $" All {advice.UsableFrameCount} frames found fewer stars than the star-count target, so what limits this run is how many stars these frames yield at all — a longer exposure or a different gate cannot raise that. Long focal lengths and small sensors see few stars per frame; detection binning and the structure-detection settings are the levers, or accept that this field supports fewer stars than the target.";
-                    } else if (advice.ShortFrameCount > 0) {
-                        text += $" {advice.ShortFrameCount} of {advice.UsableFrameCount} frames found fewer stars than the star-count target, so the low gate is scraping for count in a star-poor field.";
+                    // Scoped to BRIGHTNESS, not to exposure in general: this lead is shared with the star-poor
+                    // sub-branch below, and "exposure is not what is limiting this run" is a claim about a knob
+                    // this statistic cannot see. MeasuredSnr is the NTarget-th BRIGHTEST accepted star (median
+                    // across frames), NOT a property of "the stars that were accepted" — at a 0.125 gate the
+                    // accepted set runs from 0.125 upward, so claiming they all measure 22 is simply false. The
+                    // tail clause reconciles the two facts instead of leaving them looking contradictory.
+                    text += $" Star brightness is not the problem: your brightest stars measure S/N {advice.MeasuredSnr:0.#}, meeting the default S/N target of {ExposureRecommender.TargetSensitivity:0.#}. Brightness Sensitivity is low, so far fainter candidates are being admitted below them.";
+                    // PARTIAL-short only. ExposureIsNotTheLimit already excludes all-short by construction (see
+                    // ExposureRecommendation.StarCountIsTheLimit), so the upper bound is belt-and-braces against a
+                    // hand-built advice object — without it an all-short run would read "9 of 9 frames ... the low
+                    // gate is scraping for count", which blames the gate for a shortfall it did not cause.
+                    if (advice.ShortFrameCount > 0 && advice.ShortFrameCount < advice.UsableFrameCount) {
+                        text += $" {advice.ShortFrameCount} of {advice.UsableFrameCount} frames found fewer stars than the star-count target; Brightness Sensitivity is low to scrape for count in a star-poor field.";
                     }
+                } else if (advice.StarCountIsTheLimit && advice.IncreasesExposure) {
+                    // Bright enough, too few. This branch previously asserted that a longer exposure "cannot raise
+                    // that" — false, and the measurement that was cited only ever tested the GATE. Exposure acts
+                    // upstream of the gate, on candidate formation: 2 s → 5 s on the reported rig took structure
+                    // candidates 181 → 201 and detected stars 76 → 101. But that is one field, and whether more
+                    // exposure reveals more stars depends on the luminosity function this run cannot measure — so
+                    // the copy prescribes an EXPERIMENT with its own stopping rule, not a verdict either way.
+                    text += $" All {advice.UsableFrameCount} frames found fewer stars than the star-count target: the stars found are bright enough (S/N {advice.MeasuredSnr:0.#}), there are just too few. A longer exposure may or may not find more; try doubling it, and if the star count does not rise, the field is the limit and no exposure will fix it.";
                 } else if (!advice.IncreasesExposure) {
-                    text += " Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so there is no longer exposure to offer.";
+                    text += " Reaching the default S/N target would need more time per frame than an auto-focus sweep can spend; no longer exposure is offered.";
                 } else if (advice.CapLimitsRecommendation) {
                     // "The recommendation above", not "That": the opening sentence quotes no number, so a bare
                     // pronoun would reach past it to the ROW — a different control. The sibling binning block names
                     // its referent explicitly in the same situation.
                     text += advice.CappedByAbsoluteLimit
-                        ? $" Reaching the default gate would take longer per frame than an auto-focus sweep can spend, so the recommendation above stops at {advice.RecommendedSeconds:0.##} s."
-                        : $" The recommendation above is a partial step: one run should not raise the exposure by more than {ExposureRecommender.MaxExposureFactor:0}x, so expect to repeat this.";
+                        ? $" Reaching the default S/N target would need more time per frame than a sweep can spend; the recommendation above stops at {advice.RecommendedSeconds:0.##} s."
+                        : $" The recommendation above is a partial step: one run raises exposure at most {ExposureRecommender.MaxExposureFactor:0}x. Expect to repeat this.";
                 }
             }
 
@@ -237,27 +242,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             OptimizationSummary summary, ExposureRecommendation advice, bool lastRunWasLive, bool isUseCurrentMode) {
             var increases = advice != null && advice.IncreasesExposure;
             if (summary.DetectionBinningDiffers && increases) {
-                return "The detection binning change recommended below also raises measured star signal, so the two are not additive: change the factor first and let the next run re-measure the exposure.";
+                return "The detection binning change recommended below also raises measured star signal. Change the binning factor first and let the next run re-measure the exposure.";
             }
             if (advice != null && advice.HasRecommendation && !advice.ExposureIsNotTheLimit && !advice.IncreasesExposure) {
-                return "If you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead.";
+                return "If you shoot narrowband, auto-focus through a broadband filter with a filter offset instead.";
             }
             if (increases) {
                 // Live acts on the rig it is attached to; Replay can only tell the user where the setting lives; a
                 // use-current run can do neither until it is re-run in Optimize mode, which is where its button went.
                 string text;
                 if (!lastRunWasLive) {
-                    text = $"For a more reliable tune, raise your auto-focus exposure to about {advice.RecommendedSeconds:0.##} s in NINA's focuser options and run this wizard again in Live mode.";
+                    text = $"Raise your auto-focus exposure to about {advice.RecommendedSeconds:0.##} s in NINA's focuser options, then run this wizard again in Live mode.";
                 } else if (isUseCurrentMode) {
-                    text = "To capture a new sweep at the longer exposure, run this wizard in Optimize mode; settings must be re-tuned for the new frames.";
+                    text = "Run this wizard in Optimize mode to capture a new sweep at the longer exposure and re-tune for the new frames.";
                 } else {
-                    text = "Capture a new sweep at the longer exposure to re-tune these settings on frames that have real signal.";
+                    text = "Capture a new sweep at the longer exposure and re-tune these settings on frames with real signal.";
                 }
                 if (advice.CappedByAbsoluteLimit) {
                     // The cap trimmed the number, so this is a partial fix in either mode. The filter route rides
                     // along as an alternative rather than replacing it — same sentence, so "one instruction" holds.
                     text = text.TrimEnd('.')
-                        + "; if you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset instead.";
+                        + "; or, if you shoot narrowband, auto-focus through a broadband filter with a filter offset instead.";
                 }
                 return text;
             }
@@ -278,7 +283,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return string.Empty;
             }
             if (advice.ExposureIsNotTheLimit) {
-                return $"The measured S/N of {advice.MeasuredSnr:0.#} already meets the target of {ExposureRecommender.TargetSensitivity:0.#}, so no longer exposure is derived.";
+                return $"Measured S/N {advice.MeasuredSnr:0.#} already meets the S/N target of {ExposureRecommender.TargetSensitivity:0.#}: the S/N math derives no longer exposure.";
+            }
+            // The probe state has no derivation to show — its number is a fixed factor, not a result — so the
+            // tooltip has to say that outright. Printing the sky-limited formula here would show a ratio ≤ 1
+            // arguing for a SHORTER exposure directly beneath a row proposing a longer one.
+            if (advice.StarCountIsTheLimit) {
+                var probe = $"S/N {advice.MeasuredSnr:0.#} already meets the S/N target of {ExposureRecommender.TargetSensitivity:0.#}, so there is no S/N shortfall to derive from. The frames are short of stars, not of signal: this is a {ExposureRecommender.StarCountProbeFactor:0}× probe, {advice.CurrentSeconds:0.##} s → {FormatExposureSeconds(advice.RawSeconds)} s per frame{DescribeSweepCost(advice.RawSeconds, summary.CurrentOffsetSteps)}. Whether more exposure finds more stars depends on the field, so check the star count afterwards.";
+                if (advice.CapLimitsRecommendation) {
+                    probe += advice.CappedByAbsoluteLimit
+                        ? $" Capped at {advice.RecommendedSeconds:0.##} s: {ExposureRecommender.MaxRecommendedExposureSeconds:0} s per frame is the ceiling a sweep can sustain."
+                        : $" Capped at {advice.RecommendedSeconds:0.##} s: one run raises exposure at most {ExposureRecommender.MaxExposureFactor:0}×.";
+                }
+                return probe;
             }
             // Sky-limited scaling: sigma goes as sqrt(t), so an SNR ratio r needs r-squared times the exposure.
             var text = $"Sky-limited scaling: {advice.CurrentSeconds:0.##} s × ({ExposureRecommender.TargetSensitivity:0.#} / {advice.MeasuredSnr:0.#})² = {FormatExposureSeconds(advice.RawSeconds)} s per frame{DescribeSweepCost(advice.RawSeconds, summary.CurrentOffsetSteps)}.";
@@ -286,14 +303,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // "will suggest", not "a sweep can sustain": this branch is reached by a user whose CURRENT
                 // exposure is already longer than the cap, so a flat claim about what a sweep can sustain is
                 // contradicted by their own working setup.
-                text += $" That is past the {ExposureRecommender.MaxRecommendedExposureSeconds:0} s this recommendation will suggest, and past what you already use, so nothing longer is offered.";
+                text += $" That is past the {ExposureRecommender.MaxRecommendedExposureSeconds:0} s this recommendation will suggest, and past what you already use; nothing longer is offered.";
             } else if (advice.CapLimitsRecommendation) {
                 text += advice.CappedByAbsoluteLimit
                     ? $" Capped at {advice.RecommendedSeconds:0.##} s: {ExposureRecommender.MaxRecommendedExposureSeconds:0} s per frame is the ceiling a sweep can sustain."
-                    : $" Capped at {advice.RecommendedSeconds:0.##} s: one run may not raise the exposure by more than {ExposureRecommender.MaxExposureFactor:0}x, so a second run refines it.";
+                    : $" Capped at {advice.RecommendedSeconds:0.##} s: one run raises exposure at most {ExposureRecommender.MaxExposureFactor:0}x. Run again to refine.";
             }
             if (advice.ShortFrameCount > 0) {
-                text += $" {advice.ShortFrameCount} of {advice.UsableFrameCount} frames had fewer stars than the star-count target, so this under-states what is needed.";
+                text += $" {advice.ShortFrameCount} of {advice.UsableFrameCount} frames had fewer stars than the star-count target; the derived exposure under-states what is needed.";
             }
             return text;
         }
