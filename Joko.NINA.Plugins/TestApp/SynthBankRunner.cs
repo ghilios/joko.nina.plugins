@@ -713,7 +713,17 @@ namespace TestApp.SynthBank {
             var image = await DiagnosticUtil.LoadRenderedImage(frame0.FramePath, profileService).ConfigureAwait(false);
             var meta = image.RawImageData?.MetaData;
 
-            var expectedPixelSize = sensor.PixelSizeMicrons * bootstrap.AfBinning;
+            // NINA's FITS layer round-trips the pixel size through binning, in BOTH directions:
+            //   write: XPIXSZ = Camera.PixelSize * BinX   (FITSHeader.PopulateFromMetaData)
+            //   read:  Camera.PixelSize = XPIXSZ / BinX   (FITSHeader.ExtractMetaData)
+            // So the card on disk carries the BINNED size (which is what MonoFits16Writer.StandardCards is given,
+            // and is correct), while Camera.PixelSize comes back as the PHYSICAL size. Asserting the written card
+            // value here would be asserting the wrong side of that divide -- and did, until --verify caught it on
+            // the two AF-bin-2 datasets (D11, D12: wrote 5.8, read back 2.9). Downstream this composes correctly:
+            // HarnessSettingsStore.PixelScaleForFrame multiplies ArcsecPerPixel(Camera.PixelSize, FocalLength) by
+            // Camera.BinX, recovering the binned plate scale. That chain is precisely what design risk R1 asked us
+            // to confirm rather than assume, so the assertion is kept -- pointed at the right quantity.
+            var expectedPixelSize = sensor.PixelSizeMicrons;
             var mismatches = new List<string>();
 
             void Check(string name, double expected, double? actual) {
@@ -727,6 +737,18 @@ namespace TestApp.SynthBank {
             Check("Telescope.FocalLength", dataset.FocalLengthMm, meta?.Telescope?.FocalLength);
             Check("Camera.BinX", bootstrap.AfBinning, meta?.Camera?.BinX);
             Check("Image.ExposureTime", bootstrap.ExposureSeconds, meta?.Image?.ExposureTime);
+
+            // The four fields above are only the ingredients. What the harness actually consumes is the plate scale
+            // they COMPOSE into, so assert that too -- it is the quantity a wrong binning convention would corrupt
+            // while every individual field still looked plausible. This mirrors HarnessSettingsStore.PixelScaleForFrame
+            // exactly (ArcsecPerPixel(physical pixel size, focal length) * BinX).
+            if (meta?.Camera != null && meta.Telescope != null) {
+                var expectedArcsecPerPixel =
+                    NINA.Joko.Plugins.HocusFocus.Utility.MathUtility.ArcsecPerPixel(sensor.PixelSizeMicrons, dataset.FocalLengthMm) * bootstrap.AfBinning;
+                var actualArcsecPerPixel =
+                    NINA.Joko.Plugins.HocusFocus.Utility.MathUtility.ArcsecPerPixel(meta.Camera.PixelSize, meta.Telescope.FocalLength) * Math.Max(meta.Camera.BinX, 1);
+                Check("composed arcsec/px", expectedArcsecPerPixel, actualArcsecPerPixel);
+            }
 
             if (mismatches.Count > 0) {
                 var detail = string.Join("; ", mismatches);

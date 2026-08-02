@@ -317,18 +317,18 @@ Defaults: L filter, gain 100, bias 500, −10 °C, throughput 0.85, offset 4, ti
 | D03_redcat_250mm | 250/4.9 (0) | IMX533, 1 | 3.10 | Orion Belt (mid) | 0.5 | 16 | 0.7→2.4 | 1 | no |
 | D04_esprit_550mm | 550/5.5 (0) | IMX571, 1 | 1.41 | M24 Sgr (very rich) | 0.5 | 15 | 1.2→4.1 | 1 | no |
 | D05_tec140_1000mm | 1000/7.1 (0) | IMX455, 1 | 0.78 | Auriga (mid) | 0.5 | 35 | 2.1→7.3 | 1 | no |
-| D06_sparse_1000mm | 1000/7.1 (0) | IMX533, 1 | 0.78 | Coma/NGP (sparse, 65★ on-frame) | 0.5 | 35 | 2.1→7.3 | 1 | no |
+| D06_sparse_1000mm | 1000/7.1 (0) | IMX533, 1 | 0.78 | Coma/NGP (sparse, 65★ on-frame) | 1 | 35 | 2.1→7.3 | 1 | no |
 | D07_rc10_2000mm | 2000/8 (0.47) | IMX533, 1 | 0.39 | Double Cluster (rich) | 0.5 | 55 | 3.5→11.7 | 1 | yes |
-| D08_c11_2800mm | 2800/10 (0.34) | IMX571, 1 | 0.28 | Hercules (mid) | 0.5 | 82 | 4.9→16.5 | **2** | yes |
-| D09_c14_3800mm | 3800/10.7 (0.34) | IMX294, 1 | 0.25 | Cepheus (rich) | 0.5 | 118 | 5.3→18.1 | **2** | yes |
-| D10_rc16_3250mm_sparse | 3250/8 (0.47) | IMX533, 1 | 0.24 | Virgo (sparse, 26★ on-frame) | **17** | 89 | 5.6→19.0 | **2** | yes |
-| D11_rc10_585_afbin2 | 2000/8 (0.47) | **IMX585, 2** | 0.30n | Cygnus (rich) | 0.5 | 55 | 5.3n→2.7b | 1 (**AF-bin alone**) | yes |
-| D12_c14_585_afbin2 | 3800/10.7 (0.34) | **IMX585, 2** | 0.16n | Cassiopeia (rich) | 2 | 141 | 10.2n→5.1b | **2** (**both**) | yes |
+| D08_c11_2800mm | 2800/10 (0.34) | IMX571, 1 | 0.28 | Hercules (mid) | 1.5 | 82 | 4.9→16.5 | **2** | yes |
+| D09_c14_3800mm | 3800/10.7 (0.34) | IMX294, 1 | 0.25 | Cepheus (rich) | 1.5 | 118 | 5.3→18.1 | **2** | yes |
+| D10_rc16_3250mm_sparse | 3250/8 (0.47) | IMX533, 1 | 0.24 | Virgo (sparse, 26★ on-frame) | **30** | 89 | 5.6→19.0 | **2** | yes |
+| D11_rc10_585_afbin2 | 2000/8 (0.47) | **IMX585, 2** | 0.30n | Cygnus (rich) | 2.5 | 55 | 5.3n→2.7b | 1 (**AF-bin alone**) | yes |
+| D12_c14_585_afbin2 | 3800/10.7 (0.34) | **IMX585, 2** | 0.16n | Cassiopeia (rich) | 9.5 | 141 | 10.2n→5.1b | **2** (**both**) | yes |
 | D13_apo200_1800mm | 1800/9 (**0**) | IMX571, 1 | 0.43 | Lyra (mid) | 0.5 | 127 | 3.1→10.5 | 1 | **no** |
 | D14_cdk14_2563mm_e47 | 2563/7.2 (0.47) | IMX455, 1 | 0.30 | Perseus (rich) | 0.5 | 60 | 5.3→17.8 | **2** | yes |
-| D15_cdk20_3454mm_e47 | 3454/6.8 (0.47) | IMX571, 1 | 0.23 | Cepheus flare (mid) | 1 | 64 | 5.9→20.1 | **2** | yes |
-| D16_esprit550_ha3 | 550/5.5 (0) | IMX571, 1, **Hα 3 nm** | 1.41 | Heart Neb Cas (rich Hα) | 0.5 | 15 | 1.2→4.1 | 1 | no |
-| D17_cdk14_oiii5 | 2563/7.2 (0.47) | IMX533, 1, **OIII 5 nm** | 0.30 | Cygnus X (rich) | **8** | 60 | 5.3→17.8 | **2** | yes |
+| D15_cdk20_3454mm_e47 | 3454/6.8 (0.47) | IMX571, 1 | 0.23 | Cepheus flare (mid) | 6 | 64 | 5.9→20.1 | **2** | yes |
+| D16_esprit550_ha3 | 550/5.5 (0) | IMX571, 1, **Hα 3 nm** | 1.41 | Heart Neb Cas (rich Hα) | 2 | 15 | 1.2→4.1 | 1 | no |
+| D17_cdk14_oiii5 | 2563/7.2 (0.47) | IMX533, 1, **OIII 5 nm** | 0.30 | Cygnus X (rich) | **30** | 60 | 5.3→17.8 | **2** | yes |
 
 `n` = native, `b` = after capture binning. Sky 20.5 mag/arcsec² except D01/D02 at 21.0; seeing 2.5″
 except D11/D12/D14/D17 at 3.0″; filter L except D16/D17.

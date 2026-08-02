@@ -210,10 +210,13 @@ namespace TestApp.SynthBank {
         /// <param name="catalogReader">The ASTAP catalog reader (real in production, fake in tests).</param>
         /// <param name="captureBinning">Physical/AF capture binning (<see cref="SynthDatasetSpec.CaptureBinning"/>).</param>
         /// <param name="detectionBinning">Recommended detection binning (<see cref="DeriveDetectionBinning"/>).</param>
+        /// <param name="stepSize">Derived sweep step (<see cref="DeriveStepSize"/>) — fixes where the sweep's frames sit, and so the per-frame defocus the median peak fraction is taken over.</param>
+        /// <param name="offsetSteps">Frames per side of focus; the sweep is <c>2·offsetSteps+1</c> frames.</param>
         /// <param name="token">Cancellation for the render.</param>
         public static (double ExposureSeconds, double BandLowSeconds, double BandHighSeconds, string Definition) DeriveExposureBand(
                 SynthDatasetSpec dataset, SynthBankDefaults defaults, DefocusModel model,
-                IAstapCatalogReader catalogReader, int captureBinning, int detectionBinning, CancellationToken token = default) {
+                IAstapCatalogReader catalogReader, int captureBinning, int detectionBinning,
+                int stepSize, int offsetSteps, CancellationToken token = default) {
             if (dataset == null) throw new ArgumentNullException(nameof(dataset));
             if (defaults == null) throw new ArgumentNullException(nameof(defaults));
             if (model == null) throw new ArgumentNullException(nameof(model));
@@ -249,10 +252,30 @@ namespace TestApp.SynthBank {
             var readNoise = sensor.ReadNoiseElectronsAtGain(gain);
 
             var effectiveBinning = captureBinning * detectionBinning;
-            // GoldenFromTruth.PeakFractionBinned (not a reimplementation of its min(1, ...) cap here): the exposure
-            // derivation and the golden tiering must agree exactly on how a star's peak fraction saturates toward
-            // 1.0 as binning grows, or the two could silently drift apart on a future retune of the cap.
-            var peakFractionBinned = GoldenFromTruth.PeakFractionBinned(star.KernelPeakFraction, effectiveBinning);
+
+            // MEDIAN ACROSS THE SWEEP, not the in-focus frame alone. ExposureRecommender's S_now is the median over
+            // non-recovery frames of each frame's NTarget-th-brightest SNR, so scoring only the in-focus frame --
+            // the sharpest and highest-SNR frame there is -- systematically overstates SNR and understates the
+            // exposure the sweep needs. Generating the bank made that concrete: at the in-focus-only exposure of
+            // 0.5s, the extreme frames of D08/D09 carried 3-7 golden stars out of ~470, which is not a sweep an
+            // autofocus fit can use.
+            //
+            // No additional rendering is needed for this. Aberrations are off across the whole bank, so every star
+            // on a given frame shares one defocus and therefore one kernel; a star's flux does not change with
+            // focus, so the NTarget-th brightest star is the SAME star on every frame. Only the peak FRACTION
+            // varies, and that is analytic per frame via PsfKernelGenerator.
+            //
+            // GoldenFromTruth.PeakFractionBinned (rather than a local copy of its min(1, ...) cap): the exposure
+            // derivation and the golden tiering must agree exactly on how a peak fraction saturates toward 1.0 as
+            // binning grows, or the two could silently drift apart on a future retune of the cap.
+            var perFramePeakFractions = new List<double>(2 * offsetSteps + 1);
+            for (var k = -offsetSteps; k <= offsetSteps; k++) {
+                var defocusMicrons = k * stepSize * dataset.FocuserStepSizeMicrons;
+                var frameKernel = PsfKernelGenerator.Generate(model, defocusMicrons);
+                perFramePeakFractions.Add(GoldenFromTruth.PeakFractionBinned(frameKernel.MaxPeak, effectiveBinning));
+            }
+            perFramePeakFractions.Sort();
+            var peakFractionBinned = perFramePeakFractions[perFramePeakFractions.Count / 2];
 
             var rawTarget = SolveExposureForTargetGateSnr(ExposureRecommender.TargetSensitivity, fluxPerSecond, peakFractionBinned, effectiveBinning, skyPlusDarkRatePerSecond, readNoise);
             var rawLow = SolveExposureForTargetGateSnr(GateSnrBandFloor, fluxPerSecond, peakFractionBinned, effectiveBinning, skyPlusDarkRatePerSecond, readNoise);
@@ -269,7 +292,9 @@ namespace TestApp.SynthBank {
                 : $"{NTarget}th-brightest of {onFrameCount} on-frame stars";
             var definition =
                 $"Exposure t solving snr(t) = {GateSnrPeakCoefficient:0.00}·peakElectrons(t)/σ_bg(t) = {ExposureRecommender.TargetSensitivity:0} for the {starDescription} " +
-                $"on the in-focus (median) sweep frame, at binning={effectiveBinning} (captureBinning={captureBinning}×detectionBinning={detectionBinning}), " +
+                $"taken as the MEDIAN over the {2 * offsetSteps + 1} sweep frames at step {stepSize} (matching ExposureRecommender's " +
+                $"median-across-non-recovery-frames statistic, not the in-focus frame alone), at binning={effectiveBinning} " +
+                $"(captureBinning={captureBinning}×detectionBinning={detectionBinning}), " +
                 $"clamped to [{MinExposureSeconds:0.0}, {ExposureRecommender.MaxRecommendedExposureSeconds:0}] s and rounded on ExposureRecommender.RoundExposureSeconds' ladder. " +
                 $"Band = t at snr(t) = {GateSnrBandFloor:0} (low) and snr(t) = {GateSnrBandCeiling:0} (high).";
 
@@ -512,7 +537,8 @@ namespace TestApp.SynthBank {
                 exposureDefinition = "No catalog reader supplied; the exposure band was not derived (catalog-free fields only).";
             } else {
                 (exposureSeconds, bandLow, bandHigh, exposureDefinition) =
-                    DeriveExposureBand(dataset, defaults, model, catalogReader, dataset.CaptureBinning, detectionBinning, token);
+                    DeriveExposureBand(dataset, defaults, model, catalogReader, dataset.CaptureBinning, detectionBinning,
+                        stepSize, offsetSteps, token);
             }
 
             return new SynthExpectedOptimal {
