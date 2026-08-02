@@ -1106,14 +1106,27 @@
             </Grid>
             </ScrollViewer>
 
-            <!--  Error banner  -->
-            <TextBlock
-                Grid.Row="2"
-                Margin="0,8,0,0"
-                Foreground="{StaticResource NotificationErrorBrush}"
-                Text="{Binding ErrorMessage}"
-                TextWrapping="Wrap"
-                Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+            <!--  Error banner, and the recovery-widened notice. Both live in row 2 inside a StackPanel rather than
+                  taking a row each: each collapses when it has nothing to say, and they are mutually exclusive in
+                  practice (an error returns to SelectSource, the notice only ever accompanies a run that
+                  proceeded), so stacking costs no layout and leaves the grid's row definitions alone.  -->
+            <StackPanel Grid.Row="2" Orientation="Vertical">
+                <TextBlock
+                    Margin="0,8,0,0"
+                    Foreground="{StaticResource NotificationErrorBrush}"
+                    Text="{Binding ErrorMessage}"
+                    TextWrapping="Wrap"
+                    Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+
+                <!--  Not an error: the run continued, but on FEWER positions than the user asked for, so the
+                      exclusion has to be visible rather than silently applied.  -->
+                <TextBlock
+                    Margin="0,8,0,0"
+                    Foreground="{StaticResource NotificationWarningBrush}"
+                    Text="{Binding RecoveryWidenedNotice}"
+                    TextWrapping="Wrap"
+                    Visibility="{Binding HasRecoveryWidenedNotice, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+            </StackPanel>
 
             <!--  Footer: navigation. Exactly one step's buttons show at a time; while busy only Cancel shows.  -->
             <StackPanel
