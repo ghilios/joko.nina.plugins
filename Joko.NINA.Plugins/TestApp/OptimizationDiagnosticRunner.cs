@@ -913,8 +913,10 @@ namespace TestApp {
         /// <summary>
         /// Infers the AF step size from the frames exactly as <c>AutoFocusEngine.LoadSavedAttemptImpl</c> does:
         /// the absolute difference of the two smallest DISTINCT focuser positions. 0 when fewer than 2 positions.
+        /// Internal (widened from private) so <c>SynthValidateRunner</c> (workstream V1) can load a scenario
+        /// round's rendered frames exactly as `optimize` does, without a second copy of this logic.
         /// </summary>
-        private static int InferStepSize(List<OptimizationRunDiscovery.FrameRef> frames) {
+        internal static int InferStepSize(List<OptimizationRunDiscovery.FrameRef> frames) {
             var positions = frames.Select(f => f.FocuserPosition).Distinct().OrderBy(x => x).Take(2).ToList();
             return positions.Count > 1 ? Math.Abs(positions[0] - positions[1]) : 0;
         }

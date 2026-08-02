@@ -43,10 +43,15 @@ namespace TestApp {
     ///
     /// Usage:
     ///   TestApp golden eval --runs &lt;dir&gt; [--golden &lt;dir&gt;] [--params current|default|optimized] [--opt-results &lt;dir&gt;]
-    ///       [--match center|iou|both] [--iou 0.3] [--label &lt;name&gt;] [--annotate] [--run &lt;runId&gt;] [--profile-id &lt;guid&gt;]
+    ///       [--match center|iou|both] [--iou 0.3] [--match-radius 0] [--pixel-scale header|profile]
+    ///       [--label &lt;name&gt;] [--annotate] [--run &lt;runId&gt;] [--profile-id &lt;guid&gt;]
     ///       [--defocus-donut] [--defocus-gates] [--defocus-structure] [--structure-layer-boost N]
     ///       [--defocus-size-ref V] [--defocus-min-factor V] [--defocus-center-factor V]
     ///       [--donut-morph-close N] [--donut-hole-fraction V] [--donut-streak-ecc V] [--donut-bloom-radius V]
+    ///
+    /// <c>--pixel-scale</c> (V-P1) and the dataset-provided <c>matchRadiusPx</c> (V-P2) are documented on
+    /// <see cref="BankVerifyRunner"/>'s identical seam; both default to reading the run's OWN frame header /
+    /// dataset metadata rather than one bank-wide value from the active profile / CLI default.
     /// </summary>
     internal static class GoldenEvalRunner {
 
@@ -83,7 +88,7 @@ namespace TestApp {
 
             var runsDir = DiagnosticUtil.GetArg(args, "--runs");
             if (string.IsNullOrWhiteSpace(runsDir)) {
-                Console.WriteLine("Usage: TestApp golden eval --runs <dir> [--golden <dir>] [--params current|default|optimized] [--opt-results <dir>] [--match center|iou|both] [--iou 0.3] [--label <name>] [--annotate] ...");
+                Console.WriteLine("Usage: TestApp golden eval --runs <dir> [--golden <dir>] [--params current|default|optimized] [--opt-results <dir>] [--match center|iou|both] [--iou 0.3] [--match-radius 0] [--pixel-scale header|profile] [--label <name>] [--annotate] ...");
                 return;
             }
             var profileId = DiagnosticUtil.GetArg(args, "--profile-id");
@@ -92,7 +97,14 @@ namespace TestApp {
             var optResults = DiagnosticUtil.GetArg(args, "--opt-results");
             var matchArg = (DiagnosticUtil.GetArg(args, "--match") ?? "both").Trim().ToLowerInvariant();
             var tau = ParseDouble(DiagnosticUtil.GetArg(args, "--iou"), 0.3);
+            // CLI default stays 0.0 (unchanged behavior) — see EvalRun for why 0 is dangerous in centroid mode and
+            // how a synthetic dataset's own synthetic_meta.json overrides this per run (V-P2).
             var matchRadius = ParseDouble(DiagnosticUtil.GetArg(args, "--match-radius"), 0.0);
+            // header (default): PixelScaleForFrame reads each run's OWN frame header — see BankVerifyRunner's
+            // identical flag for the full rationale (V-P1). profile: the exact pre-V-P1 behavior, kept as an
+            // escape hatch.
+            var pixelScaleMode = string.Equals(DiagnosticUtil.GetArg(args, "--pixel-scale"), "profile", StringComparison.OrdinalIgnoreCase)
+                ? "profile" : "header";
             var label = DiagnosticUtil.GetArg(args, "--label");
             var annotate = DiagnosticUtil.HasFlag(args, "--annotate");
             var runFilter = DiagnosticUtil.GetArg(args, "--run");
@@ -117,9 +129,15 @@ namespace TestApp {
             var accessor = harnessSettings.Accessor;
             var options = new StarDetectionOptions(profileService, accessor);
 
+            // V-P1: the pre-change bank-wide value — "profile" mode's value AND "header" mode's fallback when a
+            // run's own frame header carries no usable pixel size / focal length. See BankVerifyRunner for the
+            // identical computation and rationale.
+            const int binning = 1;
+            var profilePixelScale = MathUtility.ArcsecPerPixel(activeProfile.CameraSettings.PixelSize, activeProfile.TelescopeSettings.FocalLength) * binning;
+
             Directory.CreateDirectory(outDir);
             Console.WriteLine($"Profile: {activeProfile.Name} ({activeProfile.Id})");
-            Console.WriteLine($"Output: {outDir}  (params={mode}, match={matchMode}, iou={tau})");
+            Console.WriteLine($"Output: {outDir}  (params={mode}, match={matchMode}, iou={tau}, pixelScale={pixelScaleMode})");
 
             var discovery = OptimizationRunDiscovery.Discover(runsDir);
             if (discovery.Runs.Count == 0) {
@@ -132,24 +150,40 @@ namespace TestApp {
                 if (!string.IsNullOrWhiteSpace(runFilter) && !string.Equals(run.RunId, runFilter, StringComparison.OrdinalIgnoreCase)) {
                     continue;
                 }
-                await EvalRun(run, goldenDirArg, mode, optResults, matchMode, tau, matchRadius, label, annotate, outDir,
-                    options, activeProfile, profileService, detector, args);
+                await EvalRun(run, runsDir, goldenDirArg, mode, optResults, matchMode, tau, matchRadius, label, annotate, outDir,
+                    options, activeProfile, profileService, detector, args, harnessSettings, profilePixelScale, pixelScaleMode);
             }
             Console.WriteLine("Done.");
         }
 
-        private static async Task EvalRun(OptimizationRunDiscovery.DiscoveredRun run, string goldenDirArg, string mode,
+        private static async Task EvalRun(OptimizationRunDiscovery.DiscoveredRun run, string runsRoot, string goldenDirArg, string mode,
             string optResults, GoldenMatchMode matchMode, double tau, double matchRadius, string label, bool annotate, string outRoot,
-            StarDetectionOptions options, IProfile activeProfile, ProfileService profileService, StarDetector detector, string[] args) {
+            StarDetectionOptions options, IProfile activeProfile, ProfileService profileService, StarDetector detector, string[] args,
+            HarnessSettingsStore.Resolved harnessSettings, double profilePixelScale, string pixelScaleMode) {
 
             var runFolder = Path.GetDirectoryName(run.Frames.First().Path);
-            var p = BuildEvalParams(options, activeProfile, mode, optResults, runFolder, args, out var sourceLabel);
+            var p = BuildEvalParams(options, mode, optResults, runFolder, args, out var sourceLabel);
             var paramsLabel = string.IsNullOrWhiteSpace(label) ? sourceLabel : label;
             var bestFocuser = ReadBestFocuser(runFolder);
             var stepSize = InferStep(run);
 
             var runOut = Path.Combine(outRoot, OptimizationRunDiscovery.SanitizeForFileName(run.RunId));
             Directory.CreateDirectory(runOut);
+
+            // V-P2: match radius FOR THIS RUN — the synthetic bank's own matchRadiusPx (dataset root, one level
+            // above this run's frame folder) wins over the CLI/default when present; see SyntheticDatasetMeta and
+            // BankVerifyRunner's identical seam. The CLI default here is 0.0 (unchanged by this work), which
+            // silently matches NOTHING in centroid mode (GoldenGeometry requires radius > 0), so that combination
+            // gets a loud warning below rather than a quietly empty report.
+            var syntheticMatchRadius = SyntheticDatasetMeta.TryReadMatchRadiusPx(runFolder, runsRoot);
+            var effectiveMatchRadius = syntheticMatchRadius ?? matchRadius;
+            var matchRadiusSource = syntheticMatchRadius.HasValue ? "synthetic_meta.json" : "CLI/default";
+            if (matchMode == GoldenMatchMode.Centroid && effectiveMatchRadius <= 0.0) {
+                Console.WriteLine($"  WARNING: centroid match mode with matchRadius={effectiveMatchRadius} matches NOTHING " +
+                    "(GoldenGeometry requires radius > 0) — every golden star will be a false negative. Pass --match-radius, " +
+                    "or use a synthetic dataset whose synthetic_meta.json carries matchRadiusPx.");
+            }
+            Console.WriteLine($"  matchRadius: {Fmt(effectiveMatchRadius)}px ({matchRadiusSource})");
 
             // Optional focuser-position filter (sweep on a single representative frame quickly).
             var framesArg = DiagnosticUtil.GetArg(args, "--frames");
@@ -162,6 +196,14 @@ namespace TestApp {
                     }
                 }
             }
+
+            // V-P1: pixel scale FOR THIS RUN, resolved once from the first frame this loop actually processes (the
+            // first with a golden sidecar, honoring --frames when given) — see BuildEvalParams and BankVerifyRunner
+            // for the identical seam/rationale. p.PixelScale is set the first time through the loop, before the
+            // first Detect call, so every frame in this run is detected at the same value.
+            var pixelScaleResolved = false;
+            var effectivePixelScale = double.NaN;
+            string pixelScaleSource = null;
 
             var frameEvals = new List<FrameEval>();
             foreach (var frame in run.Frames.OrderBy(f => f.FocuserPosition)) {
@@ -182,6 +224,27 @@ namespace TestApp {
                 // debayer then run INSIDE Detect at these params (see DiagnosticUtil.LoadRenderedImage). Recall and
                 // precision are only meaningful when the harness scores the image the app actually detects on.
                 var rendered = await DiagnosticUtil.LoadRenderedImage(frame.Path, profileService);
+
+                if (!pixelScaleResolved) {
+                    pixelScaleResolved = true;
+                    if (pixelScaleMode == "profile") {
+                        effectivePixelScale = profilePixelScale;
+                        pixelScaleSource = "profile (forced via --pixel-scale profile)";
+                    } else {
+                        var firstFrameMeta = rendered.RawImageData?.MetaData;
+                        var headerScale = HarnessSettingsStore.PixelScaleForFrame(firstFrameMeta, harnessSettings, out var headerSource);
+                        if (double.IsFinite(headerScale)) {
+                            effectivePixelScale = headerScale;
+                            pixelScaleSource = headerSource;
+                        } else {
+                            effectivePixelScale = profilePixelScale;
+                            pixelScaleSource = $"profile (fallback: {headerSource})";
+                        }
+                    }
+                    p.PixelScale = effectivePixelScale;
+                    Console.WriteLine($"  pixelScale: {Fmt(effectivePixelScale)} arcsec/px ({pixelScaleSource})");
+                }
+
                 var fullW = rendered.RawImageData.Properties.Width;
                 var fullH = rendered.RawImageData.Properties.Height;
                 var regions = ReadRegions(runFolder, fullW, fullH);
@@ -199,7 +262,7 @@ namespace TestApp {
                 // goldenRects (no effect on recall) and are subtracted from the false positives below.
                 var unresolvedRects = (gf.Unresolved ?? new List<GoldenStarBox>())
                     .Select(b => new RectD(b.X, b.Y, b.W, b.H)).ToList();
-                var match = GoldenMatch.Match(goldenRects, det, matchMode, tau, matchRadius);
+                var match = GoldenMatch.Match(goldenRects, det, matchMode, tau, effectiveMatchRadius);
                 var falsePositives = GoldenMatch.ExcludeUnresolved(match.FalsePositives, det, unresolvedRects);
 
                 var fe = new FrameEval {
@@ -278,20 +341,23 @@ namespace TestApp {
                 Console.WriteLine($"  run '{run.RunId}': no per-image golden sidecars found; nothing scored.");
                 return;
             }
-            WriteReports(runOut, run.RunId, paramsLabel, sourceLabel, p, frameEvals, matchMode, tau, matchRadius);
+            WriteReports(runOut, run.RunId, paramsLabel, sourceLabel, p, frameEvals, matchMode, tau, effectiveMatchRadius,
+                effectivePixelScale, pixelScaleSource, matchRadiusSource);
         }
 
         // ---- Params bundle ---------------------------------------------------------------------------------
 
-        private static StarDetectorParams BuildEvalParams(StarDetectionOptions options, IProfile activeProfile, string mode,
+        private static StarDetectorParams BuildEvalParams(StarDetectionOptions options, string mode,
             string optResults, string runFolder, string[] args, out string sourceLabel) {
 
             var p = mode == "default"
                 ? HocusFocusStarDetection.BuildDefaultStarDetectorParams()
                 : HocusFocusStarDetection.BuildStarDetectorParams(options);
 
-            const int binning = 1;
-            p.PixelScale = MathUtility.ArcsecPerPixel(activeProfile.CameraSettings.PixelSize, activeProfile.TelescopeSettings.FocalLength) * binning;
+            // V-P1: PixelScale is NOT set here — it depends on the run's first frame header (or the profile
+            // fallback) and is resolved once the caller (EvalRun) has actually loaded that frame. Setting it here
+            // would mean either loading a frame early just for this, or reproducing the pre-V-P1 bug of one
+            // profile-wide value for every run. See EvalRun's "V-P1: pixel scale FOR THIS RUN" block.
             p.Region = StarDetectionRegion.Full;
             p.ModelPSF = false;
             p.SaveIntermediateFilesPath = string.Empty;
@@ -498,7 +564,8 @@ namespace TestApp {
         // ---- Reporting -------------------------------------------------------------------------------------
 
         private static void WriteReports(string runOut, string runId, string paramsLabel, string sourceLabel,
-            StarDetectorParams p, List<FrameEval> frames, GoldenMatchMode matchMode, double tau, double matchRadius) {
+            StarDetectorParams p, List<FrameEval> frames, GoldenMatchMode matchMode, double tau, double matchRadius,
+            double pixelScale, string pixelScaleSource, string matchRadiusSource) {
 
             // CSV (per-frame).
             var csv = new StringBuilder();
@@ -530,6 +597,10 @@ namespace TestApp {
             var sb = new StringBuilder();
             sb.AppendLine($"GOLDEN EVAL — run '{runId}'");
             sb.AppendLine($"params: {paramsLabel}   (source: {sourceLabel})");
+            // V-P1/V-P2: record which source won for the two per-run knobs this report was scored with, so a
+            // reader comparing two reports can tell whether a delta came from the detector or from a resolved
+            // input changing underneath it.
+            sb.AppendLine($"pixelScale: {Fmt(pixelScale)} arcsec/px ({pixelScaleSource})   matchRadius: {Fmt(matchRadius)}px ({matchRadiusSource})");
             // Report the mode actually used — a hardcoded label here silently misattributes every stored report.
             var matchLabel = matchMode switch {
                 GoldenMatchMode.Center => "center-in-box",

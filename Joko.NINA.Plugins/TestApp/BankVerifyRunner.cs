@@ -106,7 +106,7 @@ namespace TestApp {
             if (string.IsNullOrWhiteSpace(runs) || !Directory.Exists(runs)) {
                 Console.Error.WriteLine("Usage: TestApp bank-verify --runs <bank-root> [--out <dir>] [--nc-sweep 2,3,4] " +
                     "[--opt-a <dir>] [--opt-b <dir>] [--golden <dir>] [--match-radius 12] [--commit <hash>] [--profile-id <guid>] " +
-                    "[--adaptive-binarize|--no-adaptive-binarize] [--adaptive-block 128]");
+                    "[--adaptive-binarize|--no-adaptive-binarize] [--adaptive-block 128] [--pixel-scale header|profile]");
                 Environment.ExitCode = 2;
                 return;
             }
@@ -120,6 +120,12 @@ namespace TestApp {
             var matchRadius = ParseDouble(DiagnosticUtil.GetArg(args, "--match-radius"), MatchRadiusDefault);
             var commit = DiagnosticUtil.GetArg(args, "--commit") ?? "unknown";
             var profileId = DiagnosticUtil.GetArg(args, "--profile-id");
+            // header (default): PixelScaleForFrame reads each run's OWN frame header, since the bank spans wildly
+            // different optics (real bank 0.74-5.97 arcsec/px; the synthetic bank's 40-3800mm range makes a single
+            // profile-wide value meaningless). profile: the exact pre-V-P1 behavior (one value for the whole bank,
+            // from the active NINA profile) — kept as an escape hatch and as the anchor guard for this change.
+            var pixelScaleMode = string.Equals(DiagnosticUtil.GetArg(args, "--pixel-scale"), "profile", StringComparison.OrdinalIgnoreCase)
+                ? "profile" : "header";
             var ncSweep = ParseNcSweep(DiagnosticUtil.GetArg(args, "--nc-sweep") ?? "2,3,4");
             // Spatially-adaptive binarization override for the C0 (as-default) configs — the flag-on-vs-off A/B that
             // the adaptive-noiseclip feature is validated by (docs/adaptive-noiseclip-design.md). The optimized A/B
@@ -152,7 +158,10 @@ namespace TestApp {
             var inspectorOptions = new InspectorOptions(profileService);
             var autoFocusOptions = new AutoFocusOptions(profileService);
             const int binning = 1;
-            var pixelScale = MathUtility.ArcsecPerPixel(activeProfile.CameraSettings.PixelSize, activeProfile.TelescopeSettings.FocalLength) * binning;
+            // The pre-V-P1 bank-wide value: one profile-derived scale for every run. Still computed unconditionally
+            // because it is both the "profile" mode's value AND the fallback "header" mode falls back to when a
+            // run's own frame header carries no usable pixel size / focal length.
+            var profilePixelScale = MathUtility.ArcsecPerPixel(activeProfile.CameraSettings.PixelSize, activeProfile.TelescopeSettings.FocalLength) * binning;
             var alglib = new AlglibAPI();
             var detector = new StarDetector(alglib);
             // The plugin's OWN detection facade, so the AF-fit path drives the wizard's HocusFocusSplitFrameDetector
@@ -168,7 +177,8 @@ namespace TestApp {
 
             var discovery = OptimizationRunDiscovery.Discover(runs);
             Console.WriteLine($"bank-verify: {discovery.Runs.Count} run(s) under {runs}; NC sweep [{string.Join(",", ncSweep.Select(x => x.ToString(CultureInfo.InvariantCulture)))}]; " +
-                $"A={(optA ?? "(none)")} B={(optB ?? "(none)")}; matchRadius={matchRadius}; "
+                $"A={(optA ?? "(none)")} B={(optB ?? "(none)")}; matchRadius={matchRadius} (default, per-run may override from synthetic_meta.json); "
+                + $"pixelScale={pixelScaleMode} (profile fallback={Fmt(profilePixelScale)} arcsec/px); "
                 + $"adaptiveBinarize={EffectiveAdaptiveBinarize(adaptiveBinarizeOverride)}"
                 + (adaptiveBinarizeOverride.HasValue ? " (forced)" : " (shipped default)")
                 + $"(block={adaptiveBlockSize})");
@@ -180,7 +190,8 @@ namespace TestApp {
                 Console.WriteLine($"[{idx}/{discovery.Runs.Count}] {run.RunId}");
                 try {
                     var rr = await VerifyRunAsync(run, runs, outDir, ncSweep, optA, optB, goldenDir, matchRadius,
-                        profileService, activeProfile, starDetectionOptions, inspectorOptions, autoFocusOptions, detector, detection, alglib, pixelScale,
+                        profileService, activeProfile, starDetectionOptions, inspectorOptions, autoFocusOptions, detector, detection, alglib,
+                        profilePixelScale, pixelScaleMode, harnessSettings,
                         adaptiveBinarizeOverride, adaptiveBlockSize);
                     runResults.Add(rr);
                 } catch (Exception ex) {
@@ -192,7 +203,7 @@ namespace TestApp {
 
             var utc = DateTime.UtcNow.ToString("yyyyMMddTHHmmssZ", CultureInfo.InvariantCulture);
             WriteReport(outDir, utc, commit, ncSweep, runResults,
-                EffectiveAdaptiveBinarize(adaptiveBinarizeOverride), adaptiveBinarizeOverride.HasValue, adaptiveBlockSize);
+                EffectiveAdaptiveBinarize(adaptiveBinarizeOverride), adaptiveBinarizeOverride.HasValue, adaptiveBlockSize, pixelScaleMode);
             Console.WriteLine($"bank-verify: wrote verification_{utc}.{{json,md}} to {outDir} ({runResults.Count(r => r.error == null)} ok, {runResults.Count(r => r.error != null)} failed).");
         }
 
@@ -202,7 +213,9 @@ namespace TestApp {
             OptimizationRunDiscovery.DiscoveredRun run, string runsRoot, string outDir, double[] ncSweep, string optA, string optB,
             string goldenDir, double matchRadius, ProfileService profileService, NINA.Profile.Interfaces.IProfile activeProfile,
             StarDetectionOptions sdOptions, InspectorOptions inspectorOptions, AutoFocusOptions afOptions,
-            StarDetector detector, IHocusFocusStarDetection detection, AlglibAPI alglib, double pixelScale, bool? adaptiveBinarizeOverride, int adaptiveBlockSize) {
+            StarDetector detector, IHocusFocusStarDetection detection, AlglibAPI alglib,
+            double profilePixelScale, string pixelScaleMode, HarnessSettingsStore.Resolved harnessSettings,
+            bool? adaptiveBinarizeOverride, int adaptiveBlockSize) {
 
             var runFolder = Path.GetDirectoryName(run.Frames.First().Path);
             var ordered = run.Frames.OrderBy(f => f.FocuserPosition).ToList();
@@ -218,6 +231,40 @@ namespace TestApp {
             }
             var firstProps = loaded[0].image.RawImageData.Properties;
             var imageSize = new DrawingSize(firstProps.Width, firstProps.Height);
+
+            // V-P1: pixel scale FOR THIS RUN, from the first loaded frame's own header (FITS XPIXSZ/FOCALLEN and
+            // XISF equivalents) rather than one bank-wide value from the active profile — see
+            // HarnessSettingsStore.PixelScaleForFrame's doc comment for why the profile is meaningless here (the
+            // synthetic bank alone spans 40-3800mm focal length across four sensors). "profile" mode is the exact
+            // pre-V-P1 behavior, kept as an escape hatch and as this change's anchor guard.
+            double effectivePixelScale;
+            string pixelScaleSource;
+            if (pixelScaleMode == "profile") {
+                effectivePixelScale = profilePixelScale;
+                pixelScaleSource = "profile (forced via --pixel-scale profile)";
+            } else {
+                var firstFrameMeta = loaded[0].image.RawImageData?.MetaData;
+                var headerScale = HarnessSettingsStore.PixelScaleForFrame(firstFrameMeta, harnessSettings, out var headerSource);
+                if (double.IsFinite(headerScale)) {
+                    effectivePixelScale = headerScale;
+                    pixelScaleSource = headerSource;
+                } else {
+                    effectivePixelScale = profilePixelScale;
+                    pixelScaleSource = $"profile (fallback: {headerSource})";
+                }
+            }
+            Console.WriteLine($"  pixelScale: {Fmt(effectivePixelScale)} arcsec/px ({pixelScaleSource})");
+
+            // V-P2: match radius FOR THIS RUN. The synthetic bank's generator computes matchRadiusPx from that
+            // dataset's own defocus geometry and records it at the dataset root (synthetic_meta.json, one level
+            // above the run's frame folder); when present it wins over the CLI/default value, which was tuned for
+            // the real bank's typical star sizes and has no relationship to a synthetic dataset's geometry. Absent
+            // (the entire real bank, and any synthetic dataset predating this field) the CLI/default value applies
+            // unchanged.
+            var syntheticMatchRadius = SyntheticDatasetMeta.TryReadMatchRadiusPx(runFolder, runsRoot);
+            var effectiveMatchRadius = syntheticMatchRadius ?? matchRadius;
+            var matchRadiusSource = syntheticMatchRadius.HasValue ? "synthetic_meta.json" : "CLI/default";
+            Console.WriteLine($"  matchRadius: {Fmt(effectiveMatchRadius)}px ({matchRadiusSource})");
 
             // Golden sidecars per frame (shared across configs — detector-independent).
             var goldenByFocuser = new Dictionary<int, GoldenFrame>();
@@ -264,10 +311,14 @@ namespace TestApp {
             var meta = TryReadRunMeta(Path.Combine(runFolder, "run_meta.json"));
             rr.donutAware = meta?.donutAware ?? false;
             rr.donutHeuristic = meta?.reason;
+            rr.pixelScale = effectivePixelScale;
+            rr.pixelScaleSource = pixelScaleSource;
+            rr.matchRadius = effectiveMatchRadius;
+            rr.matchRadiusSource = matchRadiusSource;
 
             StarDetectorParams BaseDefault() {
                 var p = HocusFocusStarDetection.BuildDefaultStarDetectorParams();
-                p.PixelScale = pixelScale; p.Region = StarDetectionRegion.Full; p.ModelPSF = false; p.SaveIntermediateFilesPath = string.Empty;
+                p.PixelScale = effectivePixelScale; p.Region = StarDetectionRegion.Full; p.ModelPSF = false; p.SaveIntermediateFilesPath = string.Empty;
                 // Output-neutral and excluded from the detection cache key (see RunEvaluationLoader): the AF-fit path
                 // re-detects every frame per config, and the plugin logs a per-region "Average HFR" INFO line each
                 // time. Suppress it so a bank sweep does not flood the log.
@@ -283,7 +334,7 @@ namespace TestApp {
                     p.LocallyAdaptiveBinarization = adaptiveBinarizeOverride.Value;
                 }
                 p.AdaptiveNoiseBlockSize = adaptiveBlockSize;
-                var cm = await ScoreConfigAsync($"C0@nc{nc:0.#}", nc, false, p, evalData, loaded, goldenByFocuser, matchRadius,
+                var cm = await ScoreConfigAsync($"C0@nc{nc:0.#}", nc, false, p, evalData, loaded, goldenByFocuser, effectiveMatchRadius,
                     inspectorOptions, alglib, profileService, activeProfile, stepSize, detector);
                 rr.configs.Add(cm);
                 Console.WriteLine($"    {cm.config}: recall@high={Fmt(cm.recallHigh)} prec={Fmt(cm.precision)} σ={Fmt(cm.sigmaFocus)} sR²={Fmt(cm.sR2)} aligned={cm.framesAligned}/{loaded.Count}");
@@ -294,7 +345,7 @@ namespace TestApp {
             if (aSettings != null) {
                 var p = BaseDefault();
                 OverlayOptimized(p, aSettings, forceDonutMaster: false);
-                var cm = await ScoreConfigAsync("A", p.NoiseClippingMultiplier, p.DefocusAwareDonutDetection, p, evalData, loaded, goldenByFocuser, matchRadius,
+                var cm = await ScoreConfigAsync("A", p.NoiseClippingMultiplier, p.DefocusAwareDonutDetection, p, evalData, loaded, goldenByFocuser, effectiveMatchRadius,
                     inspectorOptions, alglib, profileService, activeProfile, stepSize, detector);
                 cm.sensitivity = p.Sensitivity;
                 rr.configs.Add(cm);
@@ -306,7 +357,7 @@ namespace TestApp {
             if (bSettings != null) {
                 var p = BaseDefault();
                 OverlayOptimized(p, bSettings, forceDonutMaster: true);
-                var cm = await ScoreConfigAsync("B", p.NoiseClippingMultiplier, true, p, evalData, loaded, goldenByFocuser, matchRadius,
+                var cm = await ScoreConfigAsync("B", p.NoiseClippingMultiplier, true, p, evalData, loaded, goldenByFocuser, effectiveMatchRadius,
                     inspectorOptions, alglib, profileService, activeProfile, stepSize, detector);
                 cm.sensitivity = p.Sensitivity;
                 rr.configs.Add(cm);
@@ -464,8 +515,10 @@ namespace TestApp {
         // ---- report ----------------------------------------------------------------------------------------------
 
         private static void WriteReport(string outDir, string utc, string commit, double[] ncSweep, List<RunResult> runs,
-            bool adaptiveBinarizeEffective, bool adaptiveBinarizeForced, int adaptiveBlockSize) {
+            bool adaptiveBinarizeEffective, bool adaptiveBinarizeForced, int adaptiveBlockSize, string pixelScaleMode) {
             var ok = runs.Where(r => r.error == null && r.configs != null && r.configs.Count > 0).ToList();
+            // Read from the product rather than hardcoded — see the json block below for why (9a80324/c59a4b1).
+            var noiseClipDefault = HocusFocusStarDetection.BuildDefaultStarDetectorParams().NoiseClippingMultiplier;
 
             // NC-sweep aggregate (C0 only).
             var ncPoints = new List<BankVerifyAggregate.NcPoint>();
@@ -495,12 +548,18 @@ namespace TestApp {
             }
 
             var json = new {
-                schema = "afbank-verify/2",
+                // V-P1/V-P2 (per-run pixel scale from the frame header, per-run match radius from synthetic_meta.json)
+                // changed the C0/A/B numbers on a shared code path the real bank also runs through, so the schema
+                // bumps to mark reports built before/after this change as not directly comparable.
+                schema = "afbank-verify/3",
                 generatedUtc = utc,
                 detectorCommit = commit,
+                // The bank-wide --pixel-scale mode ("header" default, "profile" the pre-V-P1 escape hatch). The
+                // per-run pixelScale/pixelScaleSource below is what actually applied — this is just the mode.
+                pixelScaleMode,
                 // Read from the product rather than hardcoded: a literal here said 2.0 while the shipped default was
                 // 4.0, so the report misdescribed the very baseline it was measuring.
-                noiseClipDefault = HocusFocusStarDetection.BuildDefaultStarDetectorParams().NoiseClippingMultiplier,
+                noiseClipDefault,
                 // C0's adaptive-binarization state is part of what "as-default" MEANT for this report. Recording it
                 // is what would have made the 9a80324/c59a4b1 drift visible instead of silent.
                 c0AdaptiveBinarization = adaptiveBinarizeEffective,
@@ -526,7 +585,8 @@ namespace TestApp {
             var sb = new StringBuilder();
             sb.AppendLine($"# AF-bank verification — {ok.Count} run(s)");
             sb.AppendLine();
-            sb.AppendLine($"generated: {utc}  |  detector commit: {commit}  |  NoiseClip default = 2.0  |  NC sweep: {string.Join(", ", ncSweep.Select(x => x.ToString("0.#", CultureInfo.InvariantCulture)))}");
+            sb.AppendLine($"generated: {utc}  |  detector commit: {commit}  |  NoiseClip default = {noiseClipDefault.ToString("0.#", CultureInfo.InvariantCulture)}  |  " +
+                $"pixel-scale mode: {pixelScaleMode}  |  NC sweep: {string.Join(", ", ncSweep.Select(x => x.ToString("0.#", CultureInfo.InvariantCulture)))}");
             sb.AppendLine();
             sb.AppendLine("## NoiseClippingMultiplier sweep (C0 as-default — the honest recall reference)");
             sb.AppendLine();
@@ -543,6 +603,15 @@ namespace TestApp {
             }
             sb.AppendLine();
             sb.AppendLine($"Donut effect (A vs B over {abRuns} run(s) with both optimized configs): donut-aware tightened AF σ in **{donutHelpedAF}** and loosened the sensor fit in **{donutHurtSensor}**.");
+            sb.AppendLine();
+            sb.AppendLine("## Per-run pixel scale & match radius (V-P1 / V-P2)");
+            sb.AppendLine();
+            sb.AppendLine("| run | pixelScale (arcsec/px) | source | matchRadius (px) | source |");
+            sb.AppendLine("|---|---|---|---|---|");
+            foreach (var r in runs) {
+                if (r.error != null) { continue; }
+                sb.AppendLine($"| {r.runId} | {Fmt(r.pixelScale)} | {r.pixelScaleSource} | {Fmt(r.matchRadius)} | {r.matchRadiusSource} |");
+            }
             sb.AppendLine();
             sb.AppendLine("## Per-run (config rows)");
             sb.AppendLine();
@@ -567,6 +636,14 @@ namespace TestApp {
             public int framesTotal { get; set; }
             public bool donutAware { get; set; }
             public string donutHeuristic { get; set; }
+            // V-P1: the effective PixelScale (arcsec/binned-px) this run's configs were detected at, and which of
+            // "frame header" / "settings file (...)" / "profile (...)" produced it — see VerifyRunAsync.
+            public double pixelScale { get; set; } = double.NaN;
+            public string pixelScaleSource { get; set; }
+            // V-P2: the effective centroid match radius (px) this run's golden P/R was scored at, and whether it
+            // came from the dataset's own synthetic_meta.json or the CLI/default.
+            public double matchRadius { get; set; } = double.NaN;
+            public string matchRadiusSource { get; set; }
             public string error { get; set; }
             public List<ConfigMetrics> configs { get; set; }
         }

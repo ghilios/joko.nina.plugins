@@ -409,12 +409,28 @@ when it returns a finite value, keeping the profile value as fallback. `GoldenEv
 `--pixel-scale header|profile`, **defaulting to header**. Report schema bumps to `afbank-verify/3`
 and records per-run `pixelScale` + `pixelScaleSource`.
 
-This shifts real-bank numbers, deliberately. Three things keep that honest:
-1. `--pixel-scale profile` is an exact escape hatch to the old behavior.
-2. **Anchor guard**: `--pixel-scale profile` on the real bank's `cwhite_2026` must reproduce the
-   recorded anchor exactly — precision 0.848, recall@≥12 = 0.181, sensor R² = 0.9933, 7/9 aligned.
-3. The header-mode real-bank delta is measured once and written down, since pre/post reports are not
-   comparable without the flag.
+The design anticipated this would shift real-bank numbers. **Measured, it does not** — and knowing
+that is worth more than the assumption was.
+
+1. **Escape hatch is exact.** Running `bank-verify` on `cwhite_2026` at the pre-change commit and then
+   with `--pixel-scale profile` gives bit-identical output: precision 0.8405923344947736, recall@≥12
+   0.31827176781002636, σ_focus 3.4197942376007235, sensor R² 0.9799173346975301, 9/9 aligned.
+2. **Header mode changes nothing measurable either.** On `cwhite_2026` the two modes disagree about
+   the pixel scale by 4.3× (header 0.880 ″/px from the frame's own FOCALLEN/XPIXSZ, profile 0.204 ″/px
+   from a profile pointed at a different rig) and *every* metric is identical to the last digit. Same
+   on the synthetic D06, where the scales differ 3.8×.
+
+   The reason is worth recording: `StarDetectorParams.PixelScale` reaches only `PSFModeler` (which
+   converts a fitted PSF to arcsec) and the analysis result's reported scale. It never feeds a
+   detection gate — not `Sensitivity`, not `NoiseClip`, not the structure layers, not the HFR that
+   drives the autofocus fit. So a wrong bank-wide pixel scale was corrupting *reported units*, not
+   detections.
+
+3. **A note on the older recorded anchor.** `docs/af-bank-noiseclip-sweep-results.md` records
+   `cwhite_2026` at P=0.848, recall@≥12=0.181, sensor R²=0.9933, 7/9 aligned. That is a **config-B**
+   number (optimizer-enriched, donut forced on) from the June prepass, not a C0 number, and it sits
+   behind every merge into `develop` since. It is not a valid guard for this change and was not used
+   as one; the before/after at a single commit above is the guard that actually isolates it.
 
 ### V-P2 / V-P3
 
