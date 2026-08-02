@@ -213,6 +213,73 @@ is defensible — sub-pixel stars have no measurable HFR — but the *silence* i
 say so, and name the pixel scale / focal length combination that produced it. The rejection counts are already
 collected (`CollectRejectedCandidateDiagnostics`), so this is reporting, not new measurement.
 
+### F21 — `StepSizeRecommender`'s half-width is not stable against noise, even on a perfect fit
+**Status:** Open · found 2026-08-02 running the synthetic bank's S0 control
+
+Two sweeps of the **same dataset at the same step**, differing only in noise seed and both fitting at
+**R² = 1.0000**, produced half-widths an order of magnitude apart — and therefore recommended steps an order of
+magnitude apart.
+
+| dataset | round | fit R² | `HalfWidth` | recommended step |
+|---|---|---|---|---|
+| `D17_cdk14_oiii5` | 0 | 1.0000 | 143.6 | 41 |
+| `D17_cdk14_oiii5` | 1 | 1.0000 | **12.1** | **3** |
+| `D02_rich_135mm` | 0 | 0.9156 | 23.2 | 7 |
+| `D02_rich_135mm` | 1 | 0.9324 | **2.5** | **1** |
+
+**Evidence.** `TestApp synth-validate --scenarios S0`, bootstrap = the dataset's own expected optimum
+(D17: step 60). A recommended step of 3 where 60 is correct turns a ±240-step sweep into a ±12-step one — every
+frame lands inside the focus zone and the V-curve has no wings at all. This is *not* [F8](#f8--optimizer-landings-are-not-reproducible-across-invocations):
+F8 is about the optimizer's search landing in different corners of a flat valley, whereas here the fit is
+essentially exact both times and it is `FindHalfWidth`'s own outward search that returns a wildly different
+answer.
+
+**Why it matters.** The step size is the one recommendation a user is most likely to accept unread, and a
+collapse of this magnitude silently destroys the next autofocus run. It also makes any single measurement of
+"what step does the recommender want" untrustworthy — the same caveat F8 imposes on optimizer landings now
+applies to the recommender itself.
+
+**Next step.** Instrument `FindHalfWidth`: log the fitted `minimum`, the `3 × minimum` target, and the bracket it
+converged on, for both rounds of D17. The suspicion is that when the fitted minimum sits slightly high, the
+`3 × min` crossing is found very close to focus and the coarse walk terminates before it reaches the real one —
+but that is a hypothesis, not a diagnosis, and it should be confirmed on the two saved sweeps before any change.
+Reproduce: `synth-validate --datasets D17_cdk14_oiii5 --scenarios S0 --max-rounds 2` (seeds are deterministic).
+
+### F22 — Detection binning is a hard threshold on a measurement that under-reads, so boundary rigs get the wrong factor
+**Status:** Open · found 2026-08-02 running the synthetic bank's S0 control
+
+`DetectionBinningResolver.RecommendFromHfr` is `clamp(round(hfr / 3), 1, 4)` — a hard threshold with its 1→2
+boundary at **4.5 px**. The HFR it is given is the detector's *measured* in-focus HFR, which systematically
+under-reads the optical HFR, by 2–10% usually but by up to **38%** in the cases that matter. Rigs whose true HFR
+sits near 4.5 px therefore land on the wrong side.
+
+**Evidence.** On S0, where the bootstrap already *is* each dataset's expected optimum, three datasets that need
+binning 2 were told to use 1:
+
+| dataset | optical HFR_min (captured px) | measured vertex HFR | under-read | recommended | correct |
+|---|---|---|---|---|---|
+| `D14_cdk14_2563mm_e47` | 5.3 | 4.92 | −7% | **2** | 2 |
+| `D17_cdk14_oiii5` | 5.3 | 3.27 | **−38%** | **1** | 2 |
+| `D15_cdk20_3454mm_e47` | 5.9 | 4.02 | −32% | **1** | 2 |
+| `D12_c14_585_afbin2` | 5.07 | 3.94 | −22% | **1** | 2 |
+| `D10_rc16_3250mm_sparse` | 5.6 | 5.66 | +1% | 2 | 2 |
+
+The cleanest pair is **D14 vs D17**: *identical* optics (2563 mm f/7.2, ε=0.47), *identical* pixel size (3.76 µm),
+so identical true HFR — and opposite recommendations. The only differences are the filter and exposure (L at 0.5 s
+vs OIII 5 nm at 30 s), i.e. the star population and SNR. The measurement, not the optics, decided the answer.
+
+**Why it matters.** Binning is the highest-leverage knob for a long-focal-length rig — it is why
+`DetectionBinningResolver` exists — and the wizard's gate on it is fit quality (R² ≥ 0.9), which is satisfied
+here (R² = 1.0000). So the recommendation is delivered with full confidence and is wrong. Worse, it is
+*bistable*: the same rig can be told 1 on a narrowband night and 2 on a luminance night.
+
+**Next step.** Two candidates, not mutually exclusive. (a) Calibrate out the bias — the measured-vs-optical
+under-read is systematic and could be characterised against this bank rather than guessed. (b) Add hysteresis or
+a dead band around the 4.5/7.5 px boundaries so a marginal rig does not flip between sessions, and say
+"borderline" in the UI rather than presenting a coin flip as a recommendation. Note this compounds with
+[F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic): the same
+under-reading pushes small-HFR rigs toward the `MinHFR` cliff.
+
 ---
 
 ## Harness / tooling
