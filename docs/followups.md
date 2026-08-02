@@ -164,6 +164,55 @@ This changes the shipped recommender for every user, so it wants a design spec p
 as the acceptance metric, not an inline patch. Related: the flat-topped rejections that motivated this are
 surfaced as sweep-geometry evidence by `ExposureRecommendation.FlatRejectedCount` (PR #159).
 
+### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
+**Status:** Open · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
+
+`ExposureRecommender`'s `S_now` is the median, across non-recovery frames, of each frame's
+**`NTarget`-th-brightest** accepted-star SNR, with `NTarget = 20`. Any reasonably wide field contains 20 stars
+bright enough to sail past the gate no matter what filter is in front of them, so `SensitivityIsAtFloor` never
+trips and no recommendation is ever offered.
+
+**Evidence.** Deriving the exposure band for the synthetic bank from the recommender's own arithmetic (see
+`docs/synthetic-af-bank-design.md`) produced the 0.5 s floor for **12 of 17** datasets. The clearest case is
+`D16_esprit550_ha3` — a 550 mm refractor behind a **3 nm Hα** filter, passing roughly 64× less flux than
+luminance. It still derives 0.5 s, because its 2.9° field carries 6835 on-frame stars and the 20th brightest is
+magnitude ~9. The datasets that do demand a long exposure are the *narrow, sparse* ones — `D10` (0.28° field,
+26 on-frame stars) derives 30 s — and they get there by having few bright stars, not by being photon-starved.
+
+**Why it matters.** The knob is sized by field richness rather than by whether the stars the autofocus fit
+actually depends on are above the noise. A long-focal-length rig on a bright field will report "exposure is not
+the limit" while its faint-end stars — the ones that carry the wings of the V-curve — are still noise-dominated.
+That is the same shape of gap as [F18](#f18--step-size-is-sized-by-curve-geometry-alone-so-the-sweep-outruns-what-the-detector-can-see):
+a recommendation computed from one convenient statistic rather than from what the fit needs.
+
+**Next step.** Decide deliberately whether `NTarget = 20` is the right population for this question. If autofocus
+genuinely only needs 20 good stars, then the current behaviour is correct and this entry closes as "working as
+intended" — but that should be a stated position, not an accident of which statistic was nearest to hand. If it
+is not, the candidate is a faint-end statistic (e.g. the SNR at the star count the fit actually consumes) rather
+than a fixed rank.
+
+### F20 — Below `MinHFR` the autofocus objective collapses to exactly zero, with no diagnostic
+**Status:** Open · found 2026-08-02 running `optimize --per-run` over the synthetic AF bank
+
+When a sweep's in-focus HFR falls below the detector's `MinHFR` gate (default 1.2 px), the whole core of the
+V-curve is rejected, the run objective is `0`, and the optimizer terminates having explored the space for
+nothing. Nothing in the output says "your stars are smaller than the minimum HFR".
+
+**Evidence.** `D01_ultrawide_40mm` (40 mm f/2.8, 19.4″/px) has truth HFR per frame
+`[2.27, 1.71, 1.15, 0.61, 0.24, 0.61, 1.15, 1.71, 2.27]` px — the middle **five of nine** frames sit at or below
+`MinHFR = 1.2`. `optimize --per-run` reports `Current settings J: 0`, then
+`Optimization complete: currentJ=0 -> bestJ=0 (no improvement over current), evals=88`. The goldens for those
+frames are populated (the stars are there and bright — tiering is by SNR, not size), so this is a gate rejecting
+real, well-detected signal, not an empty field.
+
+**Why it matters.** `J = 0` is indistinguishable from "starless frames", "wrong folder", and "detector
+misconfigured". A user pointing the wizard at a short-focal-length rig gets a silent null result. The gate itself
+is defensible — sub-pixel stars have no measurable HFR — but the *silence* is not.
+
+**Next step.** Surface it: when a large fraction of accepted candidates are rejected by `MinHFR` specifically,
+say so, and name the pixel scale / focal length combination that produced it. The rejection counts are already
+collected (`CollectRejectedCandidateDiagnostics`), so this is reporting, not new measurement.
+
 ---
 
 ## Harness / tooling
