@@ -1,9 +1,38 @@
 # Synthetic Autofocus Bank + Validation Run — Implementation Plan
 
 Design spec: [`docs/synthetic-af-bank-design.md`](../docs/synthetic-af-bank-design.md).
+Results: [`docs/synthetic-af-bank-baseline-results.md`](../docs/synthetic-af-bank-baseline-results.md).
 
 Branch `ghilios/synthetic-af-bank` off `develop`; PR at the end (never push `develop`).
 Commit with the privacy email env vars per `CLAUDE.md`.
+
+## Revision (2026-08-02) — what execution changed
+
+This plan was executed as written. Six things below turned out differently and the design doc reflects
+the corrected versions; they are listed here so the diff between plan and outcome is not silent.
+
+1. **The exposure derivation was wrong, twice.** The design's tabulated exposures were intuition; the
+   first derivation then scored only the in-focus frame, while `ExposureRecommender` uses the **median
+   across sweep frames**. Corrected to the median. This moved the `CappedByAbsoluteLimit` dataset from
+   D16 (which cannot reach the 30 s ceiling — its 2.9° field always holds 20 bright stars) to **D10**.
+2. **`--dry-run` now derives the exposure band** rather than skipping it. It costs one reference render
+   per dataset and immediately paid for itself.
+3. **`--verify` was asserting the wrong side of NINA's binning convention.** NINA writes
+   `XPIXSZ = PixelSize × BinX` and reads `Camera.PixelSize = XPIXSZ / BinX`; the check now asserts the
+   physical size *and* the composed arcsec/px.
+4. **A3's `step_behavioral` is computed on the pixelization-floored curve**, not the optical one — the
+   recommender only ever sees what the detector measures.
+5. **A1's tolerance is relative** (`StepSizeTolerance = 0.4`), not an absolute half step. With the
+   absolute band the S0 control reported FAIL on 14 of 17, including a literal 64 → 64 no-op.
+6. **The `cwhite_2026` anchor guard was replaced with a single-commit before/after.** The recorded
+   `P=0.848` anchor is a config-B number from June, confounded by every merge since; the guard that
+   actually isolates this change is pre-change commit vs `--pixel-scale profile`, which is
+   bit-identical.
+
+Three dataset-spec calibrations were also needed, all found by `--dry-run`: seeing 3.0″ on D12/D14/D17
+(the design matrix's HFR_min for them is a 3.0″ number, and at 2.5″ their detection binning derived to
+1 instead of 2), deeper limiting magnitudes on the narrow fields (D10 had **2** catalog stars in its
+FOV, D06 had 15), and D11 at 3.0″ seeing so its extreme-frame HFR clears the 9 px donut threshold.
 
 Issues discovered by validation are **flagged as `docs/followups.md` entries, never fixed here**.
 This work bootstraps a regression baseline; behavior changes are separate work.
