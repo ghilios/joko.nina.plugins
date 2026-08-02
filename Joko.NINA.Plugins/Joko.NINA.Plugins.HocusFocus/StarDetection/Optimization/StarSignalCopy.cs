@@ -154,6 +154,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     if (advice.ShortFrameCount > 0 && advice.ShortFrameCount < advice.UsableFrameCount) {
                         text += $" {advice.ShortFrameCount} of {advice.UsableFrameCount} frames found fewer stars than the star-count target; Brightness Sensitivity is low to scrape for count in a star-poor field.";
                     }
+                } else if (advice.StarFieldIsExhausted) {
+                    // The end of the probe. Every frame short, stars bright, and the gate rejecting NOTHING: there
+                    // is no candidate waiting for more signal and none forming. Offering another doubling here is
+                    // what walked the reported rig from 2 s to 14 s for six extra stars, so this state offers no
+                    // exposure at all and names the levers that can actually move a small field.
+                    text += $" All {advice.UsableFrameCount} frames found fewer stars than the star-count target, and no candidate was rejected for being too faint — these frames contain every star the detector can find. A longer exposure will not add more. Long focal lengths see few stars per frame; detection binning, a wider field, or accepting that this field supports fewer stars are the options.";
                 } else if (advice.StarCountIsTheLimit && advice.IncreasesExposure) {
                     // Bright enough, too few. This branch previously asserted that a longer exposure "cannot raise
                     // that" — false, and the measurement that was cited only ever tested the GATE. Exposure acts
@@ -171,6 +177,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     text += advice.CappedByAbsoluteLimit
                         ? $" Reaching the default S/N target would need more time per frame than a sweep can spend; the recommendation above stops at {advice.RecommendedSeconds:0.##} s."
                         : $" The recommendation above is a partial step: one run raises exposure at most {ExposureRecommender.MaxExposureFactor:0}x. Expect to repeat this.";
+                }
+
+                // Sweep GEOMETRY, not exposure or the gate — a different knob, so it rides only on the two
+                // star-count states where the user is already being told what limits the count. Flat-topped
+                // rejections mean the sweep reaches focuser positions where stars have spread into featureless
+                // discs; no exposure recovers those, and the gate that rejects them has no defocus relaxation.
+                if (advice.FlatRejectedCount > 0 && (advice.StarFieldIsExhausted || advice.StarCountIsTheLimit)) {
+                    text += $" Separately, {advice.FlatRejectedCount} candidate(s) were discarded for being flat and featureless, which happens on frames far enough from focus that stars spread into plain discs. A smaller step size keeps more of the sweep close enough to focus to be measurable.";
                 }
             }
 

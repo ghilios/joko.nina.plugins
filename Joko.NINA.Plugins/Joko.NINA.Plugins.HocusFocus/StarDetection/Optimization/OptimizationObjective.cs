@@ -191,6 +191,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // populate it (treated as "no relaxation data" ⇒ no penalty).
         public IReadOnlyList<int> FrameRelaxationAdmittedCounts { get; set; }
 
+        // Per-frame Sensitivity-gate rejections (PARALLEL to FrameStarCounts). INERT in the objective — nothing
+        // here reads it, so J is bit-identical whether or not a caller populates it. It exists for the exposure
+        // recommendation, which needs to distinguish "the gate is holding stars back" (rejections > 0: candidates
+        // exist and more signal could convert them) from "there is nothing left to find" (rejections == 0: the
+        // gate is not the constraint, so a longer exposure cannot help through it). Null when unpopulated.
+        public IReadOnlyList<int> FrameLowSensitivityCounts { get; set; }
+
+        // Per-frame flat-topped rejections (PARALLEL to FrameStarCounts). Also INERT in the objective. Heavily
+        // defocused stars go flat-topped and this gate has no defocus-aware relaxation, so a concentration of
+        // these on the sweep's OUTER frames means the sweep reaches further from focus than the detector can
+        // follow — a sweep-geometry problem, not an exposure or gate problem. Null when unpopulated.
+        public IReadOnlyList<int> FrameTooFlatCounts { get; set; }
+
         // Per-frame focuser position (PARALLEL to FrameStarCounts), needed to identify NEAR-FOCUS frames for the
         // precision penalty. May be null for callers that don't populate it (then SDefocusPrecision falls back to
         // the run-level relaxed-fraction signal).

@@ -328,7 +328,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     ImageHeight = imageSize.Height,
                     // Relaxation-admitted accepted-star count for this frame (0 unless a defocus-aware gate is on),
                     // surfaced from the detector metrics so the optimizer can apply its precision penalty.
-                    RelaxationAdmittedCount = (result as HocusFocusStarDetectionResult)?.Metrics?.RelaxationAdmittedCount ?? 0
+                    RelaxationAdmittedCount = (result as HocusFocusStarDetectionResult)?.Metrics?.RelaxationAdmittedCount ?? 0,
+                    // Two rejection tallies the exposure recommendation reads to tell "the gate is holding stars
+                    // back" from "there is nothing left to find" — see FrameDetectionResult for what each means.
+                    LowSensitivityCount = (result as HocusFocusStarDetectionResult)?.Metrics?.LowSensitivity ?? 0,
+                    TooFlatCount = (result as HocusFocusStarDetectionResult)?.Metrics?.TooFlat ?? 0
                 };
             }
         }

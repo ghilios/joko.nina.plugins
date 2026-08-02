@@ -146,6 +146,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public bool StarCountIsTheLimit { get; set; }
 
         /// <summary>
+        /// True when the S/N target is met, every frame is short of the star-count target, AND the gate rejected
+        /// NOTHING on any non-recovery frame — the run has run out of stars to find, not out of signal.
+        ///
+        /// <para><b>Why zero rejections settles it.</b> More exposure raises the star count two ways: by pushing
+        /// existing candidates over the gate, or by forming new ones. Zero rejections empties the first by
+        /// observation. And a field with more to give would already be forming candidates from its fainter stars
+        /// and depositing them in the rejected pile — an empty pile means the detector is seeing everything the
+        /// frame contains. Measured on the reported rig: gate rejections near focus went 5 → 2 → 0 across 2/7/14 s
+        /// while the star count held at 10 per frame and candidate formation FELL 62 → 55.</para>
+        ///
+        /// <para>Mutually exclusive with <see cref="StarCountIsTheLimit"/>: same short-frame situation, opposite
+        /// answer on whether an exposure probe has any mechanism to work through. No longer exposure is offered
+        /// here — <see cref="IncreasesExposure"/> is false — because the honest answer is that the field supports
+        /// fewer stars than the target asks for.</para>
+        /// </summary>
+        public bool StarFieldIsExhausted { get; set; }
+
+        /// <summary>
+        /// Candidates rejected by the Sensitivity gate across the non-recovery frames — the evidence behind
+        /// <see cref="StarCountIsTheLimit"/> vs <see cref="StarFieldIsExhausted"/>. 0 when the caller did not
+        /// populate <see cref="RunEvaluationMetrics.FrameLowSensitivityCounts"/>, which reads as "exhausted"; that
+        /// is the conservative direction, since it withholds an exposure recommendation rather than inventing one.
+        /// </summary>
+        public int GateRejectedCount { get; set; }
+
+        /// <summary>
+        /// Candidates rejected as flat-topped across the whole run (recovery frames included). Heavily defocused
+        /// stars go flat-topped and that gate has no defocus-aware relaxation, so a non-zero count here points at
+        /// SWEEP GEOMETRY — the sweep reaches further from focus than the detector can follow — rather than at
+        /// exposure or the gate. Callers surface it as "narrow the sweep", never as "expose longer".
+        /// </summary>
+        public int FlatRejectedCount { get; set; }
+
+        /// <summary>
         /// True when this recommendation actually asks for a LONGER exposure than <see cref="CurrentSeconds"/>.
         /// Exactly equivalent to "the capped-but-unrounded exposure exceeds <see cref="CurrentSeconds"/>" (see
         /// <see cref="RecommendedSeconds"/> for why this is exact rather than approximate). False in two distinct
@@ -417,9 +451,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             var perFrameValues = new List<double>(snrsByFrame.Count);
             var shortFrameCount = 0;
+            // Gate rejections on the SAME non-recovery frames the SNR statistic is built from, so the two describe
+            // one population. A rejection here is a candidate that EXISTS and merely fell short of the gate -- the
+            // only mechanism by which more exposure can raise the star count on frames the detector already sees.
+            var gateRejectedCount = 0;
+            var lowSensByFrame = metrics.FrameLowSensitivityCounts;
             for (var i = 0; i < snrsByFrame.Count; i++) {
                 if (IsRecoveryFrame(isRecovery, i)) {
                     continue; // far-from-focus recovery wing: by design few/no stars, not representative of gate strength
+                }
+                if (lowSensByFrame != null && i < lowSensByFrame.Count) {
+                    gateRejectedCount += lowSensByFrame[i];
                 }
                 var value = PerFrameNthBrightest(snrsByFrame[i], nTarget, out var wasShort);
                 if (value == null) {
@@ -428,6 +470,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 perFrameValues.Add(value.Value);
                 if (wasShort) {
                     shortFrameCount++;
+                }
+            }
+
+            // Flat-topped rejections concentrated on the OUTER frames mean the sweep runs past where the detector
+            // can follow the star profile, which is a sweep-geometry problem no exposure fixes. Measured over the
+            // whole run (recovery frames included): those wings are exactly where it shows up.
+            var flatRejectedCount = 0;
+            var flatByFrame = metrics.FrameTooFlatCounts;
+            if (flatByFrame != null) {
+                for (var i = 0; i < flatByFrame.Count; i++) {
+                    flatRejectedCount += flatByFrame[i];
                 }
             }
 
@@ -449,13 +502,29 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // a floored gate, reporting ExposureIsNotTheLimit exactly as before).
             var signalIsSufficient = sNow >= TargetSensitivity;
             var everyFrameShort = usableFrameCount > 0 && shortFrameCount == usableFrameCount;
-            var starCountIsTheLimit = signalIsSufficient && everyFrameShort;
+
+            // The probe is only honest while there is a MECHANISM for more exposure to help. A longer exposure
+            // raises the star count two ways: it pushes existing candidates over the gate, or it forms new ones.
+            // When the gate rejected NOTHING, the first is empty by observation; and if the field also had more to
+            // give, those fainter stars would already be forming candidates and landing in the rejected pile. So
+            // zero rejections across every non-recovery frame is the run telling us the population is exhausted.
+            //
+            // Measured on the reported rig: at 2 s the gate rejected 5 near-focus candidates, at 7 s two, at 14 s
+            // ZERO -- while the star count sat at 10/frame throughout and candidate formation fell 62 -> 55. Seven
+            // times the exposure bought six stars across five frames. Without this test the probe recommended
+            // another doubling every run, and the user climbed 2 s -> 14 s on its advice for nothing.
+            var gateIsHoldingStarsBack = gateRejectedCount > 0;
+            var starCountIsTheLimit = signalIsSufficient && everyFrameShort && gateIsHoldingStarsBack;
+            var starFieldIsExhausted = signalIsSufficient && everyFrameShort && !gateIsHoldingStarsBack;
             var exposureIsNotTheLimit = signalIsSufficient && !everyFrameShort;
 
             // Sky-limited scaling answers the S/N question only. Under starCountIsTheLimit the ratio is <= 1, so it
             // would ask for a SHORTER exposure — backwards for a run whose problem is too few stars. That state
             // probes with a fixed factor instead; there is nothing here to derive a magnitude from.
             var ratio = TargetSensitivity / sNow;
+            // starFieldIsExhausted takes the plain ratio (<= 1 here, since signalIsSufficient), which the
+            // never-shorter floor then collapses onto the current exposure -- so IncreasesExposure is false and no
+            // caller can offer a longer exposure for a run that has demonstrably nothing to gain from one.
             var rawFactor = starCountIsTheLimit ? StarCountProbeFactor : ratio * ratio;
             var rawSeconds = currentExposureSeconds * rawFactor;
 
@@ -493,7 +562,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 WasCapped = wasCapped,
                 CappedByAbsoluteLimit = cappedByAbsoluteLimit,
                 ExposureIsNotTheLimit = exposureIsNotTheLimit,
-                StarCountIsTheLimit = starCountIsTheLimit
+                StarCountIsTheLimit = starCountIsTheLimit,
+                StarFieldIsExhausted = starFieldIsExhausted,
+                GateRejectedCount = gateRejectedCount,
+                FlatRejectedCount = flatRejectedCount
             };
         }
 
@@ -509,7 +581,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 WasCapped = false,
                 CappedByAbsoluteLimit = false,
                 ExposureIsNotTheLimit = false,
-                StarCountIsTheLimit = false
+                StarCountIsTheLimit = false,
+                StarFieldIsExhausted = false,
+                GateRejectedCount = 0,
+                FlatRejectedCount = 0
             };
         }
 

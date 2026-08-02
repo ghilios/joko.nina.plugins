@@ -37,10 +37,15 @@ public class ExposureRecommenderTests {
     private static IReadOnlyList<double> FullFrame(double snr, int nTarget = 20) =>
         Enumerable.Repeat(snr, nTarget).ToArray();
 
-    private static RunEvaluationMetrics BuildMetrics(IReadOnlyList<IReadOnlyList<double>> frameStarSnrs, IReadOnlyList<bool> frameIsRecovery = null) {
+    private static RunEvaluationMetrics BuildMetrics(
+            IReadOnlyList<IReadOnlyList<double>> frameStarSnrs, IReadOnlyList<bool> frameIsRecovery = null,
+            int gateRejectionsPerFrame = 0, int flatRejectionsPerFrame = 0) {
         return new RunEvaluationMetrics {
             FrameStarSnrs = frameStarSnrs,
-            FrameIsRecovery = frameIsRecovery
+            FrameIsRecovery = frameIsRecovery,
+            // Uniform per-frame tallies keep the fixtures readable; only the totals matter to the recommender.
+            FrameLowSensitivityCounts = Enumerable.Repeat(gateRejectionsPerFrame, frameStarSnrs?.Count ?? 0).ToArray(),
+            FrameTooFlatCounts = Enumerable.Repeat(flatRejectionsPerFrame, frameStarSnrs?.Count ?? 0).ToArray()
         };
     }
 
@@ -564,7 +569,9 @@ public class ExposureRecommenderTests {
         // it is contradicted by measurement: on the real rig 2s -> 5s took structure candidates 181 -> 201 and
         // detected stars 76 -> 101 while the stars already found were comfortably bright.
         var frame = Frame(20.0, 21.0, 22.0, 23.0, 24.0);
-        var metrics = BuildMetrics(new[] { frame, frame, frame });
+        // Gate rejections > 0: candidates exist just below the gate, so more signal has something to convert and
+        // the probe is honest. With zero the run is StarFieldIsExhausted instead -- see the sibling test.
+        var metrics = BuildMetrics(new[] { frame, frame, frame }, gateRejectionsPerFrame: 4);
 
         var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 2.0);
 
@@ -578,6 +585,54 @@ public class ExposureRecommenderTests {
             Assert.That(rec.RawSeconds, Is.EqualTo(4.0).Within(1e-9), "a fixed doubling probe, not the sky-limited derivation");
             Assert.That(rec.IncreasesExposure, Is.True, "the probe must be offerable, or the user has nothing to try");
         });
+    }
+
+    [Test]
+    public void Recommend_EveryFrameShort_ButGateRejectedNothing_IsExhausted_AndOffersNoLongerExposure() {
+        // THE 14s CASE. Same shape as the probe test above -- bright stars, every frame short -- but the gate
+        // rejected NOTHING, so there is no candidate waiting for more signal and none forming. Measured on the
+        // reported rig: gate rejections near focus went 5 -> 2 -> 0 across 2/7/14 s while the star count held at
+        // 10 per frame and candidate formation FELL 62 -> 55. Recommending another doubling here is what walked
+        // that rig from 2 s to 14 s for six extra stars.
+        var frame = Frame(20.0, 21.0, 22.0, 23.0, 24.0);
+        var metrics = BuildMetrics(new[] { frame, frame, frame }, gateRejectionsPerFrame: 0);
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 14.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.StarFieldIsExhausted, Is.True);
+            Assert.That(rec.StarCountIsTheLimit, Is.False, "the probe has no mechanism to work through");
+            Assert.That(rec.GateRejectedCount, Is.EqualTo(0));
+            Assert.That(rec.IncreasesExposure, Is.False, "must not offer a longer exposure for a field with nothing left");
+            Assert.That(rec.RecommendedSeconds, Is.EqualTo(14.0), "collapses onto the current exposure exactly");
+        });
+    }
+
+    [Test]
+    public void Recommend_UnpopulatedGateRejections_ReadAsExhausted_TheConservativeDirection() {
+        // A caller that does not populate FrameLowSensitivityCounts reports 0, which lands on "exhausted" and
+        // WITHHOLDS a recommendation. That is the safe direction: silence beats inventing an exposure increase
+        // from data the caller never supplied.
+        var frame = Frame(20.0, 21.0, 22.0);
+        var metrics = new RunEvaluationMetrics { FrameStarSnrs = new[] { frame, frame, frame } };
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 5.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.StarFieldIsExhausted, Is.True);
+            Assert.That(rec.IncreasesExposure, Is.False);
+        });
+    }
+
+    [Test]
+    public void Recommend_ReportsFlatRejections_AsSweepGeometryEvidence() {
+        // Flat-topped rejections are surfaced but never drive the exposure verdict -- they point at sweep width.
+        var frame = Frame(20.0, 21.0, 22.0);
+        var metrics = BuildMetrics(new[] { frame, frame, frame }, gateRejectionsPerFrame: 2, flatRejectionsPerFrame: 5);
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 2.0);
+
+        Assert.That(rec.FlatRejectedCount, Is.EqualTo(15), "summed across all frames");
     }
 
     [Test]
@@ -635,7 +690,7 @@ public class ExposureRecommenderTests {
         // The probe is a direction, not a licence to climb: a 20s run doubles to 40s, past the 30s ceiling a sweep
         // can sustain, so the same cap that bounds the derived path bounds this one.
         var frame = Frame(20.0, 21.0, 22.0);
-        var metrics = BuildMetrics(new[] { frame, frame, frame });
+        var metrics = BuildMetrics(new[] { frame, frame, frame }, gateRejectionsPerFrame: 4);
 
         var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 20.0);
 

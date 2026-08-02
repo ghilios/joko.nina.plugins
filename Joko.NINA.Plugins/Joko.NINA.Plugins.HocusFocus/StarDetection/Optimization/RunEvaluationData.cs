@@ -66,6 +66,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// whenever the defocus-aware gates are OFF, so the objective stays bit-identical at the baseline. Feeds the
         /// optimizer's label-free precision/false-positive penalty.</summary>
         public int RelaxationAdmittedCount { get; set; }
+
+        /// <summary>
+        /// Candidates on this frame rejected by the Sensitivity gate (<c>StarDetectorMetrics.LowSensitivity</c>).
+        /// The exposure recommendation's key discriminator: a candidate rejected here EXISTS and merely fell below
+        /// the gate, so it is evidence that more signal could convert it. ZERO means the gate is not what is
+        /// holding the star count down, and a longer exposure has no mechanism to help through it.
+        /// </summary>
+        public int LowSensitivityCount { get; set; }
+
+        /// <summary>
+        /// Candidates on this frame rejected as flat-topped (<c>StarDetectorMetrics.TooFlat</c>): the gate is
+        /// <c>StarMedian &gt;= PeakResponse × Peak</c>. Heavily defocused stars go flat-topped — a filled disk with
+        /// no central obstruction, an annulus with one — so a frame far enough from focus rejects its stars here no
+        /// matter how much signal they carry. Note this gate has NO defocus-aware relaxation (unlike distortion and
+        /// centering), so donut recovery does not affect it; only <c>PeakResponse</c> does. Concentrated on the
+        /// sweep's outer frames, it means the sweep reaches further from focus than the detector can follow.
+        /// </summary>
+        public int TooFlatCount { get; set; }
     }
 
     /// <summary>
@@ -634,6 +652,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             var frameStarCounts = new List<int>(frames.Count);
             var frameRelaxationAdmittedCounts = new List<int>(frames.Count);
+            var frameLowSensitivityCounts = new List<int>(frames.Count);
+            var frameTooFlatCounts = new List<int>(frames.Count);
             var frameFocuserPositions = new List<int>(frames.Count);
             var frameStarHfrs = new List<IReadOnlyList<double>>(frames.Count);
             var frameStarSnrs = new List<IReadOnlyList<double>>(frames.Count);
@@ -645,6 +665,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // Parallel per-frame lists feeding the objective's label-free precision penalty. Relaxed counts are
                 // 0 across the board unless a defocus-aware gate is on, so the baseline J is unaffected.
                 frameRelaxationAdmittedCounts.Add(detection.RelaxationAdmittedCount);
+                // Inert in the objective; read by the exposure recommendation (see RunEvaluationMetrics).
+                frameLowSensitivityCounts.Add(detection.LowSensitivityCount);
+                frameTooFlatCounts.Add(detection.TooFlatCount);
                 frameFocuserPositions.Add(frames[i].FocuserPosition);
                 // Per-frame accepted-star HFRs (extreme-HFR outlier penalty) and region occupancy (coverage reward).
                 // Both stay inert in the objective when null/NaN, so the baseline J is unaffected.
@@ -766,6 +789,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 ReducedChiSquared = double.NaN,
                 FrameStarCounts = frameStarCounts,
                 FrameRelaxationAdmittedCounts = frameRelaxationAdmittedCounts,
+                FrameLowSensitivityCounts = frameLowSensitivityCounts,
+                FrameTooFlatCounts = frameTooFlatCounts,
                 FrameFocuserPositions = frameFocuserPositions,
                 FrameStarHFRs = frameStarHfrs,
                 FrameStarSnrs = frameStarSnrs,
