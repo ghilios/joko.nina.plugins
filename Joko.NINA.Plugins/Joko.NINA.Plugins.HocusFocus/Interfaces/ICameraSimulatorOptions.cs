@@ -32,7 +32,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         IMX533,
 
         [Description("IMX294 (ASI294MM)")]
-        IMX294
+        IMX294,
+
+        [Description("IMX585 (ASI585MM)")]
+        IMX585
     }
 
     /// <summary>

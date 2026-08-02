@@ -26,6 +26,7 @@
     <Compile Include="..\TestApp\GoldenGeometry.cs" Link="Golden\GoldenGeometry.cs" />
     <Compile Include="..\TestApp\BankVerification.cs" Link="Bank\BankVerification.cs" />
     <Compile Include="..\TestApp\HarnessSettingsStore.cs" Link="Harness\HarnessSettingsStore.cs" />
+    <Compile Include="..\TestApp\MonoFits16Writer.cs" Link="Golden\MonoFits16Writer.cs" />
   </ItemGroup>
 
   <ItemGroup>

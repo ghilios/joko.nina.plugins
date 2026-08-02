@@ -18,8 +18,13 @@ using System.Linq;
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors {
 
     /// <summary>
-    /// Hard-coded, immutable registry of the four datasheet-derived Sony sensor definitions.
+    /// Hard-coded, immutable registry of the five datasheet-derived Sony sensor definitions.
     /// All sensors share <see cref="QeCurve.SonyBsiVisible"/> for v1.
+    ///
+    /// <para>The IMX585 row is datasheet-approximate (no full Sony datasheet is public; values are
+    /// assembled from ZWO/QHY published specs and vendor characterization for the ASI585MM). It is
+    /// pinned verbatim into <c>synthetic_meta.json</c> by the synthetic AF bank so a future correction
+    /// is detectable as a metadata diff rather than a silent baseline shift.</para>
     /// </summary>
     public static class SensorRegistry {
         private static readonly IReadOnlyDictionary<SonySensorModel, SensorDefinition> Definitions = BuildDefinitions();
@@ -49,6 +54,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors {
                     qe, 3.8, 100, 1.5, 1.0, 300, 0.002, 0.0),
                 new SensorDefinition(SonySensorModel.IMX294, "IMX294", 4144, 2822, 4.63, 14, 66000.0,
                     qe, 7.0, 120, 1.3, 1.2, 400, 0.0022, -20.0),
+                new SensorDefinition(SonySensorModel.IMX585, "IMX585", 3840, 2160, 2.90, 12, 40000.0,
+                    qe, 3.3, 252, 1.0, 0.8, 460, 0.003, 0.0),
             };
             return list.ToDictionary(d => d.Model);
         }
