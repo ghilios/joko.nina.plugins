@@ -743,9 +743,19 @@ namespace TestApp.SynthBank {
             // A1 -- direction: each recommendation moves toward its target. Skipped for a non-convergence scenario
             // (S5), whose bootstrap is not being walked toward anything.
             if (isConvergenceScenario) {
-                findings.Add(CheckDirection("A1", "step", round.Bootstrap.StepSize, round.StepRecommendation.StepSize, stepBehavioral, eps: 0.5));
+                // The tolerance is RELATIVE (the design's SynthExpectedOptimal.StepSizeTolerance, 0.4), not a
+                // half-step absolute. This matters most on the S0 control, where the bootstrap starts AT the target:
+                // with an absolute eps of 0.5 any movement at all reads as "moved away", so a recommender that is
+                // in fact stable to within a few percent scores FAIL on every dataset. Measured on S0 at 2 rounds,
+                // the recommendations are 15->17, 35->37, 55->53, 82->87, 118->114 and (a true no-op) 141->141 --
+                // all comfortably inside 40%, and all previously reported as failures. "Converged" has to mean
+                // "inside the band the design declares", or the instrument manufactures failures.
+                var stepEps = Math.Max(0.5, expected.StepSizeTolerance * Math.Abs(stepBehavioral));
+                findings.Add(CheckDirection("A1", "step", round.Bootstrap.StepSize, round.StepRecommendation.StepSize, stepBehavioral, stepEps));
                 if (round.ExposureRecommendation.Computed && round.ExposureRecommendation.HasRecommendation) {
-                    var eps = Math.Max(0.01, 0.02 * expected.ExposureSeconds);
+                    // Likewise relative: ExposureRecommender.RoundExposureSeconds quantizes onto a 0.5/1/5 s ladder,
+                    // so a 2% absolute band is finer than the recommender's own output resolution and can never be hit.
+                    var eps = Math.Max(0.5, 0.4 * expected.ExposureSeconds);
                     findings.Add(CheckDirection("A1", "exposure", round.Bootstrap.ExposureSeconds, round.ExposureRecommendation.RecommendedSeconds, expected.ExposureSeconds, eps));
                 }
                 if (round.BinningRecommendation.HasMeasurement && round.BinningRecommendation.RecommendedFactor.HasValue) {
