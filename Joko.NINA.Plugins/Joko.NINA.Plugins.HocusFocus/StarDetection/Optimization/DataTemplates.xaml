@@ -31,6 +31,8 @@
     <TextBlock x:Key="SDOpt_TargetFilter_Tooltip" Text="Per-filter star detection is enabled, so this run tunes ONE filter's settings set. The baseline and 'current settings' come from this filter's set; a live sweep moves the wheel to this filter and exposes through it; and Accept writes the optimized result into this filter's set." />
     <TextBlock x:Key="SDOpt_CaptureBinning_Tooltip" Text="NINA's Auto Focus Binning: how the camera bins when it captures the sweep frames. Set in NINA's Options, and per filter in the filter wheel settings. It should match the binning you image at. Detection binning below is applied on top of this, in software, for star detection only." />
     <TextBlock x:Key="SDOpt_DetectionBinningRec_Tooltip" Text="Recommended from this run's fitted in-focus HFR, using the detector's 2 to 4 pixel calibration target. Optimize again re-runs the search on the same frames at the recommended factor; nothing is saved until you Accept, which applies the factor and the re-tuned settings together." />
+    <TextBlock x:Key="SDOpt_StarSignal_Tooltip" Text="Brightness Sensitivity is the acceptance gate a candidate must clear to count as a star: its brightness above the local background, divided by the local noise. It ranges from 0 to 50 and the shipped default is 10, so a value near the bottom means almost anything above the noise was admitted — whether the optimizer landed there or you set it by hand. The recommended exposure is what would put this run's stars back at the default gate, assuming sky noise dominates, so quadrupling the exposure doubles S/N. It scales from the exposure the run's own frames were captured with, or from your profile's auto-focus exposure when the frames record none. One run never recommends more than 30 s per frame, and derives at most 4x the current exposure before that number is rounded up to a practical exposure-time step — which can land the shown value a little past 4x, but never past 30 s." />
+    <TextBlock x:Key="SDOpt_CaptureNewSweep_Tooltip" Text="Captures a whole new auto-focus sweep at this exposure and re-runs the optimization on the fresh frames — the only way to fix a run whose stars were too faint, since no setting recovers signal the frames never had. It takes new exposures and moves the focuser, so it costs a full sweep of sky time. The box starts at the recommended exposure and is yours to change. Any detection binning change you have already re-optimized at still applies. Nothing is saved until you Accept the new result." />
     <TextBlock x:Key="SDOpt_FocusRecovery_Tooltip" Text="Widens the live sweep by this many extra steps on EACH side, so the auto-focus curve can still bracket focus when you start well off focus. The extra far-from-focus frames are down-weighted in the fit and exempt from the star-count requirements, so they help find focus without skewing it. Set 0 to disable recovery." />
 
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
@@ -720,6 +722,20 @@
                             Text="{Binding OptimizerNoImprovementNote, Mode=OneWay}"
                             Visibility="{Binding ShowNoImprovementNote, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
+                        <!--  Low-signal warning: the run's Sensitivity gate landed at its search floor, so the curve
+                              below is drawn from detections that barely cleared the noise. It sits ABOVE the chart
+                              because Accept lives in the footer outside this ScrollViewer and is always reachable —
+                              a plausible-looking curve can otherwise be accepted without ever scrolling to the Star
+                              signal block. The page's ONLY colored element, and deliberately the WARNING brush, not
+                              the error one: the result is usable, just low-confidence. No icon.  -->
+                        <TextBlock
+                            Margin="0,0,0,8"
+                            FontStyle="Italic"
+                            Foreground="{StaticResource NotificationWarningBrush}"
+                            Text="{Binding LowSignalChartNote, Mode=OneWay}"
+                            TextWrapping="Wrap"
+                            Visibility="{Binding HasExposureBlock, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+
                         <!--  Auto-focus curve for the selected variant (rebuilt on toggle via the ContentControl).  -->
                         <Border
                             Height="260"
@@ -789,6 +805,83 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+                        </StackPanel>
+
+                        <!--  Star signal: the head of the recommendation region, placed ABOVE the auto-focus and
+                              detection-binning blocks because it impugns the numbers both of them are derived from —
+                              a run whose gate sat at the floor measured its curve from low-confidence detections.
+                              It also sits next to the auto-focus block's exposure row, which is the setting it is
+                              talking about. Structure copies the detection-binning block below: bold header, a
+                              Width=200 label/value row, the wrapped consequence, then the action row.  -->
+                        <StackPanel
+                            Margin="0,8,0,8"
+                            Visibility="{Binding HasExposureBlock, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <TextBlock Margin="0,0,0,2" FontWeight="Bold" Text="Star signal" />
+                            <!--  Hidden when the run could not support a derived number (too few usable frames, no
+                                  per-star SNRs, or no known exposure to scale from) — the body below still carries
+                                  the diagnosis, which is the part that always applies.
+                                  The LABEL carries the general background (what the gate is, the target, the caps);
+                                  the VALUE carries this run's own derivation, bound per-run — the same split the
+                                  sweep page's detection-binning row already uses. The body paragraph deliberately
+                                  holds neither: it is capped at the diagnosis plus one instruction.  -->
+                            <StackPanel Margin="0,2" Orientation="Horizontal"
+                                        Visibility="{Binding HasRecommendedExposure, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                <TextBlock
+                                    Width="200"
+                                    Text="Recommended exposure"
+                                    ToolTip="{StaticResource SDOpt_StarSignal_Tooltip}" />
+                                <TextBlock
+                                    Text="{Binding RecommendedExposureText, Mode=OneWay}"
+                                    ToolTip="{Binding ExposureDerivationDetail, Mode=OneWay}" />
+                            </StackPanel>
+                            <TextBlock
+                                MaxWidth="560"
+                                Margin="0,4,0,4"
+                                HorizontalAlignment="Left"
+                                Text="{Binding ExposureBodyText, Mode=OneWay}"
+                                TextWrapping="Wrap"
+                                Visibility="{Binding HasExposureBody, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                            <!--  The action: capture a fresh sweep at a longer exposure and re-optimize on it. The
+                                  WHOLE ROW is hidden (ShowCaptureNewSweep) whenever the MODE makes re-capturing
+                                  inapplicable — Replay, which has no rig to capture from, and "use current
+                                  settings", which has nothing to re-tune. Both are chosen on the Select Source step
+                                  and are fixed for the life of this Summary, so a button disabled by either would
+                                  sit dead for the whole run; the body copy above names the mode to switch to
+                                  instead. This is the branch the detection-binning block takes for use-current too.
+                                  Only TRANSIENT unavailability (disconnected camera/focuser, no save folder) leaves
+                                  the button visible and DISABLED via the command's CanExecute — there the control
+                                  can come back, so the copy that names it still has a referent.
+                                  The box is editable and LostFocus-bound, so THE BUTTON LABEL DELIBERATELY CARRIES
+                                  NO NUMBER: a numbered label goes stale the instant the user starts typing and then
+                                  contradicts the box beside it. Consequence in the label, value in the box — do not
+                                  "fix" this by interpolating the seconds into the button.  -->
+                            <StackPanel Margin="0,4,0,2" Orientation="Horizontal"
+                                        Visibility="{Binding ShowCaptureNewSweep, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                <TextBlock
+                                    Width="200"
+                                    VerticalAlignment="Center"
+                                    Text="New sweep exposure"
+                                    ToolTip="{StaticResource SDOpt_CaptureNewSweep_Tooltip}" />
+                                <ninactrl:UnitTextBox
+                                    MinWidth="80"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    ToolTip="{StaticResource SDOpt_CaptureNewSweep_Tooltip}"
+                                    Unit="s">
+                                    <Binding Path="RecaptureExposureSeconds" UpdateSourceTrigger="LostFocus">
+                                        <Binding.ValidationRules>
+                                            <rules:GreaterThanZeroRule />
+                                        </Binding.ValidationRules>
+                                    </Binding>
+                                </ninactrl:UnitTextBox>
+                                <Button
+                                    Margin="8,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Command="{Binding CaptureNewSweepCommand}"
+                                    ToolTip="{StaticResource SDOpt_CaptureNewSweep_Tooltip}">
+                                    <TextBlock Margin="12,6" Text="Capture a new sweep and optimize" />
+                                </Button>
+                            </StackPanel>
                         </StackPanel>
 
                         <!--  Auto-focus block: the recommended step size / offset steps PLUS the toggle that applies
@@ -1013,14 +1106,27 @@
             </Grid>
             </ScrollViewer>
 
-            <!--  Error banner  -->
-            <TextBlock
-                Grid.Row="2"
-                Margin="0,8,0,0"
-                Foreground="{StaticResource NotificationErrorBrush}"
-                Text="{Binding ErrorMessage}"
-                TextWrapping="Wrap"
-                Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+            <!--  Error banner, and the recovery-widened notice. Both live in row 2 inside a StackPanel rather than
+                  taking a row each: each collapses when it has nothing to say, and they are mutually exclusive in
+                  practice (an error returns to SelectSource, the notice only ever accompanies a run that
+                  proceeded), so stacking costs no layout and leaves the grid's row definitions alone.  -->
+            <StackPanel Grid.Row="2" Orientation="Vertical">
+                <TextBlock
+                    Margin="0,8,0,0"
+                    Foreground="{StaticResource NotificationErrorBrush}"
+                    Text="{Binding ErrorMessage}"
+                    TextWrapping="Wrap"
+                    Visibility="{Binding HasError, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+
+                <!--  Not an error: the run continued, but on FEWER positions than the user asked for, so the
+                      exclusion has to be visible rather than silently applied.  -->
+                <TextBlock
+                    Margin="0,8,0,0"
+                    Foreground="{StaticResource NotificationWarningBrush}"
+                    Text="{Binding RecoveryWidenedNotice}"
+                    TextWrapping="Wrap"
+                    Visibility="{Binding HasRecoveryWidenedNotice, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+            </StackPanel>
 
             <!--  Footer: navigation. Exactly one step's buttons show at a time; while busy only Cancel shows.  -->
             <StackPanel

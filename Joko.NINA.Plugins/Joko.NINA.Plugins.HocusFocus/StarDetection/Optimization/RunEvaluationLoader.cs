@@ -50,6 +50,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         public AutoFocusEngineOptions AfOptions { get; set; }
+
+        /// <summary>
+        /// The per-frame exposure time, in seconds, the run's frames were actually captured with — read from the
+        /// FIRST rendered frame's <c>RawImageData.MetaData.Image.ExposureTime</c>. <see cref="double.NaN"/> when the
+        /// saved frames record no exposure at all.
+        ///
+        /// <para>This exists because NOTHING else in a saved attempt carries it: neither
+        /// <c>SavedAutoFocusAttempt</c> nor <c>AutoFocusReplayMetadata</c> has an exposure field, and
+        /// <c>AutoFocusEngineOptions.OverrideAutoFocusExposureTime</c> is a per-RUN override that is not persisted
+        /// with the attempt. The exposure-time recommendation needs <c>t_old</c> to scale from, and a factor scaled
+        /// off an unknown base is worse than no recommendation — so a Replay run reads it back out of the image
+        /// headers (NINA writes <c>EXPOSURE</c>/<c>EXPTIME</c> on FITS save and the
+        /// <c>Instrument:ExposureTime</c> property on XISF save; both readers populate
+        /// <c>ImageMetaData.Image.ExposureTime</c> on load, whose own default is NaN when the keyword is absent).</para>
+        ///
+        /// <para>Read from the first frame only: an AF sweep exposes every point identically, so the frames cannot
+        /// legitimately disagree, and averaging them would only hide a corrupt header behind a plausible-looking
+        /// number. A Live run does not depend on this at all — the wizard knows the exposure it just captured with
+        /// (<c>capturedLiveExposureSeconds</c>) and prefers that.</para>
+        /// </summary>
+        public double CapturedExposureSeconds { get; set; } = double.NaN;
     }
 
     /// <summary>
@@ -214,12 +235,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var runId = attempt.FolderPath ?? attemptFolderPath;
             var data = new RunEvaluationData(runId, frames, splitDetector, alglibAPI, fitConfig, labels);
 
-            Logger.Info($"Loaded saved AF run '{runId}' for optimization: {frames.Count} frames, step size {fitConfig.StepSize}");
+            // The exposure these frames were captured with, straight off the first frame's header (see
+            // LoadedRun.CapturedExposureSeconds for why the header is the only source). Left as whatever the reader
+            // produced — NaN when the keyword was absent — rather than substituted here: the wizard owns the
+            // fallback policy (its own live exposure, then the profile's AF exposure, then no recommendation at
+            // all), and a substitution made down here would be indistinguishable from a real measurement up there.
+            var capturedExposureSeconds = firstImage?.RawImageData?.MetaData?.Image?.ExposureTime ?? double.NaN;
+
+            var exposureForLog = double.IsFinite(capturedExposureSeconds) ? $"{capturedExposureSeconds:0.##}s" : "unrecorded";
+            Logger.Info($"Loaded saved AF run '{runId}' for optimization: {frames.Count} frames, step size {fitConfig.StepSize}, exposure {exposureForLog}");
             return new LoadedRun {
                 Data = data,
                 Seed = seed,
                 Baseline = baseline,
-                AfOptions = afOptions
+                AfOptions = afOptions,
+                CapturedExposureSeconds = capturedExposureSeconds
             };
         }
 
@@ -273,6 +303,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 var hfrs = result.StarList == null
                     ? (IReadOnlyList<double>)Array.Empty<double>()
                     : result.StarList.Select(s => s.HFR).ToList();
+                // Per-star measured Sensitivity-gate SNRs, PARALLEL to centers (same StarList; see StarSnrs, and
+                // Star.MeasuredSensitivity for the binned-space / two-different-statistics caveats) — inert data for
+                // a later exposure-recommendation feature. StarList is built by a single ordered
+                // .Select(ToDetectedStar) (HocusFocusStarDetection.BuildStarDetectionResult), so centers/HFRs/SNRs
+                // all derive from that one list and stay parallel WITH EACH OTHER. StarCount (== result.DetectedStars)
+                // is a SEPARATE snapshot taken before the brightest-N trim (HocusFocusStarDetection.cs, `result.
+                // DetectedStars = starList.Count`), which would disagree with these lengths if the trim ran — it
+                // only agrees here because hocusParams above pins NumberOfAFStars = 0, so the trim block never runs
+                // and StarCount's snapshot and StarList are counting the same untrimmed list. A failed cast surfaces
+                // as NaN, not silently 0.
+                var snrs = result.StarList == null
+                    ? (IReadOnlyList<double>)Array.Empty<double>()
+                    : result.StarList.Select(s => (s as HocusFocusDetectedStar)?.MeasuredSensitivity ?? double.NaN).ToList();
                 var imageSize = (result as HocusFocusStarDetectionResult)?.ImageSize ?? System.Drawing.Size.Empty;
                 return new FrameDetectionResult {
                     AverageHFR = result.AverageHFR,
@@ -280,11 +323,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     StarCount = result.DetectedStars,
                     StarCenters = centers,
                     StarHFRs = hfrs,
+                    StarSnrs = snrs,
                     ImageWidth = imageSize.Width,
                     ImageHeight = imageSize.Height,
                     // Relaxation-admitted accepted-star count for this frame (0 unless a defocus-aware gate is on),
                     // surfaced from the detector metrics so the optimizer can apply its precision penalty.
-                    RelaxationAdmittedCount = (result as HocusFocusStarDetectionResult)?.Metrics?.RelaxationAdmittedCount ?? 0
+                    RelaxationAdmittedCount = (result as HocusFocusStarDetectionResult)?.Metrics?.RelaxationAdmittedCount ?? 0,
+                    // Two rejection tallies the exposure recommendation reads to tell "the gate is holding stars
+                    // back" from "there is nothing left to find" — see FrameDetectionResult for what each means.
+                    LowSensitivityCount = (result as HocusFocusStarDetectionResult)?.Metrics?.LowSensitivity ?? 0,
+                    TooFlatCount = (result as HocusFocusStarDetectionResult)?.Metrics?.TooFlat ?? 0
                 };
             }
         }

@@ -57,7 +57,7 @@ A candidate is accepted only when its brightness above background divided by the
 
 **Default:** 10.0. **Range:** ≥ 0 (must be non-negative)
 
-!!! note "The tooltip's \"default of 2\" is out of date"
+!!! note "The tooltip's default of 2 is out of date"
     The in-app tooltip quoted above still says the default is 2. The shipped default is **10.0**, and Simple mode
     adds 2.0 for the Wide Range focus range and another 2.0 for the Long Focal Length pixel scale (so 12.0 with
     either, 14.0 with both). Trust the value in the field, not the tooltip.
@@ -66,7 +66,7 @@ A candidate is accepted only when its brightness above background divided by the
 *Sensitivity is the star's brightness above background relative to the noise; a dim star with low \((s-b)/n\) is rejected.*
 
 !!! tip "When to adjust"
-    Lower it if too many real but faint stars are reported as **Low Sensitivity** (watch the **Low Sensitivity** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel)) and your autofocus runs are starved for stars. Raise it on noisy data where spurious faint blobs are slipping through. It can hurt by flooding detection with noise clumps if set too low, or by discarding usable faint stars near focus if set too high. Leave it at the default for typical data.
+    Lower it if too many real but faint stars are reported as **Low Sensitivity** (watch the **Low Sensitivity** count in the [Star Detection Results panel](index.md#reading-the-results-the-star-detection-results-panel)) and your autofocus runs are starved for stars. If the [Optimization Wizard](../optimization/index.md) lands this setting at or below 1.0, its Summary page shows a **Star signal** block recommending a longer exposure instead of a lower gate; see [Exposure recommendation](../optimization/exposure-recommendation.md). Raise it on noisy data where spurious faint blobs are slipping through. It can hurt by flooding detection with noise clumps if set too low, or by discarding usable faint stars near focus if set too high. Leave it at the default for typical data.
 
 ## Star Peak Response
 

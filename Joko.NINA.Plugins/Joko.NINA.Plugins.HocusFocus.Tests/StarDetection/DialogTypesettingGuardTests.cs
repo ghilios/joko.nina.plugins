@@ -74,6 +74,52 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 $"The re-optimize prompt ({from}x -> {to}x)");
         }
 
+        [TestCase(0.5, 2.0)]
+        [TestCase(3.0, 6.5)]
+        [TestCase(5.0, 12.0)]
+        [TestCase(12.5, 30.0)]
+        [TestCase(0.1, 30.0)]
+        public void CaptureNewSweepPrompt_IsTypesetWithinTheBudget(double from, double to) {
+            // Swept across magnitudes because THREE interpolations share these lines — both exposures and the derived
+            // "about Nx as long" ratio — so a wide value in any of them can push a line over on its own. 0.1 -> 30 s is
+            // the widest ratio the caps allow anywhere near a real setup (300x).
+            AssertEveryLineFits(
+                StarDetectionOptimizerWizardVM.DescribeCaptureNewSweep(from, to),
+                $"The capture-new-sweep prompt ({from}s -> {to}s)");
+        }
+
+        [Test]
+        public void CaptureNewSweepPrompt_StatesTheThreeCostsThatDistinguishItFromItsSibling() {
+            // A CONTENT guard, not a width one, and it belongs beside the width guard because the two pull against each
+            // other: the fix for an over-long line is to re-break or shorten the copy, and the easiest thing to shorten
+            // is precisely the cost. This prompt is the deliberate inverse of the binning one, whose body reassures
+            // "no new exposures, no focuser movement" — so it has to say all three of: fresh exposures, the focuser
+            // moves, and how much longer it will take.
+            var text = StarDetectionOptimizerWizardVM.DescribeCaptureNewSweep(5.0, 12.0);
+            Assert.Multiple(() => {
+                Assert.That(text, Does.Contain("fresh"), "new exposures are taken");
+                Assert.That(text, Does.Contain("focuser moves"), "and the focuser is driven through a full sweep");
+                Assert.That(text, Does.Contain("2.4x as long"), "and it costs proportionally more sky time");
+                Assert.That(text, Does.Contain("12 s"), "the exposure it is about to capture at");
+                Assert.That(text, Does.Contain("5 s"), "and the one it replaces");
+                Assert.That(text, Does.Contain("Nothing is saved until you Accept"),
+                    "the wizard's contract: only Accept writes");
+            });
+        }
+
+        [Test]
+        public void CaptureNewSweepPrompt_WithNoUsableCurrentExposure_OmitsTheRatioRatherThanPrintingInfinity() {
+            // A pure function cannot assume the UI's GreaterThanZeroRule ran. "about ∞x as long" would be worse than
+            // saying nothing, so the clause drops out entirely — and the rest of the body must still typeset.
+            var text = StarDetectionOptimizerWizardVM.DescribeCaptureNewSweep(0.0, 12.0);
+            AssertEveryLineFits(text, "The capture-new-sweep prompt (no current exposure)");
+            Assert.Multiple(() => {
+                Assert.That(text, Does.Not.Contain("as long"));
+                Assert.That(text, Does.Not.Contain("∞"));
+                Assert.That(text, Does.Contain("Capture and optimize now?"), "the ask survives the missing clause");
+            });
+        }
+
         /// <summary>The per-filter bullet carries a user-chosen filter name, so its width cannot be bounded.
         /// Every other line of that prompt can be, and is.</summary>
         internal static bool IsFilterBullet(string line) =>

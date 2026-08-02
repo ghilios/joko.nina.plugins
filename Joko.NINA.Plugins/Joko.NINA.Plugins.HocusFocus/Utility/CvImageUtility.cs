@@ -741,6 +741,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return new Accord.Point(x: (float)point.X, y: (float)point.Y);
         }
 
+        // Carries every field through, exactly like its sibling ScaleToSourcePixels below — including
+        // RelaxationAdmitted, which a translation cannot change. (Previously this helper silently dropped
+        // RelaxationAdmitted, which zeroed HocusFocusStarDetection.BuildStarDetectionResult's
+        // RelaxationAdmittedCount re-tally — and with it the Star Detection Results dockable's readout
+        // (AutoFocus/DataTemplates.xaml) and the persisted detection cache — on any ROI-scoped run
+        // (StarDetectionRegion other than Full). No shipping path feeds a non-Full region into the optimizer
+        // (StarDetectionOptimizerWizardVM hardcodes Full; RunEvaluationLoader/FrameReviewBuilder/the TestApp
+        // diagnostic runner all default to Full too), so OptimizationObjective.SDefocusPrecision was only
+        // LATENTLY affected — correctness insurance if the optimizer is ever pointed at a region, not a live
+        // scoring change. The genuinely ROI-scoped consumer is the Aberration Inspector's per-region detection
+        // grid (InspectorVM.GetStarDetectionRegions), and only when DefocusAwareDonutDetection is explicitly
+        // enabled (default OFF). Fixed by adding the explicit RelaxationAdmitted carry-through below.)
         public static Star AddOffset(this Star star, int xOffset, int yOffset) {
             return new Star() {
                 Center = star.Center.Add(new Point2d(xOffset, yOffset)),
@@ -761,7 +773,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 PeakBrightness = star.PeakBrightness,
                 HFR = star.HFR,
                 PSF = star.PSF,
-                StarContaminationSuspected = star.StarContaminationSuspected
+                StarContaminationSuspected = star.StarContaminationSuspected,
+                // A translation cannot change whether the detector's gate admitted this star via defocus
+                // relaxation — pure carry-through, same reasoning as ScaleToSourcePixels below.
+                RelaxationAdmitted = star.RelaxationAdmitted,
+                // A translation changes nothing about a dimensionless SNR ratio.
+                MeasuredSensitivity = star.MeasuredSensitivity
             };
         }
 
@@ -801,7 +818,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 HFR = star.HFR * factor,
                 PSF = star.PSF?.ScaledToSourcePixels(factor),
                 StarContaminationSuspected = star.StarContaminationSuspected,
-                RelaxationAdmitted = star.RelaxationAdmitted
+                RelaxationAdmitted = star.RelaxationAdmitted,
+                // Deliberately NOT rescaled — same reasoning as RejectedCandidateRecord.MeasuredValue
+                // (StarDetector.cs, binning-rescale block): this is the gate's own comparison pair
+                // (StarDetectorParams.Sensitivity is compared against it in EvaluateStarCandidate, BEFORE this
+                // rescale runs, in binned pixel space), so both must stay in the same space. NOT a case of binning
+                // preserving level: the denominator (MeasurementNoiseSigma) is measured on the ALREADY-BINNED image
+                // (StarDetector.cs computes KappaSigmaNoiseEstimate(srcImage, ...) after the bin), so it shrinks
+                // under binning (by up to ~factor for uncorrelated noise; measurably less in practice — the default
+                // HotpixelFiltering runs ABOVE the bin, at native resolution, which correlates the noise, giving
+                // ~1.3x at 2x on synthetic white noise rather than ~2x). The numerator moves too, just less (the
+                // PeakBrightness/NormalizedBrightness peak term shrinks slightly when a sharp star is block-
+                // averaged). The DIRECTION is what matters, not a specific ratio: values are NOT comparable across
+                // binning factors.
+                MeasuredSensitivity = star.MeasuredSensitivity
             };
         }
 

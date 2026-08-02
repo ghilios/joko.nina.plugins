@@ -364,6 +364,118 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             });
         }
 
+        [Test]
+        public async Task RelaxationAdmitted_LargeDonut_ROIScoped_FlagSurvivesTheROIOffset() {
+            // Regression guard for the AddOffset field-drop bug (Task 6, plans/optimizer-exposure-recommendation-
+            // plan.md): AddOffset used to silently omit RelaxationAdmitted from the Star it constructs, so on
+            // ANY ROI-scoped run (StarDetectionRegion other than Full) every returned star's flag reset to the
+            // Star default (false) — even though it was genuinely admitted only via defocus relaxation. This is
+            // the same field/donut as the Full-region test above, but with a non-Full Region so AddOffset's
+            // ROI-translation step actually runs (StarDetector.cs applies it before returning DetectedStars).
+            var pFull = DonutDetectParams(defocusAware: true); // Region defaults to Full
+            var pRoi = DonutDetectParams(defocusAware: true);
+            pRoi.Region = new StarDetectionRegion(RatioRect.FromCenterROI(0.8)); // 80% center crop; donut sits at image center, well inside it
+
+            using var fieldFull = BuildLargeDonutField();
+            using var fieldRoi = BuildLargeDonutField();
+            var resultFull = await StarDetectorEquivalence.RunDetect(fieldFull, pFull);
+            var resultRoi = await StarDetectorEquivalence.RunDetect(fieldRoi, pRoi);
+
+            Assert.Multiple(() => {
+                Assert.That(resultRoi.DetectedStars.Count, Is.GreaterThanOrEqualTo(1), "relaxed gate (ON) admits the large donut inside the ROI");
+                Assert.That(resultRoi.DetectedStars.TrueForAll(s => s.RelaxationAdmitted), Is.True,
+                    "the RelaxationAdmitted flag must survive AddOffset's ROI translation");
+
+                // Pins that AddOffset's translation itself actually ran (not merely that RelaxationAdmitted
+                // survives a no-op translate). Rather than assert against a hand-derived expected center — the
+                // donut's measured centroid is offset from its geometric (64, 64) placement by the annulus'
+                // asymmetric-relaxed-gate measurement, not just by the crop — compare directly against the SAME
+                // field detected at Full scope: the ROI-detected center, translated back to full-image pixels,
+                // must land where Full-scope detection puts it. Skipping (or mis-applying) the ROI offset would
+                // leave the reported center in ROI-local coordinates, exactly (roiRect.Left, roiRect.Top) — here
+                // (12, 12) — short of this expectation.
+                Assert.That(resultFull.DetectedStars, Has.Count.EqualTo(1), "the same field at Full scope must also detect exactly one donut");
+                var fullCenter = resultFull.DetectedStars[0].Center;
+                var roiCenter = resultRoi.DetectedStars[0].Center;
+                // Cropping to the ROI changes the image-wide noise/background statistics candidate formation and
+                // measurement see, so the two runs are not expected to be pixel-identical — only close. 3px is
+                // comfortably above the observed ~1.4px cross-scope gap and comfortably below the 12px ROI offset
+                // (roiRect.Left/Top) that would show up if the translation were skipped or mis-applied.
+                Assert.That(roiCenter.X, Is.EqualTo(fullCenter.X).Within(3.0), "ROI-translated center must match the Full-scope center");
+                Assert.That(roiCenter.Y, Is.EqualTo(fullCenter.Y).Within(3.0), "ROI-translated center must match the Full-scope center");
+            });
+        }
+
+        // -----------------------------------------------------------------------
+        // Star.MeasuredSensitivity (F-exposure-recommendation groundwork: plumb the already-computed gate scalar
+        // out to Star, informational only — see IStarDetector.cs doc comment)
+        // -----------------------------------------------------------------------
+
+        private static Mat BuildSingleStarField() {
+            const int w = 256, h = 256;
+            var mat = SyntheticStarField.CreateFlat(w, h, 0.05f);
+            SyntheticStarField.AddStar(mat, cx: 128, cy: 128, sigma: 2.5, peak: 0.5);
+            SyntheticDefocusedStarImage.AddGaussianNoise(mat, sigma: 0.02, seed: 13579);
+            return mat;
+        }
+
+        [Test]
+        public async Task MeasuredSensitivity_AcceptedStar_FiniteAndAboveThreshold() {
+            var p = StarDetectorEquivalence.StandardParams();
+
+            using var field = BuildSingleStarField();
+            var result = await StarDetectorEquivalence.RunDetect(field, p);
+
+            Assert.That(result.DetectedStars, Has.Count.EqualTo(1), "a single well-formed star must be accepted");
+            var star = result.DetectedStars[0];
+            Assert.Multiple(() => {
+                Assert.That(double.IsNaN(star.MeasuredSensitivity), Is.False, "accepted star must carry a finite MeasuredSensitivity");
+                Assert.That(star.MeasuredSensitivity, Is.GreaterThan(p.Sensitivity), "must be on the accept side of the gate it just passed");
+            });
+        }
+
+        [Test]
+        public async Task MeasuredSensitivity_EqualsExactGateComparedScalar_ViaThresholdInversion() {
+            // Push the SAME deterministic candidate (same seed ⇒ identical candidate formation; Sensitivity is a
+            // LATE-only gate param, so it cannot perturb candidate formation) across the accept/reject boundary by
+            // setting Sensitivity to exactly the accepting run's MeasuredSensitivity (the gate is
+            // `sensitivity <= p.Sensitivity`, so an exact match now rejects).
+            //
+            // Two checks, of different strength:
+            //  1. The diagnostics-recorded RejectedCandidateRecord.MeasuredValue equals Star.MeasuredSensitivity.
+            //     NOTE this is NOT an independent oracle: both are the SAME `sensitivity` local in
+            //     EvaluateStarCandidate (StarDetector.cs, read at the LowSensitivity RecordRejection call and at the
+            //     accepted-Star initializer) — a wrong computation would still agree with itself here.
+            //  2. The real proof, from externally OBSERVABLE accept/reject outcomes alone (no shared internal
+            //     state): Sensitivity = Math.BitDecrement(measuredSensitivity) — the largest double strictly less
+            //     than it — must still ACCEPT the star, while Sensitivity = measuredSensitivity exactly REJECTS it.
+            //     That brackets measuredSensitivity as the exact boundary the gate switches on, to the ULP.
+            var pAccept = StarDetectorEquivalence.StandardParams();
+            using var fieldAccept = BuildSingleStarField();
+            var acceptResult = await StarDetectorEquivalence.RunDetect(fieldAccept, pAccept);
+            Assert.That(acceptResult.DetectedStars, Has.Count.EqualTo(1), "a single well-formed star must be accepted");
+            var measuredSensitivity = acceptResult.DetectedStars[0].MeasuredSensitivity;
+
+            var pJustBelow = StarDetectorEquivalence.StandardParams();
+            pJustBelow.Sensitivity = Math.BitDecrement(measuredSensitivity);
+            using var fieldJustBelow = BuildSingleStarField();
+            var justBelowResult = await StarDetectorEquivalence.RunDetect(fieldJustBelow, pJustBelow);
+            Assert.That(justBelowResult.DetectedStars, Has.Count.EqualTo(1),
+                "one ULP below measuredSensitivity must still accept — pins the boundary from observable outcomes alone");
+
+            var pReject = StarDetectorEquivalence.StandardParams();
+            pReject.Sensitivity = measuredSensitivity;
+            pReject.CollectRejectedCandidateDiagnostics = true;
+            using var fieldReject = BuildSingleStarField();
+            var rejectResult = await StarDetectorEquivalence.RunDetect(fieldReject, pReject);
+
+            Assert.That(rejectResult.DetectedStars, Is.Empty, "exact-match Sensitivity threshold must now reject the star (gate is <=)");
+            var lowSens = rejectResult.RejectedCandidates.Where(r => r.Gate == RejectionGate.LowSensitivity).ToList();
+            Assert.That(lowSens, Has.Count.EqualTo(1));
+            Assert.That(lowSens[0].MeasuredValue, Is.EqualTo(measuredSensitivity).Within(1e-12),
+                "the LowSensitivity gate's recorded scalar agrees with Star.MeasuredSensitivity (same underlying variable, not an independent check)");
+        }
+
         // -----------------------------------------------------------------------
         // ComputeIterativeCentroid tests
         // -----------------------------------------------------------------------

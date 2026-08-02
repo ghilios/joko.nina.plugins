@@ -40,6 +40,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// case the penalty is inert (objective bit-identical).</summary>
         public IReadOnlyList<double> StarHFRs { get; set; }
 
+        /// <summary>Accepted-star measured Sensitivity-gate SNRs (PARALLEL to <see cref="StarCenters"/>; same
+        /// surviving set, same order) — i.e. <see cref="Star.MeasuredSensitivity"/> carried through (see that
+        /// property's doc comment for the full explanation of what it is and its caveats). INERT DATA: no sub-score
+        /// or objective term reads this yet; it exists so a later exposure-recommendation feature can read the
+        /// measured per-star SNR without re-plumbing. NaN entries where the caller can't determine it (e.g. a
+        /// failed cast to the concrete star type).
+        /// <para>
+        /// TWO CAVEATS a consumer must respect (both inherited from <see cref="Star.MeasuredSensitivity"/>):
+        /// (1) values are in BINNED-PIXEL space when <c>StarDetectorParams.DetectionBinning &gt; 1</c> — NOT
+        /// comparable across frames/runs detected at different binning factors; (2) each entry is EITHER the
+        /// per-pixel <c>NormalizedBrightness / σ</c> OR the donut matched-filter <c>TotalFlux / (σ√N)</c>, depending
+        /// on <c>StarDetectorParams.DefocusAwareDonutDetection</c> and candidate size — two statistics with
+        /// different scalings that must not be pooled or thresholded as a single physical quantity.
+        /// </para></summary>
+        public IReadOnlyList<double> StarSnrs { get; set; }
+
         /// <summary>Full-frame sensor dimensions (pixels) used to convert <see cref="StarCenters"/> to ratio coords
         /// for the region-coverage metric. 0 when unknown, in which case coverage is skipped for the frame.</summary>
         public int ImageWidth { get; set; }
@@ -50,6 +66,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// whenever the defocus-aware gates are OFF, so the objective stays bit-identical at the baseline. Feeds the
         /// optimizer's label-free precision/false-positive penalty.</summary>
         public int RelaxationAdmittedCount { get; set; }
+
+        /// <summary>
+        /// Candidates on this frame rejected by the Sensitivity gate (<c>StarDetectorMetrics.LowSensitivity</c>).
+        /// The exposure recommendation's key discriminator: a candidate rejected here EXISTS and merely fell below
+        /// the gate, so it is evidence that more signal could convert it. ZERO means the gate is not what is
+        /// holding the star count down, and a longer exposure has no mechanism to help through it.
+        /// </summary>
+        public int LowSensitivityCount { get; set; }
+
+        /// <summary>
+        /// Candidates on this frame rejected as flat-topped (<c>StarDetectorMetrics.TooFlat</c>): the gate is
+        /// <c>StarMedian &gt;= PeakResponse × Peak</c>. Heavily defocused stars go flat-topped — a filled disk with
+        /// no central obstruction, an annulus with one — so a frame far enough from focus rejects its stars here no
+        /// matter how much signal they carry. Note this gate has NO defocus-aware relaxation (unlike distortion and
+        /// centering), so donut recovery does not affect it; only <c>PeakResponse</c> does. Concentrated on the
+        /// sweep's outer frames, it means the sweep reaches further from focus than the detector can follow.
+        /// </summary>
+        public int TooFlatCount { get; set; }
     }
 
     /// <summary>
@@ -618,8 +652,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             var frameStarCounts = new List<int>(frames.Count);
             var frameRelaxationAdmittedCounts = new List<int>(frames.Count);
+            var frameLowSensitivityCounts = new List<int>(frames.Count);
+            var frameTooFlatCounts = new List<int>(frames.Count);
             var frameFocuserPositions = new List<int>(frames.Count);
             var frameStarHfrs = new List<IReadOnlyList<double>>(frames.Count);
+            var frameStarSnrs = new List<IReadOnlyList<double>>(frames.Count);
             var frameRegionOccupancy = new List<double>(frames.Count);
             var perFrame = new List<(int FocuserPosition, FrameDetectionResult Detection)>(frames.Count);
             for (int i = 0; i < frames.Count; i++) {
@@ -628,10 +665,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // Parallel per-frame lists feeding the objective's label-free precision penalty. Relaxed counts are
                 // 0 across the board unless a defocus-aware gate is on, so the baseline J is unaffected.
                 frameRelaxationAdmittedCounts.Add(detection.RelaxationAdmittedCount);
+                // Inert in the objective; read by the exposure recommendation (see RunEvaluationMetrics).
+                frameLowSensitivityCounts.Add(detection.LowSensitivityCount);
+                frameTooFlatCounts.Add(detection.TooFlatCount);
                 frameFocuserPositions.Add(frames[i].FocuserPosition);
                 // Per-frame accepted-star HFRs (extreme-HFR outlier penalty) and region occupancy (coverage reward).
                 // Both stay inert in the objective when null/NaN, so the baseline J is unaffected.
                 frameStarHfrs.Add(detection.StarHFRs ?? (IReadOnlyList<double>)Array.Empty<double>());
+                // Per-frame accepted-star SNRs — inert data, mirrors frameStarHfrs (see FrameStarSnrs).
+                frameStarSnrs.Add(detection.StarSnrs ?? (IReadOnlyList<double>)Array.Empty<double>());
                 frameRegionOccupancy.Add(RegionCoverage.Occupancy(
                     detection.StarCenters, detection.ImageWidth, detection.ImageHeight, CoverageGridRows, CoverageGridCols));
                 perFrame.Add((frames[i].FocuserPosition, detection));
@@ -650,6 +692,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 measures.Add(new MeasureAndError { Measure = detection.AverageHFR, Stdev = detection.HFRStdDev });
             }
 
+            // A position with NO detected stars still lands in byPosition, carrying a NON-FINITE pooled HFR. Such a
+            // point cannot be a fit input: least squares propagates the NaN and the fit returns NaN for EVERY
+            // output, so one empty frame discards an otherwise perfect curve. Filtering is not merely an
+            // optimization — it is the difference between a usable σ(focus) and none.
+            //
+            // This matters most on the WEIGHTED path (WeightedHyperbolicFitEnabled, the shipped default). There,
+            // recovery positions are ADDED with an inflated error rather than excluded, so tagging an empty wing as
+            // "recovery" does NOT keep its NaN out of the fit — no weight rescues a NaN. Excluding by finiteness
+            // here is what makes the recovery exemption actually work under the default settings.
+            //
             // Focus-recovery: identify the outermost RecoveryStepsPerSide DISTINCT sweep positions per side (the
             // far-from-focus extremes). Null when the feature is off / too few positions / the cap collapses perSide to
             // 0, in which case every downstream value is byte-identical to the baseline (see ComputeRecoveryPositions).
@@ -670,10 +722,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var pooledHfr = new Dictionary<int, double>(byPosition.Count);
             int nonRecoveryPooledPointCount;
             if (recoveryPositions == null) {
-                // Baseline path — verbatim: pool every position and add exactly one fit point each (byte-identical).
+                // Baseline path: pool every position and add exactly one fit point each. Positions whose pooled
+                // measure is NON-FINITE are recorded in pooledHfr but kept OUT of the fit — see the note below.
                 foreach (var kvp in byPosition) {
                     var pooled = kvp.Value.AverageMeasurement();
                     pooledHfr[kvp.Key] = pooled.Measure;
+                    if (!double.IsFinite(pooled.Measure)) {
+                        continue;
+                    }
                     points.Add(new ScatterErrorPoint(kvp.Key, pooled.Measure, 0, SafeDisplayError(pooled.Stdev)));
                 }
                 nonRecoveryPooledPointCount = points.Count;
@@ -685,6 +741,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 foreach (var kvp in byPosition) {
                     var pooled = kvp.Value.AverageMeasurement();
                     pooledHfr[kvp.Key] = pooled.Measure;
+                    if (!double.IsFinite(pooled.Measure)) {
+                        continue; // never a fit input at any weight — see the note below
+                    }
                     var displayError = SafeDisplayError(pooled.Stdev);
                     var isRecovery = recoveryPositions.Contains(kvp.Key);
                     pooledByPosition.Add((kvp.Key, pooled.Measure, displayError, isRecovery));
@@ -730,8 +789,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 ReducedChiSquared = double.NaN,
                 FrameStarCounts = frameStarCounts,
                 FrameRelaxationAdmittedCounts = frameRelaxationAdmittedCounts,
+                FrameLowSensitivityCounts = frameLowSensitivityCounts,
+                FrameTooFlatCounts = frameTooFlatCounts,
                 FrameFocuserPositions = frameFocuserPositions,
                 FrameStarHFRs = frameStarHfrs,
+                FrameStarSnrs = frameStarSnrs,
                 FrameRegionOccupancy = frameRegionOccupancy,
                 // null (never an all-false list) when the focus-recovery feature is off ⇒ baseline.
                 FrameIsRecovery = frameIsRecovery,
@@ -860,6 +922,72 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// Returns <b>null</b> (no recovery) when <paramref name="recoverySteps"/> ≤ 0, there are no positions, or the
         /// cap collapses perSide to 0 — so the caller's downstream values stay byte-identical to the baseline.
         /// </summary>
+        /// <summary>
+        /// The smallest per-side recovery exemption that removes every STARLESS sweep position from the fit, or
+        /// <c>-1</c> when no exemption can (a starless position in the interior, or the wings so wide that fewer
+        /// than <see cref="MinPositionsForFit"/> positions would survive). <c>0</c> when nothing is starless.
+        ///
+        /// <para><b>Why this exists.</b> A starless position still enters <c>byPosition</c>, contributing a NaN
+        /// HFR — so a single one poisons the hyperbolic fit and σ(focus) comes back NaN no matter how good the
+        /// remaining curve is. On a deliberately wide sweep (large step × many points) the far wings are so far
+        /// out of focus that NO detection settings will find stars there, so the run gets refused before the
+        /// search can start, even when the interior positions form a clean, perfectly fittable V. Measured case:
+        /// an 11-point sweep at step 1770 whose interior read HFR 15.2 / 9.9 / 6.3 / 5.3 / 7.0 / 11.6 / 17.1 with
+        /// the minimum dead centre, refused because its four outermost frames were empty.</para>
+        ///
+        /// <para><b>Wings only, deliberately.</b> A starless position BETWEEN two populated ones is not a
+        /// too-defocused wing — it is a gap in the data (cloud, a passing satellite, a tracking glitch), and
+        /// exempting inward from the ends would silently discard good positions on either side of it to reach it.
+        /// That case returns -1 so the caller reports it rather than papering over it.</para>
+        ///
+        /// <para>Uses star COUNT, not HFR finiteness, because the caller has counts before it has a fit; the two
+        /// agree on the case that matters (no stars ⇒ no HFR).</para>
+        /// </summary>
+        public static int RecoveryStepsToExcludeStarlessWings(
+                IReadOnlyList<int> frameFocuserPositions, IReadOnlyList<int> frameStarCounts) {
+            if (frameFocuserPositions == null || frameStarCounts == null
+                    || frameFocuserPositions.Count != frameStarCounts.Count || frameFocuserPositions.Count == 0) {
+                return -1;
+            }
+
+            // Pool to DISTINCT positions the way the fit does: a position is starless only when every frame at it
+            // is starless (one populated frame is enough to give the position a finite pooled HFR).
+            var starsAt = new SortedDictionary<int, int>();
+            for (var i = 0; i < frameFocuserPositions.Count; i++) {
+                var pos = frameFocuserPositions[i];
+                starsAt[pos] = starsAt.TryGetValue(pos, out var running) ? running + frameStarCounts[i] : frameStarCounts[i];
+            }
+
+            var counts = starsAt.Values.ToList(); // ascending by position
+            var d = counts.Count;
+            var leading = 0;
+            while (leading < d && counts[leading] <= 0) {
+                leading++;
+            }
+            if (leading == d) {
+                return -1; // every position starless: nothing to fit at any exemption
+            }
+            var trailing = 0;
+            while (trailing < d && counts[d - 1 - trailing] <= 0) {
+                trailing++;
+            }
+
+            // Any starless position left strictly inside the surviving span is an interior gap, not a wing.
+            for (var i = leading; i < d - trailing; i++) {
+                if (counts[i] <= 0) {
+                    return -1;
+                }
+            }
+
+            var needed = Math.Max(leading, trailing);
+            if (needed == 0) {
+                return 0;
+            }
+            // Same cap ComputeRecoveryPositions enforces, so a value returned here is one it will honour in full.
+            var maxPerSide = Math.Max(0, (d - MinPositionsForFit) / 2);
+            return needed <= maxPerSide ? needed : -1;
+        }
+
         private static HashSet<int> ComputeRecoveryPositions(SortedDictionary<int, List<MeasureAndError>> byPosition, int recoverySteps) {
             var d = byPosition.Count;
             if (recoverySteps <= 0 || d <= 0) {

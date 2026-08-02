@@ -49,6 +49,14 @@ The high-level loop has three steps:
 
 *The summary shows the resulting focus curve, focus precision, and a recommended autofocus step size.*
 
+When the search lands **Brightness Sensitivity** at the bottom of its range, the summary also shows a
+**Star signal** block above the recommended step size: the detector had to accept almost anything above
+the noise to find stars at all, so the focus result rests on low-confidence detections. From those same
+measurements it works out how much longer an exposure would put a healthy population of stars above the
+[default gate](../settings/acceptance-gates.md#brightness-sensitivity) instead. See [Exposure
+recommendation](exposure-recommendation.md) for the derivation, its caps, and what a Live sweep versus a
+saved run each let you do about it.
+
 The summary also reports a recommended **detection binning**. The search holds
 [Detection Binning](../settings/detection-binning.md) fixed, but it reads the in-focus HFR off your fitted
 focus curve and reports the factor that implies.
@@ -184,6 +192,9 @@ This section documents every moving part of the optimizer:
   loop and how box-containment recall/precision enter the objective.
 - **[Step size](step-size.md):** how a recommended autofocus step size is derived from the winning
   fit so a sweep lands roughly 3–4 measurement points per side of focus.
+- **[Exposure recommendation](exposure-recommendation.md):** the Summary page's "Star signal" block: why
+  a floored Brightness Sensitivity gate means low-confidence detections, how a longer auto-focus exposure
+  is derived from the measured star SNR, and its caps.
 
 !!! tip "When the wizard helps most"
 

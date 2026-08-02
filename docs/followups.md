@@ -113,6 +113,57 @@ config. Not necessarily wrong — but it should not be assumed uniformly benefic
 F6 diagonal valley, but it means **a single landing is not evidence** about which corner the optimizer prefers,
 and any claim resting on one `optimize` run should be treated as anecdote.
 
+### F18 — Step size is sized by curve geometry alone, so the sweep outruns what the detector can see
+**Status:** Open · found 2026-08-02 reproducing a 3800 mm sweep that yielded four dead frames
+
+`StepSizeRecommender` sets the half-width from the fitted HFR curve: the distance at which HFR reaches
+`HfrThresholdMultiple = 3.0` × its minimum, then `step = W / 3.5` at `DefaultOffsetSteps = 4`. That is a pure
+**curve-geometry** criterion — nothing in it asks whether stars are still *detectable* out there.
+
+Measured on `AutoFocus_20260802_122354` (3800 mm, 14 s, in-focus HFR 5.96 px, one frame per position):
+
+| distance | 1770 | 3540 | 5310 | 7080 | 8850 |
+|---|---|---|---|---|---|
+| HFR (× min) | 1.2–1.3× | 1.8–2.0× | 2.6–2.8× | 3.4–3.6× | — |
+| stars | 10 | 10 | 6, 3 | 1, 1 | **0** |
+
+Two separate over-reaches:
+
+1. **The 3× band is wider than detectability.** The band puts the half-width at 6221 steps (→ step 1778; the
+   wizard recommended 1725), but the outermost position still yielding the `NHard = 3` stars the objective
+   requires is at **5310**. The constant is ~15% past what this rig can measure.
+2. **The executed sweep exceeds the band the step was sized for.** The step is sized for 3.5 points per side
+   *within* the band, but the run takes 4 offset + 1 focus-recovery = 5 per side: 5 × 1770 = 8850 = **4.4× min
+   HFR**, 43% beyond the band. The recovery step lands where nothing is detectable, which is where all the
+   flat-topped rejections and starless frames came from.
+
+**Why it matters beyond one rig.** The band is relative to min HFR, so it adapts correctly when a filter changes
+the focus spread — but it does **not** adapt to flux. A narrowband filter spreads fewer photons over the same
+defocused area, so stars vanish at a *lower* HFR multiple while the curve looks similar. This is the likely cause
+of step-size recommendations that vary confusingly between filters on the same rig: each is right about geometry
+and blind to signal.
+
+**Suggested next step.** Bound the half-width by both criteria:
+
+```
+half_width = min(W_3x,        # current: fitted 3x min-HFR band
+                 W_detect)    # NEW: outermost position still yielding >= NHard stars
+step = half_width / points_per_side   # sized for the sweep ACTUALLY run, incl. recovery
+```
+
+`W_detect` is *measured*, not extrapolated, so it fits the recommender's converge-over-runs philosophy and its
+`MaxHalfWidthSampledHalfSpanMultiple = 1.5` cap, and it adapts per filter for free. The per-frame star counts it
+needs are already plumbed (`RunEvaluationMetrics.FrameStarCounts`). On the run above it gives
+`min(6221, 5310) = 5310` → step ≈ 1060–1330 instead of 1725, putting every frame inside the detectable range.
+
+Two open decisions: whether focus-recovery steps *should* extend the sweep past the band (they are deliberately
+far-from-focus, but today they silently widen it by 43%), and what floor `W_detect` needs so a starless run cannot
+collapse the sweep — it should only ever tighten `W_3x`, never drive it below a sane minimum.
+
+This changes the shipped recommender for every user, so it wants a design spec plus bank validation with σ_focus
+as the acceptance metric, not an inline patch. Related: the flat-topped rejections that motivated this are
+surfaced as sweep-geometry evidence by `ExposureRecommendation.FlatRejectedCount` (PR #159).
+
 ---
 
 ## Harness / tooling

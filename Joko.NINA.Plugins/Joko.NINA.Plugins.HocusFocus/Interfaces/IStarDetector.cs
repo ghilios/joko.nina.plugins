@@ -694,8 +694,37 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// </summary>
         public bool RelaxationAdmitted { get; set; }
 
+        /// <summary>
+        /// INFORMATIONAL ONLY (never affects an accept/reject decision, never enters the optimizer objective). The
+        /// exact scalar the Sensitivity gate compared this star against: <c>NormalizedBrightness / σ</c>, or — when
+        /// <see cref="StarDetectorParams.DefocusAwareDonutDetection"/> admits the integrated-flux path for an
+        /// extended candidate — the larger of that and the donut integrated-flux SNR (whichever the gate actually
+        /// used). These are two DIFFERENT statistics with different scalings (a per-pixel peak-vs-noise ratio vs. a
+        /// matched-filter <c>TotalFlux / (σ√N)</c>) — a caller cannot tell which one a given value is, so treat
+        /// entries as belonging to a single scalar "the gate's verdict", not something to pool or threshold as one
+        /// physical quantity.
+        /// <para>
+        /// Carried through detection binning
+        /// (<see cref="NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility.ScaleToSourcePixels(Star, int)"/>) and an
+        /// ROI offset (<see cref="NINA.Joko.Plugins.HocusFocus.Utility.CvImageUtility.AddOffset"/>) WITHOUT rescaling
+        /// — not because binning "preserves the level" (it does not: the σ denominator is measured on the
+        /// already-binned image, so it shrinks under binning — by up to ~<c>DetectionBinning</c> for uncorrelated
+        /// noise, measurably less in practice, since the default <c>HotpixelFiltering</c> runs ABOVE the bin at
+        /// native resolution and correlates the noise, giving ~1.3x at 2x on synthetic white noise rather than
+        /// ~2x; the numerator moves too, just less — the peak term of <c>NormalizedBrightness</c> also shrinks
+        /// slightly when a sharp star is block-averaged), but because this is the gate's own comparison pair with
+        /// <see cref="StarDetectorParams.Sensitivity"/> (a binned-space param compared BEFORE the rescale) — both
+        /// must stay in the same space, exactly like <c>RejectedCandidateRecord.MeasuredValue</c>. The DIRECTION is
+        /// what matters, not a specific ratio: values are NOT comparable across different
+        /// <see cref="StarDetectorParams.DetectionBinning"/> factors.
+        /// </para>
+        /// <see cref="double.NaN"/> at every legacy construction site that doesn't set it. Feeds a later
+        /// exposure-time recommendation when the optimizer floors the Sensitivity gate.
+        /// </summary>
+        public double MeasuredSensitivity { get; set; } = double.NaN;
+
         public override string ToString() {
-            return $"{{{nameof(Center)}={Center.ToString()}, {nameof(StarBoundingBox)}={StarBoundingBox.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(MeanBrightness)}={MeanBrightness.ToString()}, {nameof(PeakBrightness)}={PeakBrightness.ToString()}, {nameof(HFR)}={HFR.ToString()}, {nameof(PSF)}={PSF}, {nameof(StarContaminationSuspected)}={StarContaminationSuspected}, {nameof(RelaxationAdmitted)}={RelaxationAdmitted}}}";
+            return $"{{{nameof(Center)}={Center.ToString()}, {nameof(StarBoundingBox)}={StarBoundingBox.ToString()}, {nameof(Background)}={Background.ToString()}, {nameof(MeanBrightness)}={MeanBrightness.ToString()}, {nameof(PeakBrightness)}={PeakBrightness.ToString()}, {nameof(HFR)}={HFR.ToString()}, {nameof(PSF)}={PSF}, {nameof(StarContaminationSuspected)}={StarContaminationSuspected}, {nameof(RelaxationAdmitted)}={RelaxationAdmitted}, {nameof(MeasuredSensitivity)}={MeasuredSensitivity.ToString()}}}";
         }
     }
 
@@ -748,6 +777,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// thread from the assembled accepted-star list (it never flows through <see cref="Merge"/>, since the
         /// per-thread metrics instances never touch it). Zero whenever the defocus-aware gates are OFF, so it
         /// does NOT affect detection bit-identity. The optimizer consumes it as a precision/false-positive signal.
+        ///
+        /// <para>Re-tallied a second time over the FINAL post-filter survivor set, in
+        /// HocusFocusStarDetection.BuildStarDetectionResult — that re-tally is where this field is corrupted if
+        /// AddOffset (Utility/CvImageUtility.cs; the ROI-offset translation) ever drops Star.RelaxationAdmitted
+        /// again, as it silently did before AddOffset was fixed to carry the flag through. Same lossy
+        /// cache boundary as HocusFocusDetectedStar.MeasuredSensitivity (HocusFocusStarDetection.cs): this value
+        /// is persisted to the saved &lt;image&gt;_star_detection_result.json, and that fix correctly did NOT bump
+        /// StarDetector.StarDetectorVersion (no detection OUTPUT changed, only this readout). So a cache file saved
+        /// by a PRE-fix build from an ROI + defocus-aware-gates run — one that persisted this count as 0 due to the
+        /// bug — still passes AutoFocusEngine.TryLoadValidCachedDetection's version check and reloads with
+        /// RelaxationAdmittedCount pinned at 0 until that frame is re-detected.</para>
         /// </summary>
         public int RelaxationAdmittedCount { get; set; } = 0;
         public int OutsideROI { get; set; } = 0;
