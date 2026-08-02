@@ -22,7 +22,7 @@ Everything below is **flagged, not fixed**. Five product findings became `docs/f
 | Header round-trip (`--verify`, risk R1) | **PASS** — XPIXSZ/FOCALLEN/XBINNING/EXPTIME and the composed arcsec/px all land, on every dataset |
 | Determinism | **PASS** — D07 + D12 regenerated from seeds: 36/36 frames and golden sidecars bit-identical |
 | Golden precision (D06, `golden eval`) | **1.000** — 205 TP, **0 FP**. Exact, not a lower bound |
-| Autofocus fit quality on S0 | **R² = 1.0000 on 15 of 17** datasets |
+| S0 control (harness self-test) | **13 PASS · 1 FLAG · 3 FAIL**; R² = 1.0000 on 15 of 17 |
 | Pixel-scale default change (V-P1) | **no measurable effect** — see "The pixel-scale change did nothing" below |
 | Full unit suite | 3293 passed, 0 failed |
 
@@ -54,28 +54,37 @@ It also moved the `CappedByAbsoluteLimit` role from D16 to D10 — see **F19**.
 S0 bootstraps each dataset at its own expected optimum, so the recommendations should be ~no-ops.
 Two rounds, `--max-evals 120`.
 
-| dataset | R² (r0/r1) | step: bootstrap → r1 → final | note |
-|---|---|---|---|
-| D01_ultrawide_40mm | 0.648 / 0.949 | 9 → 10 → 12 | sub-`MinHFR`, see F20 |
-| D02_rich_135mm | 0.916 / 0.932 | 6 → 7 → **1** | sub-`MinHFR`; half-width collapse (F21) |
-| D03_redcat_250mm | 0.999 / 1.000 | 16 → 22 → 24 | |
-| D04_esprit_550mm | 1.000 / 1.000 | 15 → 17 → 19 | |
-| D05_tec140_1000mm | 1.000 / 1.000 | 35 → 37 → 42 | |
-| D06_sparse_1000mm | 1.000 / 1.000 | 35 → 37 → 41 | |
-| D07_rc10_2000mm | 1.000 / 1.000 | 55 → 53 → 50 | |
-| D08_c11_2800mm | 1.000 / 1.000 | 82 → 87 → 90 | |
-| D09_c14_3800mm | 1.000 / 1.000 | 118 → 114 → 114 | |
-| D10_rc16_3250mm_sparse | 1.000 / 1.000 | 89 → 94 → 94 | |
-| D11_rc10_585_afbin2 | 1.000 / 1.000 | 55 → 52 → 45 | |
-| D12_c14_585_afbin2 | 0.999 / 1.000 | 141 → 141 → **91** | binning misread (F22) blocked the step update |
-| D13_apo200_1800mm | 1.000 / 1.000 | 127 → 125 → 128 | **PASS** |
-| D14_cdk14_2563mm_e47 | 1.000 / 1.000 | 60 → 58 → 58 | |
-| D15_cdk20_3454mm_e47 | 1.000 / 1.000 | 64 → 64 → 64 | **PASS**, exact no-op |
-| D16_esprit550_ha3 | 1.000 / 1.000 | 15 → 21 → 22 | |
-| D17_cdk14_oiii5 | 1.000 / 1.000 | 60 → 60 → **3** | half-width collapse (F21) |
+**Result: 13 PASS · 1 FLAG · 3 FAIL.**
+
+| dataset | verdict | R² (r0/r1) | half-width (r0/r1) | step recommended (r0/r1) | note |
+|---|---|---|---|---|---|
+| D01_ultrawide_40mm | **FAIL** | 0.648 / 0.949 | 35.6 / 43.1 | 10 / 12 | sub-`MinHFR` (F20) |
+| D02_rich_135mm | **FAIL** | 0.916 / 0.932 | 23.2 / **2.5** | 7 / **1** | sub-`MinHFR` (F20) + half-width collapse (F21) |
+| D03_redcat_250mm | PASS | 0.999 / 1.000 | 75.7 / 82.3 | 22 / 24 | |
+| D04_esprit_550mm | PASS | 1.000 / 1.000 | 60.2 / 66.3 | 17 / 19 | |
+| D05_tec140_1000mm | PASS | 1.000 / 1.000 | 130.1 / 147.9 | 37 / 42 | |
+| D06_sparse_1000mm | PASS | 1.000 / 1.000 | 129.3 / 145.1 | 37 / 41 | |
+| D07_rc10_2000mm | PASS | 1.000 / 1.000 | 183.8 / 176.3 | 53 / 50 | |
+| D08_c11_2800mm | PASS | 1.000 / 1.000 | 303.1 / 315.2 | 87 / 90 | |
+| D09_c14_3800mm | PASS | 1.000 / 1.000 | 399.1 / 324.9 | 114 / 93 | |
+| D10_rc16_3250mm_sparse | PASS | 1.000 / 1.000 | 330.0 / 327.8 | 94 / 94 | |
+| D11_rc10_585_afbin2 | PASS | 1.000 / 1.000 | 183.5 / 158.6 | 52 / 45 | |
+| D12_c14_585_afbin2 | **FLAG** | 0.999 / 1.000 | 396.9 / 316.9 | 113 / 91 | binning misread (F22) deferred the step update both rounds |
+| D13_apo200_1800mm | PASS | 1.000 / 1.000 | 436.8 / 446.8 | 125 / 128 | the ε=0 donut control |
+| D14_cdk14_2563mm_e47 | PASS | 1.000 / 1.000 | 201.7 / 201.8 | 58 / 58 | |
+| D15_cdk20_3454mm_e47 | PASS | 1.000 / 1.000 | 168.8 / 221.1 | 48 / 63 | |
+| D16_esprit550_ha3 | PASS | 1.000 / 1.000 | 73.4 / 76.1 | 21 / 22 | |
+| D17_cdk14_oiii5 | **FAIL** | 1.000 / 1.000 | 143.6 / **12.1** | 41 / **3** | half-width collapse (F21) |
 
 **Reading it:** the fits are essentially perfect and most step trajectories are drifts of a few
-percent. Three are not: D02 → 1, D12 → 91, D17 → 3.
+percent — D14 recommends 58 twice running, D10 recommends 94 twice. Every non-PASS maps to a filed
+followup: D01/D02 to F20 (in-focus HFR below `MinHFR`), D12 to F22 (binning misread), D02/D17 to F21
+(half-width collapse). Nothing failed for a reason that is not written down.
+
+The run also doubles as a determinism check on the *validation* path, not just the generator: rerunning
+the whole S0 pass reproduced every half-width to the tenth — 143.6 and 12.1 on D17 both times — because
+the round seed is `SeedMixer.Combine(datasetSeed, scenarioId, round)` with the scenario id hashed by
+FNV-1a rather than `string.GetHashCode()` (which .NET randomizes per process).
 
 ### The harness had to be corrected before this table could be believed
 
