@@ -235,14 +235,14 @@ namespace TestApp.SynthBank {
                 IAstapCatalogReader catalogReader, string specSha256, CancellationToken token) {
             var defaults = spec.Defaults;
             var model = SynthBankDerivations.BuildDefocusModel(dataset, defaults);
-            // --dry-run passes a null catalog reader on purpose: SynthBankDerivations.DeriveExpectedOptimal's own
-            // remarks say this is exactly what lets every catalog-free field (step size, detection binning, donut
-            // expectation, kernel-cap guard, truth model) be computed and the whole per-dataset table printed
-            // BEFORE any catalog access -- "render nothing" for --dry-run means not even the exposure band's one
-            // reference render. The exposure fields come back NaN with an explanatory ExposureDefinition instead,
-            // and the catalog star count PrintDryRun reports is a separate, direct Query() call, not a render.
+            // --dry-run DOES pass the catalog reader, so the exposure band is derived and printed like every other
+            // parameter. That costs one reference render per dataset (DeriveExposureBand renders the in-focus frame
+            // once at 1s and then solves for t in closed form), which is the whole point: the exposure band is the
+            // softest derivation in the design, and finding out it is wrong after a 30-60 minute bank generation is
+            // exactly the outcome --dry-run exists to prevent. The catalog star count PrintDryRun reports is still a
+            // separate, direct Query() -- it must not depend on a render having succeeded.
             var expectedOptimal = SynthBankDerivations.DeriveExpectedOptimal(
-                dataset, defaults, dryRun ? null : catalogReader, out var kernelCapGuard, out var truthModel, token);
+                dataset, defaults, catalogReader, out var kernelCapGuard, out var truthModel, token);
 
             // Apply the checked-in spec's *Override fields on top of the physics answer (SynthBankDerivations is
             // deliberately override-free — see its class remarks). Any override that actually disagrees with the

@@ -314,24 +314,31 @@ Defaults: L filter, gain 100, bias 500, −10 °C, throughput 0.85, offset 4, ti
 |---|---|---|---|---|---|---|---|---|---|
 | D01_ultrawide_40mm | 40/2.8 (0) | IMX571, 1 | 19.4 | Cygnus (rich, mag ≤ 10.5) | 0.5 | 9 | 0.7→2.3 | 1 | no |
 | D02_rich_135mm | 135/2.0 (0) | IMX571, 1 | 5.75 | Heart/Soul Cas (rich) | 0.5 | 6 | 0.7→2.2 | 1 | no |
-| D03_redcat_250mm | 250/4.9 (0) | IMX533, 1 | 3.10 | Orion Belt (mid) | 1 | 16 | 0.7→2.4 | 1 | no |
-| D04_esprit_550mm | 550/5.5 (0) | IMX571, 1 | 1.41 | M24 Sgr (very rich) | 1 | 15 | 1.2→4.1 | 1 | no |
-| D05_tec140_1000mm | 1000/7.1 (0) | IMX455, 1 | 0.78 | Auriga (mid) | 2 | 35 | 2.1→7.3 | 1 | no |
-| D06_sparse_1000mm | 1000/7.1 (0) | IMX533, 1 | 0.78 | Coma/NGP (sparse ~60★) | 4 | 35 | 2.1→7.3 | 1 | no |
-| D07_rc10_2000mm | 2000/8 (0.47) | IMX533, 1 | 0.39 | Double Cluster (rich) | 2 | 55 | 3.5→11.7 | 1 | yes |
-| D08_c11_2800mm | 2800/10 (0.34) | IMX571, 1 | 0.28 | Hercules (mid) | 4 | 82 | 4.9→16.5 | **2** | yes |
-| D09_c14_3800mm | 3800/10.7 (0.34) | IMX294, 1 | 0.25 | Cepheus (rich) | 6 | 118 | 5.3→18.1 | **2** | yes |
-| D10_rc16_3250mm_sparse | 3250/8 (0.47) | IMX533, 1 | 0.24 | Virgo (sparse ~40★) | 10 | 89 | 5.6→19.0 | **2** | yes |
-| D11_rc10_585_afbin2 | 2000/8 (0.47) | **IMX585, 2** | 0.30n | Cygnus (rich) | 3 | 55 | 4.5n→2.3b | 1 (**AF-bin alone**) | yes |
-| D12_c14_585_afbin2 | 3800/10.7 (0.34) | **IMX585, 2** | 0.16n | Cassiopeia (rich) | 8 | 141 | 10.2n→5.1b | **2** (**both**) | yes |
-| D13_apo200_1800mm | 1800/9 (**0**) | IMX571, 1 | 0.43 | Lyra (mid) | 3 | ~127 | 3.1→10.5 | 1 | **no** |
-| D14_cdk14_2563mm_e47 | 2563/7.2 (0.47) | IMX455, 1 | 0.30 | Perseus (rich) | 4 | ~60 | 5.3→17.8 | **2** | yes |
-| D15_cdk20_3454mm_e47 | 3454/6.8 (0.47) | IMX571, 1 | 0.23 | Cepheus flare (mid) | 6 | ~64 | 5.9→20.1 | **2** | yes |
-| D16_esprit550_ha3 | 550/5.5 (0) | IMX571, 1, **Hα 3 nm** | 1.41 | Heart Neb Cas (rich Hα) | **25** | 15 | 1.2→4.1 | 1 | no |
-| D17_cdk14_oiii5 | 2563/7.2 (0.47) | IMX533, 1, **OIII 5 nm** | 0.30 | Cygnus X (rich) | **20** | ~60 | 5.3→17.8 | **2** | yes |
+| D03_redcat_250mm | 250/4.9 (0) | IMX533, 1 | 3.10 | Orion Belt (mid) | 0.5 | 16 | 0.7→2.4 | 1 | no |
+| D04_esprit_550mm | 550/5.5 (0) | IMX571, 1 | 1.41 | M24 Sgr (very rich) | 0.5 | 15 | 1.2→4.1 | 1 | no |
+| D05_tec140_1000mm | 1000/7.1 (0) | IMX455, 1 | 0.78 | Auriga (mid) | 0.5 | 35 | 2.1→7.3 | 1 | no |
+| D06_sparse_1000mm | 1000/7.1 (0) | IMX533, 1 | 0.78 | Coma/NGP (sparse, 65★ on-frame) | 0.5 | 35 | 2.1→7.3 | 1 | no |
+| D07_rc10_2000mm | 2000/8 (0.47) | IMX533, 1 | 0.39 | Double Cluster (rich) | 0.5 | 55 | 3.5→11.7 | 1 | yes |
+| D08_c11_2800mm | 2800/10 (0.34) | IMX571, 1 | 0.28 | Hercules (mid) | 0.5 | 82 | 4.9→16.5 | **2** | yes |
+| D09_c14_3800mm | 3800/10.7 (0.34) | IMX294, 1 | 0.25 | Cepheus (rich) | 0.5 | 118 | 5.3→18.1 | **2** | yes |
+| D10_rc16_3250mm_sparse | 3250/8 (0.47) | IMX533, 1 | 0.24 | Virgo (sparse, 26★ on-frame) | **17** | 89 | 5.6→19.0 | **2** | yes |
+| D11_rc10_585_afbin2 | 2000/8 (0.47) | **IMX585, 2** | 0.30n | Cygnus (rich) | 0.5 | 55 | 5.3n→2.7b | 1 (**AF-bin alone**) | yes |
+| D12_c14_585_afbin2 | 3800/10.7 (0.34) | **IMX585, 2** | 0.16n | Cassiopeia (rich) | 2 | 141 | 10.2n→5.1b | **2** (**both**) | yes |
+| D13_apo200_1800mm | 1800/9 (**0**) | IMX571, 1 | 0.43 | Lyra (mid) | 0.5 | 127 | 3.1→10.5 | 1 | **no** |
+| D14_cdk14_2563mm_e47 | 2563/7.2 (0.47) | IMX455, 1 | 0.30 | Perseus (rich) | 0.5 | 60 | 5.3→17.8 | **2** | yes |
+| D15_cdk20_3454mm_e47 | 3454/6.8 (0.47) | IMX571, 1 | 0.23 | Cepheus flare (mid) | 1 | 64 | 5.9→20.1 | **2** | yes |
+| D16_esprit550_ha3 | 550/5.5 (0) | IMX571, 1, **Hα 3 nm** | 1.41 | Heart Neb Cas (rich Hα) | 0.5 | 15 | 1.2→4.1 | 1 | no |
+| D17_cdk14_oiii5 | 2563/7.2 (0.47) | IMX533, 1, **OIII 5 nm** | 0.30 | Cygnus X (rich) | **8** | 60 | 5.3→17.8 | **2** | yes |
 
-`n` = native, `b` = after capture binning. Sky 20.5 mag/arcsec² except D01/D02 at 21.0; seeing
-2.5–3.0″; filter L except D16/D17.
+`n` = native, `b` = after capture binning. Sky 20.5 mag/arcsec² except D01/D02 at 21.0; seeing 2.5″
+except D11/D12/D14/D17 at 3.0″; filter L except D16/D17.
+
+**The exposure and step columns are derived, not chosen.** They are what
+`SynthBankDerivations` computes from the checked-in spec, printed by `synth-bank --dry-run`, and every
+step\* lands exactly on the value the design predicted. The exposures did not: an earlier draft of this
+table carried an imager's intuition (0.5–25 s), and the derivation replaced most of it with the 0.5 s
+floor for the reason given under D10 below. Where the two disagreed, the derivation won and the table
+was corrected — that is the point of deriving them.
 
 **Why these 17.** The matrix is built to make each axis fail *separately*:
 
@@ -350,11 +357,23 @@ Defaults: L filter, gain 100, bias 500, −10 °C, throughput 0.85, offset 4, ti
 - **D06/D10** are sparse (~60 and ~40 stars) — the regime where `StarFieldIsExhausted` and the star
   count probe actually engage.
 - **D16/D17** are narrowband: 3 nm Hα and 5 nm OIII pass ≈ 64–107× less flux than L, making them
-  read-noise-dominated and forcing long exposures. Sky background scales down automatically through
-  the filter Δλ in `RadiometryCalculator`, so this is physically consistent rather than a fudge.
-  **D16's expected exposure band deliberately sits near the recommender's 30 s absolute ceiling**, so
-  S3 run on it exercises the `CappedByAbsoluteLimit` state that no other dataset reaches. Narrowband
-  datasets inherit their optical class's expected P/R bands (M for D16, L47 for D17).
+  read-noise-dominated. Sky background scales down automatically through the filter Δλ in
+  `RadiometryCalculator`, so this is physically consistent rather than a fudge. Narrowband datasets
+  inherit their optical class's expected P/R bands (M for D16, L47 for D17).
+- **D10 is the `CappedByAbsoluteLimit` dataset**, and this was a correction the `--dry-run` forced.
+  The design originally assigned that role to D16, on the intuition that a 3 nm filter demands a long
+  exposure. Running the derivation showed otherwise: `ExposureRecommender`'s sensitivity metric is the
+  **NTarget = 20th-brightest star's** SNR, and a 2.9° field contains 20 bright stars whatever the
+  filter, so D16's derived exposure sits at the 0.5 s floor. Long exposures are demanded by *narrow,
+  sparse* fields, not by narrowband filters. D10 (3250 mm, sparse Virgo, limiting magnitude 18 so the
+  20th-brightest star sits near the faint end) derives ≈17 s with its band top clamped at the 30 s
+  ceiling, which is exactly the condition S3 needs.
+
+  This is worth writing down as more than bookkeeping: it means **a rich field can never produce an
+  exposure recommendation**, however photon-starved its faint stars are, because the metric only ever
+  looks at the brightest 20. Whether that is correct depends on whether AF needs only 20 good stars —
+  a defensible position — but it is the same shape of observation as F18 (step size sized by geometry
+  with no detectability term), and it is flagged as a followup rather than fixed here.
 
 ### `synthetic_meta.json` (dataset root)
 
