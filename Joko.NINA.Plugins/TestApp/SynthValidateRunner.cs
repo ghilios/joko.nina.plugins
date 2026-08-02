@@ -991,7 +991,18 @@ namespace TestApp.SynthBank {
                 var points = new List<ScatterErrorPoint>(2 * offsetSteps + 1);
                 for (var k = -offsetSteps; k <= offsetSteps; k++) {
                     var x = model.OptimalFocuserPosition + k * step;
-                    points.Add(new ScatterErrorPoint(x, model.HfrAtFocuserPosition(x), 0, 0));
+                    // Floor at the pixelization limit. The recommender never sees the OPTICAL curve -- it sees the
+                    // curve the detector MEASURES, and a sub-pixel PSF cannot report an HFR below roughly
+                    // SynthBankDerivations.PixelizationFloorPixels however sharp the optics get. Fitting the
+                    // unfloored curve on a severely oversampled dataset produces a fixed point that the real loop
+                    // never approaches: D01 (HFR_min ~0.24px optical) gives step_behavioral=3 unfloored, while the
+                    // actual round loop -- fitting real detected HFRs -- lands at 10, right next to step_theory's 9.
+                    // Assertion A3 would then flag a perfectly healthy convergence. Flooring here makes
+                    // step_behavioral the recommender's fixed point on the curve it can actually observe, which is
+                    // what the design asks A3 to compare against; the residual step_behavioral-vs-step_theory gap
+                    // then means what it is supposed to mean (F18), instead of restating our own R2 floor choice.
+                    var hfr = Math.Max(model.HfrAtFocuserPosition(x), SynthBankDerivations.PixelizationFloorPixels);
+                    points.Add(new ScatterErrorPoint(x, hfr, 0, 0));
                 }
                 var fit = HyperbolicFittingAlglib.Create(alglibAPI, points, useWeights: false);
                 if (!fit.Solve()) {
