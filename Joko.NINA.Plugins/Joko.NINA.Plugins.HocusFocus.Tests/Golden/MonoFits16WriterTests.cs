@@ -13,6 +13,7 @@
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using TestApp;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.Golden {
@@ -130,6 +131,88 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Golden {
             var pixels = new ushort[4];
             var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid() + ".fits");
             Assert.Throws<ArgumentException>(() => MonoFits16Writer.Write(path, pixels, 3, 3, Array.Empty<FitsCard>()));
+        }
+
+        // ── G8c: the full synth-bank card set/order + block padding, pure via BuildHeaderBlock ─────────────
+
+        /// <summary>The exact 7 fixed cards <c>MonoFits16Writer.Write</c>'s private <c>BuildCards</c> prepends to
+        /// any extra cards, reproduced here since that helper is private — this is what every caller (the linear
+        /// export AND the synth-bank generator) shares before their own extra cards diverge.</summary>
+        private static List<FitsCard> FixedCards(int width, int height) => new List<FitsCard> {
+            new FitsCard("SIMPLE", "T", "HocusFocus linear export"),
+            new FitsCard("BITPIX", "16"),
+            new FitsCard("NAXIS", "2"),
+            new FitsCard("NAXIS1", width.ToString()),
+            new FitsCard("NAXIS2", height.ToString()),
+            new FitsCard("BZERO", "32768"),
+            new FitsCard("BSCALE", "1"),
+        };
+
+        [Test]
+        public void SynthBankCardSet_KeywordOrder_MatchesTheDesignExactly() {
+            // docs/synthetic-af-bank-design.md "G3. FITS writer": SIMPLE, BITPIX, NAXIS, NAXIS1, NAXIS2, BZERO,
+            // BSCALE, XBINNING, YBINNING, XPIXSZ, YPIXSZ, FOCALLEN, EXPTIME, GAIN, FOCUSPOS, INSTRUME, END.
+            var cards = FixedCards(3840, 2160);
+            cards.AddRange(MonoFits16Writer.StandardCards(
+                binning: 2, pixelSizeMicronsTimesBinning: 5.8, focalLengthMm: 2000.0,
+                exposureSeconds: 3.0, gain: 100, focuserPosition: 12000, instrument: "HocusFocusSynthBank D11_rc10_585_afbin2"));
+
+            var expectedOrder = new[] {
+                "SIMPLE", "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", "BZERO", "BSCALE",
+                "XBINNING", "YBINNING", "XPIXSZ", "YPIXSZ", "FOCALLEN", "EXPTIME", "GAIN", "FOCUSPOS", "INSTRUME"
+            };
+            Assert.That(cards.Select(c => c.Keyword), Is.EqualTo(expectedOrder));
+        }
+
+        [Test]
+        public void SynthBankCardSet_HeaderBlock_Is17RecordsPaddedToOneBlock() {
+            var cards = FixedCards(3840, 2160);
+            cards.AddRange(MonoFits16Writer.StandardCards(
+                binning: 2, pixelSizeMicronsTimesBinning: 5.8, focalLengthMm: 2000.0,
+                exposureSeconds: 3.0, gain: 100, focuserPosition: 12000, instrument: "HocusFocusSynthBank D11_rc10_585_afbin2"));
+
+            var block = MonoFits16Writer.BuildHeaderBlock(cards);
+
+            Assert.Multiple(() => {
+                // 7 fixed + 9 StandardCards + 1 END = 17 records * 80 bytes = 1360 bytes -- one 2880-byte block.
+                Assert.That(block.Length % 2880, Is.EqualTo(0), "header block must be a 2880-byte multiple");
+                Assert.That(block.Length, Is.EqualTo(2880));
+
+                // Every record is intact at its 80-byte offset -- keyword text lands exactly where FITS expects it.
+                var text = System.Text.Encoding.ASCII.GetString(block);
+                for (int i = 0; i < cards.Count; i++) {
+                    var record = text.Substring(i * 80, 80);
+                    Assert.That(record, Does.StartWith(cards[i].Keyword.PadRight(8) + "="), $"record[{i}] ({cards[i].Keyword})");
+                }
+                var endRecord = text.Substring(cards.Count * 80, 80);
+                Assert.That(endRecord, Does.StartWith("END"));
+
+                // The remainder of the block (after the 17 records) must be pure space padding.
+                var usedBytes = (cards.Count + 1) * 80;
+                Assert.That(text.Substring(usedBytes), Is.EqualTo(new string(' ', block.Length - usedBytes)));
+            });
+        }
+
+        [Test]
+        public void SynthBankCardSet_WithLongInstrumentId_TruncatesTheOneRecord_RecordCountAndBlockSizeUnaffected() {
+            // A dataset id long enough to push the INSTRUME record's rendered length past 80 chars, exercising
+            // FitsCard.ToRecord's truncate-at-80 path together with the block-padding math around it: the record
+            // COUNT (17), not any one record's content length, is what drives the block count, so this still
+            // fits in a single 2880-byte block just like the short-id case.
+            var cards = FixedCards(9576, 6388);
+            cards.AddRange(MonoFits16Writer.StandardCards(
+                binning: 1, pixelSizeMicronsTimesBinning: 3.76, focalLengthMm: 2563.0,
+                exposureSeconds: 4.0, gain: 100, focuserPosition: 12000,
+                instrument: "HocusFocusSynthBank D14_cdk14_2563mm_e47_a_much_longer_instrument_tag_than_usual"));
+            var instrumeCard = cards.Single(c => c.Keyword == "INSTRUME");
+
+            var block = MonoFits16Writer.BuildHeaderBlock(cards);
+
+            Assert.Multiple(() => {
+                Assert.That(instrumeCard.ToRecord(), Has.Length.EqualTo(80), "ToRecord truncates rather than overflowing the record");
+                Assert.That(block.Length % 2880, Is.EqualTo(0));
+                Assert.That(block.Length, Is.EqualTo(2880), "still 17 records regardless of how long any one comment is");
+            });
         }
     }
 }

@@ -35,6 +35,15 @@
   <ItemGroup>
     <ProjectReference Include="..\Joko.NINA.Plugins.HocusFocus\Joko.NINA.Plugins.HocusFocus.csproj" />
   </ItemGroup>
+  <!-- The checked-in synthetic-bank spec (TestApp/SynthBank/synthetic-bank-spec.json, workstream G7) needs to
+       land beside the built exe so the synth-bank CLI's default spec argument resolves without an absolute
+       path. No prior None/CopyToOutputDirectory convention exists in this csproj (checked before adding this),
+       so this is the first. -->
+  <ItemGroup>
+    <None Include="SynthBank\synthetic-bank-spec.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
   <!--
   <ItemGroup>
     <Analyzer Include="..\packages\Microsoft.CodeAnalysis.Analyzers.3.3.2\analyzers\dotnet\cs\Microsoft.CodeAnalysis.Analyzers.dll" />

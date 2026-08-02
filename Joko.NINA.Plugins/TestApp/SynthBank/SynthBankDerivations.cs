@@ -249,7 +249,10 @@ namespace TestApp.SynthBank {
             var readNoise = sensor.ReadNoiseElectronsAtGain(gain);
 
             var effectiveBinning = captureBinning * detectionBinning;
-            var peakFractionBinned = Math.Min(1.0, star.KernelPeakFraction * effectiveBinning * effectiveBinning);
+            // GoldenFromTruth.PeakFractionBinned (not a reimplementation of its min(1, ...) cap here): the exposure
+            // derivation and the golden tiering must agree exactly on how a star's peak fraction saturates toward
+            // 1.0 as binning grows, or the two could silently drift apart on a future retune of the cap.
+            var peakFractionBinned = GoldenFromTruth.PeakFractionBinned(star.KernelPeakFraction, effectiveBinning);
 
             var rawTarget = SolveExposureForTargetGateSnr(ExposureRecommender.TargetSensitivity, fluxPerSecond, peakFractionBinned, effectiveBinning, skyPlusDarkRatePerSecond, readNoise);
             var rawLow = SolveExposureForTargetGateSnr(GateSnrBandFloor, fluxPerSecond, peakFractionBinned, effectiveBinning, skyPlusDarkRatePerSecond, readNoise);

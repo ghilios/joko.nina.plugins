@@ -269,11 +269,13 @@ namespace TestApp.SynthBank {
     /// <item>Transform every star from native to binned (captured) pixels: <c>c_binned = (c+0.5)/bin − 0.5</c>;
     /// HFR/outer-radius/σ_min all ÷ bin.</item>
     /// <item>Compute each star's own peak-pixel SNR and, from it, an individual tier.</item>
-    /// <item>Find close pairs with a spatial grid (not O(n²) — see <see cref="FindCandidatePairs"/>), union-find
-    /// stars within the MERGE separation into one component per component, then evaluate BLEND/DOMINANCE
-    /// interactions between the resulting components, not the raw stars — <see cref="Build"/>'s "Phase 4" is
-    /// where that precedence (merge first, then blend/dominance between components) is enforced; see the
-    /// design-decisions paragraph below for why.</item>
+    /// <item>Find close STAR pairs with a spatial grid (not O(n²) — see <see cref="FindCandidatePairs"/>) and
+    /// union-find them within the MERGE separation into components. Then run a SECOND, independent spatial-grid
+    /// search — same helper, re-parameterized over the resulting COMPONENT centroids and their own combined HFRs
+    /// — to find and evaluate BLEND/DOMINANCE candidates between components, not the raw stars — <see cref="Build"/>'s
+    /// "Phase 4" is where that precedence (merge first, then blend/dominance between independently-rediscovered
+    /// components) is enforced; see the design-decisions paragraph below for why, and point (4) specifically for
+    /// why the component-level search must be independent rather than derived from the star-level one.</item>
     /// <item>Size and place a box per surviving component; clip against the frame, demoting/dropping per the
     /// edge rules.</item>
     /// <item>Apply saturation as a final "unmissable" override, then assemble the <see cref="GoldenFrame"/> and
@@ -291,7 +293,16 @@ namespace TestApp.SynthBank {
     /// below <see cref="GoldenTierThresholds.UnresolvedSnr"/> never participates in blend/dominance interactions
     /// at all (neither as the demoted party nor as the one doing the demoting) — the spec states "do not promote
     /// an invisible star into unresolved" for the dominance case; this extends that symmetrically so an
-    /// already-invisible neighbor cannot demote a visible star either.</para>
+    /// already-invisible neighbor cannot demote a visible star either. (4) Blend/dominance candidates are found by
+    /// an independent spatial-grid search over COMPONENT centroids (<see cref="Build"/>'s Phase 4), not inherited
+    /// from the star-level candidates Phase 2 used to find merges. A merged component's flux-weighted centroid can
+    /// land closer to a third, unrelated star than any of the component's own individual members did — e.g. two
+    /// stars close enough to merge into a tight pair, whose combined centroid then falls inside the blend band of
+    /// a third star that neither original star was ever, on its own, close enough to. Deriving Phase 4's
+    /// candidates only from star-pairs that individually qualified as a blend candidate would silently miss
+    /// exactly that case — a component pair can be a genuine blend/dominance candidate even when none of its
+    /// members' star-level pairs ever were, so the candidates must be rediscovered at the component level rather
+    /// than filtered down from the star level.</para>
     /// </summary>
     public static class GoldenFromTruth {
 
@@ -432,6 +443,15 @@ namespace TestApp.SynthBank {
         /// actually cares about (the caller re-checks the exact, pair-specific threshold), found via a uniform
         /// spatial grid rather than an O(n²) scan.
         ///
+        /// <para><b>Generic over the point set.</b> Nothing here is star-specific: <paramref name="x"/>/<paramref name="y"/>
+        /// are just points, and <paramref name="maxReach"/> is whatever upper bound the CALLER's point set needs.
+        /// <see cref="Build"/> calls this TWICE with two different point sets, each with its own reach: once over
+        /// raw star centres (Phase 2, <c>MergeSeparationHfrMultiple × max star HFR</c>, to find merge candidates)
+        /// and once over merged-component centroids (Phase 4, <c>BlendSeparationHfrMultiple × max component
+        /// HFR</c>, to find blend/dominance candidates). Each call's returned indices are local to whichever
+        /// arrays that call passed in — a component-pass index is an index into the caller's component array, not
+        /// a truth index.</para>
+        ///
         /// <para><b>Complexity.</b> Cell size = <paramref name="maxReach"/>, so two points within that distance
         /// can only land in the same cell or one of its 8 neighbors (standard uniform-grid property: a distance
         /// ≤ cell width can cross at most one cell boundary per axis) — every candidate pair is found by scanning
@@ -545,29 +565,31 @@ namespace TestApp.SynthBank {
                 sat[i] = peakE[i] >= saturationCeiling;
             }
 
-            // ---- Phase 2: candidate pairs (spatial grid) -> union-find merges + remembered blend candidates. ----
-            var maxHfr = 0.0;
-            for (var i = 0; i < n; ++i) { if (hfr[i] > maxHfr) maxHfr = hfr[i]; }
-            // Bound by the BLEND multiple (the wider of the two interaction radii): a pair's own HFR_pair can
-            // never exceed the frame's largest single-star HFR, so this one search radius safely finds every
-            // pair that could qualify for EITHER the merge or the blend/dominance test below.
-            var maxReach = thresholds.BlendSeparationHfrMultiple * maxHfr;
-            var candidatePairs = FindCandidatePairs(cx, cy, maxReach);
+            // ---- Phase 2: candidate STAR pairs (spatial grid) -> union-find merges ONLY. ----
+            // This search is scoped to the MERGE test alone. Phase 4 below runs its OWN, independent candidate
+            // search over component centroids for blend/dominance rather than inheriting anything from here --
+            // see the class remarks (design decision (4)) for why a star-level blend candidate list would miss
+            // component-level candidates that no individual star pair ever qualified for.
+            var maxStarHfr = 0.0;
+            for (var i = 0; i < n; ++i) { if (hfr[i] > maxStarHfr) maxStarHfr = hfr[i]; }
+            // Bound by the MERGE multiple: a pair's own HFR_pair can never exceed the frame's largest single-star
+            // HFR, so this search radius safely finds every star pair that could qualify for the merge test below.
+            var mergeMaxReach = thresholds.MergeSeparationHfrMultiple * maxStarHfr;
+            var mergeCandidatePairs = FindCandidatePairs(cx, cy, mergeMaxReach);
 
             var uf = new UnionFind(n);
-            var blendCandidates = new List<(int A, int B)>();
-            foreach (var (i, j) in candidatePairs) {
+            foreach (var (i, j) in mergeCandidatePairs) {
                 var hfrPair = FluxWeightedMean(truth[i].FluxElectrons, hfr[i], truth[j].FluxElectrons, hfr[j]);
                 var dx = cx[i] - cx[j];
                 var dy = cy[i] - cy[j];
                 var s = Math.Sqrt(dx * dx + dy * dy);
                 if (s < thresholds.MergeSeparationHfrMultiple * hfrPair) {
                     uf.Union(i, j);
-                } else if (s < thresholds.BlendSeparationHfrMultiple * hfrPair) {
-                    blendCandidates.Add((i, j));
                 }
-                // else: this SPECIFIC pair's own HFR_pair put it outside the blend band even though the
-                // (coarser, global-max-based) grid search radius admitted it as a candidate -- independent.
+                // else: this SPECIFIC pair's own HFR_pair put it outside the merge band even though the
+                // (coarser, global-max-based) grid search radius admitted it as a candidate -- not merged. This
+                // pair (and every other non-merging pair) may still interact at the BLEND/DOMINANCE level, but
+                // that is decided between COMPONENTS in Phase 4's own search, not here.
             }
 
             // ---- Phase 3: build components from the union-find partition. ----
@@ -581,11 +603,9 @@ namespace TestApp.SynthBank {
                 list.Add(i); // ascending TruthIndex order, since i runs 0..n-1.
             }
 
-            var componentOfStar = new int[n];
             var components = new Dictionary<int, Component>();
             foreach (var kv in membersByRoot) {
                 var members = kv.Value;
-                foreach (var m in members) { componentOfStar[m] = kv.Key; }
 
                 double fluxSum = 0, cxSum = 0, cySum = 0, hfrSum = 0, outerSum = 0, fracSum = 0;
                 var anySat = false;
@@ -635,21 +655,41 @@ namespace TestApp.SynthBank {
             }
 
             // ---- Phase 4: resolve blend/dominance between COMPONENTS (not raw stars) -- see class remarks. ----
-            var demoted = new HashSet<int>();
-            var evaluatedComponentPairs = new HashSet<(int, int)>();
-            foreach (var (i, j) in blendCandidates) {
-                var ri = componentOfStar[i];
-                var rj = componentOfStar[j];
-                if (ri == rj) {
-                    continue; // already one component via a different merge chain -- one box, no interaction with itself.
-                }
-                var key = ri < rj ? (ri, rj) : (rj, ri);
-                if (!evaluatedComponentPairs.Add(key)) {
-                    continue; // this component pair was already evaluated via another member-star pair.
-                }
+            // Deliberately a SEPARATE candidate search over component centroids, not a reuse/filter of Phase 2's
+            // star-level candidates -- see class remarks point (4): a merged component's flux-weighted centroid
+            // can sit closer to a third object than any of its individual members did, so blend/dominance
+            // candidates that exist only at the component level would otherwise never be discovered.
+            //
+            // Component identity for this search (and for iteration order below) is `Component.RepresentativeIndex`
+            // -- the point arrays are built in ASCENDING representative-index order, so `FindCandidatePairs`'
+            // i&lt;j array-index pairs come out in that same stable order for free, matching Phase 2's ordering
+            // (which is inherently ascending truth-index order) and making the whole pipeline deterministic run to
+            // run. Because every component contributes exactly one point, `FindCandidatePairs` cannot return a
+            // self-pair or the same unordered component pair twice, so (unlike the old star-derived candidate
+            // list, where multiple star pairs could map to the same component pair) no de-duplication bookkeeping
+            // is needed here.
+            var componentRoots = components.Keys.OrderBy(root => components[root].RepresentativeIndex).ToList();
+            var compCount = componentRoots.Count;
+            var compCx = new double[compCount];
+            var compCy = new double[compCount];
+            var maxComponentHfr = 0.0;
+            for (var k = 0; k < compCount; ++k) {
+                var c = components[componentRoots[k]];
+                compCx[k] = c.CenterX;
+                compCy[k] = c.CenterY;
+                if (c.HfrPixels > maxComponentHfr) maxComponentHfr = c.HfrPixels;
+            }
+            // Bound by the BLEND multiple (the wider of the two component-level interaction radii): a component
+            // pair's own HFR_pair can never exceed the frame's largest single-component HFR, so this search
+            // radius safely finds every component pair that could qualify for EITHER the merge-residual check or
+            // the blend/dominance test below.
+            var componentMaxReach = thresholds.BlendSeparationHfrMultiple * maxComponentHfr;
+            var componentCandidatePairs = FindCandidatePairs(compCx, compCy, componentMaxReach);
 
-                var a = components[key.Item1];
-                var b = components[key.Item2];
+            var demoted = new HashSet<int>();
+            foreach (var (ki, kj) in componentCandidatePairs) {
+                var a = components[componentRoots[ki]];
+                var b = components[componentRoots[kj]];
                 var hfrPair = FluxWeightedMean(a.CombinedFlux, a.HfrPixels, b.CombinedFlux, b.HfrPixels);
                 var dx = a.CenterX - b.CenterX;
                 var dy = a.CenterY - b.CenterY;
@@ -661,7 +701,9 @@ namespace TestApp.SynthBank {
                     continue;
                 }
                 if (s >= thresholds.BlendSeparationHfrMultiple * hfrPair) {
-                    continue; // independent at the component level.
+                    continue; // this SPECIFIC pair's own HFR_pair put it outside the blend band even though the
+                              // (coarser, global-max-based) grid search radius admitted it as a candidate --
+                              // independent at the component level.
                 }
 
                 // A component already below the visibility floor never participates, in either role -- see
@@ -672,10 +714,10 @@ namespace TestApp.SynthBank {
 
                 var ratio = Math.Max(a.CombinedFlux, b.CombinedFlux) / Math.Min(a.CombinedFlux, b.CombinedFlux);
                 if (ratio < thresholds.DominanceFluxRatio) {
-                    demoted.Add(key.Item1);
-                    demoted.Add(key.Item2);
+                    demoted.Add(componentRoots[ki]);
+                    demoted.Add(componentRoots[kj]);
                 } else {
-                    demoted.Add(a.CombinedFlux <= b.CombinedFlux ? key.Item1 : key.Item2);
+                    demoted.Add(a.CombinedFlux <= b.CombinedFlux ? componentRoots[ki] : componentRoots[kj]);
                 }
             }
 
@@ -747,13 +789,14 @@ namespace TestApp.SynthBank {
                                 : $"peak SNR {F(comp.CombinedSnr)} -> tier {nativeTier}";
                         }
                     }
-
-                    if (nativeTier != null) {
-                        coverageCounts[nativeTier]++;
-                    }
                 }
 
+                // Coverage counts ONLY components that actually landed in "stars" -- see the XML doc on `coverage`
+                // below for why (nativeTier alone is not enough: a component can have a non-null nativeTier and
+                // still end up "unresolved" (edge-clipped, demoted) or "omitted" (empty/off-frame box), neither of
+                // which belongs in a recall-scorable population).
                 if (bucket == "stars") {
+                    coverageCounts[nativeTier]++;
                     starBoxes.Add((comp.RepresentativeIndex, box));
                 } else if (bucket == "unresolved") {
                     unresolvedBoxes.Add((comp.RepresentativeIndex, box));
@@ -796,6 +839,18 @@ namespace TestApp.SynthBank {
                 }
             }
 
+            // `Total` here is the RECALL DENOMINATOR: "how many real stars at this tier must a detector find for
+            // recall@tier to reach 1.0". `coverageCounts` (built above) only ever increments for a component that
+            // landed in `bucket == "stars"`, i.e. it deliberately EXCLUDES every component that ended up
+            // `unresolved` (edge-clipped, or demoted by a blend/dominance interaction) or `omitted` (below the
+            // visibility floor, or its box didn't intersect the frame) -- those are, by design (see
+            // SyntheticTier's docs), neither a required find NOR a false positive, so folding them into a recall
+            // population would silently inflate the denominator the moment a consumer reads `Total` that way.
+            // `Examined == Total` always: synthetic coverage is complete by construction (every star's disposition
+            // is computed, not sampled), unlike the LLM-QA (real-bank) goldens (tools/golden/build_goldens.py),
+            // where `Examined < Total` is the norm because that pipeline discovers a candidate population and then
+            // only QAs as much of it as the montage budget allows (see docs/synthetic-af-bank-design.md, "1.
+            // Detector recall/precision has no exact ground truth").
             var coverage = new Dictionary<string, GoldenTierCoverage> {
                 [GoldenConfidence.High] = new GoldenTierCoverage { Examined = coverageCounts[GoldenConfidence.High], Total = coverageCounts[GoldenConfidence.High] },
                 [GoldenConfidence.Medium] = new GoldenTierCoverage { Examined = coverageCounts[GoldenConfidence.Medium], Total = coverageCounts[GoldenConfidence.Medium] },
