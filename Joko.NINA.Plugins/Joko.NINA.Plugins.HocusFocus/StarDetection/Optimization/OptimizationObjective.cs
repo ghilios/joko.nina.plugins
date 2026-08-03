@@ -208,7 +208,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         // Penalty strength: 1 − Strength · max(0, frac − Threshold). 0 ⇒ the term is disabled and J is
         // bit-identical to the pre-F23 objective (used by --legacy-objective and by the A/B "before" arm).
-        public double MarginalSnrStrength { get; set; } = 1.0;
+        //
+        // DEFAULT 0 — MEASURED, AND NOT SHIPPABLE AS-IS. On the synthetic bank at strength 1.0 / floor 6.0 this
+        // term does real work where it can fire (D09 precision 0.451 → 0.944, D17 0.465 → 0.735, D10 0.547 →
+        // 0.814) but misses every acceptance gate: 7/17 datasets still below 0.90 precision (control: 8/17),
+        // recall@high dropping > 0.02 on three datasets, and σ_focus worsening > 20% on three more.
+        //
+        // The reason is STRUCTURAL, not a mis-set constant, which is why raising the floor does not fix it. The
+        // gate guarantees sensitivity >= PeakResponse × StarClippingMultiplier, and BOTH of those are searchable
+        // curated axes — so the optimizer can lift the statistic's own LOWER BOUND above MarginalSnrFloor and make
+        // this penalty structurally unable to fire, while the false positives remain. Measured, it does exactly
+        // that: D12 landed at PeakResponse 1.0 × StarClip 6.25 = 6.25 and D15 at 1.0 × 6.75 = 6.75, both just past
+        // the 6.0 floor, with precision stranded at 0.659 and 0.587. A floor of 8 would simply be escaped at 8.
+        //
+        // The fix is a signal the search cannot lift — peak/σ with PeakResponse out of the expression — which needs
+        // new plumbing (Star exposes only the gated MeasuredSensitivity today) and is therefore wave-2 scope.
+        // Kept implemented, tested and flag-selectable (`--marginal-snr-strength`) so the next attempt starts from
+        // a measured position rather than from scratch. See docs/f23-objective-precision-term-results.md.
+        public double MarginalSnrStrength { get; set; } = 0.0;
 
         // Floor on the penalty so this term alone can never drive J to 0 (the hard floors own the hard-fail path).
         public double MarginalSnrMinFactor { get; set; } = 0.5;
