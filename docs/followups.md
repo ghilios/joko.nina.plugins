@@ -532,6 +532,15 @@ population is not hypothetical.
    on **D01–D03** of the synthetic bank, where the correct answer is known and current recall is 0.135 / 0.475 /
    0.400.
 
+   **Measured 2026-08-03 — see [F35](#f35--minhfr-should-be-seeded-from-the-sweep-wings-and-neither-available-hfr-statistic-can-size-it), which changes this step in two ways.**
+   (a) The trigger as written is **circular** — D01's in-focus frame detects zero stars, so there is no median
+   in-focus HFR to read. It has to come from the sweep WINGS, which are richly populated (816–2002 stars/frame)
+   and already fit at R² = 0.911. (b) The success criterion here is wrong: lowering the gate moves D01's recall
+   only **0.135 → 0.165**, because `TooLowHFR` accounts for just 1877 of ~38500 missed stars while the structure
+   map never proposes 18801 of them. What it *does* do is put 5 stars back on the vertex frame at `MinHFR` 0.5,
+   which clears the `NHard` = 3 hard floor and is the entire reason `FinalJ` is 0. **Score this fix on "the hard
+   floor passes", not on recall** — and do not expect it to lift the W-class band.
+
    **The risk to design against.** A seeded `MinHFR` is a knob the search may not be able to climb back out of:
    the objective is flat in its neighbourhood on exactly these rigs, which is why the search never moves it
    today. Seed it to a value *measured* from the frames, not to a permissively low one, and re-check that a rig
@@ -948,6 +957,101 @@ precision exactly (that is real and now verified), but it does not currently exh
 landing's Sensitivity is quoted, so a `mccomiskey`-shaped landing is not read as a floor landing. (2) Decide
 deliberately whether the bank should grow a dataset class that reproduces the shedding regime — and until it does,
 score every candidate objective change on **both** banks, never the synthetic one alone.
+
+### F35 — `MinHFR` should be seeded from the sweep WINGS, and neither available HFR statistic can size it
+**Status:** Open · found 2026-08-03 answering "how far can `MinHFR` safely come down?" for
+[F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic)
+
+[F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic)'s proposed fix —
+"if the median in-focus HFR is at or below `MinHFR`, seed `MinHFR` beneath it" — **cannot be implemented as
+written, because it is circular.** On `D01_ultrawide_40mm` the in-focus frame detects **zero** stars at the
+default gate, so there is no median in-focus HFR to read. The measurement that would trigger the fix is the one
+the gate has destroyed.
+
+**The wings break the circularity, and cost nothing.** Far from focus the PSF is large, so those frames are
+unaffected by the gate and richly populated — D01's four outer frames carry **816–2002** accepted stars each at
+`MinHFR` 1.2. The hyperbola fit already succeeds on them (**R² = 0.911**), and `BestFit.Minimum.Y` is already
+computed and already read by the wizard as `baselineInFocusHfr`. So the trigger is available today with no new
+measurement: *fit the curve from whatever frames produce stars, and compare the predicted vertex against
+`MinHFR`.*
+
+**But the fit must TRIGGER the adjustment, not SIZE it — both available statistics are biased the same way.**
+
+| statistic | reads | truth | error |
+|---|---|---|---|
+| wing-only hyperbola vertex (frames with ≥100 stars) | **0.548 px** | 0.238 px | **2.3× high** |
+| median measured HFR of survivors at focuser 5991 | **1.33 px** | 0.606 px | **2.2× high** |
+| median measured HFR of survivors at focuser 6009 | **1.68 px** | 0.606 px | **2.8× high** |
+
+The second and third are **left-censored at `MinHFR` itself** — only stars measuring above the gate can be
+seen, so the surviving sample's median is bounded below by the very knob being tuned. This is structurally the
+same trap [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)
+wave 1 hit, where the marginal-SNR statistic was left-censored at the Sensitivity gate. The first is a
+different mechanism (a hyperbola's vertex parameter is the one the wings constrain worst) with the same sign.
+
+**Both biases understate how far the gate must come down**, so a plausible rule like `MinHFR = 0.8 × predicted`
+gives 0.44 on D01 — which still gates its true 0.238 px vertex completely. The fix would have looked applied and
+changed nothing.
+
+**How low is safe: measured, and the answer is "as low as you like".**
+`golden eval --params default --min-hfr <M>`, exact precision against synthetic truth, 8 values from 1.2 to 0.1:
+
+| `MinHFR` | D01 recall@high | D01 FP | D02 recall@high | D02 FP | D01 vertex-frame stars |
+|---|---|---|---|---|---|
+| 1.2 (default) | 0.129 | **0** | 0.451 | **0** | **0** |
+| 0.9 | 0.152 | **0** | 0.507 | **0** | **0** |
+| 0.7 | 0.160 | **0** | 0.567 | **0** | 2 |
+| **0.5** | 0.164 | **0** | 0.588 | **0** | **5** |
+| 0.35 | 0.164 | **0** | 0.594 | **0** | 5 |
+| 0.25 | 0.165 | **0** | 0.595 | **0** | 5 |
+| 0.1 | 0.165 | **0** | — | — | 6 |
+
+**Zero false positives at every value on both datasets**, and the recall gain saturates by ~0.35. `MinHFR` is a
+second line of defence — hot-pixel filtering is separate and enabled by default — and on this bank it is not
+carrying any of the load. **0.25–0.35 captures all the available gain.**
+
+**The mechanism is the hard floor, not recall — and that reframes F20.** Lowering the gate moves D01's recall
+only 0.129 → 0.165. What it actually does is put stars back on the **vertex frame**: 0 → 2 at 0.7, and **0 → 5
+at 0.5**, which is the first value that clears the objective's `NHard` = 3 stars-per-frame requirement. That is
+the whole of `FinalJ = 0.00000`. So the fix is real and worth shipping, but its success criterion is *"the hard
+floor passes and the search gets a gradient"*, **not** *"recall recovers"*.
+
+**And `MinHFR` is only 5% of D01's recall problem.** False-negative attribution at the two extremes:
+
+| gate | at `MinHFR` 1.2 | at 0.1 |
+|---|---|---|
+| NO CANDIDATE (structure gap) | **18801** | **18800** |
+| TooSmall | 6398 | 6398 |
+| LowSensitivity | 6301 | 6301 |
+| TooDistorted | 2387 | 2387 |
+| NotCentered | 2228 | 2228 |
+| **TooLowHFR** | **1877** | **1** |
+
+`TooLowHFR` is 1877 of ~38500 missed golden stars. Removing it entirely leaves every other gate untouched.
+**The W class's recall is lost in candidate FORMATION** — the structure map never proposes 49% of them, and
+`MinimumStarBoundingBoxSize` (default 5 px) rejects another 17% as `TooSmall` — so anyone expecting the
+`MinHFR` fix to lift D01 toward the 0.90 W-class band will be disappointed, and the band stays missed for a
+reason this entry does not address.
+
+**Why it matters.** F20 is the strongest surviving finding on this bank and its fix was one circular statistic
+away from being unimplementable. The censoring point generalises past `MinHFR`: **any gate whose threshold is
+tuned from the surviving sample is tuning against a distribution it truncated.** That has now bitten twice
+(Sensitivity in F23, HFR here), which makes it a review question rather than a coincidence.
+
+**Next step.** Three pieces.
+1. Seed `MinHFR` when `BestFit.Minimum.Y` (from the wing-populated fit) sits at or below it — **trigger only**.
+2. Size the seed from **pixel scale and sampling**, not from either censored statistic. The measured floor is
+   0.25–0.35 px with no precision cost on this bank; validate on D01–D03 where the truth vertex is known
+   (0.238 / 0.280 / ~0.97 px). Note the gate is `star.HFR <= p.MinHFR`, inclusive, so the seed must be strictly
+   below the HFR to be kept.
+3. Widen the search where it matters: `OptimizerVariable`'s `MinHFR` axis is `Continuous(0.1, 5.0, step 0.25)`,
+   so from 1.2 the reachable grid is 0.95 → 0.70 → 0.45 → 0.20. Only 0.20 clears D01, it is four steps away with
+   `J` flat the whole way (F20's cold-start plateau), and a 0.25 step is far too coarse in a sub-pixel regime —
+   0.45 → 0.20 is a 2.25× jump. A seed makes the walk unnecessary; a finer low-end step makes it survivable.
+
+**The risk to design against, unchanged from F20:** the objective rewards star count, so nothing pulls a seeded
+`MinHFR` back up. It is a knob the search cannot climb out of, which is why the seed must come from geometry
+rather than from a measurement the gate itself shaped.
 
 ---
 
