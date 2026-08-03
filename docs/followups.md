@@ -1002,6 +1002,20 @@ sharing its lower bound, so the two verdicts cannot contradict each other again.
 explicitly at each stop site instead of parsed out of prose, and `stepToleranceBand` is recorded on the terminal
 so the claim is checkable from the report alone.
 
+**Verified on the motivating case.** `synth-validate --datasets D05_tec140_1000mm --scenarios S2 --max-rounds 4`
+re-run after the fix:
+
+```
+converged:         false
+stoppedReason:     "stalled (round applied nothing, but step 140 is outside the 14 tolerance band of
+                    step_behavioral 35) — a no-op recommendation from a degenerate fit, not convergence"
+finalStepSize: 140    stepBehavioral: 35    stepToleranceBand: 14
+assertions:    A3 verdict=FAIL  "final step 140 outside [21,56] = [0.6,1.6]x step_behavioral (35)"
+```
+
+Same run, same step, same A3 failure — the report no longer contradicts itself, and the terminal now publishes
+the band its verdict was reached with.
+
 **Why it is worth a numbered entry.** Four calibration bugs have now been found on this harness — three in this
 family — every one by someone happening to look rather than by anything failing. A harness that reports its own
 success is load-bearing for every conclusion drawn from it; see also the `truthViolations` /

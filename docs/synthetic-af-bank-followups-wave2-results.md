@@ -191,6 +191,11 @@ still viable.
 | F34 — convergence requires the tolerance band | no (harness) |
 | F27 — stale gate counts corrected, the optimizer seam documented | no (docs) |
 
+**F34 verified on its motivating case.** `synth-validate --datasets D05_tec140_1000mm --scenarios S2` now
+reports `converged: false` with `stoppedReason: "stalled (round applied nothing, but step 140 is outside the 14
+tolerance band of step_behavioral 35)"`, and A3 still FAILs the same number. Same run, same step, same
+assertion — the report no longer contradicts itself.
+
 **F28 is the only behavioural change.** Signal-sufficient runs where every frame is short of the star-count
 target AND the gate sat below its own inert bound move from "no exposure offered" to a 2× probe. The rig that
 motivated the zero-rejections test is untouched — it rejected 5 candidates at 2 s, so its gate was demonstrably
