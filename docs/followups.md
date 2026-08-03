@@ -187,9 +187,26 @@ F18 is the sweep over-reaching what the detector can see, and this is the recomm
 over-reach once it has. A user who starts too wide — the likely case on an unfamiliar rig — can be walked
 further out rather than back in. The recovery on D05 was luck, not design.
 
+**Re-measured 2026-08-03 (F23 wave 1) — the manifestation is seed-dependent.** On the re-run D05 S2 fits at
+**R² = −0.106** (still negative — no usable curve) and the recommender answers **140**, i.e. it *held* the step
+rather than widening it to 240. The specific 4×→7× over-reach in the evidence above did not recur.
+
+The code gap this entry names is untouched, so the entry stands: `Recommend` still has no fit-quality gate, and
+whether a degenerate fit happens to hold or to widen is left to the noise realization. But the headline number
+is not the typical case.
+
+**Found while re-measuring — a fourth harness-calibration bug.** That same D05 S2 run is scored
+`converged: true`, `stoppedReason: "converged (round applied nothing)"`, with `finalStepSize 140` against
+`stepBehavioral 35` — four times too wide. Assertion A3 correctly FAILs it (`final step 140 outside [21,56]`),
+but the convergence flag reads PASS. A degenerate fit produces a no-op recommendation, and the loop reads
+"nothing changed" as "converged". This inflates convergence counts on exactly the runs that are most broken,
+and belongs with the three calibration bugs already recorded in
+[`docs/synthetic-af-bank-baseline-results.md`](synthetic-af-bank-baseline-results.md).
+
 **Next step.** Gate the recommendation on fit quality. The R² is already in hand at the call site; a fit below
 some floor should either hold the current step or shrink it, never widen it. Reproduce with
-`synth-validate --datasets D05_tec140_1000mm --scenarios S2 --max-rounds 4`.
+`synth-validate --datasets D05_tec140_1000mm --scenarios S2 --max-rounds 4`. Separately: make "converged" require
+being inside the tolerance band, not merely unchanged.
 
 ### F26 — A stuck binning recommendation starves the step update indefinitely
 **Status:** Open · found 2026-08-03 running scenarios S1/S6 on the synthetic AF bank
@@ -216,6 +233,29 @@ whose true HFR sits near the 4.5 px binning boundary, i.e. exactly F22's populat
 flips a threshold, plus an ordering rule that waits for that threshold to settle. The user sees the wizard
 "recommending" the same wrong binning every round and never getting to the knob that actually matters. Neither
 F22 nor the ordering rule looks broken on its own, which is why this needs its own entry.
+
+**Re-measured 2026-08-03 (F23 wave 1) — the LIVELOCK does not reproduce; the deferral does.** Same harness,
+same datasets, `--max-rounds 4 --max-evals 120`:
+
+| run | recorded evidence | re-measured |
+|---|---|---|
+| D08 S1 | step held at 21 for **4 rounds**, target 82 | 21 → 21 → 36 → **62**, converged in 3 rounds |
+| D12 S6 | 35 → 60 → 60 → 74, target 141 | 35 → 60 → 60 → 80, still not converged at round 4 |
+
+The binning-first deferral is still visible and still costs a round — D08 applies step 21 twice, and D12
+applies 60 twice — but the step then updates and D08 converges. The unbounded stall does not recur. The
+difference is that the landed Sensitivity varied round to round here (16.7 / 15.7 / 10 on D08) rather than
+sitting at the floor, so the binning recommendation settled instead of being persistently wrong — which is
+consistent with F26 being downstream of [F22](#f22--detection-binning-is-a-hard-threshold-on-a-measurement-that-under-reads-so-boundary-rigs-get-the-wrong-factor)/F23
+rather than an independent defect.
+
+Also measured: with the F23 marginal-SNR term enabled, **D12 S6 converges** (3 rounds, final step 103) where
+shipping does not (4 rounds, final 80, not converged). So the objective fix helps this loop even though it
+fails its own precision gates.
+
+**Status revision.** The one-round deferral cost is real and worth the guard below; the "indefinitely" in this
+entry's title is not supported by re-measurement and should be read as "for at least one round, unbounded in
+principle".
 
 **Next step.** Bound the deferral: if the binning recommendation has not changed the applied value for N
 consecutive rounds, stop deferring and let the step update proceed. Fixing F22 would also dissolve this, but the
@@ -253,7 +293,43 @@ positive rate. Those false positives then feed the autofocus fit and the sensor-
 is not confined to a reported number. It also reframes the real-bank optimizer results: every prior "A
 beat C0" conclusion was scored against a precision figure that could not see this.
 
-**Next step.** Add a precision-like term to the objective. It cannot be true precision on real data
+**Wave 1 executed 2026-08-03 — BOTH candidate mechanisms measured, both REJECTED.** Plan:
+[`plans/af-recommender-hardening-plan.md`](../plans/af-recommender-hardening-plan.md); full results:
+[`docs/f23-objective-precision-term-results.md`](f23-objective-precision-term-results.md). Three arms, one
+binary, arm selected by flag; scored by `bank-verify` config A against a same-session control:
+
+| arm | precision < 0.90 | recall@high drop > 0.02 | σ_focus worse > 20% |
+|---|---|---|---|
+| H — unmodified HEAD (control) | 8/17 | — | — |
+| b — hard floor on the searchable Sensitivity range | **9/17** | | |
+| a — `SMarginalSnr` objective term | **7/17** | 3 | 3 |
+
+**(b) is worse than doing nothing.** Forcing Sensitivity to 6 breaks four datasets that were healthy — D13
+0.985 → 0.860, D14 0.948 → 0.739, D04 0.977 → 0.859 — while helping three. Restricting the *domain* does not
+remove the incentive to buy star count; the search simply loosens other gates to win the stars back, admitting
+junk through a different door. This is the strongest available argument that the fix belongs in the objective.
+
+**(a) works where it can fire, and is structurally escapable.** Real gains (D09 0.451 → **0.944**, D17 0.465 →
+0.735, D10 0.547 → 0.814) but no gate cleared. The reason is not a mis-set constant: the gate guarantees
+`sensitivity >= PeakResponse × StarClippingMultiplier`, and **both are searchable curated axes**, so the
+optimizer can lift the statistic's own lower bound above the floor and make the penalty unable to fire while
+the false positives remain. Measured: D12 landed at `1.0 × 6.25 = 6.25` and D15 at `1.0 × 6.75 = 6.75`, both
+just past the 6.0 floor, precision stranded at 0.659 and 0.587. A floor of 8 would be escaped at 8, so the
+budgeted retune round was deliberately not spent.
+
+**Also learned:** D08 lands at Sensitivity 8 — above any floor, term legitimately inert — with precision
+0.748. So a floored Sensitivity is **not** the only source of false positives, and this entry's mechanism
+section describes part of the problem, not all of it.
+
+`MarginalSnrStrength` therefore ships at **0** (inert; J bit-identical to before). The implementation is kept,
+tested and flag-selectable so the next attempt starts from a measured position.
+
+**Next step (revised).** The proxy must be computed on a statistic the search cannot lift — `peak/σ` with
+`PeakResponse` out of the expression — which needs new plumbing, since `Star` exposes only the gated
+`MeasuredSensitivity` today. Independently, find the second false-positive source that operates at healthy
+Sensitivity (D08, D16). Original framing below.
+
+**Next step (original).** Add a precision-like term to the objective. It cannot be true precision on real data
 (that is the whole problem), but two proxies are already available: the golden-independent
 false-positive *proxies* the detector already collects, and — for tuning and regression — this bank,
 where precision is exact. Any change wants scoring against **both** banks, since the synthetic one can
@@ -425,8 +501,30 @@ vs OIII 5 nm at 30 s), i.e. the star population and SNR. The measurement, not th
 here (R² = 1.0000). So the recommendation is delivered with full confidence and is wrong. Worse, it is
 *bistable*: the same rig can be told 1 on a narrowband night and 2 on a luminance night.
 
-**Next step.** Two candidates, not mutually exclusive. (a) Calibrate out the bias — the measured-vs-optical
-under-read is systematic and could be characterised against this bank rather than guessed. (b) Add hysteresis or
+**Confirmed as an F23 symptom (2026-08-03) — measured with a toggle, not inferred.** The marginal-SNR
+false-positive term built in F23 wave 1 is switchable (`--marginal-snr-strength`) and changes *only* the
+objective, so the same frames and the same seed can be scored with the optimizer landing at Sensitivity 0 or
+above it. `D17_cdk14_oiii5` scenario S0:
+
+| objective | landed Sensitivity | measured in-focus HFR | binning recommended |
+|---|---|---|---|
+| term OFF (shipping) | 0.0 | **3.27 px** | 1 |
+| term ON | 7.0 | **4.66 px** | **2** |
+
+The 4.5 px threshold sits between the two readings, so the Sensitivity landing *alone* flips the factor — a
+30% shift in the measured HFR from nothing but admitted noise. The same signature appears on
+`D12_c14_585_afbin2` S6 round 2 (Sensitivity 0 → 6 moves the in-focus HFR 2.99 → 4.45, +49%) and on
+`D08_c11_2800mm` S0. This is the causal chain the design spec asserted, now measured: **noise blobs admitted
+at a floored Sensitivity pull the in-focus HFR median down, and on a boundary rig that flips the binning
+factor.**
+
+The term does **not** ship (it fails its acceptance gates — see [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)),
+so F22 still reproduces in shipping behaviour. What is settled is the *attribution*, and with it that
+calibrating the HFR bias would have been the wrong fix — the bias is not a property of the measurement, it is
+a property of what the optimizer chose to detect.
+
+**Next step.** Two candidates, not mutually exclusive. (a) ~~Calibrate out the bias~~ — **ruled out** by the
+measurement above; the under-read is not systematic, it tracks the Sensitivity landing. (b) Add hysteresis or
 a dead band around the 4.5/7.5 px boundaries so a marginal rig does not flip between sessions, and say
 "borderline" in the UI rather than presenting a coin flip as a recommendation. Note this compounds with
 [F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic): the same
