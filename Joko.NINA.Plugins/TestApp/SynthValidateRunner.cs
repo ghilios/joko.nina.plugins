@@ -743,23 +743,27 @@ namespace TestApp.SynthBank {
             // A1 -- direction: each recommendation moves toward its target. Skipped for a non-convergence scenario
             // (S5), whose bootstrap is not being walked toward anything.
             if (isConvergenceScenario) {
-                // The tolerance is RELATIVE (the design's SynthExpectedOptimal.StepSizeTolerance, 0.4), not a
-                // half-step absolute. This matters most on the S0 control, where the bootstrap starts AT the target:
-                // with an absolute eps of 0.5 any movement at all reads as "moved away", so a recommender that is
-                // in fact stable to within a few percent scores FAIL on every dataset. Measured on S0 at 2 rounds,
-                // the recommendations are 15->17, 35->37, 55->53, 82->87, 118->114 and (a true no-op) 141->141 --
-                // all comfortably inside 40%, and all previously reported as failures. "Converged" has to mean
-                // "inside the band the design declares", or the instrument manufactures failures.
-                var stepEps = Math.Max(0.5, expected.StepSizeTolerance * Math.Abs(stepBehavioral));
-                findings.Add(CheckDirection("A1", "step", round.Bootstrap.StepSize, round.StepRecommendation.StepSize, stepBehavioral, stepEps));
+                // Two tolerances, two jobs -- see CheckDirection's remarks for why conflating them silently
+                // inverts the verdict. The at-target BAND is relative (the design's StepSizeTolerance, 0.4),
+                // because a control that starts on target must not fail for drifting a few percent. The
+                // PROGRESS threshold is small, because a round that closes a third of the remaining gap is
+                // converging and has to be scored as such.
+                var stepAtTargetEps = Math.Max(0.5, expected.StepSizeTolerance * Math.Abs(stepBehavioral));
+                var stepProgressEps = Math.Max(0.5, StepProgressFraction * Math.Abs(stepBehavioral));
+                findings.Add(CheckDirection("A1", "step", round.Bootstrap.StepSize, round.StepRecommendation.StepSize,
+                    stepBehavioral, stepAtTargetEps, stepProgressEps));
                 if (round.ExposureRecommendation.Computed && round.ExposureRecommendation.HasRecommendation) {
-                    // Likewise relative: ExposureRecommender.RoundExposureSeconds quantizes onto a 0.5/1/5 s ladder,
-                    // so a 2% absolute band is finer than the recommender's own output resolution and can never be hit.
-                    var eps = Math.Max(0.5, 0.4 * expected.ExposureSeconds);
-                    findings.Add(CheckDirection("A1", "exposure", round.Bootstrap.ExposureSeconds, round.ExposureRecommendation.RecommendedSeconds, expected.ExposureSeconds, eps));
+                    // The at-target band is relative for the same reason; the progress threshold is floored at
+                    // 0.5s because ExposureRecommender.RoundExposureSeconds quantizes onto a 0.5/1/5s ladder, so
+                    // anything finer than one ladder rung is below the recommender's own output resolution.
+                    var expAtTargetEps = Math.Max(0.5, 0.4 * expected.ExposureSeconds);
+                    var expProgressEps = Math.Max(0.5, StepProgressFraction * expected.ExposureSeconds);
+                    findings.Add(CheckDirection("A1", "exposure", round.Bootstrap.ExposureSeconds,
+                        round.ExposureRecommendation.RecommendedSeconds, expected.ExposureSeconds, expAtTargetEps, expProgressEps));
                 }
                 if (round.BinningRecommendation.HasMeasurement && round.BinningRecommendation.RecommendedFactor.HasValue) {
-                    findings.Add(CheckDirection("A1", "detectionBinning", round.Bootstrap.DetectionBinning, round.BinningRecommendation.RecommendedFactor.Value, expected.DetectionBinning, eps: 0.001));
+                    findings.Add(CheckDirection("A1", "detectionBinning", round.Bootstrap.DetectionBinning, round.BinningRecommendation.RecommendedFactor.Value,
+                        expected.DetectionBinning, atTargetEps: 0.001, progressEps: 0.001)); // integral factor -- exact match or nothing
                 }
             }
 
@@ -889,19 +893,53 @@ namespace TestApp.SynthBank {
             return findings;
         }
 
-        private static AssertionFinding CheckDirection(string id, string label, double current, double recommended, double target, double eps) {
+        /// <summary>
+        /// A1 -- direction. Takes TWO tolerances, because the question is really two questions and they want
+        /// different scales:
+        /// <list type="bullet">
+        /// <item><paramref name="atTargetEps"/> is a BAND AROUND THE TARGET (relative — the design's
+        /// <c>StepSizeTolerance</c>, 0.4). "Am I already close enough that any further motion is noise?"</item>
+        /// <item><paramref name="progressEps"/> is a MINIMUM PER-ROUND IMPROVEMENT (small, near-absolute).
+        /// "Did this round actually close some of the gap?"</item>
+        /// </list>
+        ///
+        /// <para>Using one value for both is wrong in a way that silently inverts the result, and did: with a
+        /// single relative eps of <c>0.4 × 64 = 25.6</c>, a round had to close 25.6 steps of gap to count as
+        /// progress, so D15's S1 sequence <c>16 → 27 → 46 → 63 → 64</c> against a target of 64 — error shrinking
+        /// 48 → 37 → 18 → 1, textbook geometric convergence — was scored "made no meaningful progress" twice.
+        /// The first full S1–S6 matrix returned 42 FLAGs largely for this reason. A harness that reports clean
+        /// convergence as a flag is as useless as one that reports failure as a pass.</para>
+        ///
+        /// <para>The at-target branch also checks where the recommendation LANDS, not just where the round
+        /// started. Otherwise a control scenario (S0, which by construction starts on target) would pass
+        /// unconditionally no matter how wild the recommendation was — which is exactly D17's
+        /// <c>60 → 3</c> half-width collapse (F21), and it must not be scored PASS.</para>
+        /// </summary>
+        /// <summary>
+        /// Minimum fraction of the TARGET a round must close to count as progress (A1). Deliberately small and
+        /// unrelated to the at-target band: convergence here is geometric -- a round that closes a third of the
+        /// remaining gap is healthy -- so the bar is "moved measurably", not "arrived".
+        /// </summary>
+        private const double StepProgressFraction = 0.02;
+
+        private static AssertionFinding CheckDirection(
+                string id, string label, double current, double recommended, double target,
+                double atTargetEps, double progressEps) {
             if (!double.IsFinite(target)) {
                 return Flag(id, $"{label}: no finite target to check direction against");
             }
             var distBefore = Math.Abs(current - target);
             var distAfter = Math.Abs(recommended - target);
-            if (distBefore <= eps) {
-                return Pass(id, $"{label}: already at target ({current:0.###} vs target {target:0.###})");
+
+            if (distBefore <= atTargetEps) {
+                return distAfter <= atTargetEps
+                    ? Pass(id, $"{label}: already at target ({current:0.###} vs target {target:0.###}); recommendation {recommended:0.###} stays within the {atTargetEps:0.###} band")
+                    : Flag(id, $"{label}: started at target ({current:0.###} vs {target:0.###}) but recommended {recommended:0.###}, which leaves the {atTargetEps:0.###} band (|delta| {distBefore:0.###} -> {distAfter:0.###})");
             }
-            if (distAfter < distBefore - eps) {
+            if (distAfter < distBefore - progressEps) {
                 return Pass(id, $"{label}: {current:0.###} -> {recommended:0.###} moves toward target {target:0.###} (|delta| {distBefore:0.###} -> {distAfter:0.###})");
             }
-            if (distAfter <= distBefore + eps) {
+            if (distAfter <= distBefore + progressEps) {
                 return Flag(id, $"{label}: {current:0.###} -> {recommended:0.###} made no meaningful progress toward target {target:0.###} (|delta| {distBefore:0.###} -> {distAfter:0.###})");
             }
             return Fail(id, $"{label}: {current:0.###} -> {recommended:0.###} moved AWAY from target {target:0.###} (|delta| {distBefore:0.###} -> {distAfter:0.###})");
