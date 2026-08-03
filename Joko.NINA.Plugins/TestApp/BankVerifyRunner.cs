@@ -410,6 +410,8 @@ namespace TestApp {
 
             // Detect each frame once → golden P/R + sensor-model star lists.
             int tp = 0, fp = 0, fn = 0, matchedHigh = 0, totalHigh = 0, matchedAll = 0, totalAll = 0;
+            // /5 instrument self-checks — see the header comment on the schema field.
+            int detections = 0, truthViolations = 0, nullTp = 0, nullFp = 0;
             var sensorFrames = new List<SensorDetectedStars>();
             DrawingSize imageSize = DrawingSize.Empty;
             foreach (var (focuser, path, image) in loaded) {
@@ -424,15 +426,48 @@ namespace TestApp {
                     var det = stars.Select(s => new DetBox(RectD.FromRect(s.StarBoundingBox), s.Center.X, s.Center.Y)).ToList();
                     var goldenRects = gf.Stars.Select(b => new RectD(b.X, b.Y, b.W, b.H)).ToList();
                     var match = GoldenMatch.Match(goldenRects, det, GoldenMatchMode.Centroid, 0.3, matchRadius);
-                    // F31: subtract detections that land on a box the reference cannot judge — the golden's own
-                    // `unresolved`, PLUS the real-but-unboxed truth stars (`omitted` / `merged-into`) that the
+                    // F31: subtract detections that land on something the reference cannot judge — the golden's
+                    // own `unresolved`, PLUS the real-but-unboxed truth stars (`omitted` / `merged-into`) that the
                     // golden policy dropped. This runner previously did neither, so every detection of a
                     // sub-3.5-SNR real star was charged as a false positive; measured, 96% of the bank's reported
-                    // false positives were real stars. Empty for the real bank (no truth sidecar) => no-op.
-                    var exclusionRects = TruthProtection.BuildExclusionRects(
-                        gf.Unresolved, truthByFocuser.TryGetValue(focuser, out var td) ? td : null, matchRadius);
-                    var falsePositives = GoldenMatch.ExcludeUnresolved(match.FalsePositives, det, exclusionRects);
+                    // false positives were real stars. Both are no-ops on the real bank (no truth sidecar, and a
+                    // pre-v2 golden carries no `unresolved`).
+                    //
+                    // The two exclusions use DIFFERENT predicates, deliberately. The golden's `unresolved` boxes
+                    // keep `GoldenMatch.ExcludeUnresolved`'s `Covers` semantics because that is the real bank's
+                    // scoring path and moving it would break comparability with every published real-bank number.
+                    // The truth protection uses the CENTROID predicate instead — the same one matching uses — so
+                    // a detection is protected iff it would have been MATCHED had the star carried a golden box.
+                    // `Covers` dilates each rect by the DETECTION'S OWN bounding box, which on a wing donut
+                    // reaches far past the match radius; measured on the saved wave-1 dumps that read up to 0.011
+                    // high, always in the flattering direction.
+                    truthByFocuser.TryGetValue(focuser, out var td);
+                    var unresolvedRects = (gf.Unresolved ?? new List<GoldenStarBox>())
+                        .Select(b => new RectD(b.X, b.Y, b.W, b.H)).ToList();
+                    var falsePositives = TruthProtection.ExcludeProtected(
+                        GoldenMatch.ExcludeUnresolved(match.FalsePositives, det, unresolvedRects),
+                        det, TruthProtection.ProtectionCenters(td), matchRadius);
                     tp += match.Pairs.Count; fp += falsePositives.Count; fn += match.FalseNegatives.Count;
+                    detections += det.Count;
+
+                    // The F31 signature, counted rather than reasoned about: a scored false positive that sits on
+                    // a REAL rendered star. Complete by construction, so this has an exact answer and the answer
+                    // must be 0. It was 52/318 on D09 and 79/337 on D17 under the /3 metric.
+                    truthViolations += TruthProtection.CountWithinRadius(
+                        falsePositives, det, TruthProtection.AllCenters(td), matchRadius);
+
+                    // The NULL CONTROL. Same detections, translated with wraparound: whatever precision survives
+                    // is chance coincidence. A metric reading 1.000 with a null near 0 is measuring; one reading
+                    // 1.000 with a high null is saturated, which is how the first cut of the F31 repair failed.
+                    if (td != null) {
+                        var shifted = TruthProtection.ShiftForNullControl(det, props.Width, props.Height);
+                        var nullMatch = GoldenMatch.Match(goldenRects, shifted, GoldenMatchMode.Centroid, 0.3, matchRadius);
+                        var nullFalsePositives = TruthProtection.ExcludeProtected(
+                            GoldenMatch.ExcludeUnresolved(nullMatch.FalsePositives, shifted, unresolvedRects),
+                            shifted, TruthProtection.ProtectionCenters(td), matchRadius);
+                        nullTp += nullMatch.Pairs.Count;
+                        nullFp += nullFalsePositives.Count;
+                    }
                     var matchedGolden = new HashSet<int>(match.Pairs.Select(x => x.Golden));
                     for (int gi = 0; gi < gf.Stars.Count; gi++) {
                         var matched = matchedGolden.Contains(gi);
@@ -451,9 +486,24 @@ namespace TestApp {
             cm.precision = prAll.Precision;
             cm.recallAll = totalAll > 0 ? (double)matchedAll / totalAll : double.NaN;
             cm.recallHigh = totalHigh > 0 ? (double)matchedHigh / totalHigh : double.NaN;
+            cm.detections = detections;
+            cm.truthViolations = truthViolations;
+            // How much of the detection set the precision ratio actually saw. Protection removes a detection from
+            // BOTH sides rather than crediting it, so a low value does not bias precision — but it does mean the
+            // number rests on a smaller sample, and at Sensitivity 0 that reaches ~57% on D17. Reported so a reader
+            // can weigh a precision figure instead of assuming every detection was judged.
+            cm.scoredFraction = detections > 0 ? (double)(tp + fp) / detections : double.NaN;
+            cm.precisionNull = (nullTp + nullFp) > 0 ? (double)nullTp / (nullTp + nullFp) : double.NaN;
 
             // Sensor-model paraboloid fit (reuses SensorModel.RegisterStarsAndFit, like inspect-align).
-            Prog($"  [{label}] golden done (P={cm.precision:F3} R@hi={cm.recallHigh:F3}); sensor fit start");
+            Prog($"  [{label}] golden done (P={cm.precision:F3} null={cm.precisionNull:F3} viol={cm.truthViolations} R@hi={cm.recallHigh:F3}); sensor fit start");
+            if (cm.truthViolations > 0) {
+                // Loud on purpose. This is the exact shape of F31, and four harness-calibration bugs have now
+                // been found by someone happening to look rather than by anything failing.
+                Console.WriteLine($"    !! [{label}] {cm.truthViolations} scored false positive(s) sit on a REAL rendered star "
+                    + "— the precision metric is charging for correct detections again (F31). Precision from this run is not trustworthy.");
+                Logger.Warning($"bank-verify {label}: {cm.truthViolations} scored false positives land within the match radius of a truth star (F31 regression)");
+            }
             try {
                 var focuserSizeMicrons = inspectorOptions.MicronsPerFocuserStep > 0 ? inspectorOptions.MicronsPerFocuserStep : 1.0;
                 var pixelSize = activeProfile.CameraSettings.PixelSize > 0 ? activeProfile.CameraSettings.PixelSize : 3.76;
@@ -580,7 +630,16 @@ namespace TestApp {
                 // F31 bumps this to /4: false positives are no longer charged for detections of real stars the
                 // golden policy dropped, so precision from a /4 report is NOT comparable to a /3 one. Recall is
                 // unchanged by construction (the golden's `stars` list still defines what must be found).
-                schema = "afbank-verify/4",
+                // /5 makes the metric self-checking rather than merely repaired. Three additions:
+                //   - truth protection now uses the CENTROID predicate matching itself uses, instead of
+                //     GoldenMatch.Covers, which dilated every protection box by the detection's own bounding box
+                //     and read up to 0.011 high on donut frames;
+                //   - `precisionNull` reports what chance alone scores, so a 1.000 can be told from a saturated
+                //     metric without re-deriving anything (the first cut of the F31 repair was saturated);
+                //   - `truthViolations` counts scored false positives sitting on real rendered stars, which is
+                //     the F31 signature itself and must be 0.
+                // Precision from /5 is comparable to /4 to within the protection-predicate change above.
+                schema = "afbank-verify/5",
                 generatedUtc = utc,
                 detectorCommit = commit,
                 // The bank-wide --pixel-scale mode ("header" default, "profile" the pre-V-P1 escape hatch). The
@@ -652,14 +711,19 @@ namespace TestApp {
             sb.AppendLine();
             sb.AppendLine("## Per-run (config rows)");
             sb.AppendLine();
-            sb.AppendLine("| run | camera | golden (≥12) | donutAware | config | NC | recall@≥12 | recall@all | precision | AF σ | AF R² | sensor R² | RMS µm | sChi | tilt° | stars | aligned |");
-            sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
+            sb.AppendLine("| run | camera | golden (≥12) | donutAware | config | NC | recall@≥12 | recall@all | precision | null | scored | viol | AF σ | AF R² | sensor R² | RMS µm | sChi | tilt° | stars | aligned |");
+            sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
             foreach (var r in runs) {
-                if (r.error != null) { sb.AppendLine($"| {r.runId} | — | — | — | ERROR | | | | | | | | | | | | {r.error} |"); continue; }
+                if (r.error != null) { sb.AppendLine($"| {r.runId} | — | — | — | ERROR | | | | | | | | | | | | | | | {r.error} |"); continue; }
                 foreach (var c in r.configs) {
-                    sb.AppendLine($"| {r.runId} | {r.camera} | {r.goldenStars} ({r.goldenSNRge12}) | {r.donutAware} | {c.config} | {Fmt(c.nc)} | {Fmt(c.recallHigh)} | {Fmt(c.recallAll)} | {Fmt(c.precision)} | {Fmt(c.sigmaFocus)} | {Fmt(c.afR2)} | {Fmt(c.sR2)} | {Fmt(c.sRMS)} | {Fmt(c.sChi)} | {Fmt(c.sTheta)} | {c.sStars} | {c.framesAligned}/{r.framesTotal} |");
+                    sb.AppendLine($"| {r.runId} | {r.camera} | {r.goldenStars} ({r.goldenSNRge12}) | {r.donutAware} | {c.config} | {Fmt(c.nc)} | {Fmt(c.recallHigh)} | {Fmt(c.recallAll)} | {Fmt(c.precision)} | {Fmt(c.precisionNull)} | {Fmt(c.scoredFraction)} | {c.truthViolations} | {Fmt(c.sigmaFocus)} | {Fmt(c.afR2)} | {Fmt(c.sR2)} | {Fmt(c.sRMS)} | {Fmt(c.sChi)} | {Fmt(c.sTheta)} | {c.sStars} | {c.framesAligned}/{r.framesTotal} |");
                 }
             }
+            sb.AppendLine();
+            sb.AppendLine("**null** is the precision the same detections earn after being translated with wraparound — chance alone. "
+                + "It is the floor this metric can read; a precision of 1.000 means the detector found no false positives only when null is near 0. "
+                + "**scored** is the fraction of detections that entered the precision ratio at all (the rest sit on reference objects that cannot be judged). "
+                + "**viol** counts scored false positives sitting on a real rendered star and MUST be 0 — see F31.");
             File.WriteAllText(Path.Combine(outDir, $"verification_{utc}.md"), sb.ToString());
         }
 
@@ -707,6 +771,26 @@ namespace TestApp {
             public double sRMS { get; set; } = double.NaN;
             public double sChi { get; set; } = double.NaN;
             public double sTheta { get; set; } = double.NaN;
+            /// <summary>Accepted stars this config detected across the run's scored frames — the denominator
+            /// <see cref="scoredFraction"/> is a fraction of.</summary>
+            public int detections { get; set; }
+            /// <summary>Scored false positives that sit within the match radius of a REAL rendered truth star.
+            /// MUST be 0: synthetic truth is complete by construction, so a detection on a rendered star is
+            /// correct whatever tier the golden policy gave it. Non-zero means F31 has regressed and this run's
+            /// precision is not trustworthy. Always 0 on the real bank, which has no truth sidecar.</summary>
+            public int truthViolations { get; set; }
+            /// <summary>Fraction of <see cref="detections"/> that entered the precision ratio (the rest landed on
+            /// protected or unresolved reference objects and are unjudgeable). Not a bias — protection removes a
+            /// detection from both numerator and denominator — but precision rests on a smaller sample as this
+            /// falls, and at Sensitivity 0 it reaches ~0.57.</summary>
+            public double scoredFraction { get; set; } = double.NaN;
+            /// <summary>NULL CONTROL: precision after translating every detection with wraparound, destroying
+            /// correspondence with the frame while preserving count and clustering. This is the score chance
+            /// alone earns, and therefore the floor the metric cannot read below. A precision of 1.000 means
+            /// something only when this is near 0 — the first cut of the F31 repair read 1.000 everywhere
+            /// BECAUSE it was saturated, which the precision column alone cannot distinguish. NaN on the real
+            /// bank (no truth sidecar, so no synthetic null is defined).</summary>
+            public double precisionNull { get; set; } = double.NaN;
             public int framesAligned { get; set; }
         }
 

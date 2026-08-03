@@ -431,6 +431,13 @@ This is a **cold-start plateau**, not a missing knob, and it is why the earlier 
 is defensible, only the silence is a problem") was too generous: the gate costs a whole class of rigs their
 autofocus, and the fix is within the existing search space.
 
+**It also reproduces on the REAL bank, twice (2026-08-03).** `BaselineJ` — the objective at shipped defaults — is
+exactly **0.0000** on `Panos` and `LinwoodFocus`, the only two runs in the 19-run bank where it is. Both are the
+same silent null result D01/D02 produce synthetically, on real frames from real rigs. They are also the only two
+runs whose recall@≥12 *improves* under the optimizer (+0.031 and +0.089), for the reason F32 gives: they are the
+only ones with any headroom to climb. So this is not a synthetic-bank artifact of the render, and the affected
+population is not hypothetical.
+
 **Next step.** Two parts, and the second is the substantive one.
 1. *Report it.* When a large fraction of accepted candidates are rejected by `MinHFR` specifically, say so and
    name the pixel-scale / focal-length combination. The counts are already collected
@@ -697,6 +704,78 @@ perfect.
    `synthetic-af-bank-baseline-results.md`, `docs/synthetic-af-bank-baseline.json`, F23, F24, and the
    `precisionMin` bands in `synthetic-af-bank-expectations.json`. Until then, treat synthetic precision as a
    lower bound and do not use it as an acceptance gate.
+
+### F32 — `J` is saturated near 1.0, so the optimizer trades enormous recall for numerically trivial gains
+**Status:** Open · found 2026-08-03 re-reading the wave-1 real-bank control arm
+
+The objective's landings are not close calls. Across the 17 scorable real-bank runs, `optimize --per-run` gives
+up a **median 0.243 of recall@SNR≥12** to gain a **median ΔJ of +0.0125** — and the worst cases are far starker
+than the median.
+
+**Evidence.** `bank-verify --runs "D:\\Autofocus Bank" --opt-a` (wave-1 control arm, `afbank-verify/3`, 19 runs,
+0 failed), against each run's own `BaselineJ`/`FinalJ` from its stored landing:
+
+| run | recall@≥12 C0 → A | Δrecall | ΔJ | landed Sensitivity |
+|---|---|---|---|---|
+| `toml999` | 0.819 → 0.357 | **−0.462** | **+0.0002** | 33.3 |
+| `muggsie` | 0.879 → 0.512 | −0.368 | +0.0039 | 17.2 |
+| `CWhiteFocus` | 0.810 → 0.327 | −0.483 | +0.0042 | 50.0 |
+| `uneven` | 0.931 → 0.319 | −0.613 | +0.0046 | 31.2 |
+| `bobp` | 0.580 → 0.495 | −0.086 | +0.0041 | 10.0 |
+
+`toml999` is the entry's clearest statement: **two ten-thousandths of `J` bought with 46 points of recall.** At
+`BaselineJ` values of 0.98–0.999 there is almost no headroom left, so every remaining move is a rounding error in
+the objective and a catastrophe in the star list. The search is behaving correctly; the scale it is climbing has
+run out.
+
+**Why it matters.** This is upstream of [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)
+and of [F4](#f4--the-objective-has-no-sensor-model-term). A precision term, a sensor term, or any other new term
+added to a `J` that already sits at 0.998 will be competing for the same exhausted fourth decimal place. It also
+explains why F23's wave-1 mechanism (a) could produce real precision movement and still clear no acceptance gate:
+the term was fighting for headroom that does not exist. And it reframes the wizard's own presentation — a landing
+reported as an improvement over the current settings is, on most runs, an improvement too small to mean anything
+while the change in what gets detected is enormous.
+
+**Next step.** Before adding any further term to `J`, measure its dynamic range on both banks: the distribution of
+`FinalJ − BaselineJ` over the runs, and the recall/precision movement per unit `J`. If the trade rate is what
+these numbers say, the fix is to rescale or re-anchor the objective (or gate acceptance on the *magnitude* of the
+improvement) rather than to add a term. Cheap to check: the numbers above come from files already on disk.
+
+### F33 — The synthetic bank does not reproduce the real bank's optimizer failure mode
+**Status:** Open · found 2026-08-03 re-reading the wave-1 arms side by side
+
+On the synthetic bank the optimizer drives `BrightnessSensitivity` **down** to its 0.0 floor and detects *more*.
+On the real bank it drives Sensitivity **up**, often to the top of the range, and detects far *fewer*. Those are
+opposite behaviours, and the synthetic bank was built to study the first one.
+
+**Evidence.** Landed Sensitivity and detection counts, same wave-1 control arm, same binary:
+
+| bank | landings | detections C0 → A |
+|---|---|---|
+| synthetic (6 of 17 datasets) | Sensitivity **0.0** (D09, D10, D11, D12, D15, D17) | up |
+| real: `CWhiteFocus` | **50.0** | 1807 → **534** |
+| real: `standard_example1` | **34.3** | 602 → **177** |
+| real: `toml999` | **33.3** | 677 → **228** |
+| real: `uneven` | **31.2** | 406 → **133** |
+| real: `mccomiskey` | 0.0, but **StarClip 10.0** (the maximum) | 3606 → **43** |
+
+`mccomiskey` is the instructive one: Sensitivity reads 0.0, which looks like the synthetic pathology, but the
+effective gate is `PeakResponse × StarClip = 0.75 × 10 = 7.5` — the *same escape route* F23 wave 1 measured on
+D12 and D15, here operating as the shedding mechanism rather than the loosening one. Reading the Sensitivity axis
+alone misclassifies this run.
+
+**Why it matters.** [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)'s
+framing — "the optimizer drives `BrightnessSensitivity` to its 0.0 floor" — is a **synthetic-bank-only**
+description. Any fix designed and accepted against the synthetic bank alone is being tuned on the opposite sign of
+the effect it needs to correct on real rigs, which is how wave 1's arm (a) came to be a wash on the real bank
+while showing real movement on the synthetic one. It also bounds the bank's claim: the synthetic bank measures
+precision exactly (that is real and now verified), but it does not currently exhibit
+[F4](#f4--the-objective-has-no-sensor-model-term)'s star-shedding at all.
+
+**Next step.** Two parts. (1) Report the *effective* gate `max(Sensitivity, PeakResponse × StarClip)` wherever a
+landing's Sensitivity is quoted, so a `mccomiskey`-shaped landing is not read as a floor landing. (2) Decide
+deliberately whether the bank should grow a dataset class that reproduces the shedding regime — and until it does,
+score every candidate objective change on **both** banks, never the synthetic one alone.
 
 ---
 
