@@ -11,8 +11,8 @@ Plan: [`plans/synthetic-af-bank-plan.md`](../plans/synthetic-af-bank-plan.md). E
 optimizer's recommendations have never been checked for convergence — what do they look like when the
 right answer is known by construction?***
 
-Everything below is **flagged, not fixed**. Six product findings became `docs/followups.md` entries
-(F19–F24); none of them changed product behaviour in this branch.
+Everything below is **flagged, not fixed**. Eight product findings became `docs/followups.md` entries
+(F19–F26); none of them changed product behaviour.
 
 ## Headline
 
@@ -22,7 +22,7 @@ Everything below is **flagged, not fixed**. Six product findings became `docs/fo
 | Header round-trip (`--verify`, risk R1) | **PASS** — XPIXSZ/FOCALLEN/XBINNING/EXPTIME and the composed arcsec/px all land, on every dataset |
 | Determinism | **PASS** — D07 + D12 regenerated from seeds: 36/36 frames and golden sidecars bit-identical |
 | Golden precision (D06, `golden eval`) | **1.000** — 205 TP, **0 FP**. Exact, not a lower bound |
-| S0 control (harness self-test) | **13 PASS · 1 FLAG · 3 FAIL**; R² = 1.0000 on 15 of 17 |
+| V1 convergence matrix, S0–S6 | **62 PASS · 15 FLAG · 8 FAIL** over 85 scored runs (34 correctly skipped as not-applicable) |
 | V2 precision/recall baseline | 17 runs, 0 failed, `afbank-verify/3` — see the V2 section; C0 precision never below **0.942**, config A as low as **0.451** |
 | Pixel-scale default change (V-P1) | **no measurable effect** — see "The pixel-scale change did nothing" below |
 | Full unit suite | **3293 passed, 0 failed** at both gates (the flaky `SendAsync_WritesOnABackgroundThread` EAT test fails only under concurrent optimizer load; clean on an idle machine) |
@@ -50,58 +50,38 @@ an autofocus fit can use, and it would have quietly poisoned every downstream nu
 
 It also moved the `CappedByAbsoluteLimit` role from D16 to D10 — see **F19**.
 
-## S0 — the control, and what it found
+## S0 — the control
 
 S0 bootstraps each dataset at its own expected optimum, so the recommendations should be ~no-ops.
-Two rounds, `--max-evals 120`.
+Final scoring (`--max-rounds 4`): **13 PASS · 3 FLAG · 1 FAIL**, every dataset converging in 1–2 rounds.
 
-**Result: 13 PASS · 1 FLAG · 3 FAIL.**
+| dataset | verdict | final step | target (`step_behavioral`) |
+|---|---|---|---|
+| D01_ultrawide_40mm | **FAIL** | 10 | 8 — R² 0.648, sub-`MinHFR` (F20) |
+| D02_rich_135mm | FLAG | 7 | 6 — sub-`MinHFR` (F20) |
+| D03_redcat_250mm | PASS | 21 | 16 |
+| D04_esprit_550mm | PASS | 20 | 15 |
+| D05_tec140_1000mm | PASS | 36 | 35 |
+| D06_sparse_1000mm | PASS | 37 | 35 |
+| D07_rc10_2000mm | PASS | 54 | 55 |
+| D08_c11_2800mm | PASS | 82 | 82 |
+| D09_c14_3800mm | PASS | 115 | 118 |
+| D10_rc16_3250mm_sparse | PASS | 94 | 89 |
+| D11_rc10_585_afbin2 | PASS | 53 | 55 |
+| D12_c14_585_afbin2 | FLAG | 141 | 141 — binning misread (F22) |
+| D13_apo200_1800mm | PASS | 127 | 127 |
+| D14_cdk14_2563mm_e47 | PASS | 59 | 60 |
+| D15_cdk20_3454mm_e47 | PASS | 61 | 64 |
+| D16_esprit550_ha3 | FLAG | 22 | 15 |
+| D17_cdk14_oiii5 | PASS | 58 | 60 |
 
-| dataset | verdict | R² (r0/r1) | half-width (r0/r1) | step recommended (r0/r1) | note |
-|---|---|---|---|---|---|
-| D01_ultrawide_40mm | **FAIL** | 0.648 / 0.949 | 35.6 / 43.1 | 10 / 12 | sub-`MinHFR` (F20) |
-| D02_rich_135mm | **FAIL** | 0.916 / 0.932 | 23.2 / **2.5** | 7 / **1** | sub-`MinHFR` (F20) + half-width collapse (F21) |
-| D03_redcat_250mm | PASS | 0.999 / 1.000 | 75.7 / 82.3 | 22 / 24 | |
-| D04_esprit_550mm | PASS | 1.000 / 1.000 | 60.2 / 66.3 | 17 / 19 | |
-| D05_tec140_1000mm | PASS | 1.000 / 1.000 | 130.1 / 147.9 | 37 / 42 | |
-| D06_sparse_1000mm | PASS | 1.000 / 1.000 | 129.3 / 145.1 | 37 / 41 | |
-| D07_rc10_2000mm | PASS | 1.000 / 1.000 | 183.8 / 176.3 | 53 / 50 | |
-| D08_c11_2800mm | PASS | 1.000 / 1.000 | 303.1 / 315.2 | 87 / 90 | |
-| D09_c14_3800mm | PASS | 1.000 / 1.000 | 399.1 / 324.9 | 114 / 93 | |
-| D10_rc16_3250mm_sparse | PASS | 1.000 / 1.000 | 330.0 / 327.8 | 94 / 94 | |
-| D11_rc10_585_afbin2 | PASS | 1.000 / 1.000 | 183.5 / 158.6 | 52 / 45 | |
-| D12_c14_585_afbin2 | **FLAG** | 0.999 / 1.000 | 396.9 / 316.9 | 113 / 91 | binning misread (F22) deferred the step update both rounds |
-| D13_apo200_1800mm | PASS | 1.000 / 1.000 | 436.8 / 446.8 | 125 / 128 | the ε=0 donut control |
-| D14_cdk14_2563mm_e47 | PASS | 1.000 / 1.000 | 201.7 / 201.8 | 58 / 58 | |
-| D15_cdk20_3454mm_e47 | PASS | 1.000 / 1.000 | 168.8 / 221.1 | 48 / 63 | |
-| D16_esprit550_ha3 | PASS | 1.000 / 1.000 | 73.4 / 76.1 | 21 / 22 | |
-| D17_cdk14_oiii5 | **FAIL** | 1.000 / 1.000 | 143.6 / **12.1** | 41 / **3** | half-width collapse (F21) |
+Fit quality is **R² = 1.0000 on 15 of 17**; only D01 (0.648) and D02 (0.916) are degraded, and both are the
+sub-`MinHFR` datasets. D08 and D13 land exactly on target; most others sit within a few percent.
 
-**Reading it:** the fits are essentially perfect and most step trajectories are drifts of a few
-percent — D14 recommends 58 twice running, D10 recommends 94 twice. Every non-PASS maps to a filed
-followup: D01/D02 to F20 (in-focus HFR below `MinHFR`), D12 to F22 (binning misread), D02/D17 to F21
-(half-width collapse). Nothing failed for a reason that is not written down.
-
-The run also doubles as a determinism check on the *validation* path, not just the generator: rerunning
-the whole S0 pass reproduced every half-width to the tenth — 143.6 and 12.1 on D17 both times — because
-the round seed is `SeedMixer.Combine(datasetSeed, scenarioId, round)` with the scenario id hashed by
-FNV-1a rather than `string.GetHashCode()` (which .NET randomizes per process).
-
-### The harness had to be corrected before this table could be believed
-
-The first S0 pass reported **FAIL on 14 of 17** datasets. That was the instrument's fault, not the
-product's: A1 compared distance-to-target against an *absolute* 0.5-step tolerance, while the design
-declares a *relative* one (`StepSizeTolerance = 0.4`). On a control that starts at the target, any
-movement whatsoever then reads as "moved away" — including D15's literal no-op at 64 → 64. A baseline
-harness that manufactures failures is worse than no baseline, so the tolerance was made relative. The
-three genuine instabilities above survive that correction; they are outside a 40% band on their own
-merits.
-
-Three further harness defects were found and fixed the same way — the exposure derivation above,
-`--verify` asserting the wrong side of NINA's `XPIXSZ`/`BinX` convention (it caught the two AF-bin-2
-datasets: wrote 5.8, read back 2.9), and A3 computing its reference fixed point on the *optical* curve
-rather than the pixelization-floored one the detector can actually observe (which alone would have
-failed D01–D03).
+The run also doubles as a determinism check on the *validation* path: rerunning the whole pass reproduces every
+half-width to the tenth — including D17's 143.6 and 12.1 (F21) — because the round seed is
+`SeedMixer.Combine(datasetSeed, scenarioId, round)` with the scenario id hashed by FNV-1a rather than
+`string.GetHashCode()`, which .NET randomizes per process.
 
 ## The pixel-scale change did nothing, which is worth knowing
 
@@ -193,21 +173,84 @@ own universe.
 | Config A precision ≥ 0.98, non-donut | PARTIAL — D02/D03 pass; D16 0.744 misses badly |
 | afR² floor 0.95 | PASS on 15/17; D01 0.910 and D02 0.917 miss (F20) |
 
-## What was not run
+## V1 — the full S0–S6 convergence matrix
 
-Stated plainly so the baseline is not read as more complete than it is:
+`synth-validate --scenarios S0,S1,S2,S3,S4,S5,S6 --max-rounds 4 --max-evals 120`, all 17 datasets.
+**62 PASS · 15 FLAG · 8 FAIL** over 85 scored runs; 34 skipped as not-applicable, each with a recorded reason.
 
-- **V1 scenarios S1–S6 were not run.** Only S0, the control, completed (all 17 datasets, twice). The
-  perturbation scenarios — step ×0.25 and ×4, exposure ×0.25, binning, donut-off, combined — are
-  implemented and smoke-tested but the matrix is several hours of compute that this session did not
-  reach. S0 was the gating self-test and it is done; S1–S6 remain.
-- **The CLI-parity check and the `--max-evals` 120-vs-250 stability check** listed in the plan's
-  self-verification order were not run.
+| scenario | what it perturbs | PASS | FLAG | FAIL | skipped |
+|---|---|---|---|---|---|
+| S0 | nothing (control) | 13 | 3 | 1 | — |
+| S1 | step ×0.25 | 13 | 0 | 4 | — |
+| S2 | step ×4 | 11 | 4 | 2 | — |
+| S3 | exposure ×0.25 | 7 | 2 | 0 | 8 |
+| S4 | binning 1 where 2 expected | 5 | 2 | 0 | 10 |
+| S5 | donut off (obstructed only) | 7 | 2 | 0 | 8 |
+| S6 | step + exposure both wrong | 6 | 2 | 1 | 8 |
+
+**The convergence itself is sound.** From 4× too fine and 4× too coarse alike, the step recommender lands
+within a few percent of target, usually in **one round**:
+
+| dataset | S1 (from ×0.25) | S2 (from ×4) | target |
+|---|---|---|---|
+| D09_c14_3800mm | 30 → **117** | 472 → **115** | 118 |
+| D15_cdk20_3454mm_e47 | 16 → **64** | 256 → **63** | 64 |
+| D13_apo200_1800mm | 32 → **128** | 508 → **131** | 127 |
+| D11_rc10_585_afbin2 | 14 → **55** | 220 → **47** | 55 |
+
+That is the question the plan set out to answer, and the answer is yes. It also narrows F21: the half-width
+collapses (D17 60→3, D02 6→7→1) are a specific defect, not general instability.
+
+**S5 confirms donut detection earns its place on obstructed optics.** PASS here means the degradation signature
+*appeared* when donut detection was wrongly switched off — 7 of 9 obstructed datasets degraded measurably
+(D09 and D17 did not). Read against **F24**, which shows donut-on costing precision everywhere, the picture is
+that donut detection is genuinely load-bearing for the AF fit on obstructed optics while being expensive for
+precision — a real trade, not a free win.
+
+### The 8 surviving failures, all accounted for
+
+| cause | runs | entry |
+|---|---|---|
+| in-focus HFR below `MinHFR` — fit R² 0.65–0.93, recommendation unreliable | D01 S0/S1/S2, D02 S1, D03 S1 | F20 |
+| a degenerate fit makes the recommender widen an already-too-wide sweep | D05 S2 | **F25 (new)** |
+| a stuck binning recommendation starves the step update for all 4 rounds | D08 S1, D12 S6 | **F26 (new)** |
+
+**F25**: D05 S2 starts 4× too wide (140 vs 35), fits at **R² = −0.223** — worse than a horizontal line — and the
+recommender answers with **240**, pushing from 4× to nearly 7× too wide. It recovered only because the next
+round happened to fit cleanly.
+
+**F26**: D08 S1 holds step **21** for four consecutive rounds against a target of 82, at R² = 0.999–1.000,
+because the binning-first update rule defers the step every round while F22's misread keeps recommending
+binning 1. Two individually-defensible behaviours composing into a livelock.
+
+### Three harness calibration bugs had to be fixed first
+
+The matrix was scored three times. The first two scorings were wrong, in the same way each time: **the driver
+defined convergence as "the recommender emits the same value again", and it never does** — every round is a
+fresh noise realization, so the recommendation keeps nudging by a percent or two indefinitely.
+
+| symptom | mis-scored |
+|---|---|
+| absolute 0.5-step band ⇒ any movement reads "moved away" | S0: 14 of 17 FAIL, including a literal 64 → 64 no-op |
+| the same relative eps reused as *minimum per-round progress* ⇒ a round had to close 40% of the target | S1/S2/S6: 42 FLAGs, e.g. D15's 16 → 27 → 46 → 63 → 64 scored "no meaningful progress" |
+| loop stops only on an exact no-op ⇒ `RoundsUsed` always = max | S2 "expected convergence within ≤2 rounds, used 4" when D13 converged in **one** |
+| sub-tolerance jitter counted as oscillation | D15 S0's ±5% wander scored FAIL for "2 sign changes" |
+
+Fixed consistently: **converged means "inside the tolerance band"**, everywhere. Verdicts went 40/26/19 →
+**62/15/8** with byte-identical trajectories. Recording this because the first two scorings would have been
+published as damning product findings, and they were the instrument's fault.
+
+## Still not run
+
+- The **CLI-parity check** (in-process round 0 == real `optimize --per-run` on the same folder) and the
+  `--max-evals` 120-vs-250 stability check from the plan's self-verification order.
 
 ## Followups raised
 
 | id | finding |
 |---|---|
+| **F25** | From a far-too-wide sweep the step recommender widens it further — D05 fits at R² = −0.223 and answers with a wider sweep still |
+| **F26** | A stuck binning recommendation starves the step update indefinitely — D08 holds step 21 against a target of 82 for four rounds at R² ≈ 1.000 |
 | **F23** | The optimizer objective has no precision term, so it trades precision away for marginal recall — C0 never drops below 0.942, config A reaches 0.451 |
 | **F24** | Donut detection costs precision even where donuts exist, and worst on the ε=0 control (D13: 0.962 → 0.653) |
 | **F19** | The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one — a 3 nm Hα refractor still derives the 0.5 s floor because its 2.9° field holds 6835 stars |
