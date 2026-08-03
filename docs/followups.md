@@ -277,12 +277,36 @@ frames are populated (the stars are there and bright — tiering is by SNR, not 
 real, well-detected signal, not an empty field.
 
 **Why it matters.** `J = 0` is indistinguishable from "starless frames", "wrong folder", and "detector
-misconfigured". A user pointing the wizard at a short-focal-length rig gets a silent null result. The gate itself
-is defensible — sub-pixel stars have no measurable HFR — but the *silence* is not.
+misconfigured". A user pointing the wizard at a short-focal-length rig gets a silent null result.
 
-**Next step.** Surface it: when a large fraction of accepted candidates are rejected by `MinHFR` specifically,
-say so, and name the pixel scale / focal length combination that produced it. The rejection counts are already
-collected (`CollectRejectedCandidateDiagnostics`), so this is reporting, not new measurement.
+**And the capability is reachable — the optimizer simply cannot get to it.** `MinHFR` *is* a curated optimizer
+axis, searchable over **0.1–5.0** (`OptimizerVariable.CreateCuratedSet`), so lowering it is exactly the move that
+would unlock these rigs. What the landings show is that the optimizer only makes that move when it already has a
+gradient:
+
+| dataset | in-focus HFR (px) | `MinHFR` landed by config A | outcome |
+|---|---|---|---|
+| `D01_ultrawide_40mm` | 0.24 | **1.2 — the default, unmoved** | J = 0, recall 0.129 |
+| `D02_rich_135mm` | ~0.7 | **1.2 — the default, unmoved** | recall 0.451 |
+| `D03_redcat_250mm` | ~0.97 | **0.45** (moved down) | recall 0.396 → 0.537 under B |
+| `D05_tec140_1000mm` | 1.77 | 1.45 | recall 0.989 |
+
+D03 proves the search *can* find a sub-default `MinHFR` when the objective is non-zero. D01 and D02 never move it,
+because `J` is identically 0 across the neighbourhood the search explores — the objective only becomes non-zero
+once *enough* of the curve is simultaneously measurable, so no single-axis step off the seed improves anything.
+This is a **cold-start plateau**, not a missing knob, and it is why the earlier framing of this entry ("the gate
+is defensible, only the silence is a problem") was too generous: the gate costs a whole class of rigs their
+autofocus, and the fix is within the existing search space.
+
+**Next step.** Two parts, and the second is the substantive one.
+1. *Report it.* When a large fraction of accepted candidates are rejected by `MinHFR` specifically, say so and
+   name the pixel-scale / focal-length combination. The counts are already collected
+   (`CollectRejectedCandidateDiagnostics`), so this is reporting, not new measurement.
+2. *Seed out of the plateau.* Before optimizing, if the median in-focus HFR is at or below `MinHFR`, seed
+   `MinHFR` beneath it (the measured HFR is available from the same in-focus record
+   `DetectionBinningResolver` already consumes) so the search starts somewhere with a gradient. Score any change
+   on **D01–D03** of the synthetic bank, where the correct answer is known and current recall is 0.135 / 0.475 /
+   0.400.
 
 ### F21 — `StepSizeRecommender`'s half-width is not stable against noise, even on a perfect fit
 **Status:** Open · found 2026-08-02 running the synthetic bank's S0 control

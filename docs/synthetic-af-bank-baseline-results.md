@@ -211,7 +211,7 @@ Stated plainly so the baseline is not read as more complete than it is:
 | **F23** | The optimizer objective has no precision term, so it trades precision away for marginal recall — C0 never drops below 0.942, config A reaches 0.451 |
 | **F24** | Donut detection costs precision even where donuts exist, and worst on the ε=0 control (D13: 0.962 → 0.653) |
 | **F19** | The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one — a 3 nm Hα refractor still derives the 0.5 s floor because its 2.9° field holds 6835 stars |
-| **F20** | Below `MinHFR` the autofocus objective collapses to exactly 0 with no diagnostic, indistinguishable from an empty field or a wrong folder |
+| **F20** | Below `MinHFR` the autofocus objective collapses to exactly 0 with no diagnostic — and the fix is inside the existing search space: `MinHFR` is a curated axis (0.1–5.0), but D01/D02 leave it at the 1.2 default because `J = 0` gives the search no gradient, while D03 (non-zero `J`) does move it to 0.45 |
 | **F21** | `StepSizeRecommender`'s half-width is not stable against noise: D17 gave 143.6 and 12.1 on two seeds, both fitting at R²=1.0000 — steps of 41 and 3 where 60 is correct |
 | **F22** | Detection binning is a hard threshold at 4.5 px on a measurement that under-reads by 2–38%; D14 and D17 have identical optics and pixel size and get opposite recommendations |
 
