@@ -287,6 +287,39 @@ visibly buying junk; on real data they look like precision wins, because the fal
 in the golden and cannot be counted. That is F11 in action, and it is the clearest possible statement of why
 the synthetic bank was worth building.
 
+**Arm a on the real bank is a wash — no transfer benefit demonstrated.** recall@≥12 against arm H, 17 scorable
+runs (`SorenVance` and `lumos` score NaN — pre-existing bank issues, F13):
+
+| better by > 0.02 | worse by > 0.02 |
+|---|---|
+| mccomiskey **+0.320** (0.079 → 0.399) | caboose −0.142 |
+| toml999 **+0.210** | CWhiteFocus −0.137 |
+| timmer +0.090 | LinwoodFocus −0.067 |
+| FlyData +0.071 | Panos −0.036, bobp_m101 −0.027, vsn07 −0.026 |
+
+Four better, six worse; precision flat to marginally higher everywhere (and a lower bound, so it cannot
+adjudicate). The single largest movement is a real improvement — `mccomiskey` is the run
+[F4](followups.md) cites for catastrophic star-shedding (recall 0.871 → 0.079 under the optimizer), and the
+term recovers a third of it. But there is no bank-wide gain to claim, which is what the synthetic result
+already predicted.
+
+## What wave 2 should do differently
+
+1. **The proxy must be computed on a statistic the search cannot lift.** `peak/σ` with `PeakResponse` out of
+   the expression. `Star` exposes only the gated `MeasuredSensitivity` today, so this needs plumbing — but the
+   plumbing is one line at the seam that already reads `LowSensitivity`/`TooFlat`
+   (`RunEvaluationLoader.cs:331-335`).
+2. **Find the second false-positive source.** D08 lands at Sensitivity 8 with precision 0.748 and D16 at 2.5
+   with 0.744, both unmoved by the term. A floored Sensitivity is not the whole mechanism, and the spec's
+   root-cause chain does not describe this part.
+3. **Do not restrict the search domain.** Measured, it is worse than doing nothing.
+4. **Re-check the coverage reward.** `SCoverage` (`Wcov = 0.05`) rewards a 3×3 tiling holding ≥1 accepted star,
+   and spatially uniform noise *raises* occupancy — so on sparse fields the objective may be paying for the
+   very detections the FP term is trying to charge for. Unmeasured; an ablation arm with `Wcov = 0` on the
+   moved datasets would settle it.
+5. **Fix the convergence predicate** before the next V1 matrix, or its PASS counts will keep flattering the
+   most degenerate runs.
+
 ## Reproduce
 
 ```
