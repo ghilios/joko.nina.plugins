@@ -142,6 +142,58 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double HfrOutlierStrength { get; set; } = 1.0;   // penalty = 1 − Strength·max(0, frac − Threshold)
         public double HfrOutlierMinFactor { get; set; } = 0.5;  // floor: at most a 2× reduction from this term alone
 
+        // ── Marginal-SNR false-positive proxy (SMarginalSnr) — F23 ─────────────────────────────────────────
+        // MULTIPLICATIVE penalty (modeled on SHfrOutlier) for accepting NEAR-FOCUS stars whose measured
+        // Sensitivity-gate SNR is marginal, i.e. below an absolute peak-SNR floor. This is the objective's only
+        // false-positive cost: before it, J rewarded star count and fit quality with NO penalty for a junk
+        // detection, so the search drove Sensitivity to its 0.0 floor (free star count) and precision collapsed —
+        // 0.451 worst-case on the synthetic bank against 0.942 for stock defaults (F23).
+        //
+        // THE SIGNAL. Star.MeasuredSensitivity is the quantity the gate itself compares:
+        //   sensitivity = NormalizedBrightness / noiseSigma,  reject iff sensitivity <= p.Sensitivity
+        // so it is a PEAK-SNR IN σ UNITS — absolutely scaled, and therefore comparable across rigs in a way a
+        // count or a ratio would not be.
+        //
+        // WHY IT IS EXACTLY ZERO ABOVE THE FLOOR, AND WHY THAT IS THE POINT. Every accepted star satisfies
+        // sensitivity > p.Sensitivity, so the accepted-SNR sample is LEFT-CENSORED at exactly the knob being
+        // tuned. The marginal fraction is therefore identically 0 whenever p.Sensitivity >= MarginalSnrFloor, and
+        // can only become non-zero below it. That makes this term a SOFT, DATA-ADAPTIVE floor rather than a hard
+        // one, which is its whole advantage over simply raising OptimizerVariable's Sensitivity lower bound:
+        //   - it is continuous, so a dataset can still buy its way below the floor if the recall gain is worth it;
+        //   - it charges for ADMITTED MARGINAL DETECTIONS, not for the knob's value, so a field whose structure
+        //     map yields few sub-floor candidates pays nothing for going low;
+        //   - below the floor it charges regardless of WHICH knob opened the door (NoiseClip, StructureLayers),
+        //     not only the Sensitivity axis.
+        //
+        // WHY NEAR-FOCUS ONLY. Far from focus a REAL star spreads out and its per-pixel peak SNR legitimately
+        // collapses, so an absolute floor applied to every frame would penalize correct defocused detections. The
+        // window is the same one SDefocusPrecision / SHfrOutlier / SCoverage use.
+        //
+        // Returns exactly 1.0 when FrameStarSnrs is null/empty, when the pooled sample is empty, or when no pooled
+        // star is below the floor ⇒ J bit-identical for callers that carry no per-star SNR data. NOTE, honestly:
+        // unlike SDefocusPrecision this term is NOT inert on the production optimizer path — RunEvaluationData
+        // populates FrameStarSnrs there, which is exactly the point. MarginalSnrStrength = 0 disables it entirely
+        // (the --legacy-objective escape hatch).
+        //
+        // Absolute peak-SNR floor, in σ. MUST exceed the gate's provably-inert bound: the structure/clip stage
+        // guarantees sensitivity >= PeakResponse × StarClippingMultiplier (0.75 × 2.0 = 1.5 at shipped defaults),
+        // so a floor at or below ~1.5 can never flag anything. 5.0 is the classic 5σ detection threshold; because
+        // the gate delivers a peak-SNR floor between T and T/PeakResponse ≈ 1.33·T, it means "accepted stars have
+        // a peak between 5σ and ~6.7σ". Caveat: with the donut master ON an EXTENDED candidate's value may instead
+        // be the integrated-flux matched-filter SNR (StarDetector's donut branch) — that only ever RAISES the
+        // value, so it cannot manufacture a false marginal flag, but the floor is more permissive per-pixel there.
+        public double MarginalSnrFloor { get; set; } = 5.0;
+
+        // Tolerated marginal fraction before the penalty bites (mirrors HfrOutlierThreshold).
+        public double MarginalSnrThreshold { get; set; } = 0.05;
+
+        // Penalty strength: 1 − Strength · max(0, frac − Threshold). 0 ⇒ the term is disabled and J is
+        // bit-identical to the pre-F23 objective (used by --legacy-objective and by the A/B "before" arm).
+        public double MarginalSnrStrength { get; set; } = 1.0;
+
+        // Floor on the penalty so this term alone can never drive J to 0 (the hard floors own the hard-fail path).
+        public double MarginalSnrMinFactor { get; set; } = 0.5;
+
         // ── Region-coverage reward (SCoverage) ─────────────────────────────────────────────────────────────
         // ADDITIVE sub-score folded into the renormalized weighted sum: the near-focus mean fraction of an N×M
         // sensor tiling that holds ≥1 accepted star. Rewards SPREAD (a cluster of stars in one corner scores worse
@@ -410,6 +462,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // of only a few accepted near-focus stars, pulling the optimizer toward a lower sensitivity / higher
             // recall. Applied after the weighted sum, like the other multiplicative penalties.
             j *= SHfrOutlier(m, c);
+
+            // F23: MULTIPLICATIVE marginal-SNR false-positive proxy — the objective's only false-positive cost.
+            // Returns exactly 1.0 when there is no per-star SNR data, when MarginalSnrStrength is 0, or when no
+            // near-focus accepted star sits below the absolute peak-SNR floor (which is guaranteed whenever the
+            // candidate's Sensitivity is at or above that floor, since the accepted-SNR sample is left-censored
+            // there). Applied after the weighted sum, like the other multiplicative penalties.
+            j *= SMarginalSnr(m, c);
 
             // Plateau tie-breaker: blend in the unsaturating secondary score so that when the primary objective is
             // flat (J saturated at 1.0 over a region) the search still prefers more stars / lower σ. Applied ONLY on
@@ -685,6 +744,98 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
             var frac = (double)outliers / pooled.Count;
             return PenaltyFromFraction(frac, c.HfrOutlierThreshold, c.HfrOutlierStrength, c.HfrOutlierMinFactor);
+        }
+
+        /// <summary>
+        /// F23 marginal-SNR false-positive proxy in (0, 1], MULTIPLIED into J by <see cref="JRun"/>. Returns
+        /// <b>exactly 1.0</b> (no penalty) when <see cref="ObjectiveConstants.MarginalSnrStrength"/> is 0, when there
+        /// is no per-star SNR data (null/empty <see cref="RunEvaluationMetrics.FrameStarSnrs"/>), when the pooled
+        /// sample is empty, or when no pooled star falls below <see cref="ObjectiveConstants.MarginalSnrFloor"/>.
+        ///
+        /// <para>Signal — NEAR-FOCUS pooled MARGINAL FRACTION: the accepted-star Sensitivity-gate SNRs of the
+        /// near-focus frames (within <see cref="ObjectiveConstants.NearFocusWindowSteps"/> · stepSize of the fitted
+        /// minimum, exactly as <see cref="SHfrOutlier"/>) are pooled, and the fraction of them below the absolute
+        /// peak-SNR floor is the penalized quantity. Each value is <c>Star.MeasuredSensitivity</c> — the very
+        /// quantity the detector's Sensitivity gate compares — so the floor is stated in σ of peak brightness and
+        /// is comparable across rigs.</para>
+        ///
+        /// <para>Because the gate rejects everything at or below the candidate's own <c>Sensitivity</c>, the pooled
+        /// sample is LEFT-CENSORED there: the fraction is identically 0 for any candidate whose Sensitivity is at
+        /// or above the floor, and rises only as a candidate reaches below it and actually admits marginal
+        /// detections. That is what makes this a soft, data-adaptive floor rather than a hard domain restriction —
+        /// a field that yields few sub-floor candidates pays nothing for a low Sensitivity.</para>
+        ///
+        /// <para>Non-finite / non-positive SNRs are skipped (they carry no information — <c>MeasuredSensitivity</c>
+        /// is NaN on the legacy cache path), so they inflate neither numerator nor denominator.</para>
+        ///
+        /// <para>Fallback — run-level pool: when no near-focus window can be formed (no per-frame positions, or a
+        /// non-finite fitted minimum), all frames are pooled, guarded by <see cref="ObjectiveConstants.MinFramesForPenalty"/>
+        /// and <see cref="ObjectiveConstants.MinAcceptedForPenalty"/> so a thin run is not spuriously penalized.
+        /// Recovery frames are exempt on BOTH paths, like every other near-focus term.</para>
+        ///
+        /// <para>Penalty shape: <c>1 − MarginalSnrStrength · max(0, frac − MarginalSnrThreshold)</c>, clamped to
+        /// [<see cref="ObjectiveConstants.MarginalSnrMinFactor"/>, 1].</para>
+        /// </summary>
+        public static double SMarginalSnr(RunEvaluationMetrics m, ObjectiveConstants c) {
+            if (m == null || c == null) {
+                return 1.0;
+            }
+            if (!(c.MarginalSnrStrength > 0.0)) {
+                return 1.0; // term disabled ⇒ J bit-identical to the pre-F23 objective
+            }
+            var snrs = m.FrameStarSnrs;
+            if (snrs == null || snrs.Count == 0) {
+                return 1.0; // no per-star SNR data ⇒ bit-identical baseline
+            }
+            var positions = m.FrameFocuserPositions;
+
+            var canUseNearFocus =
+                positions != null && positions.Count == snrs.Count &&
+                IsFinite(m.BestFocusPosition) && m.StepSize > 0.0 && c.NearFocusWindowSteps > 0.0;
+            var window = canUseNearFocus ? c.NearFocusWindowSteps * m.StepSize : 0.0;
+
+            // Pool the eligible frames' accepted-star SNRs. Counting rather than collecting: unlike SHfrOutlier
+            // this term needs no median/MAD, so a running tally over an ABSOLUTE threshold suffices.
+            var isRecovery = m.FrameIsRecovery;
+            var eligibleFrames = 0;
+            long pooled = 0;
+            long marginal = 0;
+            for (var i = 0; i < snrs.Count; i++) {
+                if (canUseNearFocus && Math.Abs(positions[i] - m.BestFocusPosition) > window) {
+                    continue;
+                }
+                // Exempt tagged recovery frames on BOTH paths, exactly as SHfrOutlier does: a recovery frame is
+                // heavily defocused by design, so its low per-pixel peak SNR is physics, not a precision defect.
+                // Null FrameIsRecovery ⇒ guard never fires ⇒ byte-identical baseline.
+                if (IsRecoveryFrame(isRecovery, i)) {
+                    continue;
+                }
+                var fr = snrs[i];
+                if (fr == null || fr.Count == 0) {
+                    continue;
+                }
+                eligibleFrames++;
+                for (var k = 0; k < fr.Count; k++) {
+                    var snr = fr[k];
+                    if (!IsFinite(snr) || snr <= 0.0) {
+                        continue; // no information (NaN on the legacy cache path); neither accepted nor marginal
+                    }
+                    pooled++;
+                    if (snr < c.MarginalSnrFloor) {
+                        marginal++;
+                    }
+                }
+            }
+
+            // Fallback guard: with no near-focus window, require enough frames/stars before penalizing a thin run.
+            if (!canUseNearFocus && (eligibleFrames < c.MinFramesForPenalty || pooled < c.MinAcceptedForPenalty)) {
+                return 1.0;
+            }
+            if (pooled == 0 || marginal == 0) {
+                return 1.0; // no marginal detections ⇒ bit-identical (the Sensitivity >= floor case)
+            }
+            var frac = (double)marginal / pooled;
+            return PenaltyFromFraction(frac, c.MarginalSnrThreshold, c.MarginalSnrStrength, c.MarginalSnrMinFactor);
         }
 
         /// <summary>Robust center/scale of a sample: the median, and the MAD scaled by 1.483 so it estimates σ for a
