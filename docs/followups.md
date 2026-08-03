@@ -490,23 +490,39 @@ That rig was not at the search floor. The defect is the *interaction* with the f
 rejection count carries no information" rather than silently reading it as exhaustion. Never use this counter
 as a false-positive signal: the pathological landing produces its cleanest possible value.
 
-### F30 — The published V2 config-A landings do not reproduce, and their inputs were not recorded
+### F30 — The optimizer *search* does not reproduce, though everything it is measured with does
 **Status:** Open · found 2026-08-03 pinning the [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall) baseline
 
-Re-running `optimize --per-run` at HEAD on the bit-identical synthetic bank produces different landings from
-the V2 table in [`docs/synthetic-af-bank-baseline-results.md`](synthetic-af-bank-baseline-results.md): D03
-32.33 vs 17.67, D04 19.67 vs 17.67, D05 8 vs 10, D07 8 vs 7.
+Re-running `optimize --per-run` at HEAD on the bit-identical synthetic bank produces different config-A
+landings from the V2 table in [`docs/synthetic-af-bank-baseline-results.md`](synthetic-af-bank-baseline-results.md):
+D03 32.33 vs 17.67, D04 19.67 vs 17.67, D05 8 vs 10, D07 8 vs 7.
 
-**Evidence.** Separately, the `optimized_settings.json` copies left in each dataset's `attempt01/` match
+**The divergence is confined to the search.** In the same session, `bank-verify`'s C0@nc2 column reproduces
+the published V2 table **exactly on all 17 datasets** — every published digit (D01 0.963, D02 0.991, D03
+0.988, D04 0.979, … D17 0.942). So the bank regeneration, the detector, the golden matching and the scoring
+chain are all bit-reproducible; only the optimizer's *trajectory* is not. That is worth stating precisely,
+because "the V2 numbers don't reproduce" would condemn the whole instrument, and the instrument is sound.
+
+**Evidence on the artifacts.** The `optimized_settings.json` copies left in each dataset's `attempt01/` match
 neither published config — 5 datasets at Sensitivity 0.0 where config A had 6 (D15 is 10.0 there, 0.0 in the
-table), and D17 is 0.0 where config B's published landing was 8.0. That is [F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings)
-biting: the prepass overwrites those files in place, so the last writer wins and neither arm survives.
+table), and D17 is 0.0 where config B's published landing was 8.0. That is
+[F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings) biting: the prepass overwrites those
+files in place, so the last writer wins and neither arm survives.
 
-**Why it matters.** The V2 table is what the expectations file's `regressionRule` is meant to compare
-against, and it cannot be regenerated. `--max-evals` and the `harness_settings.json` state in force were not
-recorded alongside the results, and the prepass `--out` trees are gone, so the inputs are unrecoverable. Any
-before/after therefore needs a same-session control arm rather than the published numbers — which is how F23
-wave 1 was run.
+**Why it matters.** `StarDetectionOptimizer` documents itself as "fully deterministic (no RNG, fixed
+evaluation order)" and is memoized on the detection cache key, so a same-code, same-input divergence points at
+either an unrecorded input (`--max-evals`, the effective `harness_settings.json`) or a genuine
+order-dependence in the evaluator — the frame-parallel fan-out (`RunEvaluationData.cs:267-289`) is the
+obvious suspect, since a float-reduction ordering difference of ~1e-15 flips an accept/reject on a saturated
+plateau where moves are taken on *strict* improvement. Either way, config A is not a reproducible reference,
+so any before/after needs a same-session control arm — which is how F23 wave 1 was run.
+
+**Next step.** Two separable pieces. (1) Record provenance in `optimized_settings.json`, which already carries
+`CreatedAtUtc`, `RunCount`, `BaselineJ` and `FinalJ`: add the full `optimize` argv and a hash of the effective
+`harness_settings.json`, so a landing is self-describing. (2) Settle determinism directly — run the same
+per-run optimize twice back-to-back on one dataset at fixed `--max-evals` and diff `optimize_trajectory.csv`.
+If the trajectories diverge, the deterministic claim in `StarDetectionOptimizer`'s class comment is wrong and
+should be either fixed (ordered reduction) or retracted.
 
 **Next step.** Record the provenance in `optimized_settings.json`, which already carries `CreatedAtUtc`,
 `RunCount`, `BaselineJ` and `FinalJ`: add the full `optimize` argv and a hash of the effective
