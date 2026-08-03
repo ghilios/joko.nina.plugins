@@ -253,11 +253,29 @@ positive rate. Those false positives then feed the autofocus fit and the sensor-
 is not confined to a reported number. It also reframes the real-bank optimizer results: every prior "A
 beat C0" conclusion was scored against a precision figure that could not see this.
 
+**Mechanism (added 2026-08-03) — the optimizer drives `BrightnessSensitivity` to its floor.** Correlating
+config A's own landed settings against its own measured precision separates the failures almost perfectly:
+
+| config-A landed `BrightnessSensitivity` | n | mean precision |
+|---|---|---|
+| **0.0** (floor) | 6 | **0.563** |
+| > 0 | 11 | **0.931** |
+
+The six at zero are the six worst in the bank (D09 0.451, D17 0.465, D15 0.531, D10 0.547, D12 0.653,
+D11 0.732); everything landing above 2.5 scores ≥ 0.941. Sensitivity 0 makes the brightness gate accept
+everything including noise, which is free star count under an objective with no false-positive cost. This also
+makes F23 the root cause of [F22](#f22--detection-binning-is-a-hard-threshold-on-a-measurement-that-under-reads-so-boundary-rigs-get-the-wrong-factor)
+(noise blobs pull the in-focus HFR median under the binning threshold) and hence of
+[F26](#f26--a-stuck-binning-recommendation-starves-the-step-update-indefinitely). Fixing this one is expected to
+dissolve all three.
+
 **Next step.** Add a precision-like term to the objective. It cannot be true precision on real data
 (that is the whole problem), but two proxies are already available: the golden-independent
 false-positive *proxies* the detector already collects, and — for tuning and regression — this bank,
 where precision is exact. Any change wants scoring against **both** banks, since the synthetic one can
-now measure exactly the quantity the real one cannot. Related: [F4](#f4--the-objective-has-no-sensor-model-term)
+now measure exactly the quantity the real one cannot. A floor on the searchable Sensitivity range is the crude
+alternative worth measuring as the baseline a cleverer term must beat. Plan:
+[`docs/af-recommender-hardening-design.md`](af-recommender-hardening-design.md). Related: [F4](#f4--the-objective-has-no-sensor-model-term)
 is the same shape of gap (a term the objective omits), and [F11](#f11--precision-is-a-lower-bound-on-runs-whose-faint-tier-was-budget-truncated--re-measured) is why this went unseen.
 
 ### F24 — Donut detection costs precision even where donuts exist, and badly where they do not
@@ -425,12 +443,31 @@ vs OIII 5 nm at 30 s), i.e. the star population and SNR. The measurement, not th
 here (R² = 1.0000). So the recommendation is delivered with full confidence and is wrong. Worse, it is
 *bistable*: the same rig can be told 1 on a narrowband night and 2 on a luminance night.
 
-**Next step.** Two candidates, not mutually exclusive. (a) Calibrate out the bias — the measured-vs-optical
-under-read is systematic and could be characterised against this bank rather than guessed. (b) Add hysteresis or
-a dead band around the 4.5/7.5 px boundaries so a marginal rig does not flip between sessions, and say
-"borderline" in the UI rather than presenting a coin flip as a recommendation. Note this compounds with
-[F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic): the same
-under-reading pushes small-HFR rigs toward the `MinHFR` cliff.
+**Correction (2026-08-03) — this is a symptom of [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall), not an independent defect.**
+The entry above described a systematic under-read to be calibrated out. Measuring it properly across all 17
+datasets shows that framing is wrong twice over.
+
+It is **bimodal, not systematic**: datasets with HFR ≳ 1.8 px under-read by 4–23%, while those with HFR ≲ 1.1 px
+**over**-read by +26% to +234% (D01's optical 0.23 px measures as 0.77 px — the pixelization floor asserting
+itself, which incidentally validates the 0.70 px floor the bank's derivations assume for R2).
+
+And it is **not reproducible** — it tracks the optimizer's landed `BrightnessSensitivity`, not the optics. Same
+frames, same seeds, two runs:
+
+| dataset | run A: HFR / Sensitivity | run B: HFR / Sensitivity | Δ HFR | binning |
+|---|---|---|---|---|
+| `D17_cdk14_oiii5` | 3.27 / **0.0** | 4.94 / 8.0 | **+51%** | 1 → 2 (flips) |
+| `D15_cdk20_3454mm_e47` | 4.02 / **0.0** | 5.29 / 6.0 | **+32%** | 1 → 2 (flips) |
+| the other 15 | — | — | ≤ ±3% | stable |
+
+Only the runs that landed at Sensitivity 0 moved, and both flipped the recommendation. At Sensitivity 0 the
+brightness gate accepts noise blobs, which pollute the in-focus HFR median and drag it under the 4.5 px
+boundary. So "calibrate the bias" would have been the wrong fix.
+
+**Next step.** Fix F23 first, then re-measure this. If it survives, the remaining candidate is hysteresis or a
+dead band around the 4.5/7.5 px boundaries so a marginal rig does not flip between sessions, with "borderline"
+surfaced in the UI rather than a coin flip presented as a recommendation. Plan:
+[`docs/af-recommender-hardening-design.md`](af-recommender-hardening-design.md).
 
 ---
 
