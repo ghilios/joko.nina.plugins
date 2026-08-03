@@ -88,29 +88,46 @@ the accepted star's own value. Three consequences the design work depends on:
 
 ## Mechanism (b) — a floor on the searchable Sensitivity range
 
-The crude baseline that (a) must beat. One constant in
-`OptimizerVariable.CreateCuratedSet` (`OptimizerVariable.cs:123`):
+The crude baseline that (a) must beat. `OptimizerVariable.CreateCuratedSet` gains an optional
+`sensitivityLower`; `DefaultSensitivityLower` stays **0.0** so shipping behaviour is unchanged and the
+floor is exercised only through the harness's `--sensitivity-floor`.
 
-```csharp
-const double SensitivityLower = 0.0;   // heuristic
-```
+**The floor value was calibrated, not guessed.** `golden eval --params default --sensitivity <S>` scores
+exact precision/recall against synthetic truth in minutes, varying only the gate. Over the three
+most-affected datasets (precision, with recall@high in brackets):
 
-becomes a non-zero floor. Per point 2 above it must exceed 1.5 to do anything at all; set it to **2.5**,
-the lowest swept-grid value that both bites and is still well below the 10.0 shipped default (and below
-D13's measured-good landing of 2.5, so the one dataset that legitimately went low is not forced upward).
+| gate `S` | D09 | D17 | D13 |
+|---|---|---|---|
+| 0 – 2.5 | 0.804 [0.911] | 0.697 [1.000] | 0.850 [1.000] |
+| 3 | 0.822 [0.911] | 0.697 [1.000] | 0.851 [1.000] |
+| 4 | 0.939 [0.911] | 0.744 [1.000] | 0.857 [1.000] |
+| 5 | 0.995 [0.911] | **0.892** [1.000] | **0.878** [1.000] |
+| **6** | **1.000** [0.911] | **0.950** [1.000] | **0.945** [1.000] |
+| 8 | 1.000 [0.911] | 0.994 [1.000] | 0.996 [1.000] |
+| 10 | 1.000 [0.911] | 1.000 [1.000] | 1.000 [1.000] |
 
-Consequences to handle:
-- `CreateWarmStartSet` clamps bands with `Math.Max(v.Lower, …)` (`OptimizerVariable.cs:233`), so the
-  floor propagates to warm starts automatically.
-- `OptimizerVariableTests.WarmStartSet_MovedAxis_GetsNarrowBandAroundRecommended`
-  (`OptimizerVariableTests.cs:291`) asserts `sens.Lower == 0.5` derived from `max(0.0, 3.5−3)`. With the
-  floor it becomes `max(2.5, 0.5) = 2.5`. The test is updated to assert the new arithmetic *and* to
-  state why (the floor now dominates), not merely retargeted.
-- Add a direct test asserting the curated `Sensitivity` axis bounds are `[2.5, 50]`, since no test pins
-  them today.
+Three things fall out, and all three change the experiment:
 
-Nothing else changes: (b) restricts the search **domain**; `J` is untouched, so every objective test and
-the bit-identity guarantees are unaffected.
+1. **A floor at 2.5 would have been a no-op.** 0, 1.5 and 2.5 are bit-identical on all three datasets —
+   the inert region is not merely the ≈1.5 the algebra guarantees, it reaches 2.5–3.0 in practice,
+   because no candidate happens to land in (1.5, 3]. The plan's original 2.5 would have "implemented"
+   mechanism (b) and measured nothing.
+2. **5.0 — the textbook 5σ threshold, and this term's first value — is not enough.** It leaves D17 at
+   0.892 and D13 at 0.878, both under the 0.90 acceptance bar. `MarginalSnrFloor` is therefore **6.0**,
+   which clears all three.
+3. **recall@high never moves anywhere in the sweep.** The bright tier is simply not at risk from this
+   gate, which is why raising the floor to 6 costs nothing against the stated acceptance metric. Past 8
+   the trade inverts — real stars start being lost for precision that is already exhausted.
+
+So **both mechanisms use floor 6.0**. That is the better experiment anyway: with the threshold held
+equal, the head-to-head isolates exactly one variable — *soft and data-adaptive* versus *hard and
+unconditional* — instead of confounding it with a different cut. The discriminating dataset is D13,
+which landed at Sensitivity 2.5 under HEAD: (b) must force it to 6, while (a) should stop wherever its
+sub-6 tail thins out.
+
+`CreateWarmStartSet` clamps bands with `Math.Max(v.Lower, …)` (`OptimizerVariable.cs:233`), so the floor
+propagates into a warm start automatically — asserted, because otherwise a `--continue-rounds` pass would
+silently escape back below it.
 
 ## Mechanism (a) — a marginal-SNR false-positive proxy in `J`
 
@@ -240,8 +257,13 @@ lands:
 | arm | code state | synthetic prepass | real prepass |
 |---|---|---|---|
 | **H** | HEAD, unchanged | A (`optimize --per-run`) + B (`--donut`) | A |
-| **b** | Sensitivity floor 2.5 | A | A |
-| **a** | `SMarginalSnr` term | A | A |
+| **b** | `--sensitivity-floor 5` | A | A |
+| **a** | `SMarginalSnr` term (floor 5) | A | A |
+
+All three arms run from **one binary**, selected by flag — `--marginal-snr-strength 0` reproduces HEAD's
+objective exactly, `--sensitivity-floor 5 --marginal-snr-strength 0` is arm b, and bare defaults are arm
+a. That removes "did I build the right arm?" as a failure mode. Arm H is additionally run from a
+separately-staged build of unmodified HEAD, and the two must agree on a spot-checked dataset.
 
 Config A = no `--donut`; config B = `--donut` (a *separate prepass*, since `--donut` un-gates the nine
 defocus axes at `OptimizerVariable.cs:169-194`). Note `bank-verify`'s `--opt-b` slot always coerces the

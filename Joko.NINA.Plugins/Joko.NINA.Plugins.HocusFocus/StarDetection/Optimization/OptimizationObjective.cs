@@ -175,14 +175,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // populates FrameStarSnrs there, which is exactly the point. MarginalSnrStrength = 0 disables it entirely
         // (the --legacy-objective escape hatch).
         //
-        // Absolute peak-SNR floor, in σ. MUST exceed the gate's provably-inert bound: the structure/clip stage
-        // guarantees sensitivity >= PeakResponse × StarClippingMultiplier (0.75 × 2.0 = 1.5 at shipped defaults),
-        // so a floor at or below ~1.5 can never flag anything. 5.0 is the classic 5σ detection threshold; because
-        // the gate delivers a peak-SNR floor between T and T/PeakResponse ≈ 1.33·T, it means "accepted stars have
-        // a peak between 5σ and ~6.7σ". Caveat: with the donut master ON an EXTENDED candidate's value may instead
-        // be the integrated-flux matched-filter SNR (StarDetector's donut branch) — that only ever RAISES the
-        // value, so it cannot manufacture a false marginal flag, but the floor is more permissive per-pixel there.
-        public double MarginalSnrFloor { get; set; } = 5.0;
+        // Absolute peak-SNR floor, in σ. CALIBRATED, not assumed: `golden eval --params default --sensitivity <S>`
+        // scores exact precision against synthetic truth while varying ONLY the gate, so the floor can be read off
+        // the precision/recall knee. Over the three most-affected datasets (recall@high in brackets):
+        //
+        //   gate S │ D09 prec [rec@high] │ D17 prec [rec@high] │ D13 prec [rec@high]
+        //   ───────┼─────────────────────┼─────────────────────┼────────────────────
+        //    0–2.5 │  0.804  [0.911]     │  0.697  [1.000]     │  0.850  [1.000]
+        //      4.0 │  0.939  [0.911]     │  0.744  [1.000]     │  0.857  [1.000]
+        //      5.0 │  0.995  [0.911]     │  0.892  [1.000]     │  0.878  [1.000]
+        //      6.0 │  1.000  [0.911]     │  0.950  [1.000]     │  0.945  [1.000]
+        //      8.0 │  1.000  [0.911]     │  0.994  [1.000]     │  0.996  [1.000]
+        //
+        // 5.0 — the textbook 5σ detection threshold, and this constant's first value — leaves D17 at 0.892, under
+        // the 0.90 acceptance bar. 6.0 clears all three while recall@high does not move ANYWHERE in the whole sweep
+        // (the bright tier is never at risk from this gate); past 8 the trade inverts and real stars start being
+        // lost for no precision left to gain. Hence 6.0.
+        //
+        // MUST exceed the gate's provably-inert bound: the structure/clip stage guarantees
+        // sensitivity >= PeakResponse × StarClippingMultiplier (0.75 × 2.0 = 1.5 at shipped defaults), so a floor at
+        // or below ~1.5 can never flag anything — and measured, the inert region reaches 2.5–3.0 on all three
+        // datasets, because no candidate happens to land in (1.5, 3]. Because the gate delivers a peak-SNR floor
+        // between T and T/PeakResponse ≈ 1.33·T, 6.0 means "accepted stars have a peak between 6σ and ~8σ".
+        //
+        // Caveat: with the donut master ON an EXTENDED candidate's value may instead be the integrated-flux
+        // matched-filter SNR (StarDetector's donut branch) — that only ever RAISES the value, so it cannot
+        // manufacture a false marginal flag, but the floor is more permissive per-pixel there.
+        public double MarginalSnrFloor { get; set; } = 6.0;
 
         // Tolerated marginal fraction before the penalty bites (mirrors HfrOutlierThreshold).
         public double MarginalSnrThreshold { get; set; } = 0.05;

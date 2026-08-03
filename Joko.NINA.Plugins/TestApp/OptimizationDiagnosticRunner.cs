@@ -938,7 +938,7 @@ namespace TestApp {
             Console.Error.WriteLine("  --continue-rounds (optional, 0-2) extra chained passes after the first, each re-seeded from the prior best (3 total).");
             Console.Error.WriteLine("  --verbose    (optional) restore TRACE logging (default INFO). Slower: serializes per-detection stage timings to the NINA log.");
             Console.Error.WriteLine("  --marginal-snr-strength (optional) override ObjectiveConstants.MarginalSnrStrength (F23 false-positive proxy). 0 disables the term.");
-            Console.Error.WriteLine("  --marginal-snr-floor    (optional) override ObjectiveConstants.MarginalSnrFloor, the absolute peak-SNR floor in sigma (default 5).");
+            Console.Error.WriteLine("  --marginal-snr-floor    (optional) override ObjectiveConstants.MarginalSnrFloor, the absolute peak-SNR floor in sigma (default 6).");
             Console.Error.WriteLine("  --sensitivity-floor     (optional) floor the SEARCHABLE Sensitivity range (F23 mechanism (b)). <=1.5 is provably inert at shipped defaults.");
         }
 
