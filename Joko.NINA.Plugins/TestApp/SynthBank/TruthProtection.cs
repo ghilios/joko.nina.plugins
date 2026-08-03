@@ -47,13 +47,13 @@ namespace TestApp.SynthBank {
     /// exactly the right semantics: a detection landing on one is excluded from the false-positive count, and
     /// the box is never counted as a missed star.</para>
     ///
-    /// <para><b>Known residual bias, stated rather than hidden.</b> A protection box scales with the star's own
-    /// light footprint (2·HFR), so around a heavily-defocused donut it can reach ~40 px — wider than the 12 px
-    /// match radius. A genuine noise blob landing inside that footprint is therefore laundered. Precision is
-    /// consequently a slight UPPER bound in the presence of large donuts, where before this fix it was a severe
-    /// LOWER bound (96% of reported false positives were real stars). The trade is deliberate and heavily net
-    /// positive, but "exact" is the wrong word for the result: <c>protectedStars</c> is reported per run so the
-    /// size of the correction is always visible.</para>
+    /// <para><b>Protection is exactly as generous as matching.</b> The box half-width is the match radius —
+    /// a detection is protected iff it would have been MATCHED had this star carried a golden box. An earlier
+    /// cut used the star's light footprint (2·HFR, ~40 px on a wing donut) and SATURATED the metric: precision
+    /// read 1.000 on all 17 datasets for all three F23 arms, because a 40 px box launders genuine noise blobs
+    /// along with the real stars. A metric that cannot separate configurations is as useless as a biased one.
+    /// At the match radius the same runs give 0.946–1.000. <c>protectedStars</c> is reported per run so the size
+    /// of the correction stays visible.</para>
     ///
     /// <para><b>Recall is deliberately untouched.</b> Only the false-positive side changes. The golden's
     /// <c>stars</c> list still defines what must be found, so recall@high and recall@all stay exactly
@@ -104,12 +104,18 @@ namespace TestApp.SynthBank {
                 if (!double.IsFinite(d.BinnedCenterX) || !double.IsFinite(d.BinnedCenterY)) {
                     continue; // no usable position — cannot protect what we cannot place
                 }
-                var hfr = double.IsFinite(d.BinnedHfrPixels) && d.BinnedHfrPixels > 0.0 ? d.BinnedHfrPixels : 0.0;
-                // Same shape as GoldenFromTruth.BoxHalfWidthPixels' HFR term and minimum, floored at the match
-                // radius (see the parameter note above). The annulus term is deliberately dropped: it needs the
-                // native outer radius and the binning factor, neither of which the sidecar carries directly, and
-                // for a donut 2*HFR already spans the ring.
-                var half = Math.Max(Math.Max(2.0 * hfr, MinProtectionHalfWidthPixels), radius);
+                // Protection is EXACTLY as generous as matching, and no more: the half-width is the match radius.
+                //
+                // The first cut of this used max(2*HFR, 4, radius) — the star's light footprint, ~40 px on a wing
+                // donut. That saturated the metric: precision read 1.000 on all 17 datasets for all three F23 arms,
+                // because a 40 px box around every faint truth star launders genuine noise blobs too. A metric that
+                // cannot separate configurations is as useless as one that is biased, just in the other direction.
+                // Scored at the match radius the same runs give 0.946–1.000, which discriminates.
+                //
+                // The rule to hold onto: a detection is protected iff it would have been MATCHED had this star
+                // carried a golden box. Anything wider is inventing true positives; anything narrower re-creates
+                // the F31 bug.
+                var half = radius > 0.0 ? radius : MinProtectionHalfWidthPixels;
                 var w = 2.0 * Math.Ceiling(half);
                 boxes.Add(new GoldenStarBox {
                     X = d.BinnedCenterX - w / 2.0,
@@ -122,8 +128,8 @@ namespace TestApp.SynthBank {
             return boxes;
         }
 
-        /// <summary>Mirrors <see cref="GoldenTierThresholds.MinBoxHalfWidthPixels"/> so a heavily-oversampled
-        /// in-focus source still gets a usable multi-pixel protection box.</summary>
+        /// <summary>Fallback half-width for the degenerate case of a non-positive match radius, so a protection
+        /// box is never zero-sized. Mirrors <see cref="GoldenTierThresholds.MinBoxHalfWidthPixels"/>.</summary>
         public const double MinProtectionHalfWidthPixels = 4.0;
 
         /// <summary>

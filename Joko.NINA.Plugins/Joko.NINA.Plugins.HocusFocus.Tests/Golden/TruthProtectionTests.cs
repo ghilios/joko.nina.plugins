@@ -68,20 +68,27 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Golden {
             var boxes = TruthProtection.BuildProtectionBoxes(
                 new List<SyntheticStarDisposition> { Disp(SyntheticTier.Omitted, 500, 500, hfr: 0.5) }, radius);
             var b = boxes.Single();
-            Assert.That(b.W / 2.0, Is.GreaterThanOrEqualTo(radius),
-                "half-width must cover the match radius");
+            Assert.That(b.W / 2.0, Is.EqualTo(radius).Within(1e-9),
+                "half-width IS the match radius — protection exactly as generous as matching");
             // and a detection exactly at the radius is inside the box
             Assert.That(b.X, Is.LessThanOrEqualTo(500 - radius));
             Assert.That(b.X + b.W, Is.GreaterThanOrEqualTo(500 + radius));
         }
 
         [Test]
-        public void BuildProtectionBoxes_LargeHfrWins_SoDefocusedDonutsAreCovered() {
-            // A wing donut: HFR 20 px => half 40 px, well past the 12 px radius floor. This is the population
-            // F31 is about — defocus destroys peak SNR, so these are exactly the stars the golden drops.
-            var b = TruthProtection.BuildProtectionBoxes(
+        public void BuildProtectionBoxes_DoesNotWidenWithHfr_SoTheMetricStaysDiscriminating() {
+            // A wing donut (HFR 20 px) gets the SAME protection as a compact star: the match radius, NOT the
+            // star's light footprint. Sizing by 2·HFR saturated the metric — precision read 1.000 on all 17
+            // datasets for all three F23 arms, because a ~40 px box launders genuine noise blobs along with the
+            // real star. A metric that cannot separate configurations is as useless as a biased one.
+            var compact = TruthProtection.BuildProtectionBoxes(
+                new List<SyntheticStarDisposition> { Disp(SyntheticTier.Omitted, 500, 500, hfr: 1.0) }, 12.0).Single();
+            var donut = TruthProtection.BuildProtectionBoxes(
                 new List<SyntheticStarDisposition> { Disp(SyntheticTier.Omitted, 500, 500, hfr: 20.0) }, 12.0).Single();
-            Assert.That(b.W / 2.0, Is.EqualTo(40.0).Within(1.0));
+            Assert.Multiple(() => {
+                Assert.That(donut.W, Is.EqualTo(compact.W), "protection must not scale with HFR");
+                Assert.That(donut.W / 2.0, Is.EqualTo(12.0).Within(1e-9), "half-width is the match radius");
+            });
         }
 
         [Test]
