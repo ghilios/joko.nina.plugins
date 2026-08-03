@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "schema": "afbank-verify/3",
+  "_comment": [
+    "MEASURED baseline for the synthetic AF bank — the reference the regression rule in",
+    "synthetic-af-bank-expectations.json ('regressionRule') compares against. That file holds",
+    "ASPIRATIONAL bands; this one holds what was actually measured.",
+    "",
+    "PROVENANCE: transcribed verbatim from the V2 table in docs/synthetic-af-bank-baseline-results.md",
+    "(lines 115-134), which was produced by:",
+    "  TestApp bank-verify --runs D:\\SyntheticAutofocusBank --nc-sweep 2,3,4 --opt-a <A> --opt-b <B>",
+    "  --pixel-scale header      (17 runs, 0 failed, schema afbank-verify/3)",
+    "These numbers are TRANSCRIBED, not regenerated. The optimizer prepass output directories that",
+    "produced configs A and B no longer exist, and the optimized_settings.json copies still sitting in",
+    "each dataset's attempt01/ folder are whichever prepass ran LAST (they show 5 datasets at",
+    "BrightnessSensitivity 0.0 — D09/D10/D11/D12/D17 — where the published config A had 6, including",
+    "D15). So config A as published cannot be re-scored from what is on disk; it has to be re-derived.",
+    "",
+    "CAVEATS on reading the cells:",
+    "  - 'recallHigh' on THIS bank is recall at golden peak SNR >= 20 (goldenHighSnr in",
+    "    SynthBank/synthetic-bank-spec.json), NOT >= 12. The bank-verify markdown column header",
+    "    'recall@SNR>=12' and the JSON field 'goldenSNRge12' are misnomers on the synthetic bank.",
+    "  - 'precision' here is EXACT (synthetic truth is complete), unlike the real bank where it is a",
+    "    lower bound (F11).",
+    "  - Per-dataset sigmaFocus was NOT published in the V2 table, so it is absent here. The",
+    "    sigmaFocusWorseFractionMax rule needs a same-session HEAD arm to score against.",
+    "  - afR2 is the C0 value only; per-config afR2 was not published."
+  ],
+  "source": "docs/synthetic-af-bank-baseline-results.md",
+  "measuredUtc": "2026-08-02",
+  "detectorCommit": "unknown (pre-b3f7165; the V2 run predates the synth-validate eps fixes)",
+  "bankRoot": "D:\\SyntheticAutofocusBank",
+  "pixelScaleMode": "header",
+  "configs": {
+    "C0@nc2": "shipped product defaults, NoiseClippingMultiplier = 2",
+    "A": "optimize --per-run landings (donut master NOT forced)",
+    "B": "optimize --per-run --donut landings (donut master forced on in bank-verify)"
+  },
+  "runs": {
+    "D01_ultrawide_40mm/attempt01":     { "C0@nc2": { "recallHigh": 0.135, "precision": 0.963, "afR2": 0.9098 }, "A": { "recallHigh": 0.129, "precision": 0.970 }, "B": { "recallHigh": 0.115, "precision": 0.967 } },
+    "D02_rich_135mm/attempt01":         { "C0@nc2": { "recallHigh": 0.475, "precision": 0.991, "afR2": 0.9172 }, "A": { "recallHigh": 0.451, "precision": 0.991 }, "B": { "recallHigh": 0.442, "precision": 0.990 } },
+    "D03_redcat_250mm/attempt01":       { "C0@nc2": { "recallHigh": 0.400, "precision": 0.988, "afR2": 0.9512 }, "A": { "recallHigh": 0.396, "precision": 0.992 }, "B": { "recallHigh": 0.537, "precision": 0.991 } },
+    "D04_esprit_550mm/attempt01":       { "C0@nc2": { "recallHigh": 0.810, "precision": 0.979, "afR2": 0.9993 }, "A": { "recallHigh": 0.855, "precision": 0.977 }, "B": { "recallHigh": 0.697, "precision": 0.977 } },
+    "D05_tec140_1000mm/attempt01":      { "C0@nc2": { "recallHigh": 0.982, "precision": 0.986, "afR2": 0.9999 }, "A": { "recallHigh": 0.989, "precision": 0.966 }, "B": { "recallHigh": 0.978, "precision": 0.992 } },
+    "D06_sparse_1000mm/attempt01":      { "C0@nc2": { "recallHigh": 0.982, "precision": 0.978, "afR2": 0.9997 }, "A": { "recallHigh": 0.964, "precision": 0.984 }, "B": { "recallHigh": 0.988, "precision": 0.977 } },
+    "D07_rc10_2000mm/attempt01":        { "C0@nc2": { "recallHigh": 0.965, "precision": 0.953, "afR2": 1.0000 }, "A": { "recallHigh": 0.973, "precision": 0.941 }, "B": { "recallHigh": 0.944, "precision": 0.859 } },
+    "D08_c11_2800mm/attempt01":         { "C0@nc2": { "recallHigh": 1.000, "precision": 0.959, "afR2": 0.9996 }, "A": { "recallHigh": 0.990, "precision": 0.748 }, "B": { "recallHigh": 1.000, "precision": 0.781 } },
+    "D09_c14_3800mm/attempt01":         { "C0@nc2": { "recallHigh": 0.922, "precision": 0.993, "afR2": 0.9992 }, "A": { "recallHigh": 0.956, "precision": 0.451 }, "B": { "recallHigh": 1.000, "precision": 0.448 } },
+    "D10_rc16_3250mm_sparse/attempt01": { "C0@nc2": { "recallHigh": 0.983, "precision": 1.000, "afR2": 0.9996 }, "A": { "recallHigh": 0.931, "precision": 0.547 }, "B": { "recallHigh": 0.966, "precision": 0.661 } },
+    "D11_rc10_585_afbin2/attempt01":    { "C0@nc2": { "recallHigh": 0.887, "precision": 0.986, "afR2": 1.0000 }, "A": { "recallHigh": 0.850, "precision": 0.732 }, "B": { "recallHigh": 0.917, "precision": 0.627 } },
+    "D12_c14_585_afbin2/attempt01":     { "C0@nc2": { "recallHigh": 0.897, "precision": 0.952, "afR2": 0.9994 }, "A": { "recallHigh": 0.897, "precision": 0.653 }, "B": { "recallHigh": 0.879, "precision": 0.506 } },
+    "D13_apo200_1800mm/attempt01":      { "C0@nc2": { "recallHigh": 1.000, "precision": 0.962, "afR2": 0.9992 }, "A": { "recallHigh": 1.000, "precision": 0.985 }, "B": { "recallHigh": 0.986, "precision": 0.653 } },
+    "D14_cdk14_2563mm_e47/attempt01":   { "C0@nc2": { "recallHigh": 0.979, "precision": 0.965, "afR2": 0.9997 }, "A": { "recallHigh": 0.990, "precision": 0.948 }, "B": { "recallHigh": 0.984, "precision": 0.671 } },
+    "D15_cdk20_3454mm_e47/attempt01":   { "C0@nc2": { "recallHigh": 0.954, "precision": 0.979, "afR2": 0.9992 }, "A": { "recallHigh": 0.943, "precision": 0.531 }, "B": { "recallHigh": 0.931, "precision": 0.708 } },
+    "D16_esprit550_ha3/attempt01":      { "C0@nc2": { "recallHigh": 0.886, "precision": 0.985, "afR2": 0.9954 }, "A": { "recallHigh": 0.908, "precision": 0.744 }, "B": { "recallHigh": 0.739, "precision": 0.983 } },
+    "D17_cdk14_oiii5/attempt01":        { "C0@nc2": { "recallHigh": 1.000, "precision": 0.942, "afR2": 0.9988 }, "A": { "recallHigh": 1.000, "precision": 0.465 }, "B": { "recallHigh": 1.000, "precision": 0.567 } }
+  },
+  "landedConfigA": {
+    "_comment": [
+      "The config-A landed BrightnessSensitivity values recorded in the design spec's Evidence 1",
+      "(docs/af-recommender-hardening-design.md). Only the six-at-zero set was published by name;",
+      "the remaining eleven were reported only as an aggregate ('every dataset that landed above 2.5",
+      "scores >= 0.941'), so they are not enumerated here."
+    ],
+    "sensitivityAtFloor": [
+      "D09_c14_3800mm", "D17_cdk14_oiii5", "D15_cdk20_3454mm_e47",
+      "D10_rc16_3250mm_sparse", "D12_c14_585_afbin2", "D11_rc10_585_afbin2"
+    ],
+    "meanPrecisionAtFloor": 0.563,
+    "meanPrecisionAboveFloor": 0.931
+  },
+  "headline": {
+    "c0PrecisionMin": 0.942,
+    "configAPrecisionMin": 0.451,
+    "configAPrecisionBelow0_90": 6
+  }
+}
