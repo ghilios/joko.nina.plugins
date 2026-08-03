@@ -12,7 +12,19 @@ Which one works, and does fixing this dissolve F22 and F26 as predicted?*
 
 ## Headline
 
-<!-- filled in after the arms complete -->
+| what | result |
+|---|---|
+| Mechanism (a) — false-positive proxy term in `J` | **REJECTED** — clears no acceptance gate |
+| Mechanism (b) — floor on the searchable Sensitivity range | **REJECTED** — worse than doing nothing |
+| Baseline reproducibility | **PASS** — C0 *and* config A reproduce the published V2 table exactly, all 17 datasets |
+| F22 (binning misread) | **confirmed a symptom of F23**, measured with a toggle |
+| F26 (binning livelock) | **does not reproduce** as a livelock — one deferral round, then converges |
+| F21 (half-width instability) | reproduces **weaker** than recorded — 2.2× spread over 6 seeds, not 12× |
+| Ships | **nothing behavioural.** `MarginalSnrStrength` defaults to 0; J is bit-identical to before |
+
+**The short version.** The objective needs a false-positive cost — that much the bank confirmed again, in a
+sharper form than before. But neither of the two mechanisms the spec proposed survives measurement, and they
+fail for *opposite* reasons that together say something useful about where the fix has to live.
 
 ## The baseline reproduces exactly — but the artifact on disk is not what it looks like
 
@@ -119,11 +131,161 @@ That is a claim the bank can settle, and settling it is what the arms below are 
 
 ## Arms
 
-<!-- filled in after the arms complete -->
+Three code states, one binary, arm selected by flag (`--marginal-snr-strength`, `--sensitivity-floor`) so a
+mis-built arm cannot silently corrupt a result. Scored by `bank-verify --nc-sweep 2 --opt-a <arm>`,
+schema `afbank-verify/3`, header pixel scale. Cells are **config-A precision**; bold = below the 0.90 gate.
+
+| dataset | C0@nc2 | H (control) | b (floor) | a (term) | H rec@high | a rec@high |
+|---|---|---|---|---|---|---|
+| D01_ultrawide_40mm | 0.963 | 0.970 | 0.970 | 0.970 | 0.129 | 0.129 |
+| D02_rich_135mm | 0.991 | 0.991 | 0.991 | 0.991 | 0.451 | 0.451 |
+| D03_redcat_250mm | 0.988 | 0.992 | 0.992 | 0.992 | 0.396 | 0.396 |
+| D04_esprit_550mm | 0.979 | 0.977 | **0.859** | 0.977 | 0.855 | 0.855 |
+| D05_tec140_1000mm | 0.986 | 0.966 | 0.958 | 0.966 | 0.989 | 0.989 |
+| D06_sparse_1000mm | 0.978 | 0.984 | 0.981 | 0.984 | 0.964 | 0.964 |
+| D07_rc10_2000mm | 0.953 | 0.941 | 0.963 | 0.941 | 0.973 | 0.973 |
+| D08_c11_2800mm | 0.959 | **0.748** | 0.919 | **0.748** | 0.990 | 0.990 |
+| D09_c14_3800mm | 0.993 | **0.451** | **0.850** | 0.944 | 0.956 | 0.933 |
+| D10_rc16_3250mm_sparse | 1.000 | **0.547** | **0.757** | **0.814** | 0.931 | 0.983 |
+| D11_rc10_585_afbin2 | 0.986 | **0.732** | 0.969 | **0.833** | 0.850 | 0.842 |
+| D12_c14_585_afbin2 | 0.952 | **0.653** | **0.547** | **0.659** | 0.897 | 0.841 |
+| D13_apo200_1800mm | 0.962 | 0.985 | **0.860** | 0.985 | 1.000 | 1.000 |
+| D14_cdk14_2563mm_e47 | 0.965 | 0.948 | **0.739** | 0.948 | 0.990 | 0.990 |
+| D15_cdk20_3454mm_e47 | 0.979 | **0.531** | **0.527** | **0.587** | 0.943 | 0.885 |
+| D16_esprit550_ha3 | 0.985 | **0.744** | **0.740** | **0.744** | 0.908 | 0.908 |
+| D17_cdk14_oiii5 | 0.942 | **0.465** | **0.650** | **0.735** | 1.000 | 1.000 |
+
+**Scorecard against the acceptance gates** (precision ≥ 0.90 everywhere; recall@high loss ≤ 0.02; σ_focus no
+worse than 20%):
+
+| arm | precision < 0.90 | recall@high drop > 0.02 | σ_focus worse > 20% | verdict |
+|---|---|---|---|---|
+| H (control) | 8/17 | — | — | — |
+| b | **9/17** | | | REJECTED |
+| a | **7/17** | 3 (D09, D12, D15) | 3 (D09, D10, D11) | REJECTED |
+
+### (b) is worse than doing nothing, and that is the informative part
+
+The hard floor helps three datasets and **breaks four that were healthy**: D13 0.985 → 0.860, D14 0.948 →
+0.739, D04 0.977 → 0.859. Net 9 failures against the control's 8.
+
+The mechanism is worth stating because it generalises: **restricting the domain of one axis does not remove
+the incentive, it redirects it.** The objective still pays for star count and charges nothing for a false
+positive, so when the floor takes stars away the search wins them back by loosening whatever gate is still
+free. Junk enters through a different door. Any future "just clamp the knob" proposal inherits this result.
+
+### (a) works where it can fire, and is structurally escapable
+
+Real gains — D09 **0.451 → 0.944**, D17 0.465 → 0.735, D10 0.547 → 0.814 — but no gate cleared, and three
+σ_focus regressions bought with them.
+
+The failure is not a mis-set constant, which is why no floor value fixes it. The gate guarantees
+
+```
+sensitivity  >=  PeakResponse × StarClippingMultiplier
+```
+
+and **both of those are searchable curated axes**. So the optimizer can lift the statistic's own *lower bound*
+above `MarginalSnrFloor`, making the penalty structurally unable to fire while the false positives remain:
+
+| dataset | landed Sensitivity | StarClip | PeakResponse | PR × StarClip | floor | precision |
+|---|---|---|---|---|---|---|
+| D12 | 0 | 6.25 | **1.00** | **6.25** | 6.0 | 0.659 |
+| D15 | 0 | 6.75 | **1.00** | **6.75** | 6.0 | 0.587 |
+
+Both land *just past* the floor, with `PeakResponse` pinned at the top of its searchable range. A floor of 8
+would be escaped at 8. The plan budgeted one retune round; it was deliberately not spent, because the
+diagnosis rules the retune out rather than leaving it uncertain.
+
+**And the floor is not the whole story anyway.** D08 lands at Sensitivity 8 — above any floor, term
+legitimately inert — with precision 0.748. So there is a second false-positive source that operates at
+perfectly healthy Sensitivity values, which the spec's root-cause chain does not describe.
+
+### What ships
+
+`MarginalSnrStrength` defaults to **0**. J is bit-identical to before, and the shipping optimizer is
+unchanged. The implementation, its tests, and both harness flags stay so the next attempt starts from a
+measured position rather than from scratch.
 
 ## Re-measuring the eight followups
 
-<!-- filled in after the arms complete -->
+The design spec's prediction on record: F22 and F26 substantially weaken or disappear; F19, F20, F21 and F25
+are untouched. Measured:
+
+| id | verdict | evidence |
+|---|---|---|
+| **F23** | **open** | neither mechanism passes; a second FP source exists at healthy Sensitivity (D08 lands at 8, precision 0.748) |
+| **F22** | reproduces — and **confirmed caused by F23** | toggle evidence below |
+| **F26** | **does not reproduce as a livelock** | D08 S1: 21 → 21 → 36 → **62**, converged in 3 rounds, against a recorded 4-round stall. One round is still lost to the binning-first deferral. D12 S6 still fails to converge (final 80 vs 141) — but **does** converge with the term on (103) |
+| **F21** | reproduces **weaker than recorded** | six seeds on D17: half-widths 143.6 / 90.0 / 156.0 / 201.5 / 90.0 / 156.0 → **2.2× spread**, recommended step never below 26. The entry's 12× collapse (143.6 vs 12.1 → steps 41 and 3) does not appear. The 143.58 reproduces to the hundredth, so this is rarity, not nondeterminism |
+| **F25** | manifestation seed-dependent; entry stands | D05 S2 fits at R² = **−0.106** and **holds** at 140 rather than widening to 240. The code gap (no fit-quality gate) is untouched, so whether a degenerate fit holds or widens is left to the noise realization |
+| **F20** | reproduces exactly | D01/D02 land `FinalJ = 0.00000`; recall@high 0.129 / 0.451 / 0.396 on D01/D02/D03 |
+| **F19** | unchanged | no wave-1 code touches the exposure statistic; still the median 20th-brightest SNR |
+| **F24** | **not re-measured** | needs a config-B (`--donut`) prepass, which wave 1 did not run. Stated as unmeasured rather than cleared |
+
+### F22 is a symptom of F23 — measured, not inferred
+
+Because the objective term is a *switch* (`--marginal-snr-strength`), the same frames and the same seed can be
+scored with the optimizer landing at the Sensitivity floor or above it. Everything else is held constant.
+`D17_cdk14_oiii5` scenario S0:
+
+| objective | landed Sensitivity | measured in-focus HFR | binning recommended |
+|---|---|---|---|
+| term OFF (shipping) | 0.0 | **3.27 px** | 1 |
+| term ON | 7.0 | **4.66 px** | **2** |
+
+The 4.5 px binning threshold sits between the two readings, so the Sensitivity landing *alone* flips the
+factor — a 30% shift in measured HFR from nothing but admitted noise. The same signature appears on
+`D12_c14_585_afbin2` S6 round 2 (Sensitivity 0 → 6 moves the in-focus HFR 2.99 → 4.45, **+49%**) and on
+`D08_c11_2800mm` S0.
+
+This retires one of F22's two candidate fixes. "Calibrate out the systematic bias" is wrong: the bias is not a
+property of the measurement, it tracks what the optimizer chose to detect. Hysteresis around the threshold
+remains viable.
+
+That the term is too weak to *ship* and still strong enough to *prove the mechanism* is the useful shape of
+this result — a rejected fix that settles an attribution is worth more than an unmeasured one that doesn't.
+
+### A fourth harness-calibration bug
+
+Found while re-measuring F25. `D05_tec140_1000mm` S2 is scored:
+
+```
+converged: true
+stoppedReason: "converged (round applied nothing)"
+finalStepSize: 140     stepBehavioral: 35     deltaStepVsExpected: +105
+assertions: A3 verdict=FAIL  "final step 140 outside [21,56] = [0.6,1.6]x step_behavioral (35)"
+```
+
+A degenerate fit produces a no-op recommendation, and the loop reads "nothing changed" as convergence — at a
+step four times too wide, while the assertion correctly fails it. This inflates convergence counts on exactly
+the runs that are most broken, and joins the three calibration bugs already recorded in
+[`synthetic-af-bank-baseline-results.md`](synthetic-af-bank-baseline-results.md). Convergence should require
+being inside the tolerance band, not merely unchanged.
+
+## The real bank — transfer guard
+
+`bank-verify --runs "D:\Autofocus Bank" --nc-sweep 2 --pixel-scale header`, 19 runs, 0 failed.
+
+**The documented anchor reproduces exactly.** `cwhite_2026` C0@nc2: precision **0.8405923344947736**,
+recall@≥12 **0.31827176781002636**, σ_focus **3.4197942376007235**, sensor R² **0.9799173346975301** — every
+digit as recorded. Third independent confirmation this session that the measurement chain is sound.
+
+**The F23 pathology transfers, in the form F11 predicted.** Real-bank precision is a lower bound, so it
+*understates* the problem; what is visible instead is the recall side of the same trade:
+
+| run | C0@nc2 recall@≥12 | config A | C0 precision → A |
+|---|---|---|---|
+| CWhiteFocus | 0.810 | **0.327** | 0.954 → 1.000 |
+| mccomiskey | 0.871 | **0.079** | 0.838 → 0.992 |
+| uneven | 0.932 | **0.319** | 0.990 → 1.000 |
+| standard_example1 | 0.893 | **0.268** | 0.976 → 0.998 |
+| vsn07 | 0.751 | **0.207** | 0.968 → 1.000 |
+
+The landings give up 50–90% of recall while precision reads *higher*. On synthetic data the same landings are
+visibly buying junk; on real data they look like precision wins, because the false positives admitted are not
+in the golden and cannot be counted. That is F11 in action, and it is the clearest possible statement of why
+the synthetic bank was worth building.
 
 ## Reproduce
 
