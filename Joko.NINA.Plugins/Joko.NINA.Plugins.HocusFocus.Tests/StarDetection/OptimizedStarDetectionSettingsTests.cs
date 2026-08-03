@@ -34,9 +34,15 @@ public class OptimizedStarDetectionSettingsTests {
     }
 
     [Test]
-    public void DefaultSchemaVersion_IsTwo() {
-        // v2 added the defocus-aware axes (master + donut/spike knobs).
-        Assert.That(new OptimizedStarDetectionSettings().SchemaVersion, Is.EqualTo(2));
+    public void DefaultSchemaVersion_IsCurrent() {
+        // v2 added the defocus-aware axes (master + donut/spike knobs); v3 added the optional Provenance block
+        // (F30) and changed no knob semantics. Asserted against the constant as well as the literal, so the next
+        // bump does not silently pass while leaving the default behind.
+        Assert.Multiple(() => {
+            Assert.That(new OptimizedStarDetectionSettings().SchemaVersion,
+                Is.EqualTo(OptimizedStarDetectionSettings.CurrentSchemaVersion));
+            Assert.That(OptimizedStarDetectionSettings.CurrentSchemaVersion, Is.EqualTo(3));
+        });
     }
 
     [Test]
@@ -113,7 +119,7 @@ public class OptimizedStarDetectionSettingsTests {
             Assert.That(dto.FinalJ, Is.EqualTo(0.4));
             Assert.That(dto.RecommendedStepSize, Is.EqualTo(25));
             Assert.That(dto.RecommendedOffsetSteps, Is.EqualTo(6));
-            Assert.That(dto.SchemaVersion, Is.EqualTo(2));
+            Assert.That(dto.SchemaVersion, Is.EqualTo(OptimizedStarDetectionSettings.CurrentSchemaVersion));
             Assert.That(dto.CreatedAtUtc, Is.InRange(before, after));
             Assert.That(dto.CreatedAtUtc.Kind, Is.EqualTo(DateTimeKind.Utc));
         });
@@ -134,6 +140,90 @@ public class OptimizedStarDetectionSettingsTests {
             Assert.That(clone, Is.Not.SameAs(original));
             Assert.That(original.BrightnessSensitivity, Is.EqualTo(3.3));
             Assert.That(clone.BrightnessSensitivity, Is.EqualTo(99.0));
+        });
+    }
+
+    // ── F30: a landing must say which invocation produced it ────────────────────────────────────────────────
+
+    [Test]
+    public void FromParams_WithoutProvenance_OmitsTheBlockEntirely() {
+        // A snapshot written by the SHIPPING plugin has no argv and no harness settings file. It must stay
+        // byte-identical to before this field existed, and a reader must see "unattributable" rather than a
+        // fabricated producer.
+        var dto = OptimizedStarDetectionSettings.FromParams(new StarDetectorParams(), 1, 0.5, 0.9, 10, 4);
+        var json = JsonConvert.SerializeObject(dto);
+
+        Assert.Multiple(() => {
+            Assert.That(dto.Provenance, Is.Null);
+            Assert.That(json, Does.Not.Contain("Provenance"));
+        });
+    }
+
+    [Test]
+    public void FromParams_WithProvenance_RoundTripsTheInvocation() {
+        var prov = new OptimizerProvenance {
+            Producer = "TestApp optimize",
+            CommandLine = "optimize --per-run --runs D:\\SyntheticAutofocusBank --donut",
+            SettingsFingerprint = "a1b2c3d4e5f6",
+            ProducerVersion = "3.4.0.1"
+        };
+        var dto = OptimizedStarDetectionSettings.FromParams(new StarDetectorParams(), 17, 0.5, 0.9, 10, 4, prov);
+        var round = JsonConvert.DeserializeObject<OptimizedStarDetectionSettings>(JsonConvert.SerializeObject(dto));
+
+        Assert.Multiple(() => {
+            // THE point of F30: the two F23 arms differed only by a flag, and this is where that shows.
+            Assert.That(round.Provenance.CommandLine, Does.Contain("--donut"));
+            Assert.That(round.Provenance.Producer, Is.EqualTo("TestApp optimize"));
+            Assert.That(round.Provenance.SettingsFingerprint, Is.EqualTo("a1b2c3d4e5f6"));
+            Assert.That(round.SchemaVersion, Is.EqualTo(OptimizedStarDetectionSettings.CurrentSchemaVersion));
+        });
+    }
+
+    [Test]
+    public void FromParams_CopiesProvenance_SoTheProducerCannotMutateAStoredLanding() {
+        var prov = new OptimizerProvenance { CommandLine = "optimize --per-run" };
+        var dto = OptimizedStarDetectionSettings.FromParams(new StarDetectorParams(), 1, 0.0, 0.0, 1, 1, prov);
+        prov.CommandLine = "optimize --per-run --donut"; // the caller reuses one instance across the batch
+
+        Assert.That(dto.Provenance.CommandLine, Is.EqualTo("optimize --per-run"),
+            "a landing records the invocation as it was when written");
+    }
+
+    [Test]
+    public void Clone_DeepCopiesProvenance_NotJustTheReference() {
+        // MemberwiseClone is shallow: without an explicit copy every clone would ALIAS one provenance instance,
+        // and a mutation through any of them would rewrite the history of all the others.
+        var original = OptimizedStarDetectionSettings.FromParams(
+            new StarDetectorParams(), 1, 0.0, 0.0, 1, 1, new OptimizerProvenance { CommandLine = "original" });
+        var clone = original.Clone();
+        clone.Provenance.CommandLine = "mutated";
+
+        Assert.Multiple(() => {
+            Assert.That(clone.Provenance, Is.Not.SameAs(original.Provenance));
+            Assert.That(original.Provenance.CommandLine, Is.EqualTo("original"));
+        });
+    }
+
+    [Test]
+    public void ASchemaV2File_StillLoads_WithNoProvenance() {
+        // Forward/backward knob compatibility: v3 added only metadata, so every landing already on disk must
+        // still deserialize — reporting "no provenance" rather than failing or inventing one.
+        const string v2 = "{\"BrightnessSensitivity\":3.3,\"SchemaVersion\":2,\"RunCount\":4}";
+        var dto = JsonConvert.DeserializeObject<OptimizedStarDetectionSettings>(v2);
+
+        Assert.Multiple(() => {
+            Assert.That(dto.SchemaVersion, Is.EqualTo(2));
+            Assert.That(dto.BrightnessSensitivity, Is.EqualTo(3.3));
+            Assert.That(dto.Provenance, Is.Null);
+        });
+    }
+
+    [Test]
+    public void Provenance_ToString_SkipsWhatIsUnset() {
+        Assert.Multiple(() => {
+            Assert.That(new OptimizerProvenance().ToString(), Is.EqualTo("(no provenance)"));
+            Assert.That(new OptimizerProvenance { Producer = "TestApp optimize", CommandLine = "--donut" }.ToString(),
+                Is.EqualTo("TestApp optimize | --donut"));
         });
     }
 }

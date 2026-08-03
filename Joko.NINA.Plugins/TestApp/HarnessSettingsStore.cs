@@ -17,6 +17,7 @@ using NINA.Profile.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace TestApp {
 
@@ -207,6 +208,48 @@ namespace TestApp {
             public double FocalLengthMm { get; set; }
             public string Path { get; set; }
             public bool WasBootstrapped { get; set; }
+        }
+
+        /// <summary>
+        /// Stable fingerprint of the settings a run was ACTUALLY driven by (F30): the resolved pixel-scale inputs
+        /// plus the settings file's own contents. Hashes the file's SEMANTIC content, not its bytes — a settings
+        /// file that is re-exported or re-indented must not make a landing look as though it came from a different
+        /// configuration.
+        ///
+        /// <para>Returns null when there is nothing to fingerprint, which reads as "unknown" downstream rather
+        /// than as a match. Never throws: a fingerprint is diagnostic metadata, and failing to compute one must
+        /// not abort an optimize run that is otherwise fine.</para>
+        /// </summary>
+        public static string Fingerprint(Resolved resolved) {
+            if (resolved == null) {
+                return null;
+            }
+            try {
+                var inv = System.Globalization.CultureInfo.InvariantCulture;
+                var sb = new System.Text.StringBuilder();
+                // '#'-prefixed so these can never collide with an option key of the same name.
+                sb.Append("#pixelSizeMicrons=").Append(resolved.PixelSizeMicrons.ToString("R", inv)).Append('\n');
+                sb.Append("#focalLengthMm=").Append(resolved.FocalLengthMm.ToString("R", inv)).Append('\n');
+                if (!string.IsNullOrEmpty(resolved.Path) && File.Exists(resolved.Path)) {
+                    // The file's parsed option bag, key-sorted, rather than its raw text: whitespace, key order and
+                    // the export-provenance fields (ExportedAtUtc / ExportedFromProfile / DerivedNotes) all move
+                    // without changing a single detection.
+                    var parsed = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(resolved.Path));
+                    var options = parsed["Options"] as Newtonsoft.Json.Linq.JObject;
+                    if (options != null) {
+                        foreach (var prop in options.Properties().OrderBy(x => x.Name, StringComparer.Ordinal)) {
+                            sb.Append(prop.Name).Append('=').Append(prop.Value?.ToString(Newtonsoft.Json.Formatting.None)).Append('\n');
+                        }
+                    }
+                }
+                using var sha = System.Security.Cryptography.SHA256.Create();
+                var hash = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(sb.ToString()));
+                // 12 hex chars: enough to distinguish the handful of configurations a bank session uses, short
+                // enough to read in a console line.
+                return BitConverter.ToString(hash, 0, 6).Replace("-", string.Empty).ToLowerInvariant();
+            } catch (Exception) {
+                return null;
+            }
         }
 
         /// <summary>

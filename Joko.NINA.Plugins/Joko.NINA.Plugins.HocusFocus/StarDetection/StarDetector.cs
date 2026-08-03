@@ -1490,6 +1490,43 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         /// <summary>
+        /// The SMALLEST value <see cref="EffectiveClipMultiplier"/> can return for <paramref name="p"/> across every
+        /// possible candidate size — the donut-capped value when the master can cap at all, else the multiplier
+        /// verbatim. Candidate-size-INDEPENDENT by construction, which is what makes
+        /// <see cref="InertSensitivityBound"/> a property of the SETTINGS rather than of one candidate. Keep in
+        /// lockstep with <see cref="EffectiveClipMultiplier"/>: same predicate, minus the size test.
+        /// </summary>
+        public static double MinEffectiveClipMultiplier(StarDetectorParams p) {
+            if (p.DefocusAwareDonutDetection && p.DefocusDistortionSizeReference > 0.0) {
+                return Math.Min(p.StarClippingMultiplier, DonutClipMultiplierCap);
+            }
+            return p.StarClippingMultiplier;
+        }
+
+        /// <summary>
+        /// Strict lower bound on the Sensitivity-gate statistic for every candidate that reaches the gate. A
+        /// <see cref="StarDetectorParams.Sensitivity"/> at or below this rejects <b>nothing</b>, so
+        /// <see cref="StarDetectorMetrics.LowSensitivity"/> is then identically 0 and its value carries no
+        /// information about the frame at all (followup F28). 0.75 × 2.0 = <b>1.5</b> at shipped defaults.
+        ///
+        /// <para><b>Derivation.</b> Every clip survivor satisfies <c>raw − background &gt; clipMargin =
+        /// EffectiveClipMultiplier · σ</c>, so <c>meanFlux</c> — the mean over exactly those survivors — exceeds it
+        /// too; <c>peak</c> is the max over the same set, so <c>peak ≥ meanFlux</c>; hence
+        /// <c>NormalizedBrightness = peak − (1 − PeakResponse)·meanFlux = (peak − meanFlux) + PeakResponse·meanFlux
+        /// ≥ PeakResponse·meanFlux</c>. Dividing by the same σ the gate divides by gives
+        /// <c>sensitivity &gt; PeakResponse × EffectiveClipMultiplier</c>. The donut branch takes
+        /// <c>max(perPixel, integrated)</c>, so it can only raise the statistic and the bound survives.</para>
+        ///
+        /// <para><b>Not a constant.</b> <see cref="StarDetectorParams.PeakResponse"/> and
+        /// <see cref="StarDetectorParams.StarClippingMultiplier"/> are both searched optimizer axes, so a caller
+        /// must compute this from the params the run was actually evaluated with. Hard-coding 1.5 would be wrong
+        /// for exactly the landings this matters on — F23 wave 1 measured configurations at StarClip 6.25 and
+        /// 6.75, where the bound is over 4×.</para>
+        /// </summary>
+        public static double InertSensitivityBound(StarDetectorParams p) =>
+            p == null ? double.NaN : p.PeakResponse * MinEffectiveClipMultiplier(p);
+
+        /// <summary>
         /// Companion to <see cref="ComputeEffectiveMaxDistortion"/> for the NotCentered gate. Computes the
         /// effective StarCenterTolerance the centering check uses for a candidate of bbox max-dimension
         /// <paramref name="candidateSize"/> (= max(bbox.Width, bbox.Height), the SAME defocus proxy the distortion

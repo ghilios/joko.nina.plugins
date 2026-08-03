@@ -3119,8 +3119,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     // pass. objectiveConstants (not a fresh ObjectiveConstants) so the recommendation inverts the
                     // SAME NTarget star-count knee the search just optimized against; the aberration-inspection
                     // profile moves that knee to 60.
-                    exposureAdvice = ExposureRecommender.Recommend(bestEval.Metrics, objectiveConstants, runExposureSeconds);
-                    baselineExposureAdvice = ExposureRecommender.Recommend(baselineEval.Metrics, objectiveConstants, runExposureSeconds);
+                    // Each variant gets ITS OWN params: the inert-gate bound is PeakResponse x the effective clip
+                    // multiplier and both are searched axes, so the optimized and current settings can have
+                    // different bounds on the same frames (F28). Same pairing rule as VariantSensitivity /
+                    // BaselineSensitivity.
+                    exposureAdvice = ExposureRecommender.Recommend(bestEval.Metrics, objectiveConstants, runExposureSeconds, res.BestParams);
+                    baselineExposureAdvice = ExposureRecommender.Recommend(baselineEval.Metrics, objectiveConstants, runExposureSeconds, baseline);
                     var (baselineCore, baselineRecovery) = PartitionRecoveryPoints(baselineEval);
                     var (bestCore, bestRecovery) = PartitionRecoveryPoints(bestEval);
                     currentCurveLocal = new OptimizationCurve {

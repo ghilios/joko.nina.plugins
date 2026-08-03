@@ -304,6 +304,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // arguing for a SHORTER exposure directly beneath a row proposing a longer one.
             if (advice.StarCountIsTheLimit) {
                 var probe = $"S/N {advice.MeasuredSnr:0.#} already meets the S/N target of {ExposureRecommender.TargetSensitivity:0.#}, so there is no S/N shortfall to derive from. The frames are short of stars, not of signal: this is a {ExposureRecommender.StarCountProbeFactor:0}× probe, {advice.CurrentSeconds:0.##} s → {FormatExposureSeconds(advice.RawSeconds)} s per frame{DescribeSweepCost(advice.RawSeconds, summary.CurrentOffsetSteps)}. Whether more exposure finds more stars depends on the field, so check the star count afterwards.";
+                if (advice.GateIsProvablyInert) {
+                    // Say why the probe is being offered with no rejection evidence behind it. This belongs in the
+                    // derivation tooltip rather than the body: the body is capped at diagnosis plus one
+                    // instruction, and this is background on where the number came from.
+                    probe += $" No candidate was rejected for being too faint, but at a Brightness Sensitivity of {summary.VariantSensitivity:0.###} none could be: the detector's own clipping guarantees every candidate measures at least {advice.InertGateBound:0.##} S/N, so that count is empty by construction and is not evidence either way.";
+                }
                 if (advice.CapLimitsRecommendation) {
                     probe += advice.CappedByAbsoluteLimit
                         ? $" Capped at {advice.RecommendedSeconds:0.##} s: {ExposureRecommender.MaxRecommendedExposureSeconds:0} s per frame is the ceiling a sweep can sustain."

@@ -1,6 +1,10 @@
 # AF recommender hardening — implementation plan (wave 1: F23 only)
 
-Design spec: [`docs/af-recommender-hardening-design.md`](../docs/af-recommender-hardening-design.md).
+Design spec: **never merged.** `docs/af-recommender-hardening-design.md` exists only on the unmerged branch
+`ghilios/af-recommender-hardening-design` (`8b7867c`) and is absent from `develop`, so this plan is the design
+of record and every link to the spec dangles for anyone not on that branch. Its "Signals already available"
+table (below) is what actually held up under checking; the spec's version of that claim did not. See
+[F27](../docs/followups.md).
 Baseline measurements: [`docs/synthetic-af-bank-baseline-results.md`](../docs/synthetic-af-bank-baseline-results.md).
 Followups: [`docs/followups.md`](../docs/followups.md) — F23 is the only entry this plan touches.
 

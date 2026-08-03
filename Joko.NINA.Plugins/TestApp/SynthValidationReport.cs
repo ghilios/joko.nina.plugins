@@ -130,9 +130,20 @@ namespace TestApp.SynthBank {
     /// (cross-round) assertions A1-A3, the deltas versus the dataset's expected-optimal bootstrap, and the
     /// rolled-up flags/verdict.</summary>
     public sealed class ScenarioTerminal {
+        /// <summary>True only when the loop stopped at a step INSIDE <see cref="StepToleranceBand"/> of
+        /// <see cref="StepBehavioral"/>. A round that applies nothing stops the loop but does not by itself earn
+        /// this flag: a degenerate fit makes the recommender hold the current step, which is byte-identical to it
+        /// agreeing, so "nothing changed" alone used to report convergence at a step 4x too wide while assertion
+        /// A3 failed the same number in the same object.</summary>
         [JsonProperty("converged")] public bool Converged { get; set; }
         [JsonProperty("roundsUsed")] public int RoundsUsed { get; set; }
         [JsonProperty("stoppedReason")] public string StoppedReason { get; set; }
+
+        /// <summary>The half-width <see cref="Converged"/> was decided with, so the flag is checkable from the
+        /// report alone: <c>converged</c> implies <c>|finalStepSize − stepBehavioral| ≤ stepToleranceBand</c>.
+        /// NaN when <see cref="StepBehavioral"/> never reached a finite fixed point, in which case no band exists
+        /// and a no-op stop is the only convergence signal available.</summary>
+        [JsonProperty("stepToleranceBand")] public double StepToleranceBand { get; set; } = double.NaN;
 
         // step_behavioral vs step_theory (design A3's crux — see docs/followups.md F18).
         [JsonProperty("stepTheory")] public double StepTheory { get; set; } = double.NaN;

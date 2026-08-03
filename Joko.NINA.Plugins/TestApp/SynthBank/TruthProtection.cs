@@ -156,6 +156,15 @@ namespace TestApp.SynthBank {
         /// Convenience for a scoring loop: the golden's own <c>unresolved</c> boxes plus the truth-derived
         /// protection boxes, as the rect list <see cref="GoldenMatch.ExcludeUnresolved"/> expects. Both inputs
         /// may be null.
+        ///
+        /// <para><b>Prefer <see cref="ExcludeProtected"/> for the truth half.</b> <see cref="GoldenMatch.ExcludeUnresolved"/>
+        /// applies <c>centre-in-box OR IoU(box, detection bbox) &gt; 0</c>, so the DETECTION'S OWN bounding box
+        /// dilates every rect — a wide donut detection is excluded well past the match radius, which is not what
+        /// "protection is exactly as generous as matching" says. Measured on the saved wave-1 detection dumps,
+        /// that reads up to 0.011 high (D09 s0: 1.0000 against 0.9909 symmetric; D17 s0: 0.9895 against 0.9793) —
+        /// small, but systematic and always flattering. This overload is kept for the golden's own
+        /// <c>unresolved</c> boxes, whose <c>Covers</c> semantics are the REAL bank's scoring path and must not
+        /// move.</para>
         /// </summary>
         public static List<RectD> BuildExclusionRects(
                 IReadOnlyList<GoldenStarBox> goldenUnresolved,
@@ -167,6 +176,116 @@ namespace TestApp.SynthBank {
             }
             rects.AddRange(BuildProtectionBoxes(dispositions, matchRadius).Select(b => new RectD(b.X, b.Y, b.W, b.H)));
             return rects;
+        }
+
+        /// <summary>Binned centres of the real-but-unboxed truth stars (<see cref="UnboxedRealTiers"/>) — the
+        /// population <see cref="ExcludeProtected"/> protects. Empty for a null/absent sidecar.</summary>
+        public static List<(double X, double Y)> ProtectionCenters(IReadOnlyList<SyntheticStarDisposition> dispositions) =>
+            Centers(dispositions, d => UnboxedRealTiers.Contains(d.Tier ?? string.Empty));
+
+        /// <summary>Binned centres of EVERY star in the sidecar, whatever tier the golden policy gave it. This is
+        /// the complete rendered population, so "is there a real star here?" has an exact answer — which is what
+        /// <see cref="CountWithinRadius"/> turns into the F31 regression guard.</summary>
+        public static List<(double X, double Y)> AllCenters(IReadOnlyList<SyntheticStarDisposition> dispositions) =>
+            Centers(dispositions, _ => true);
+
+        private static List<(double X, double Y)> Centers(
+                IReadOnlyList<SyntheticStarDisposition> dispositions, Func<SyntheticStarDisposition, bool> predicate) {
+            var pts = new List<(double X, double Y)>();
+            if (dispositions == null) {
+                return pts;
+            }
+            foreach (var d in dispositions) {
+                if (d == null || !predicate(d)) {
+                    continue;
+                }
+                if (!double.IsFinite(d.BinnedCenterX) || !double.IsFinite(d.BinnedCenterY)) {
+                    continue; // cannot protect what we cannot place
+                }
+                pts.Add((d.BinnedCenterX, d.BinnedCenterY));
+            }
+            return pts;
+        }
+
+        /// <summary>
+        /// Drops false positives whose CENTROID is within <paramref name="radius"/> of a protected truth star —
+        /// exactly the predicate <see cref="GoldenMatch.Match"/> uses in <see cref="GoldenMatchMode.Centroid"/>
+        /// mode, so a detection is excluded iff it would have been MATCHED had this star carried a golden box.
+        /// Anything wider invents true positives; anything narrower re-creates F31.
+        /// </summary>
+        public static List<int> ExcludeProtected(
+                IReadOnlyList<int> falsePositives, IReadOnlyList<DetBox> detected,
+                IReadOnlyList<(double X, double Y)> centers, double radius) {
+            if (falsePositives == null) {
+                return new List<int>();
+            }
+            if (centers == null || centers.Count == 0 || !(radius > 0.0)) {
+                return falsePositives.ToList();
+            }
+            return falsePositives.Where(di => !WithinRadius(detected[di], centers, radius)).ToList();
+        }
+
+        /// <summary>How many of <paramref name="indices"/> sit within <paramref name="radius"/> of one of
+        /// <paramref name="centers"/>. Used with <see cref="AllCenters"/> to count scored false positives that
+        /// are in fact real rendered stars — the F31 signature, which must be 0.</summary>
+        public static int CountWithinRadius(
+                IReadOnlyList<int> indices, IReadOnlyList<DetBox> detected,
+                IReadOnlyList<(double X, double Y)> centers, double radius) {
+            if (indices == null || centers == null || centers.Count == 0 || !(radius > 0.0)) {
+                return 0;
+            }
+            return indices.Count(di => WithinRadius(detected[di], centers, radius));
+        }
+
+        private static bool WithinRadius(DetBox det, IReadOnlyList<(double X, double Y)> centers, double radius) {
+            var r2 = radius * radius;
+            foreach (var (x, y) in centers) {
+                var dx = det.Cx - x;
+                var dy = det.Cy - y;
+                if (dx * dx + dy * dy <= r2) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The NULL CONTROL: every detection translated by (<see cref="NullShiftX"/>, <see cref="NullShiftY"/>)
+        /// with wraparound. Detection count and spatial clustering survive; correspondence with the frame does
+        /// not. Re-scoring these against the same reference gives the precision a detector would earn by
+        /// CHANCE — the floor the metric can never read below, and therefore the only honest way to tell a real
+        /// 1.000 from a saturated one.
+        ///
+        /// <para>This exists because the F31 repair failed twice in opposite directions before it worked: first
+        /// biased (the golden omitted real stars), then saturated (protection sized by 2·HFR read 1.000 on all
+        /// 17 datasets and measured nothing). Both look like a clean result from the precision column alone. A
+        /// reported null makes the difference checkable instead of something a reader has to think to ask.</para>
+        /// </summary>
+        public static List<DetBox> ShiftForNullControl(IReadOnlyList<DetBox> detected, int frameWidth, int frameHeight) {
+            var shifted = new List<DetBox>();
+            if (detected == null || frameWidth <= 0 || frameHeight <= 0) {
+                return shifted;
+            }
+            foreach (var d in detected) {
+                var cx = Wrap(d.Cx + NullShiftX, frameWidth);
+                var cy = Wrap(d.Cy + NullShiftY, frameHeight);
+                var bx = Wrap(d.Box.X + NullShiftX, frameWidth);
+                var by = Wrap(d.Box.Y + NullShiftY, frameHeight);
+                shifted.Add(new DetBox(new RectD(bx, by, d.Box.W, d.Box.H), cx, cy));
+            }
+            return shifted;
+        }
+
+        /// <summary>Null-control translation, x (px). Far larger than any PSF or match radius in the bank, and
+        /// not a round number, so it cannot line up with a rendered grid.</summary>
+        public const int NullShiftX = 317;
+
+        /// <summary>Null-control translation, y (px) — see <see cref="NullShiftX"/>.</summary>
+        public const int NullShiftY = 211;
+
+        private static double Wrap(double v, int extent) {
+            var m = v % extent;
+            return m < 0 ? m + extent : m;
         }
     }
 }

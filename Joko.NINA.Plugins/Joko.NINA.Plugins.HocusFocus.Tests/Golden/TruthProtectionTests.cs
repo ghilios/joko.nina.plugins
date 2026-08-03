@@ -151,5 +151,138 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Golden {
                 Assert.That(rects[1].W, Is.EqualTo(7.0));
             });
         }
+
+        // ---- The symmetric protection predicate (afbank-verify/5) --------------------------------------------
+
+        [Test]
+        public void ExcludeProtected_UsesTheSamePredicateAsMatching_NotTheDetectionsBoundingBox() {
+            // THE reason /5 exists. GoldenMatch.Covers excludes on `centre-in-box OR IoU(box, det.bbox) > 0`, so
+            // a WIDE detection is protected by its own size: a 60 px donut bbox overlaps a protection box whose
+            // centre is 30+ px away, far outside the 12 px match radius. Measured on the saved wave-1 detection
+            // dumps that reads up to 0.011 high, always flattering. ExcludeProtected compares centroids only.
+            var truth = new List<SyntheticStarDisposition> { Disp(SyntheticTier.Omitted, 500, 500, hfr: 3.0) };
+            // A wide detection centred 35 px away — well outside the match radius, so NOT a protected detection,
+            // but its 60 px box still overlaps the 24 px protection box.
+            var det = new List<DetBox> { new DetBox(new RectD(505, 470, 60, 60), 535, 500) };
+            var fps = new List<int> { 0 };
+
+            var viaCovers = GoldenMatch.ExcludeUnresolved(
+                fps, det, TruthProtection.BuildExclusionRects(null, truth, 12.0));
+            var viaCentroid = TruthProtection.ExcludeProtected(
+                fps, det, TruthProtection.ProtectionCenters(truth), 12.0);
+
+            Assert.Multiple(() => {
+                Assert.That(viaCovers, Is.Empty, "precondition: the bbox-dilated predicate launders this one");
+                Assert.That(viaCentroid, Has.Count.EqualTo(1),
+                    "35 px from the nearest real star is outside the 12 px match radius, so it stays a false positive");
+            });
+        }
+
+        [Test]
+        public void ExcludeProtected_DropsADetectionInsideTheMatchRadius() {
+            var truth = new List<SyntheticStarDisposition> { Disp(SyntheticTier.Omitted, 500, 500) };
+            var det = new List<DetBox> { new DetBox(new RectD(503, 503, 8, 8), 507, 507) }; // ~9.9 px away
+            Assert.That(TruthProtection.ExcludeProtected(new List<int> { 0 }, det,
+                TruthProtection.ProtectionCenters(truth), 12.0), Is.Empty);
+        }
+
+        [Test]
+        public void ExcludeProtected_NoTruth_IsANoOp_SoTheRealBankIsUnaffected() {
+            var det = new List<DetBox> { new DetBox(new RectD(0, 0, 4, 4), 2, 2) };
+            Assert.Multiple(() => {
+                Assert.That(TruthProtection.ExcludeProtected(new List<int> { 0 }, det,
+                    TruthProtection.ProtectionCenters(null), 12.0), Has.Count.EqualTo(1));
+                Assert.That(TruthProtection.ProtectionCenters(null), Is.Empty);
+            });
+        }
+
+        // ---- The regression guard: a detection on a real star is never a false positive ----------------------
+
+        [Test]
+        public void CountWithinRadius_IsTheF31Signature_AndMustBeZeroUnderTheRepair() {
+            // Synthetic truth is COMPLETE by construction, so "is there a real star here?" has an exact answer.
+            // A scored false positive within the match radius of one is the F31 bug, whatever tier the golden
+            // policy assigned. This is the invariant bank-verify now reports as `truthViolations`.
+            var truth = new List<SyntheticStarDisposition> {
+                Disp(SyntheticTier.Omitted, 500, 500),
+                Disp(GoldenConfidence.High, 900, 900)
+            };
+            var det = new List<DetBox> {
+                new DetBox(new RectD(496, 496, 8, 8), 500, 500),   // on the omitted star — the F31 case
+                new DetBox(new RectD(2996, 2996, 8, 8), 3000, 3000) // on nothing — a genuine false positive
+            };
+            var golden = new List<RectD>();
+            var match = GoldenMatch.Match(golden, det, GoldenMatchMode.Centroid, 0.3, 12.0);
+            var all = TruthProtection.AllCenters(truth);
+
+            var unrepaired = TruthProtection.CountWithinRadius(match.FalsePositives, det, all, 12.0);
+            var repaired = TruthProtection.CountWithinRadius(
+                TruthProtection.ExcludeProtected(match.FalsePositives, det,
+                    TruthProtection.ProtectionCenters(truth), 12.0),
+                det, all, 12.0);
+
+            Assert.Multiple(() => {
+                Assert.That(unrepaired, Is.EqualTo(1), "the /3 metric charged this real star as junk");
+                Assert.That(repaired, Is.Zero, "under the repair, no scored false positive sits on a real star");
+            });
+        }
+
+        [Test]
+        public void AllCenters_CoversEveryTier_NotJustTheProtectedOnes() {
+            var truth = new List<SyntheticStarDisposition> {
+                Disp(SyntheticTier.Omitted, 1, 1),
+                Disp(SyntheticTier.MergedInto, 2, 2),
+                Disp(SyntheticTier.Unresolved, 3, 3),
+                Disp(GoldenConfidence.High, 4, 4)
+            };
+            Assert.Multiple(() => {
+                Assert.That(TruthProtection.AllCenters(truth), Has.Count.EqualTo(4));
+                Assert.That(TruthProtection.ProtectionCenters(truth), Has.Count.EqualTo(2));
+                Assert.That(TruthProtection.AllCenters(null), Is.Empty);
+            });
+        }
+
+        // ---- The null control -------------------------------------------------------------------------------
+
+        [Test]
+        public void ShiftForNullControl_MovesEveryDetectionOffItsStar_AndWrapsInsideTheFrame() {
+            // The null control answers "what does chance alone score?", which is the only way to tell a real
+            // 1.000 from a saturated metric. The first cut of the F31 repair read 1.000 on all 17 datasets
+            // BECAUSE protection was 2*HFR wide, and the precision column alone could not show that.
+            var det = new List<DetBox> {
+                new DetBox(new RectD(96, 96, 8, 8), 100, 100),
+                new DetBox(new RectD(3990, 2990, 8, 8), 3994, 2994)   // wraps on both axes
+            };
+            var shifted = TruthProtection.ShiftForNullControl(det, 4000, 3000);
+            Assert.Multiple(() => {
+                Assert.That(shifted, Has.Count.EqualTo(2));
+                Assert.That(shifted[0].Cx, Is.EqualTo(100 + TruthProtection.NullShiftX).Within(1e-9));
+                Assert.That(shifted[0].Cy, Is.EqualTo(100 + TruthProtection.NullShiftY).Within(1e-9));
+                Assert.That(shifted[1].Cx, Is.EqualTo((3994.0 + TruthProtection.NullShiftX) % 4000).Within(1e-9));
+                Assert.That(shifted[1].Cy, Is.EqualTo((2994.0 + TruthProtection.NullShiftY) % 3000).Within(1e-9));
+                Assert.That(shifted.All(s => s.Cx >= 0 && s.Cx < 4000 && s.Cy >= 0 && s.Cy < 3000),
+                    "every shifted detection stays inside the frame");
+                Assert.That(shifted[0].Box.W, Is.EqualTo(8.0), "size is preserved — only position moves");
+            });
+        }
+
+        [Test]
+        public void ShiftForNullControl_ShiftIsLargerThanAnyMatchRadiusInTheBank() {
+            // If the shift were comparable to the match radius the null would still see the real stars, and a
+            // saturated metric would pass the check it exists to fail.
+            Assert.Multiple(() => {
+                Assert.That(TruthProtection.NullShiftX, Is.GreaterThan(100));
+                Assert.That(TruthProtection.NullShiftY, Is.GreaterThan(100));
+            });
+        }
+
+        [Test]
+        public void ShiftForNullControl_DegenerateFrame_ReturnsEmpty_RatherThanDividingByZero() {
+            var det = new List<DetBox> { new DetBox(new RectD(0, 0, 4, 4), 2, 2) };
+            Assert.Multiple(() => {
+                Assert.That(TruthProtection.ShiftForNullControl(det, 0, 100), Is.Empty);
+                Assert.That(TruthProtection.ShiftForNullControl(null, 100, 100), Is.Empty);
+            });
+        }
     }
 }

@@ -1,7 +1,10 @@
 # F23 — giving the optimizer objective a false-positive cost
 
-Wave 1 of [`docs/af-recommender-hardening-design.md`](af-recommender-hardening-design.md).
-Plan: [`plans/af-recommender-hardening-plan.md`](../plans/af-recommender-hardening-plan.md).
+Wave 1 of the AF-recommender hardening work. Plan:
+[`plans/af-recommender-hardening-plan.md`](../plans/af-recommender-hardening-plan.md) — the design of record on
+`develop`: the spec these documents cite as `docs/af-recommender-hardening-design.md` was never merged (it lives
+on the unmerged branch `ghilios/af-recommender-hardening-design`, `8b7867c`), so every link to it dangles here.
+See [F27](followups.md).
 Baseline: [`docs/synthetic-af-bank-baseline.json`](synthetic-af-bank-baseline.json), transcribed from
 [`docs/synthetic-af-bank-baseline-results.md`](synthetic-af-bank-baseline-results.md).
 

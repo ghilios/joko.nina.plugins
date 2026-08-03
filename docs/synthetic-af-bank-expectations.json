@@ -1,15 +1,27 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "scoredAgainstSchema": "afbank-verify/5",
   "_comment": [
-    "Expected precision/recall bands for the synthetic AF bank, checked in so a V2 bank-verify run can be",
-    "scored against a stated expectation instead of against whatever it happened to produce. A cell landing",
-    "outside its band is a FLAG that gets triaged into docs/followups.md -- it is NEVER fixed by widening the",
-    "band here. Widening a band is a deliberate, separately-justified edit.",
+    "Expected precision/recall bands for the synthetic AF bank, checked in so a bank-verify run can be scored",
+    "against a stated expectation instead of against whatever it happened to produce. A cell landing outside its",
+    "band is a FLAG that gets triaged into docs/followups.md -- it is NEVER fixed by widening the band here.",
+    "Widening a band is a deliberate, separately-justified edit.",
     "",
     "Why these numbers can be demanded at all: golden tier 'high' is peak SNR >= 20, which is 2x the detector's",
     "own default Sensitivity gate (~10). A star the detector misses at 2x its own threshold, on a clean synthetic",
-    "frame whose truth is exact, is a genuine recall defect rather than a borderline call. And because synthetic",
-    "truth is complete, precision here is an exact measurement, not the lower bound the real bank can only give."
+    "frame whose truth is exact, is a genuine recall defect rather than a borderline call.",
+    "",
+    "PRECISION BANDS WERE RE-DERIVED AT SCHEMA /5 (2026-08-03). The previous 0.95/0.98 were fitted to a metric",
+    "that charged a false positive for every real star the golden policy dropped (F31), under which 96% of",
+    "reported false positives were real rendered stars. They are NOT carried forward -- a band calibrated to a",
+    "broken instrument encodes the breakage. Measured at /5, C0@nc2 precision is 1.000 on all 17 datasets and",
+    "config B never falls below 0.991, so the bands below are set where a REGRESSION would show rather than where",
+    "the old artifact happened to sit.",
+    "",
+    "ALWAYS CHECK precisionNull AND truthViolations BEFORE SCORING A PRECISION BAND. truthViolations must be 0;",
+    "non-zero means the metric is charging real stars again and no precision figure from that run is usable.",
+    "precisionNull is what chance alone scores -- if it approaches the band, the metric is saturated and passing",
+    "the band means nothing. Both are emitted per config by bank-verify at /5."
   ],
 
   "classes": {
@@ -17,10 +29,11 @@
       "description": "Wide field, unobstructed, severely oversampled (HFR_min at or under the R2 pixelization floor). Judged on C0@nc2 -- these need no optimizer enrichment.",
       "config": "C0@nc2",
       "recallHighMin": 0.90,
-      "precisionMin": 0.95,
+      "precisionMin": 0.98,
+      "_precisionRationale": "Measured 1.000 on all three W datasets at /5. Set at 0.98 rather than 1.000 because this class carries the bank's highest chance-coincidence floor -- D01's precisionNull is 0.169, by far the largest, since a 19.4 arcsec/px field packs ~2000 protected truth stars per frame. A band at 1.000 would be scoring noise on the one class where the metric has least headroom.",
       "_recallRationale": "Lower than the M class on purpose: at 0.7px HFR_min the PSF is at the pixelization limit, where centroiding and the MinHFR floor legitimately cost recall.",
       "_measured2026_08_02": [
-        "MISSED, badly: D01 0.135, D02 0.475, D03 0.400 against the 0.90 floor. Precision was met (0.963/0.991/0.988).",
+        "MISSED, badly: D01 0.135, D02 0.475, D03 0.400 against the 0.90 floor. Precision was met (1.000 on all three at /5; the 0.963/0.991/0.988 first recorded here were artifacts of the pre-F31 metric).",
         "The band is NOT widened to fit. It is recorded as wrong for a specific, understood reason: it was set",
         "assuming a gentle pixelization loss, when the actual mechanism is the hard MinHFR = 1.2px gate (F20).",
         "D01's in-focus frames detect ZERO stars while their goldens are fully populated, so this is a cliff, not a slope.",
@@ -33,21 +46,24 @@
       "description": "Mid focal length, unobstructed, well sampled. The 'well-sampled implies ~everything' anchor.",
       "config": "C0@nc2",
       "recallHighMin": 0.97,
-      "precisionMin": 0.95,
+      "precisionMin": 0.99,
+      "_precisionRationale": "Measured 1.000 across the class at /5, against a null of 0.000-0.113. Well-sampled unobstructed frames are where the detector has the least excuse for a false positive, so this is the tightest precision band in the set.",
       "_recallRationale": "The strictest band in the set. If the detector cannot find 97% of stars at 2x its own gate on a clean, well-sampled synthetic frame, something is wrong that no amount of real-bank noise should have been hiding."
     },
     "L34": {
       "description": "Long focal length, 0.34 central obstruction (SCT class). Donut PSFs at the sweep extremes.",
       "config": "B",
       "recallHighMin": 0.90,
-      "precisionMin": 0.90,
+      "precisionMin": 0.98,
+      "_precisionRationale": "Measured 0.991-1.000 under config B at /5. The pre-F31 band of 0.90 was a MISS across the board (0.448-0.859) purely because of the metric defect; at /5 the whole class clears 0.98 comfortably, so that is where a real regression would show.",
       "_configRationale": "Judged on config B (donut detection forced on) because C0 is expected to be broken on donut datasets -- that breakage is recorded, not treated as a failure."
     },
     "L47": {
       "description": "Long focal length, 0.47 central obstruction (RC/CDK class). The deepest donuts in the bank.",
       "config": "B",
       "recallHighMin": 0.90,
-      "precisionMin": 0.90
+      "precisionMin": 0.98,
+      "_precisionRationale": "See L34. Measured 0.991-1.000 under config B at /5."
     }
   },
 
@@ -72,8 +88,24 @@
   },
 
   "globalBands": {
-    "configAPrecisionMinNonDonut": 0.98,
-    "_configAComment": "Config A is the optimizer's own landing with donut detection OFF. On a dataset with no donuts, the optimizer has every opportunity to tune precision, so 0.98 is the floor for it having done so. Donut datasets are exempt because A deliberately withholds the axis they need.",
+    "configAPrecisionMinNonDonut": 0.99,
+    "_configAComment": "Config A is the optimizer's own landing with donut detection OFF. On a dataset with no donuts the optimizer has every opportunity to tune precision, and at /5 it measures 1.000 on EVERY non-donut dataset, so 0.99 is the floor for it having done so.",
+    "configAPrecisionMinDonut": 0.90,
+    "_configADonutComment": [
+      "Config A on a DONUT dataset is the one place precision genuinely degrades: D10 0.910, D09 0.958, D17 0.959,",
+      "D15 0.968 -- the long-focal-length rigs that land at Sensitivity 0. This is F23's predicted effect, real but",
+      "roughly one fifth the size of the artifact that hid it (V2 reported these as 0.451-0.547). The band is set",
+      "just under the worst observed value: it is a REGRESSION guard, not an endorsement. Do not read a pass here as",
+      "'the objective has no precision problem' -- read F32 instead, which is why the problem is not fixable by",
+      "adding a term.",
+      "",
+      "Also check scoredFraction on these rows. It falls to 0.45-0.75 at a floored Sensitivity, so config-A",
+      "precision on a donut dataset rests on roughly half the sample C0's does."
+    ],
+    "precisionNullMax": 0.20,
+    "_precisionNullComment": "A run whose null control approaches its precision band is not measuring anything. Observed 0.000-0.169 (D01 is the maximum, being the densest field). If this rises materially, the protection geometry has been loosened and the precision bands above stop meaning what they say.",
+    "truthViolationsMax": 0,
+    "_truthViolationsComment": "A scored false positive sitting on a real rendered star is the F31 defect itself. Synthetic truth is complete by construction, so this has an exact answer and the answer is zero. ANY non-zero value voids every precision figure in that run -- it is not a tolerance.",
     "autofocusRSquaredMin": 0.95,
     "_afR2Comment": "Per-run autofocus fit R^2 on the synthetic hyperbola. The render matches DefocusModel by construction, so anything below 0.95 means the DETECTOR's HFR is not tracking the optical truth -- which is the interesting failure, not a fitting artifact.",
     "sensorModelRSquaredMin": 0.90,
@@ -81,7 +113,7 @@
   },
 
   "regressionRule": {
-    "_comment": "Applies when comparing two runs on the SAME schema (afbank-verify/3) and the same bank seeds. Any breach is a FLAG for triage, not an automatic failure -- read the per-run notes first.",
+    "_comment": "Applies when comparing two runs on the SAME schema (afbank-verify/5) and the same bank seeds. Any breach is a FLAG for triage, not an automatic failure -- read the per-run notes first. Comparing across schema versions is meaningless for precision: /3 charged real stars as false positives, and /4's protection predicate was dilated by the detection's own bounding box.",
     "recallHighDropMax": 0.02,
     "precisionDropMax": 0.02,
     "sigmaFocusWorseFractionMax": 0.20,

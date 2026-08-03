@@ -265,10 +265,18 @@ namespace TestApp {
                 // policy dropped (`omitted` / `merged-into`). Without the second group, every detection of a
                 // sub-3.5-SNR real star is charged as a false positive — 96% of the synthetic bank's reported
                 // false positives were real stars. No sidecar (the real bank) => identical to before.
-                var unresolvedRects = TruthProtection.BuildExclusionRects(
-                    gf.Unresolved, TruthProtection.LoadForImage(frame.Path), effectiveMatchRadius);
+                //
+                // The truth half uses the CENTROID predicate (the one matching itself uses) rather than
+                // GoldenMatch.Covers, which dilates each rect by the detection's own bounding box and so protects
+                // a wide donut detection far past the match radius. Kept identical to BankVerifyRunner so the two
+                // harnesses cannot disagree about what a false positive is.
+                var truthDispositions = TruthProtection.LoadForImage(frame.Path);
+                var unresolvedRects = (gf.Unresolved ?? new List<GoldenStarBox>())
+                    .Select(b => new RectD(b.X, b.Y, b.W, b.H)).ToList();
                 var match = GoldenMatch.Match(goldenRects, det, matchMode, tau, effectiveMatchRadius);
-                var falsePositives = GoldenMatch.ExcludeUnresolved(match.FalsePositives, det, unresolvedRects);
+                var falsePositives = TruthProtection.ExcludeProtected(
+                    GoldenMatch.ExcludeUnresolved(match.FalsePositives, det, unresolvedRects),
+                    det, TruthProtection.ProtectionCenters(truthDispositions), effectiveMatchRadius);
 
                 var fe = new FrameEval {
                     FocuserPosition = frame.FocuserPosition,

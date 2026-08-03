@@ -443,6 +443,23 @@ namespace TestApp.SynthBank {
 
             var scenarioDir = Path.Combine(datasetOutDir, scenario.Id);
             string stoppedReason = null;
+            var converged = false;
+
+            // ONE definition of the tolerance band a convergence CLAIM is judged against, shared by both stop
+            // branches below. They used to disagree: a round that applied nothing declared convergence at ANY
+            // step, while assertion A3 scored that same step against a band and FAILED it — `D05_tec140_1000mm`
+            // S2 reported `converged: true` with `finalStepSize` 140 against `stepBehavioral` 35 and an A3 band
+            // of [21,56], in the same JSON object as the assertion rejecting it. That inflates convergence counts
+            // on precisely the runs that are most broken, and it is the fourth bug found in this family.
+            //
+            // The band is the loop's own (±max(0.5, tolerance·|step_behavioral|), i.e. [0.6,1.4]× at the default
+            // tolerance 0.4), which is a strict SUBSET of A3's [0.6,1.6]× and shares its lower bound — so a run
+            // this now calls converged cannot be one A3 fails. Gated only on `stepBehavioral` being a finite
+            // fixed point, exactly like A3, rather than on `isConvergenceScenario`: whether stopping EARLY is
+            // desirable depends on the scenario, but whether a stop deserves to be CALLED convergence does not.
+            var stepBand = ConvergenceBand.HalfWidth(stepBehavioral, expected.StepSizeTolerance);
+            var bandKnown = double.IsFinite(stepBand);
+            bool WithinStepBand(int step) => ConvergenceBand.Contains(step, stepBehavioral, stepBand);
 
             for (var roundIndex = 0; roundIndex < effectiveMaxRounds; roundIndex++) {
                 token.ThrowIfCancellationRequested();
@@ -465,7 +482,20 @@ namespace TestApp.SynthBank {
                     break;
                 }
                 if (!roundReport.Applied.AppliedAnything) {
-                    stoppedReason = "converged (round applied nothing)";
+                    // A no-op round always STOPS the loop — the recommender is not going to move on its own — but
+                    // it is only CONVERGENCE if it stopped somewhere the scenario would accept. A degenerate fit
+                    // produces a byte-identical no-op: `StepSizeRecommender.Degenerate` holds the current step
+                    // when there is no `Fitting`, when the vertex or minimum HFR is non-finite, or when the 3x
+                    // band is never crossed. So "nothing changed" is exactly as consistent with a broken fit as
+                    // with a converged one, and the step VALUE is the only thing that separates them.
+                    if (!bandKnown || WithinStepBand(state.StepSize)) {
+                        converged = true;
+                        stoppedReason = "converged (round applied nothing)";
+                    } else {
+                        stoppedReason = $"stalled (round applied nothing, but step {state.StepSize} is outside the "
+                            + $"{stepBand:0.###} tolerance band of step_behavioral {stepBehavioral:0.###}) — "
+                            + "a no-op recommendation from a degenerate fit, not convergence";
+                    }
                     break;
                 }
                 // Converged ALSO means "inside the tolerance band", not only "applied literally nothing". The
@@ -476,18 +506,19 @@ namespace TestApp.SynthBank {
                 // of 127 in ONE round from a 4x-too-coarse start of 508, then jittered 132/129/124, and was
                 // flagged "expected convergence within <= 2 round(s), used 4". Stopping at the band makes
                 // RoundsUsed mean "rounds to reach the target", which is what the scenario expectations are about.
-                if (isConvergenceScenario && double.IsFinite(stepBehavioral) && stepBehavioral > 0) {
-                    var band = Math.Max(0.5, expected.StepSizeTolerance * Math.Abs(stepBehavioral));
-                    if (Math.Abs(state.StepSize - stepBehavioral) <= band) {
-                        stoppedReason = $"converged (step {state.StepSize} within the {band:0.###} tolerance band of step_behavioral {stepBehavioral:0.###})";
-                        break;
-                    }
+                if (isConvergenceScenario && WithinStepBand(state.StepSize)) {
+                    converged = true;
+                    stoppedReason = $"converged (step {state.StepSize} within the {stepBand:0.###} tolerance band of step_behavioral {stepBehavioral:0.###})";
+                    break;
                 }
             }
 
-            var converged = stoppedReason != null && stoppedReason.StartsWith("converged", StringComparison.Ordinal);
+            // `converged` is now set explicitly at each stop site rather than derived by string-matching
+            // `stoppedReason` for a "converged" prefix, so the flag and the human-readable reason cannot drift
+            // apart — which is how a stall came to be labelled as convergence in the first place.
             var terminal = new ScenarioTerminal {
                 Converged = converged,
+                StepToleranceBand = stepBand,
                 RoundsUsed = report.Rounds.Count,
                 StoppedReason = stoppedReason ?? $"reached --max-rounds ({effectiveMaxRounds})",
                 StepTheory = stepTheory,
@@ -697,7 +728,9 @@ namespace TestApp.SynthBank {
             // Gated EXACTLY as OptimizationDiagnosticRunner.BuildAggregateRow gates it: only when the landed
             // Sensitivity is at the optimizer's search floor. Never computed ungated (design instruction).
             var sensitivityAtFloor = ExposureRecommender.SensitivityIsAtFloor(result.BestParams.Sensitivity);
-            var exposureRec = sensitivityAtFloor ? ExposureRecommender.Recommend(metrics, objectiveConstants, capturedExposureSeconds) : null;
+            var exposureRec = sensitivityAtFloor
+                ? ExposureRecommender.Recommend(metrics, objectiveConstants, capturedExposureSeconds, result.BestParams)
+                : null;
             round.ExposureRecommendation = new ExposureRecommendationSnapshot {
                 SensitivityAtFloor = sensitivityAtFloor,
                 Computed = sensitivityAtFloor,
