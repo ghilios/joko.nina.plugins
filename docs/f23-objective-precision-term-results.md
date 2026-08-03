@@ -14,19 +14,27 @@ Which one works, and does fixing this dissolve F22 and F26 as predicted?*
 
 <!-- filled in after the arms complete -->
 
-## The baseline could not be reproduced from disk, and that changed the plan
+## The baseline reproduces exactly — but the artifact on disk is not what it looks like
 
-The V2 measurement's optimizer prepass output directories no longer exist. `optimize --per-run` writes
-`optimized_settings.json` into **both** its `--out` tree and the run's own source folder
-(`OptimizationDiagnosticRunner.cs:698-703`), so the copies still sitting in each dataset's `attempt01/`
-are whichever prepass wrote last. Their landed Sensitivities — 5 at zero (D09, D10, D11, D12, D17), with
-D15 at 10.0 — match neither published config: config A had **6** at zero including D15, and config B's
-published D17 landing was 8.0 where the on-disk copy says 0.0.
+The V2 measurement's optimizer prepass output directories no longer exist, and `bank-verify --opt-a` only
+ever *reads* settings from disk (`BankVerifyRunner.cs:468-479`) — it never runs the optimizer. So config A
+had to be re-derived before anything could be compared against it. Arm **H** (unmodified HEAD, same session,
+same `harness_settings.json`) does that.
 
-`bank-verify --opt-a` only ever *reads* settings from disk (`BankVerifyRunner.cs:468-479`); it never runs
-the optimizer. So there was no config A to score without re-deriving it. Arm **H** (unmodified HEAD, same
-session, same `harness_settings.json`) therefore re-measures the baseline, and the published table is
-kept only as the transcribed reference.
+**It reproduces the published table exactly.** All 17 datasets, both the C0@nc2 column and the A column, to
+every published digit — D09 0.451, D10 0.547, D12 0.653, D15 0.531, D17 0.465 — with the same six datasets
+landing at `BrightnessSensitivity` 0.0 (D09, D10, D11, D12, D15, D17), precisely the design spec's Evidence-1
+list. The optimizer, the bank regeneration, the detector and the scoring chain are all reproducible.
+
+**The trap, recorded because it cost real time.** `optimize --per-run` writes `optimized_settings.json` into
+**both** its `--out` tree and the run's own source folder (`OptimizationDiagnosticRunner.cs:698-703`), so the
+copies sitting in each dataset's `attempt01/` are whichever prepass wrote last. Read as config A they show 5
+datasets at 0.0 instead of 6, with D15 at 10.0 — which looks exactly like a reproducibility failure, and was
+filed as one. They are **config B's** landings: every one carries `DefocusAwareDonutDetection: true`, the tell
+that was in the file the whole time. Nothing was irreproducible; the artifact was misattributed. The surviving
+finding is narrower and real — a stored landing does not record which invocation produced it ([F30](followups.md)).
+
+The control arm was worth running regardless: it is what proved reproducibility rather than assuming it.
 
 ## The floor was calibrated, and the textbook value was wrong
 

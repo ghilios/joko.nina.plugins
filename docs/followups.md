@@ -490,39 +490,36 @@ That rig was not at the search floor. The defect is the *interaction* with the f
 rejection count carries no information" rather than silently reading it as exhaustion. Never use this counter
 as a false-positive signal: the pathological landing produces its cleanest possible value.
 
-### F30 — The optimizer *search* does not reproduce, though everything it is measured with does
+### F30 — A stored `optimized_settings.json` does not say which config produced it
 **Status:** Open · found 2026-08-03 pinning the [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall) baseline
 
-Re-running `optimize --per-run` at HEAD on the bit-identical synthetic bank produces different config-A
-landings from the V2 table in [`docs/synthetic-af-bank-baseline-results.md`](synthetic-af-bank-baseline-results.md):
-D03 32.33 vs 17.67, D04 19.67 vs 17.67, D05 8 vs 10, D07 8 vs 7.
+**Retraction first.** This entry was originally filed as "the published V2 config-A landings do not
+reproduce". **That was wrong, and the error was mine, not the tool's.** Re-running `optimize --per-run` at
+HEAD reproduces the V2 config A *exactly*: the same six datasets at `BrightnessSensitivity` 0.0 (D09, D10,
+D11, D12, D15, D17 — precisely the design spec's Evidence-1 list) and identical `bank-verify` precision on
+**all 17 datasets**, to every published digit. C0@nc2 likewise reproduces exactly. The optimizer, the bank,
+the detector and the scoring chain are all reproducible.
 
-**The divergence is confined to the search.** In the same session, `bank-verify`'s C0@nc2 column reproduces
-the published V2 table **exactly on all 17 datasets** — every published digit (D01 0.963, D02 0.991, D03
-0.988, D04 0.979, … D17 0.942). So the bank regeneration, the detector, the golden matching and the scoring
-chain are all bit-reproducible; only the optimizer's *trajectory* is not. That is worth stating precisely,
-because "the V2 numbers don't reproduce" would condemn the whole instrument, and the instrument is sound.
+**What actually happened.** The `optimized_settings.json` copies sitting in each dataset's `attempt01/` were
+compared against the published **config A** table and found not to match — 5 at Sensitivity 0.0 instead of 6,
+D15 at 10.0 instead of 0.0. They did not match because **they were config B's landings**, written by the
+`--donut` prepass that ran last (each carried `DefocusAwareDonutDetection: true`, which is the tell, and which
+was visible in the file the whole time). Nothing was irreproducible; the artifact was simply misattributed.
 
-**Evidence on the artifacts.** The `optimized_settings.json` copies left in each dataset's `attempt01/` match
-neither published config — 5 datasets at Sensitivity 0.0 where config A had 6 (D15 is 10.0 there, 0.0 in the
-table), and D17 is 0.0 where config B's published landing was 8.0. That is
-[F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings) biting: the prepass overwrites those
-files in place, so the last writer wins and neither arm survives.
+**The real gap, which survives.** `OptimizedStarDetectionSettings` records `CreatedAtUtc`, `RunCount`,
+`BaselineJ`, `FinalJ` and `SchemaVersion` — but nothing that identifies **which invocation produced it**. Since
+[F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings) has the prepass overwrite these files in
+place, a bank folder accumulates landings from whichever run went last, and there is no way to tell config A's
+from config B's except by inferring it from `DefocusAwareDonutDetection` — an inference that is only valid
+while `--donut` is the only thing that varies between prepasses. It stops being valid the moment two arms
+differ by anything else, which is exactly what F23 wave 1 did (three arms differing by objective constants and
+search domain).
 
-**Why it matters.** `StarDetectionOptimizer` documents itself as "fully deterministic (no RNG, fixed
-evaluation order)" and is memoized on the detection cache key, so a same-code, same-input divergence points at
-either an unrecorded input (`--max-evals`, the effective `harness_settings.json`) or a genuine
-order-dependence in the evaluator — the frame-parallel fan-out (`RunEvaluationData.cs:267-289`) is the
-obvious suspect, since a float-reduction ordering difference of ~1e-15 flips an accept/reject on a saturated
-plateau where moves are taken on *strict* improvement. Either way, config A is not a reproducible reference,
-so any before/after needs a same-session control arm — which is how F23 wave 1 was run.
+**Why it matters.** The misattribution cost real time and produced a wrong followup entry that was committed
+twice before the control arm disproved it. A one-line provenance field would have made it impossible.
 
-**Next step.** Two separable pieces. (1) Record provenance in `optimized_settings.json`, which already carries
-`CreatedAtUtc`, `RunCount`, `BaselineJ` and `FinalJ`: add the full `optimize` argv and a hash of the effective
-`harness_settings.json`, so a landing is self-describing. (2) Settle determinism directly — run the same
-per-run optimize twice back-to-back on one dataset at fixed `--max-evals` and diff `optimize_trajectory.csv`.
-If the trajectories diverge, the deterministic claim in `StarDetectionOptimizer`'s class comment is wrong and
-should be either fixed (ordered reduction) or retracted.
+**Next step.** Add the effective `optimize` argv (and ideally a hash of the resolved `harness_settings.json`)
+to `OptimizedStarDetectionSettings`, so a landing is self-describing and a stale copy announces itself.
 
 **Next step.** Record the provenance in `optimized_settings.json`, which already carries `CreatedAtUtc`,
 `RunCount`, `BaselineJ` and `FinalJ`: add the full `optimize` argv and a hash of the effective
