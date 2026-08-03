@@ -105,73 +105,92 @@ recall@≥12=0.181, sensor R²=0.9933, 7/9 aligned. That is a **config-B** numbe
 donut forced on) from the June prepass and sits behind every merge into `develop` since, so it is not a
 valid guard for this change. The single-commit before/after above is the guard that isolates it.
 
-## V2 — the precision/recall baseline, and the biggest result in this document
+## V3 — the precision/recall baseline, re-measured after the metric was repaired
 
-`bank-verify --runs D:\SyntheticAutofocusBank --nc-sweep 2,3,4 --opt-a … --opt-b …`, schema
-`afbank-verify/3`, header pixel scale, 17 runs, 0 failed. C0 = stock defaults; A = `optimize --per-run`;
-B = the same with donut detection forced on. Cells are **recall@high / precision**.
+> **The V2 table that stood here is retired.** It was scored by a metric that charged a false positive for
+> every real star the golden policy had dropped ([F31](followups.md)), so **96% of the false positives it
+> reported were real rendered stars** and every precision figure in it was an artifact. It survives in
+> [`synthetic-af-bank-baseline.json`](synthetic-af-bank-baseline.json) — marked `SUPERSEDED`, with the
+> precision keys renamed `precision_VOID` so a tool reading them for a gate fails loudly — as the audit trail
+> of how a reproducible measurement can be reproducibly wrong.
 
-| dataset | C0@nc2 | A | B | afR² (C0) |
-|---|---|---|---|---|
-| D01_ultrawide_40mm | 0.135 / 0.963 | 0.129 / 0.970 | 0.115 / 0.967 | 0.9098 |
-| D02_rich_135mm | 0.475 / 0.991 | 0.451 / 0.991 | 0.442 / 0.990 | 0.9172 |
-| D03_redcat_250mm | 0.400 / 0.988 | 0.396 / 0.992 | 0.537 / 0.991 | 0.9512 |
-| D04_esprit_550mm | 0.810 / 0.979 | 0.855 / 0.977 | 0.697 / 0.977 | 0.9993 |
-| D05_tec140_1000mm | **0.982** / 0.986 | 0.989 / 0.966 | 0.978 / 0.992 | 0.9999 |
-| D06_sparse_1000mm | **0.982** / 0.978 | 0.964 / 0.984 | 0.988 / 0.977 | 0.9997 |
-| D07_rc10_2000mm | 0.965 / 0.953 | 0.973 / 0.941 | 0.944 / 0.859 | 1.0000 |
-| D08_c11_2800mm | **1.000** / 0.959 | 0.990 / **0.748** | 1.000 / 0.781 | 0.9996 |
-| D09_c14_3800mm | 0.922 / 0.993 | 0.956 / **0.451** | 1.000 / **0.448** | 0.9992 |
-| D10_rc16_3250mm_sparse | 0.983 / **1.000** | 0.931 / **0.547** | 0.966 / 0.661 | 0.9996 |
-| D11_rc10_585_afbin2 | 0.887 / 0.986 | 0.850 / **0.732** | 0.917 / 0.627 | 1.0000 |
-| D12_c14_585_afbin2 | 0.897 / 0.952 | 0.897 / **0.653** | 0.879 / **0.506** | 0.9994 |
-| D13_apo200_1800mm (ε=0 control) | **1.000** / 0.962 | 1.000 / 0.985 | 0.986 / **0.653** | 0.9992 |
-| D14_cdk14_2563mm_e47 | 0.979 / 0.965 | 0.990 / 0.948 | 0.984 / 0.671 | 0.9997 |
-| D15_cdk20_3454mm_e47 | 0.954 / 0.979 | 0.943 / **0.531** | 0.931 / 0.708 | 0.9992 |
-| D16_esprit550_ha3 | 0.886 / 0.985 | 0.908 / **0.744** | 0.739 / 0.983 | 0.9954 |
-| D17_cdk14_oiii5 | **1.000** / 0.942 | 1.000 / **0.465** | 1.000 / 0.567 | 0.9988 |
+`bank-verify --runs D:\SyntheticAutofocusBank --nc-sweep 2 --opt-a … --opt-b …`, schema **`afbank-verify/5`**,
+header pixel scale, 17 runs, 0 failed. C0 = stock defaults; A = `optimize --per-run`; B = the same with donut
+detection forced on. Cells are **recall@high / precision**.
 
-**Reading it — three things, in order of importance.**
+| dataset | C0@nc2 | A | B | null (C0) | afR² (C0) |
+|---|---|---|---|---|---|
+| D01_ultrawide_40mm | 0.135 / 1.000 | 0.129 / 1.000 | 0.115 / 1.000 | 0.169 | 0.9098 |
+| D02_rich_135mm | 0.475 / 1.000 | 0.451 / 1.000 | 0.442 / 1.000 | 0.067 | 0.9172 |
+| D03_redcat_250mm | 0.400 / 1.000 | 0.396 / 1.000 | **0.537** / 1.000 | 0.036 | 0.9512 |
+| D04_esprit_550mm | 0.810 / 1.000 | 0.855 / 1.000 | **0.697** / 1.000 | 0.113 | 0.9993 |
+| D05_tec140_1000mm | 0.982 / 1.000 | 0.989 / 1.000 | 0.978 / 1.000 | 0.013 | 0.9999 |
+| D06_sparse_1000mm | 0.982 / 1.000 | 0.964 / 1.000 | 0.988 / 1.000 | 0.000 | 0.9999 |
+| D07_rc10_2000mm | 0.965 / 1.000 | 0.973 / 1.000 | 0.944 / 0.999 | 0.029 | 1.0000 |
+| D08_c11_2800mm | 1.000 / 1.000 | 0.990 / 1.000 | 1.000 / 1.000 | 0.000 | 0.9996 |
+| D09_c14_3800mm | 0.922 / 1.000 | 0.956 / **0.958** | 1.000 / 1.000 | 0.000 | 0.9996 |
+| D10_rc16_3250mm_sparse | 0.983 / 1.000 | 0.931 / **0.910** | 0.966 / 0.991 | 0.000 | 0.9996 |
+| D11_rc10_585_afbin2 | 0.887 / 1.000 | 0.850 / 1.000 | 0.917 / 1.000 | 0.000 | 1.0000 |
+| D12_c14_585_afbin2 | 0.897 / 1.000 | 0.897 / 1.000 | 0.879 / 0.997 | 0.000 | 0.9994 |
+| D13_apo200_1800mm (ε=0 control) | 1.000 / 1.000 | 1.000 / 1.000 | 0.986 / **1.000** | 0.003 | 0.9992 |
+| D14_cdk14_2563mm_e47 | 0.979 / 1.000 | 0.990 / 1.000 | 0.984 / 0.997 | 0.002 | 1.0000 |
+| D15_cdk20_3454mm_e47 | 0.954 / 1.000 | 0.943 / **0.968** | 0.931 / 1.000 | 0.000 | 1.0000 |
+| D16_esprit550_ha3 | 0.886 / 1.000 | 0.908 / 1.000 | **0.739** / 1.000 | 0.000 | 0.9954 |
+| D17_cdk14_oiii5 | 1.000 / 1.000 | 1.000 / **0.959** | 1.000 / 1.000 | 0.006 | 0.9995 |
 
-**1. The optimizer trades precision away for marginal recall (F23).** C0's precision never falls below
-**0.942** on any dataset. Config A falls to 0.451. On D09 the optimizer bought +0.034 recall for −0.542
-precision; on D10, +0.000 recall (it lost 0.052) for −0.453 precision. The objective rewards star count
-and fit quality and has no false-positive term — and could not have had one, because on the real bank
-precision is only a lower bound (F11). This is the single result that most justifies the bank existing:
-it is invisible without exact truth, and it reframes every prior "A beat C0" conclusion.
+**null** is the precision the same detections earn after being translated with wraparound — chance alone, and
+therefore the floor this metric can read. It is reported because a precision column of 1.000 is exactly what a
+saturated metric produces, and this baseline exists to replace one that failed that way. `truthViolations` — a
+scored false positive sitting on a real rendered star, the F31 signature itself — is **0 on all 51 config
+rows**.
 
-**2. Recall tracks focal length exactly as physics predicts, then cliffs.** 0.135 → 0.475 → 0.400 →
-0.810 → **0.982** as the PSF grows past `MinHFR` and becomes well sampled. The design's M-class anchor
-("well-sampled ⇒ essentially everything", ≥0.97) is **validated** at 0.982/0.982/1.000. The W-class band
-(≥0.90) is **missed badly**, and for a reason worth stating: it was set assuming a gentle pixelization
-loss, but the real mechanism is the hard `MinHFR` cliff (F20) — D01 detects *zero* stars at focus while
-its goldens are fully populated. The band is left as written, with a note; it should be revisited when
-F20 is addressed, not widened to fit.
+### Reading it
 
-**3. Donut detection costs precision everywhere, including where donuts are absent (F24).** D13 is the
-1800 mm **unobstructed** control, present exactly so "donut" and "long focal length" cannot be
-confounded — config B takes its precision from 0.962 to **0.653**. Two design assumptions also fell:
-C0 is *not* broken on synthetic donut datasets (D08 and D17 reach recall 1.000 at precision 0.942–0.959),
-unlike the real bank's donut runs; and `donutEffect` across the 17 A/B pairs is `donutHelpedAF: 5`,
-`donutHurtSensor: 6` — no clear win either way.
+**1. The detector produces essentially no false positives on this bank, and that is now a measurement.**
+C0@nc2 is 1.000 on all 17 datasets against a null floor of 0.000–0.169, so the metric had ample room to read
+lower and did not. The detector's real false-positive rate here is **0–9%**, concentrated entirely in config A
+on four long-focal-length datasets.
 
-The NC sweep independently recommends **NC = 2** (recall@high 0.95, precision 0.98, still rising at the
-bottom of the swept range), which agrees with the real bank's conclusion in
-`af-bank-noiseclip-sweep-results.md` — a useful cross-check that the synthetic bank is not living in its
-own universe.
+**2. F23's direction survives; its magnitude does not.** Config A does cost precision, and on exactly the
+datasets F23 named — D10 0.910, D09 0.958, D17 0.959, D15 0.968, all long focal length, all landing at
+Sensitivity 0. But V2 reported that as 0.451–0.547. The effect is real and roughly **one-fifth** the size of
+the artifact that hid it, and C0's "never below 0.942" was really "never below 1.000". No objective term is
+justified by numbers this small; see [F32](followups.md) for why one could not have helped anyway.
+
+**3. F24 is refuted, and the real cost of donut detection is recall.** F24's headline was "donut detection
+costs precision even where donuts exist, and badly where they do not — D13 0.962 → 0.653". Re-measured,
+**D13 scores 1.000 under config B**, and B's precision never falls below 0.991 on any dataset. What B actually
+costs is *recall*, on the datasets that do not need it: D16 0.886 → **0.739**, D04 0.810 → **0.697**,
+D13 1.000 → 0.986. And it genuinely helps where the PSF is annular or undersampled: D03 0.400 → **0.537**,
+D11 0.887 → 0.917. That is a different finding with a different fix.
+
+**4. Recall still tracks focal length exactly as physics predicts, then cliffs.** 0.135 → 0.475 → 0.400 →
+0.810 → 0.982 as the PSF grows past `MinHFR` and becomes well sampled. Untouched by the metric repair — the
+golden's `stars` list defines what must be found and F31 does not change it. The W-class band is still missed
+badly, still for the `MinHFR` cliff ([F20](followups.md)), and D01 still detects *zero* stars at focus while
+its goldens are fully populated.
+
+**5. Watch the scored fraction on config A.** At a floored Sensitivity only 45–75% of detections enter the
+precision ratio at all (D09 0.471, D17 0.485, D12 0.508); the rest land on real stars the golden dropped and
+are unjudgeable. That is not a bias — protection removes a detection from both numerator and denominator, and
+the null shows chance protection is ~0 — but precision on those rows rests on a materially smaller sample than
+C0's, and a future comparison should say so rather than treating the two as equally well determined.
 
 ### Expectation-band scorecard
 
 | band | result |
 |---|---|
 | W class C0@nc2 recall@high ≥ 0.90 | **MISS** (0.135 / 0.475 / 0.400) — F20, band left unwidened |
-| W class C0@nc2 precision ≥ 0.95 | PASS (0.963 / 0.991 / 0.988) |
+| W class C0@nc2 precision ≥ 0.98 | PASS (1.000 / 1.000 / 1.000) |
 | M class C0@nc2 recall@high ≥ 0.97 | PARTIAL — D05/D06/D13 pass (0.982–1.000); D04 0.810 and D16 0.886 miss |
-| M class C0@nc2 precision ≥ 0.95 | PASS (0.962–0.986) |
+| M class C0@nc2 precision ≥ 0.98 | PASS (1.000 across the class) |
 | L classes on config B, recall ≥ 0.90 | mostly PASS (0.879–1.000; D12 0.879 marginal) |
-| L classes on config B, precision ≥ 0.90 | **MISS across the board** (0.448–0.859) — F23/F24 |
-| Config A precision ≥ 0.98, non-donut | PARTIAL — D02/D03 pass; D16 0.744 misses badly |
+| L classes on config B, precision ≥ 0.98 | PASS (0.991–1.000) — was a MISS across the board under the V2 metric |
+| Config A precision ≥ 0.95, non-donut | PASS (1.000 on every non-donut dataset) |
 | afR² floor 0.95 | PASS on 15/17; D01 0.910 and D02 0.917 miss (F20) |
+
+The bands themselves were re-derived for this baseline — the old 0.95/0.98 were fitted to the broken metric.
+See [`synthetic-af-bank-expectations.json`](synthetic-af-bank-expectations.json) for the reasoning behind each.
 
 ## V1 — the full S0–S6 convergence matrix
 

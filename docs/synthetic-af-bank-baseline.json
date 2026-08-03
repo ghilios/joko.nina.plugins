@@ -1,109 +1,667 @@
 {
-  "schemaVersion": 1,
-  "status": "SUPERSEDED",
-  "schema": "afbank-verify/3",
-  "doNotUseAsRegressionGate": true,
-  "supersededBy": "F31 in docs/followups.md — re-baseline against afbank-verify/4 before using any precision number here",
-  "_WARNING": [
-    "EVERY PRECISION VALUE IN THIS FILE IS AN ARTIFACT. Do not gate on them, do not diff against them,",
-    "do not quote them. They are retained ONLY as the audit trail of what the pre-F31 metric reported.",
+  "schemaVersion": 2,
+  "status": "MEASURED",
+  "schema": "afbank-verify/5",
+  "supersedes": "the afbank-verify/3 baseline, retained in this file's git history and summarised under _supersededNote",
+  "_READ_THIS_FIRST": [
+    "Precision here is MEASURED, and the report carries its own evidence that it is:",
     "",
-    "WHY. bank-verify scored a detection as a false positive whenever it did not match a box in the",
-    "*.golden.json sidecar. GoldenFromTruth tiers truth stars by native PEAK-PIXEL SNR and drops anything",
-    "below 3.5 to Tier='omitted', which appears in NEITHER `stars` NOR `unresolved` — so nothing excluded",
-    "it, and bank-verify never called GoldenMatch.ExcludeUnresolved at all. Defocus destroys peak-pixel SNR",
-    "while leaving integrated flux intact, so the golden evaporates toward the sweep wings: D08_c11_2800mm",
-    "holds 81 golden stars at focus and 9 at the extreme frame, against 123-126 truth stars per frame.",
+    "  precisionNull   -- the precision the SAME detections earn after being translated with wraparound.",
+    "                     Chance alone. It is the floor the metric can read, and it is 0.000-0.169 here, so a",
+    "                     precision of 1.000 means the detector found no false positives rather than meaning",
+    "                     the metric cannot tell. The first cut of the F31 repair read 1.000 everywhere BECAUSE",
+    "                     it was saturated, and nothing in a precision column alone can distinguish the two.",
+    "  truthViolations -- scored false positives sitting on a REAL rendered star. This is the F31 bug's own",
+    "                     signature and it is 0 on all 51 config rows. Non-zero means the metric has regressed",
+    "                     and no precision number from that run is usable.",
+    "  scoredFraction  -- how much of the detection set entered the precision ratio. On config A at a floored",
+    "                     Sensitivity this falls to 0.45-0.75, so those rows rest on a smaller sample than C0's.",
+    "                     Not a bias (protection removes a detection from BOTH sides) but do not treat a config-A",
+    "                     precision as equally well determined as a C0 one.",
     "",
-    "MEASURED. Re-scored against each frame's own *.truth.json, 96% of the false positives this file records",
-    "are REAL RENDERED STARS — D09 control arm: 510 detections, 280 scored FP, 269 with a truth star within",
-    "the match radius, 11 genuinely spurious. With the metric repaired (afbank-verify/4) the same runs score",
-    "precision 1.000 on all 17 datasets, while recall is bit-identical to the values below.",
-    "",
-    "THE TRAP THIS FILE IS THE RECORD OF. These numbers REPRODUCE EXACTLY — a same-session control arm",
-    "re-derived config A from scratch and matched every published digit, and C0@nc2 matched too. That was",
-    "taken as evidence they were trustworthy. Reproducible is not the same as correct: a deterministic",
-    "pipeline reproduces a systematic error perfectly. Every check run against this file confirmed",
-    "determinism and none of them could have caught the bias, because the bias lives in the reference the",
-    "checks all share.",
-    "",
-    "WHAT IS STILL USABLE HERE: the recall columns (recall@high / the golden `stars` list defines what must",
-    "be found, and F31 does not change it) and afR2. Precision only is void."
+    "A /5 precision is NOT comparable to a /3 one (which charged real stars as false positives) and differs",
+    "slightly from a /4 one (whose protection predicate was dilated by the detection's own bounding box)."
   ],
-  "source": "docs/synthetic-af-bank-baseline-results.md",
-  "measuredUtc": "2026-08-02",
-  "detectorCommit": "unknown (pre-b3f7165; the V2 run predates the synth-validate eps fixes)",
-  "bankRoot": "D:\\SyntheticAutofocusBank",
+  "_supersededNote": [
+    "The previous baseline was scored by a metric under which 96% of reported false positives were real rendered",
+    "stars. Its headline -- 'C0 precision never below 0.942, config A reaches 0.451' -- is really 'C0 never below",
+    "1.000, config A reaches 0.910'. Those numbers REPRODUCED EXACTLY across a same-session control arm, which was",
+    "taken as evidence they were trustworthy. A deterministic pipeline reproduces a systematic error perfectly:",
+    "every check confirmed determinism and none could catch the bias, because the bias lived in the reference the",
+    "checks all shared. That is why this file now pins a null control rather than only a measurement."
+  ],
+  "source": "D:\\\\hf_w2\\\\verify_v5\\\\verification_20260803T213709Z.json",
+  "measuredUtc": "2026-08-03T21:37:09Z",
+  "detectorCommit": "51d8e7c",
+  "bankRoot": "D:\\\\SyntheticAutofocusBank",
   "pixelScaleMode": "header",
-  "_provenanceNotes": [
-    "Transcribed verbatim from the V2 table in docs/synthetic-af-bank-baseline-results.md (lines 115-134),",
-    "produced by: TestApp bank-verify --runs D:\\SyntheticAutofocusBank --nc-sweep 2,3,4 --opt-a <A>",
-    "--opt-b <B> --pixel-scale header   (17 runs, 0 failed, schema afbank-verify/3).",
-    "",
-    "recall@high on THIS bank is recall at golden peak SNR >= 20 (goldenHighSnr in",
-    "SynthBank/synthetic-bank-spec.json), NOT >= 12. The bank-verify markdown column header 'recall@SNR>=12'",
-    "and the JSON field 'goldenSNRge12' are misnomers on the synthetic bank.",
-    "",
-    "Per-dataset sigmaFocus was not published in the V2 table, so it is absent here.",
-    "afR2 is the C0 value only; per-config afR2 was not published.",
-    "",
-    "SEPARATE TRAP, unrelated to F31: the optimized_settings.json copies sitting in each dataset's attempt01/",
-    "folder are NOT config A. optimize --per-run overwrites them in place (F15), so they hold whichever prepass",
-    "ran last -- config B, identifiable only by DefocusAwareDonutDetection:true inside the file. Reading them",
-    "as config A shows 5 datasets at BrightnessSensitivity 0.0 instead of 6 and looks like a reproducibility",
-    "failure. It is not; it is a misattributed artifact. See F30."
+  "matchRadiusPx": 12,
+  "ncSweep": [
+    2
   ],
   "configs": {
     "C0@nc2": "shipped product defaults, NoiseClippingMultiplier = 2",
-    "A": "optimize --per-run landings (donut master NOT forced)",
-    "B": "optimize --per-run --donut landings (donut master forced on in bank-verify)"
+    "A": "optimize --per-run landings (donut master NOT forced). Prepass: the wave-1 control arm at develop f066c94, which re-derived config A from an unmodified HEAD and reproduced the published V2 landings exactly on all 17 datasets.",
+    "B": "optimize --per-run --donut landings, donut master forced on in bank-verify. Prepass re-derived 2026-08-03 (D:\\\\hf_w2\\\\B_A); the V2 config-B prepass output no longer existed, which is why F24 could not be re-measured in wave 1."
   },
-  "runs": {
-    "D01_ultrawide_40mm/attempt01":     { "C0@nc2": { "recallHigh": 0.135, "precision_VOID": 0.963, "afR2": 0.9098 }, "A": { "recallHigh": 0.129, "precision_VOID": 0.970 }, "B": { "recallHigh": 0.115, "precision_VOID": 0.967 } },
-    "D02_rich_135mm/attempt01":         { "C0@nc2": { "recallHigh": 0.475, "precision_VOID": 0.991, "afR2": 0.9172 }, "A": { "recallHigh": 0.451, "precision_VOID": 0.991 }, "B": { "recallHigh": 0.442, "precision_VOID": 0.990 } },
-    "D03_redcat_250mm/attempt01":       { "C0@nc2": { "recallHigh": 0.400, "precision_VOID": 0.988, "afR2": 0.9512 }, "A": { "recallHigh": 0.396, "precision_VOID": 0.992 }, "B": { "recallHigh": 0.537, "precision_VOID": 0.991 } },
-    "D04_esprit_550mm/attempt01":       { "C0@nc2": { "recallHigh": 0.810, "precision_VOID": 0.979, "afR2": 0.9993 }, "A": { "recallHigh": 0.855, "precision_VOID": 0.977 }, "B": { "recallHigh": 0.697, "precision_VOID": 0.977 } },
-    "D05_tec140_1000mm/attempt01":      { "C0@nc2": { "recallHigh": 0.982, "precision_VOID": 0.986, "afR2": 0.9999 }, "A": { "recallHigh": 0.989, "precision_VOID": 0.966 }, "B": { "recallHigh": 0.978, "precision_VOID": 0.992 } },
-    "D06_sparse_1000mm/attempt01":      { "C0@nc2": { "recallHigh": 0.982, "precision_VOID": 0.978, "afR2": 0.9997 }, "A": { "recallHigh": 0.964, "precision_VOID": 0.984 }, "B": { "recallHigh": 0.988, "precision_VOID": 0.977 } },
-    "D07_rc10_2000mm/attempt01":        { "C0@nc2": { "recallHigh": 0.965, "precision_VOID": 0.953, "afR2": 1.0000 }, "A": { "recallHigh": 0.973, "precision_VOID": 0.941 }, "B": { "recallHigh": 0.944, "precision_VOID": 0.859 } },
-    "D08_c11_2800mm/attempt01":         { "C0@nc2": { "recallHigh": 1.000, "precision_VOID": 0.959, "afR2": 0.9996 }, "A": { "recallHigh": 0.990, "precision_VOID": 0.748 }, "B": { "recallHigh": 1.000, "precision_VOID": 0.781 } },
-    "D09_c14_3800mm/attempt01":         { "C0@nc2": { "recallHigh": 0.922, "precision_VOID": 0.993, "afR2": 0.9992 }, "A": { "recallHigh": 0.956, "precision_VOID": 0.451 }, "B": { "recallHigh": 1.000, "precision_VOID": 0.448 } },
-    "D10_rc16_3250mm_sparse/attempt01": { "C0@nc2": { "recallHigh": 0.983, "precision_VOID": 1.000, "afR2": 0.9996 }, "A": { "recallHigh": 0.931, "precision_VOID": 0.547 }, "B": { "recallHigh": 0.966, "precision_VOID": 0.661 } },
-    "D11_rc10_585_afbin2/attempt01":    { "C0@nc2": { "recallHigh": 0.887, "precision_VOID": 0.986, "afR2": 1.0000 }, "A": { "recallHigh": 0.850, "precision_VOID": 0.732 }, "B": { "recallHigh": 0.917, "precision_VOID": 0.627 } },
-    "D12_c14_585_afbin2/attempt01":     { "C0@nc2": { "recallHigh": 0.897, "precision_VOID": 0.952, "afR2": 0.9994 }, "A": { "recallHigh": 0.897, "precision_VOID": 0.653 }, "B": { "recallHigh": 0.879, "precision_VOID": 0.506 } },
-    "D13_apo200_1800mm/attempt01":      { "C0@nc2": { "recallHigh": 1.000, "precision_VOID": 0.962, "afR2": 0.9992 }, "A": { "recallHigh": 1.000, "precision_VOID": 0.985 }, "B": { "recallHigh": 0.986, "precision_VOID": 0.653 } },
-    "D14_cdk14_2563mm_e47/attempt01":   { "C0@nc2": { "recallHigh": 0.979, "precision_VOID": 0.965, "afR2": 0.9997 }, "A": { "recallHigh": 0.990, "precision_VOID": 0.948 }, "B": { "recallHigh": 0.984, "precision_VOID": 0.671 } },
-    "D15_cdk20_3454mm_e47/attempt01":   { "C0@nc2": { "recallHigh": 0.954, "precision_VOID": 0.979, "afR2": 0.9992 }, "A": { "recallHigh": 0.943, "precision_VOID": 0.531 }, "B": { "recallHigh": 0.931, "precision_VOID": 0.708 } },
-    "D16_esprit550_ha3/attempt01":      { "C0@nc2": { "recallHigh": 0.886, "precision_VOID": 0.985, "afR2": 0.9954 }, "A": { "recallHigh": 0.908, "precision_VOID": 0.744 }, "B": { "recallHigh": 0.739, "precision_VOID": 0.983 } },
-    "D17_cdk14_oiii5/attempt01":        { "C0@nc2": { "recallHigh": 1.000, "precision_VOID": 0.942, "afR2": 0.9988 }, "A": { "recallHigh": 1.000, "precision_VOID": 0.465 }, "B": { "recallHigh": 1.000, "precision_VOID": 0.567 } }
-  },
-  "_precisionFieldRenamed": [
-    "The precision key is deliberately spelled 'precision_VOID' rather than 'precision'. Any tool that reads",
-    "this file for a precision gate will fail loudly on a missing key instead of silently comparing against a",
-    "number that means nothing. Recall and afR2 keep their normal names because they remain valid."
+  "_recallHighNote": [
+    "recall@high on THIS bank is recall at golden peak SNR >= 20 (goldenHighSnr in synthetic-bank-spec.json),",
+    "NOT >= 12. The bank-verify markdown column header 'recall@SNR>=12' and the JSON field 'goldenSNRge12' are",
+    "misnomers on the synthetic bank. Recall is UNCHANGED by the F31 repair -- the golden's `stars` list still",
+    "defines what must be found -- so these values are directly comparable to the superseded baseline's."
   ],
-  "landedConfigA": {
-    "_comment": [
-      "The config-A landed BrightnessSensitivity values, confirmed by a same-session control arm that",
-      "reproduced this table exactly. These ARE trustworthy — the search is reproducible; only the",
-      "precision metric it was judged by was not."
-    ],
-    "sensitivityAtFloor": [
-      "D09_c14_3800mm", "D17_cdk14_oiii5", "D15_cdk20_3454mm_e47",
-      "D10_rc16_3250mm_sparse", "D12_c14_585_afbin2", "D11_rc10_585_afbin2"
-    ],
-    "meanPrecisionAtFloor_VOID": 0.563,
-    "meanPrecisionAboveFloor_VOID": 0.931,
-    "_note": [
-      "The 0.563-vs-0.931 split was F23's central evidence — 'the optimizer drives Sensitivity to the floor",
-      "and precision collapses'. Under the repaired metric both groups score 1.000. The split measured how",
-      "many REAL faint stars a low Sensitivity finds, which the golden then charged as false positives."
-    ]
-  },
-  "headline_VOID": {
-    "_note": "Retained verbatim as the claim F31 refuted. All three numbers are artifacts.",
-    "c0PrecisionMin": 0.942,
-    "configAPrecisionMin": 0.451,
-    "configAPrecisionBelow0_90": 6
+  "runs": {
+    "D01_ultrawide_40mm/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.135276,
+        "recallAll": 0.232624,
+        "precision": 1.0,
+        "precisionNull": 0.168575,
+        "scoredFraction": 0.963359,
+        "truthViolations": 0,
+        "sigmaFocus": 0.505508,
+        "afR2": 0.909831,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.128629,
+        "recallAll": 0.175955,
+        "precision": 1.0,
+        "precisionNull": 0.161822,
+        "scoredFraction": 0.9698,
+        "truthViolations": 0,
+        "sigmaFocus": 0.595807,
+        "afR2": 0.90373,
+        "sensitivity": 10.0
+      },
+      "B": {
+        "recallHigh": 0.115297,
+        "recallAll": 0.162481,
+        "precision": 1.0,
+        "precisionNull": 0.163331,
+        "scoredFraction": 0.966887,
+        "truthViolations": 0,
+        "sigmaFocus": 0.66243,
+        "afR2": 0.902995,
+        "sensitivity": 10.0
+      },
+      "protectedStars": 18529
+    },
+    "D02_rich_135mm/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.474818,
+        "recallAll": 0.547842,
+        "precision": 1.0,
+        "precisionNull": 0.066969,
+        "scoredFraction": 0.990595,
+        "truthViolations": 0,
+        "sigmaFocus": 0.225832,
+        "afR2": 0.917157,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.451231,
+        "recallAll": 0.525045,
+        "precision": 1.0,
+        "precisionNull": 0.066582,
+        "scoredFraction": 0.99115,
+        "truthViolations": 0,
+        "sigmaFocus": 0.275573,
+        "afR2": 0.915478,
+        "sensitivity": 10.0
+      },
+      "B": {
+        "recallHigh": 0.441963,
+        "recallAll": 0.513165,
+        "precision": 1.0,
+        "precisionNull": 0.066931,
+        "scoredFraction": 0.990027,
+        "truthViolations": 0,
+        "sigmaFocus": 0.219518,
+        "afR2": 0.912306,
+        "sensitivity": 10.0
+      },
+      "protectedStars": 489
+    },
+    "D03_redcat_250mm/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.399827,
+        "recallAll": 0.47381,
+        "precision": 1.0,
+        "precisionNull": 0.036262,
+        "scoredFraction": 0.988253,
+        "truthViolations": 0,
+        "sigmaFocus": 1.183134,
+        "afR2": 0.951239,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.395505,
+        "recallAll": 0.257674,
+        "precision": 1.0,
+        "precisionNull": 0.039109,
+        "scoredFraction": 0.99187,
+        "truthViolations": 0,
+        "sigmaFocus": 0.299409,
+        "afR2": 0.997201,
+        "sensitivity": 32.333333
+      },
+      "B": {
+        "recallHigh": 0.537497,
+        "recallAll": 0.387074,
+        "precision": 1.0,
+        "precisionNull": 0.03472,
+        "scoredFraction": 0.991345,
+        "truthViolations": 0,
+        "sigmaFocus": 0.341101,
+        "afR2": 0.998425,
+        "sensitivity": 17.666667
+      },
+      "protectedStars": 977
+    },
+    "D04_esprit_550mm/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.810439,
+        "recallAll": 0.72289,
+        "precision": 1.0,
+        "precisionNull": 0.113059,
+        "scoredFraction": 0.978784,
+        "truthViolations": 0,
+        "sigmaFocus": 0.23216,
+        "afR2": 0.999315,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.854901,
+        "recallAll": 0.624621,
+        "precision": 1.0,
+        "precisionNull": 0.117596,
+        "scoredFraction": 0.977027,
+        "truthViolations": 0,
+        "sigmaFocus": 0.02135,
+        "afR2": 0.999992,
+        "sensitivity": 19.666667
+      },
+      "B": {
+        "recallHigh": 0.697318,
+        "recallAll": 0.377976,
+        "precision": 1.0,
+        "precisionNull": 0.116929,
+        "scoredFraction": 0.976986,
+        "truthViolations": 0,
+        "sigmaFocus": 0.058813,
+        "afR2": 0.999933,
+        "sensitivity": 17.666667
+      },
+      "protectedStars": 15015
+    },
+    "D05_tec140_1000mm/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.982098,
+        "recallAll": 0.863577,
+        "precision": 1.0,
+        "precisionNull": 0.013473,
+        "scoredFraction": 0.985833,
+        "truthViolations": 0,
+        "sigmaFocus": 0.148086,
+        "afR2": 0.999947,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.989123,
+        "recallAll": 0.914085,
+        "precision": 1.0,
+        "precisionNull": 0.014035,
+        "scoredFraction": 0.96571,
+        "truthViolations": 0,
+        "sigmaFocus": 0.076883,
+        "afR2": 0.999986,
+        "sensitivity": 8.0
+      },
+      "B": {
+        "recallHigh": 0.977566,
+        "recallAll": 0.801961,
+        "precision": 1.0,
+        "precisionNull": 0.01342,
+        "scoredFraction": 0.992269,
+        "truthViolations": 0,
+        "sigmaFocus": 0.077864,
+        "afR2": 0.99999,
+        "sensitivity": 10.0
+      },
+      "protectedStars": 7893
+    },
+    "D06_sparse_1000mm/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.982036,
+        "recallAll": 0.884831,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.978261,
+        "truthViolations": 0,
+        "sigmaFocus": 0.267434,
+        "afR2": 0.999875,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.964072,
+        "recallAll": 0.853933,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.983819,
+        "truthViolations": 0,
+        "sigmaFocus": 0.057878,
+        "afR2": 0.99999,
+        "sensitivity": 10.0
+      },
+      "B": {
+        "recallHigh": 0.988024,
+        "recallAll": 0.949438,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.976879,
+        "truthViolations": 0,
+        "sigmaFocus": 0.117807,
+        "afR2": 0.999967,
+        "sensitivity": 8.125
+      },
+      "protectedStars": 189
+    },
+    "D07_rc10_2000mm/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.964587,
+        "recallAll": 0.845683,
+        "precision": 1.0,
+        "precisionNull": 0.029412,
+        "scoredFraction": 0.952527,
+        "truthViolations": 0,
+        "sigmaFocus": 0.057244,
+        "afR2": 0.999998,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.973019,
+        "recallAll": 0.860639,
+        "precision": 1.0,
+        "precisionNull": 0.028616,
+        "scoredFraction": 0.941264,
+        "truthViolations": 0,
+        "sigmaFocus": 0.068228,
+        "afR2": 0.999994,
+        "sensitivity": 8.0
+      },
+      "B": {
+        "recallHigh": 0.944351,
+        "recallAll": 0.914344,
+        "precision": 0.998515,
+        "precisionNull": 0.023873,
+        "scoredFraction": 0.860703,
+        "truthViolations": 0,
+        "sigmaFocus": 0.185646,
+        "afR2": 0.999927,
+        "sensitivity": 7.0
+      },
+      "protectedStars": 1972
+    },
+    "D08_c11_2800mm/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 1.0,
+        "recallAll": 0.88254,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.958621,
+        "truthViolations": 0,
+        "sigmaFocus": 0.933847,
+        "afR2": 0.999614,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.990099,
+        "recallAll": 0.996825,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.747619,
+        "truthViolations": 0,
+        "sigmaFocus": 0.354844,
+        "afR2": 0.999948,
+        "sensitivity": 8.0
+      },
+      "B": {
+        "recallHigh": 1.0,
+        "recallAll": 0.803175,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.780864,
+        "truthViolations": 0,
+        "sigmaFocus": 0.202337,
+        "afR2": 0.99998,
+        "sensitivity": 12.0
+      },
+      "protectedStars": 735
+    },
+    "D09_c14_3800mm/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.922222,
+        "recallAll": 0.628205,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.993243,
+        "truthViolations": 0,
+        "sigmaFocus": 1.140838,
+        "afR2": 0.999608,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.955556,
+        "recallAll": 0.982906,
+        "precision": 0.958333,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.470588,
+        "truthViolations": 0,
+        "sigmaFocus": 0.682799,
+        "afR2": 0.999896,
+        "sensitivity": 0.0
+      },
+      "B": {
+        "recallHigh": 1.0,
+        "recallAll": 0.982906,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.448343,
+        "truthViolations": 0,
+        "sigmaFocus": 0.643927,
+        "afR2": 0.999861,
+        "sensitivity": 0.0
+      },
+      "protectedStars": 3929
+    },
+    "D10_rc16_3250mm_sparse/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.982759,
+        "recallAll": 0.765217,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 1.0,
+        "truthViolations": 0,
+        "sigmaFocus": 1.036151,
+        "afR2": 0.999624,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.931034,
+        "recallAll": 0.965217,
+        "precision": 0.909836,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.600985,
+        "truthViolations": 0,
+        "sigmaFocus": 0.573749,
+        "afR2": 0.99989,
+        "sensitivity": 0.0
+      },
+      "B": {
+        "recallHigh": 0.965517,
+        "recallAll": 0.982609,
+        "precision": 0.991228,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.666667,
+        "truthViolations": 0,
+        "sigmaFocus": 1.037879,
+        "afR2": 0.999786,
+        "sensitivity": 0.0
+      },
+      "protectedStars": 88
+    },
+    "D11_rc10_585_afbin2/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.887218,
+        "recallAll": 0.642643,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.986175,
+        "truthViolations": 0,
+        "sigmaFocus": 0.101177,
+        "afR2": 0.999983,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.849624,
+        "recallAll": 0.891892,
+        "precision": 1.0,
+        "precisionNull": 0.002463,
+        "scoredFraction": 0.731527,
+        "truthViolations": 0,
+        "sigmaFocus": 0.118674,
+        "afR2": 0.999985,
+        "sensitivity": 0.0
+      },
+      "B": {
+        "recallHigh": 0.917293,
+        "recallAll": 0.942943,
+        "precision": 1.0,
+        "precisionNull": 0.006012,
+        "scoredFraction": 0.626747,
+        "truthViolations": 0,
+        "sigmaFocus": 0.444079,
+        "afR2": 0.999506,
+        "sensitivity": 0.0
+      },
+      "protectedStars": 990
+    },
+    "D12_c14_585_afbin2/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.897196,
+        "recallAll": 0.537994,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.951613,
+        "truthViolations": 0,
+        "sigmaFocus": 1.330664,
+        "afR2": 0.999413,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.897196,
+        "recallAll": 0.942249,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.652632,
+        "truthViolations": 0,
+        "sigmaFocus": 3.817582,
+        "afR2": 0.988039,
+        "sensitivity": 0.0
+      },
+      "B": {
+        "recallHigh": 0.878505,
+        "recallAll": 0.914894,
+        "precision": 0.996689,
+        "precisionNull": 0.001961,
+        "scoredFraction": 0.507563,
+        "truthViolations": 0,
+        "sigmaFocus": 0.530791,
+        "afR2": 0.999883,
+        "sensitivity": 0.0
+      },
+      "protectedStars": 4002
+    },
+    "D13_apo200_1800mm/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 1.0,
+        "recallAll": 0.960759,
+        "precision": 1.0,
+        "precisionNull": 0.002538,
+        "scoredFraction": 0.961977,
+        "truthViolations": 0,
+        "sigmaFocus": 2.352441,
+        "afR2": 0.999224,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 1.0,
+        "recallAll": 0.756962,
+        "precision": 1.0,
+        "precisionNull": 0.001647,
+        "scoredFraction": 0.985173,
+        "truthViolations": 0,
+        "sigmaFocus": 1.16725,
+        "afR2": 0.999664,
+        "sensitivity": 12.0
+      },
+      "B": {
+        "recallHigh": 0.98556,
+        "recallAll": 0.983544,
+        "precision": 1.0,
+        "precisionNull": 0.001688,
+        "scoredFraction": 0.652941,
+        "truthViolations": 0,
+        "sigmaFocus": 0.29096,
+        "afR2": 0.999991,
+        "sensitivity": 2.5
+      },
+      "protectedStars": 663
+    },
+    "D14_cdk14_2563mm_e47/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.979167,
+        "recallAll": 0.842941,
+        "precision": 1.0,
+        "precisionNull": 0.001918,
+        "scoredFraction": 0.964627,
+        "truthViolations": 0,
+        "sigmaFocus": 0.118606,
+        "afR2": 0.999986,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.989583,
+        "recallAll": 0.93985,
+        "precision": 1.0,
+        "precisionNull": 0.002534,
+        "scoredFraction": 0.947767,
+        "truthViolations": 0,
+        "sigmaFocus": 0.23783,
+        "afR2": 0.999937,
+        "sensitivity": 10.0
+      },
+      "B": {
+        "recallHigh": 0.984375,
+        "recallAll": 0.639933,
+        "precision": 0.997396,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.673094,
+        "truthViolations": 0,
+        "sigmaFocus": 0.062882,
+        "afR2": 0.999995,
+        "sensitivity": 16.166667
+      },
+      "protectedStars": 4160
+    },
+    "D15_cdk20_3454mm_e47/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.954023,
+        "recallAll": 0.724409,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.978723,
+        "truthViolations": 0,
+        "sigmaFocus": 0.201654,
+        "afR2": 0.999958,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.942529,
+        "recallAll": 0.964567,
+        "precision": 0.968379,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.548807,
+        "truthViolations": 0,
+        "sigmaFocus": 1.388652,
+        "afR2": 0.998025,
+        "sensitivity": 0.0
+      },
+      "B": {
+        "recallHigh": 0.931034,
+        "recallAll": 0.771654,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.707581,
+        "truthViolations": 0,
+        "sigmaFocus": 0.197186,
+        "afR2": 0.999932,
+        "sensitivity": 10.0
+      },
+      "protectedStars": 722
+    },
+    "D16_esprit550_ha3/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 0.88587,
+        "recallAll": 0.468215,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.984576,
+        "truthViolations": 0,
+        "sigmaFocus": 0.615196,
+        "afR2": 0.995386,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 0.907609,
+        "recallAll": 0.546455,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.74376,
+        "truthViolations": 0,
+        "sigmaFocus": 0.171172,
+        "afR2": 0.99934,
+        "sensitivity": 2.5
+      },
+      "B": {
+        "recallHigh": 0.73913,
+        "recallAll": 0.350856,
+        "precision": 1.0,
+        "precisionNull": 0.0,
+        "scoredFraction": 0.982877,
+        "truthViolations": 0,
+        "sigmaFocus": 0.314641,
+        "afR2": 0.998542,
+        "sensitivity": 10.0
+      },
+      "protectedStars": 13544
+    },
+    "D17_cdk14_oiii5/attempt01": {
+      "C0@nc2": {
+        "recallHigh": 1.0,
+        "recallAll": 0.860577,
+        "precision": 1.0,
+        "precisionNull": 0.005525,
+        "scoredFraction": 0.942105,
+        "truthViolations": 0,
+        "sigmaFocus": 0.54315,
+        "afR2": 0.999543,
+        "sensitivity": 10.0
+      },
+      "A": {
+        "recallHigh": 1.0,
+        "recallAll": 1.0,
+        "precision": 0.958525,
+        "precisionNull": 0.006993,
+        "scoredFraction": 0.485459,
+        "truthViolations": 0,
+        "sigmaFocus": 2.648151,
+        "afR2": 0.990752,
+        "sensitivity": 0.0
+      },
+      "B": {
+        "recallHigh": 1.0,
+        "recallAll": 0.990385,
+        "precision": 1.0,
+        "precisionNull": 0.008721,
+        "scoredFraction": 0.567493,
+        "truthViolations": 0,
+        "sigmaFocus": 0.146185,
+        "afR2": 0.99998,
+        "sensitivity": 0.0
+      },
+      "protectedStars": 7159
+    }
   }
 }
