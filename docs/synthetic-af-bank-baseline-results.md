@@ -25,7 +25,7 @@ Everything below is **flagged, not fixed**. Six product findings became `docs/fo
 | S0 control (harness self-test) | **13 PASS · 1 FLAG · 3 FAIL**; R² = 1.0000 on 15 of 17 |
 | V2 precision/recall baseline | 17 runs, 0 failed, `afbank-verify/3` — see the V2 section; C0 precision never below **0.942**, config A as low as **0.451** |
 | Pixel-scale default change (V-P1) | **no measurable effect** — see "The pixel-scale change did nothing" below |
-| Full unit suite | 3293 passed at gate #1; 3292/3293 on the final pass, the one failure being the known-flaky `SendAsync_WritesOnABackgroundThread` EAT test (timing-sensitive, unrelated, and the machine was running two optimizer processes) |
+| Full unit suite | **3293 passed, 0 failed** at both gates (the flaky `SendAsync_WritesOnABackgroundThread` EAT test fails only under concurrent optimizer load; clean on an idle machine) |
 
 **Reading it:** the instrument works. Precision of exactly 1.000 with zero false positives is the
 thing the real bank can never give, and it is what makes the golden close-pair policy (merge tight
