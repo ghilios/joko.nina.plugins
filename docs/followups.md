@@ -164,6 +164,63 @@ This changes the shipped recommender for every user, so it wants a design spec p
 as the acceptance metric, not an inline patch. Related: the flat-topped rejections that motivated this are
 surfaced as sweep-geometry evidence by `ExposureRecommendation.FlatRejectedCount` (PR #159).
 
+### F25 — From a far-too-wide sweep the step recommender widens it further, instead of recovering
+**Status:** Open · found 2026-08-03 running scenario S2 (step ×4) on the synthetic AF bank
+
+When the sweep is so wide that the hyperbola fit degenerates, `StepSizeRecommender` responds by asking for a
+**wider** sweep still. There is nothing that recognises "this fit is garbage, retreat".
+
+**Evidence.** `D05_tec140_1000mm`, scenario S2 (bootstrap step = 140, i.e. 4× the correct 35):
+
+| round | step | fit R² | recommended |
+|---|---|---|---|
+| 0 | 140 | **−0.223** | **240** |
+| 1 | 240 | 1.000 | 36 |
+
+A **negative** R² means the fit is worse than a horizontal line — there is no usable curve at all — and from
+that the recommender produced 240, moving 4× too wide to nearly 7× too wide. It only recovered because round 1
+happened to fit cleanly at the wider spacing. `A4` also fired here (`WasCapped=True but truth predicts False`),
+which is the cap logic responding to the same degenerate fit.
+
+**Why it matters.** This is the mirror image of [F18](#f18--step-size-is-sized-by-curve-geometry-alone-so-the-sweep-outruns-what-the-detector-can-see):
+F18 is the sweep over-reaching what the detector can see, and this is the recommender *amplifying* that
+over-reach once it has. A user who starts too wide — the likely case on an unfamiliar rig — can be walked
+further out rather than back in. The recovery on D05 was luck, not design.
+
+**Next step.** Gate the recommendation on fit quality. The R² is already in hand at the call site; a fit below
+some floor should either hold the current step or shrink it, never widen it. Reproduce with
+`synth-validate --datasets D05_tec140_1000mm --scenarios S2 --max-rounds 4`.
+
+### F26 — A stuck binning recommendation starves the step update indefinitely
+**Status:** Open · found 2026-08-03 running scenarios S1/S6 on the synthetic AF bank
+
+The wizard's update ordering applies **binning first** and defers the step by a round, on the sound reasoning
+that SNRs are per-binned-pixel so changing binning invalidates the exposure and step measurements. But when the
+binning recommendation is *persistently wrong* ([F22](#f22--detection-binning-is-a-hard-threshold-on-a-measurement-that-under-reads-so-boundary-rigs-get-the-wrong-factor)),
+"defer the step" becomes "never update the step".
+
+**Evidence.** `D08_c11_2800mm`, scenario S1 (bootstrap step 21, correct 82), four rounds, fits at R² = 0.999–1.000:
+
+| round | step | binning recommendation | step applied? |
+|---|---|---|---|
+| 0 | 21 | 1 (expected 2) | no — binning first |
+| 1 | 21 | 1 | no |
+| 2 | 21 | 1 | no |
+| 3 | 21 | 1 | no |
+
+The step never moves off 21 — a quarter of the correct value — despite a near-perfect fit every round.
+`D12_c14_585_afbin2` S6 shows the same pattern (35 → 60 → 60 → 74 against a target of 141). Both are datasets
+whose true HFR sits near the 4.5 px binning boundary, i.e. exactly F22's population.
+
+**Why it matters.** Two individually-defensible behaviours compose into a livelock: a measurement bias that
+flips a threshold, plus an ordering rule that waits for that threshold to settle. The user sees the wizard
+"recommending" the same wrong binning every round and never getting to the knob that actually matters. Neither
+F22 nor the ordering rule looks broken on its own, which is why this needs its own entry.
+
+**Next step.** Bound the deferral: if the binning recommendation has not changed the applied value for N
+consecutive rounds, stop deferring and let the step update proceed. Fixing F22 would also dissolve this, but the
+livelock is worth guarding against independently — any future oscillating recommendation would reproduce it.
+
 ### F23 — The optimizer objective has no precision term, so it trades precision away for marginal recall
 **Status:** Open · found 2026-08-02, the first measurement of **exact** detector precision (synthetic AF bank)
 

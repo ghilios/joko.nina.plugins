@@ -452,6 +452,21 @@ namespace TestApp.SynthBank {
                     stoppedReason = "converged (round applied nothing)";
                     break;
                 }
+                // Converged ALSO means "inside the tolerance band", not only "applied literally nothing". The
+                // recommender never emits a byte-identical answer on consecutive rounds -- each round is a fresh
+                // noise realization, so it keeps nudging by a percent or two forever. Waiting for an exact no-op
+                // therefore runs every scenario to --max-rounds and reports RoundsUsed = max, which then fails
+                // scenarios whose whole expectation is "converges quickly": D13's S2 reached 131 against a target
+                // of 127 in ONE round from a 4x-too-coarse start of 508, then jittered 132/129/124, and was
+                // flagged "expected convergence within <= 2 round(s), used 4". Stopping at the band makes
+                // RoundsUsed mean "rounds to reach the target", which is what the scenario expectations are about.
+                if (isConvergenceScenario && double.IsFinite(stepBehavioral) && stepBehavioral > 0) {
+                    var band = Math.Max(0.5, expected.StepSizeTolerance * Math.Abs(stepBehavioral));
+                    if (Math.Abs(state.StepSize - stepBehavioral) <= band) {
+                        stoppedReason = $"converged (step {state.StepSize} within the {band:0.###} tolerance band of step_behavioral {stepBehavioral:0.###})";
+                        break;
+                    }
+                }
             }
 
             var converged = stoppedReason != null && stoppedReason.StartsWith("converged", StringComparison.Ordinal);
@@ -743,23 +758,27 @@ namespace TestApp.SynthBank {
             // A1 -- direction: each recommendation moves toward its target. Skipped for a non-convergence scenario
             // (S5), whose bootstrap is not being walked toward anything.
             if (isConvergenceScenario) {
-                // The tolerance is RELATIVE (the design's SynthExpectedOptimal.StepSizeTolerance, 0.4), not a
-                // half-step absolute. This matters most on the S0 control, where the bootstrap starts AT the target:
-                // with an absolute eps of 0.5 any movement at all reads as "moved away", so a recommender that is
-                // in fact stable to within a few percent scores FAIL on every dataset. Measured on S0 at 2 rounds,
-                // the recommendations are 15->17, 35->37, 55->53, 82->87, 118->114 and (a true no-op) 141->141 --
-                // all comfortably inside 40%, and all previously reported as failures. "Converged" has to mean
-                // "inside the band the design declares", or the instrument manufactures failures.
-                var stepEps = Math.Max(0.5, expected.StepSizeTolerance * Math.Abs(stepBehavioral));
-                findings.Add(CheckDirection("A1", "step", round.Bootstrap.StepSize, round.StepRecommendation.StepSize, stepBehavioral, stepEps));
+                // Two tolerances, two jobs -- see CheckDirection's remarks for why conflating them silently
+                // inverts the verdict. The at-target BAND is relative (the design's StepSizeTolerance, 0.4),
+                // because a control that starts on target must not fail for drifting a few percent. The
+                // PROGRESS threshold is small, because a round that closes a third of the remaining gap is
+                // converging and has to be scored as such.
+                var stepAtTargetEps = Math.Max(0.5, expected.StepSizeTolerance * Math.Abs(stepBehavioral));
+                var stepProgressEps = Math.Max(0.5, StepProgressFraction * Math.Abs(stepBehavioral));
+                findings.Add(CheckDirection("A1", "step", round.Bootstrap.StepSize, round.StepRecommendation.StepSize,
+                    stepBehavioral, stepAtTargetEps, stepProgressEps));
                 if (round.ExposureRecommendation.Computed && round.ExposureRecommendation.HasRecommendation) {
-                    // Likewise relative: ExposureRecommender.RoundExposureSeconds quantizes onto a 0.5/1/5 s ladder,
-                    // so a 2% absolute band is finer than the recommender's own output resolution and can never be hit.
-                    var eps = Math.Max(0.5, 0.4 * expected.ExposureSeconds);
-                    findings.Add(CheckDirection("A1", "exposure", round.Bootstrap.ExposureSeconds, round.ExposureRecommendation.RecommendedSeconds, expected.ExposureSeconds, eps));
+                    // The at-target band is relative for the same reason; the progress threshold is floored at
+                    // 0.5s because ExposureRecommender.RoundExposureSeconds quantizes onto a 0.5/1/5s ladder, so
+                    // anything finer than one ladder rung is below the recommender's own output resolution.
+                    var expAtTargetEps = Math.Max(0.5, 0.4 * expected.ExposureSeconds);
+                    var expProgressEps = Math.Max(0.5, StepProgressFraction * expected.ExposureSeconds);
+                    findings.Add(CheckDirection("A1", "exposure", round.Bootstrap.ExposureSeconds,
+                        round.ExposureRecommendation.RecommendedSeconds, expected.ExposureSeconds, expAtTargetEps, expProgressEps));
                 }
                 if (round.BinningRecommendation.HasMeasurement && round.BinningRecommendation.RecommendedFactor.HasValue) {
-                    findings.Add(CheckDirection("A1", "detectionBinning", round.Bootstrap.DetectionBinning, round.BinningRecommendation.RecommendedFactor.Value, expected.DetectionBinning, eps: 0.001));
+                    findings.Add(CheckDirection("A1", "detectionBinning", round.Bootstrap.DetectionBinning, round.BinningRecommendation.RecommendedFactor.Value,
+                        expected.DetectionBinning, atTargetEps: 0.001, progressEps: 0.001)); // integral factor -- exact match or nothing
                 }
             }
 
@@ -860,9 +879,11 @@ namespace TestApp.SynthBank {
             var findings = new List<AssertionFinding>();
 
             findings.Add(CheckMonotone("A2", "step",
-                report.Rounds.Select(r => (double)r.Bootstrap.StepSize).Append((double)terminal.FinalStepSize).ToList(), stepBehavioral));
+                report.Rounds.Select(r => (double)r.Bootstrap.StepSize).Append((double)terminal.FinalStepSize).ToList(),
+                stepBehavioral, Math.Max(0.5, expected.StepSizeTolerance * Math.Abs(stepBehavioral))));
             findings.Add(CheckMonotone("A2", "exposure",
-                report.Rounds.Select(r => r.Bootstrap.ExposureSeconds).Append(terminal.FinalExposureSeconds).ToList(), expected.ExposureSeconds));
+                report.Rounds.Select(r => r.Bootstrap.ExposureSeconds).Append(terminal.FinalExposureSeconds).ToList(),
+                expected.ExposureSeconds, Math.Max(0.5, 0.4 * expected.ExposureSeconds)));
 
             // A3 -- terminal band [0.6, 1.6] x step_behavioral. Deliberately asserted against step_behavioral (the
             // recommender's OWN fixed point on the truth curve), never against step_theory -- see the design's
@@ -889,44 +910,92 @@ namespace TestApp.SynthBank {
             return findings;
         }
 
-        private static AssertionFinding CheckDirection(string id, string label, double current, double recommended, double target, double eps) {
+        /// <summary>
+        /// A1 -- direction. Takes TWO tolerances, because the question is really two questions and they want
+        /// different scales:
+        /// <list type="bullet">
+        /// <item><paramref name="atTargetEps"/> is a BAND AROUND THE TARGET (relative — the design's
+        /// <c>StepSizeTolerance</c>, 0.4). "Am I already close enough that any further motion is noise?"</item>
+        /// <item><paramref name="progressEps"/> is a MINIMUM PER-ROUND IMPROVEMENT (small, near-absolute).
+        /// "Did this round actually close some of the gap?"</item>
+        /// </list>
+        ///
+        /// <para>Using one value for both is wrong in a way that silently inverts the result, and did: with a
+        /// single relative eps of <c>0.4 × 64 = 25.6</c>, a round had to close 25.6 steps of gap to count as
+        /// progress, so D15's S1 sequence <c>16 → 27 → 46 → 63 → 64</c> against a target of 64 — error shrinking
+        /// 48 → 37 → 18 → 1, textbook geometric convergence — was scored "made no meaningful progress" twice.
+        /// The first full S1–S6 matrix returned 42 FLAGs largely for this reason. A harness that reports clean
+        /// convergence as a flag is as useless as one that reports failure as a pass.</para>
+        ///
+        /// <para>The at-target branch also checks where the recommendation LANDS, not just where the round
+        /// started. Otherwise a control scenario (S0, which by construction starts on target) would pass
+        /// unconditionally no matter how wild the recommendation was — which is exactly D17's
+        /// <c>60 → 3</c> half-width collapse (F21), and it must not be scored PASS.</para>
+        /// </summary>
+        /// <summary>
+        /// Minimum fraction of the TARGET a round must close to count as progress (A1). Deliberately small and
+        /// unrelated to the at-target band: convergence here is geometric -- a round that closes a third of the
+        /// remaining gap is healthy -- so the bar is "moved measurably", not "arrived".
+        /// </summary>
+        private const double StepProgressFraction = 0.02;
+
+        private static AssertionFinding CheckDirection(
+                string id, string label, double current, double recommended, double target,
+                double atTargetEps, double progressEps) {
             if (!double.IsFinite(target)) {
                 return Flag(id, $"{label}: no finite target to check direction against");
             }
             var distBefore = Math.Abs(current - target);
             var distAfter = Math.Abs(recommended - target);
-            if (distBefore <= eps) {
-                return Pass(id, $"{label}: already at target ({current:0.###} vs target {target:0.###})");
+
+            if (distBefore <= atTargetEps) {
+                return distAfter <= atTargetEps
+                    ? Pass(id, $"{label}: already at target ({current:0.###} vs target {target:0.###}); recommendation {recommended:0.###} stays within the {atTargetEps:0.###} band")
+                    : Flag(id, $"{label}: started at target ({current:0.###} vs {target:0.###}) but recommended {recommended:0.###}, which leaves the {atTargetEps:0.###} band (|delta| {distBefore:0.###} -> {distAfter:0.###})");
             }
-            if (distAfter < distBefore - eps) {
+            if (distAfter < distBefore - progressEps) {
                 return Pass(id, $"{label}: {current:0.###} -> {recommended:0.###} moves toward target {target:0.###} (|delta| {distBefore:0.###} -> {distAfter:0.###})");
             }
-            if (distAfter <= distBefore + eps) {
+            if (distAfter <= distBefore + progressEps) {
                 return Flag(id, $"{label}: {current:0.###} -> {recommended:0.###} made no meaningful progress toward target {target:0.###} (|delta| {distBefore:0.###} -> {distAfter:0.###})");
             }
             return Fail(id, $"{label}: {current:0.###} -> {recommended:0.###} moved AWAY from target {target:0.###} (|delta| {distBefore:0.###} -> {distAfter:0.###})");
         }
 
-        /// <summary>No oscillation = at most one sign change of (value - target) across the round sequence (a
-        /// single crossing on the way to convergence is normal; more than one is back-and-forth).</summary>
-        private static AssertionFinding CheckMonotone(string id, string label, List<double> sequence, double target) {
+        /// <summary>
+        /// A2 -- no oscillation: at most one sign change of <c>(value − target)</c> across the round sequence (a
+        /// single crossing on the way to convergence is normal; more than one is back-and-forth).
+        ///
+        /// <para><b>Values already inside the tolerance band are excluded from the sign sequence.</b> Once a
+        /// recommendation is within tolerance it keeps jittering by a few percent, because every round is a fresh
+        /// noise realization and the fit shifts slightly — the recommender never emits a byte-identical answer
+        /// twice. Counting those crossings scores healthy settling as oscillation: D15's S0 control sits at
+        /// 64 → 61 → 62 → 65 → 61 against a target of 64, i.e. ±5% jitter around the right answer, and was scored
+        /// FAIL for "2 sign changes". Oscillation means failing to close on the target, so only excursions
+        /// OUTSIDE the band can evidence it.</para>
+        /// </summary>
+        private static AssertionFinding CheckMonotone(string id, string label, List<double> sequence, double target, double bandEps) {
             if (sequence.Count < 3 || !double.IsFinite(target)) {
                 return Pass(id, $"{label}: too few rounds to assess monotone approach");
             }
             var signs = new List<int>();
+            var insideBand = 0;
             foreach (var v in sequence) {
                 var dev = v - target;
-                if (Math.Abs(dev) > 1e-9) {
-                    signs.Add(Math.Sign(dev));
+                if (Math.Abs(dev) <= Math.Max(bandEps, 1e-9)) {
+                    insideBand++;
+                    continue; // settled within tolerance -- sub-tolerance jitter is not oscillation
                 }
+                signs.Add(Math.Sign(dev));
             }
             var signChanges = 0;
             for (var i = 1; i < signs.Count; i++) {
                 if (signs[i] != signs[i - 1]) { signChanges++; }
             }
+            var inside = insideBand > 0 ? $" ({insideBand} of {sequence.Count} round(s) already within the {bandEps:0.###} band, excluded)" : string.Empty;
             return signChanges <= 1
-                ? Pass(id, $"{label}: {signChanges} sign change(s) across the round sequence (<=1 allowed)")
-                : Fail(id, $"{label}: {signChanges} sign changes across the round sequence -- oscillating rather than converging");
+                ? Pass(id, $"{label}: {signChanges} sign change(s) outside the tolerance band (<=1 allowed){inside}")
+                : Fail(id, $"{label}: {signChanges} sign changes outside the tolerance band -- oscillating rather than converging{inside}");
         }
 
         /// <summary>S5's "degradation signature" check: compares this scenario's round-0 fit against the same
