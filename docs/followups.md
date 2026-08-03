@@ -673,6 +673,20 @@ The control arm detects **510** stars on D09 at **97.8%** true precision where t
 gives on the real bank: the reference is incomplete below the tier cut. The synthetic bank's claim to measure
 precision *exactly* is what justified building it, and as implemented it does not hold.
 
+**Re-scored with the repair in place (afbank-verify/4).** Control arm, config A, 17 datasets: the `/3`
+golden-only metric gave 0.451–0.992 with 8 datasets below 0.90; the repaired metric gives **0.982–1.000**,
+none below 0.90. The detector's real false-positive rate on this bank is **0–1.8%** at every configuration
+tested. The residual is real rather than noise — the only four datasets short of 1.000 are D09 (0.991),
+D17 (0.986), D15 (0.988) and D10 (0.982), i.e. the long-focal-length rigs landing at Sensitivity 0 plus the
+sparse field. That is F23's predicted effect at roughly **1/30th** the size of the artifact that masked it.
+
+**A caution for whoever re-baselines.** The first cut of the repair sized protection by the star's light
+footprint (2·HFR, ~40 px on a wing donut). That removed the bias and replaced it with **saturation**:
+precision read 1.000 on all 17 datasets for all three arms — which looks like a clean result and measures
+nothing. Protection is now the match radius exactly. Before trusting a re-baseline, check that precision
+still SPREADS across datasets; all-1.000 means the metric is saturated again, not that the detector is
+perfect.
+
 **Next step.** Three separable pieces.
 1. **Score against truth, not the golden**, for synthetic runs — the truth sidecar is already written beside every
    frame and is complete by construction. This is the correct fix and it makes the bank's original claim true.

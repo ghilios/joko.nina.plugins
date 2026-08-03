@@ -36,6 +36,30 @@ Which one works, and does fixing this dissolve F22 and F26 as predicted?*
 >
 > What survives unaffected: the reproducibility checks, the F22 toggle evidence (a binning/HFR result, not a
 > precision one), the F26/F21/F25 re-measurements, and F27/F28/F30.
+>
+> ### Re-scored with the repaired metric (afbank-verify/4)
+>
+> Control arm, config A, 17 datasets:
+>
+> | metric | range | below 0.90 |
+> |---|---|---|
+> | `/3` golden-only (what F23 used) | 0.451 – 0.992 | **8/17** |
+> | `/4` protection at 2·HFR | **1.000 everywhere** — saturated, cannot discriminate | 0 |
+> | `/4` protection at the match radius | **0.982 – 1.000** | 0 |
+>
+> **The detector's real false-positive rate is 0–1.8%**, at every configuration tested — including the
+> landings F23 called catastrophic. D09's 0.451 is really 0.991; D10's 0.547 is 0.982.
+>
+> The residual is real, not noise: the only four datasets below 1.000 are D09 (0.991), D17 (0.986),
+> D15 (0.988) and D10 (0.982) — the long-focal-length rigs that land at Sensitivity 0, plus the sparse
+> field. That is a genuine effect in the direction F23 predicted, and roughly **thirty times smaller** than
+> the artifact that hid it. Far too small to justify an objective term; not zero either.
+>
+> **A metric can fail in two directions.** The first repair (protection sized by the star's light footprint,
+> ~40 px on a wing donut) removed the bias and replaced it with saturation — 1.000 on all 17 datasets for all
+> three arms, which looks like success and measures nothing. Protection is now exactly as generous as
+> matching: a detection is protected iff it would have been MATCHED had the star carried a golden box.
+> Anything wider invents true positives; anything narrower re-creates F31.
 
 ## Headline
 
