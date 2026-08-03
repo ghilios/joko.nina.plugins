@@ -996,19 +996,33 @@ changed nothing.
 **How low is safe: measured, and the answer is "as low as you like".**
 `golden eval --params default --min-hfr <M>`, exact precision against synthetic truth, 8 values from 1.2 to 0.1:
 
-| `MinHFR` | D01 recall@high | D01 FP | D02 recall@high | D02 FP | D01 vertex-frame stars |
-|---|---|---|---|---|---|
-| 1.2 (default) | 0.129 | **0** | 0.451 | **0** | **0** |
-| 0.9 | 0.152 | **0** | 0.507 | **0** | **0** |
-| 0.7 | 0.160 | **0** | 0.567 | **0** | 2 |
-| **0.5** | 0.164 | **0** | 0.588 | **0** | **5** |
-| 0.35 | 0.164 | **0** | 0.594 | **0** | 5 |
-| 0.25 | 0.165 | **0** | 0.595 | **0** | 5 |
-| 0.1 | 0.165 | **0** | — | — | 6 |
+recall@high per dataset, **FP = 0 in all 32 configurations**:
 
-**Zero false positives at every value on both datasets**, and the recall gain saturates by ~0.35. `MinHFR` is a
-second line of defence — hot-pixel filtering is separate and enabled by default — and on this bank it is not
-carrying any of the load. **0.25–0.35 captures all the available gain.**
+| `MinHFR` | D01 (40 mm) | D02 (135 mm) | D03 (250 mm) | D05 control (1000 mm) | D01 vertex-frame stars |
+|---|---|---|---|---|---|
+| 1.2 (default) | 0.129 | 0.451 | 0.393 | 0.985 | **0** |
+| 0.9 | 0.152 | 0.507 | 0.535 | 0.985 | **0** |
+| 0.7 | 0.160 | 0.567 | 0.581 | 0.985 | 2 |
+| **0.5** | 0.164 | 0.588 | 0.585 | 0.985 | **5** |
+| 0.35 | 0.164 | 0.594 | 0.585 | 0.985 | 5 |
+| 0.25 | 0.165 | 0.595 | 0.585 | 0.985 | 5 |
+| 0.15 | 0.165 | 0.595 | 0.585 | 0.985 | 5 |
+| 0.1 | 0.165 | 0.595 | 0.585 | 0.985 | 6 |
+
+**Zero false positives at every value on every dataset**, and the recall gain saturates by 0.5 at the latest.
+`MinHFR` is a second line of defence — hot-pixel filtering is separate and enabled by default — and on this bank
+it is not carrying any of the load. **0.25–0.35 captures all the available gain on every class.**
+
+**`D05_tec140_1000mm` is the control that makes a GLOBAL seed defensible.** Its in-focus HFR is 1.77 px, well
+clear of every gate value tested, and its recall is **flat at 0.985 from 1.2 all the way to 0.1** — not one star
+gained or lost. A rig that does not need the seed is provably unperturbed by it, so the adjustment does not have
+to be conditioned on first detecting the wide-field case (which is the detection the gate has already
+prevented). Without this row the seeding rule would need a trigger it cannot evaluate.
+
+**The largest gain is D03, not D01.** `D03_redcat_250mm` moves **0.393 → 0.585 (+0.192)** against D01's +0.036.
+The fix helps *marginally* undersampled rigs most, not the extreme one — D01 is dominated by candidate-formation
+losses that this gate does not touch (see the attribution table below). Anyone scoping this work off D01 alone
+will both underestimate the benefit and misattribute where it lands.
 
 **The mechanism is the hard floor, not recall — and that reframes F20.** Lowering the gate moves D01's recall
 only 0.129 → 0.165. What it actually does is put stars back on the **vertex frame**: 0 → 2 at 0.7, and **0 → 5
