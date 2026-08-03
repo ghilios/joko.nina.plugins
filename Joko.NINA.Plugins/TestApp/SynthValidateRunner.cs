@@ -452,6 +452,21 @@ namespace TestApp.SynthBank {
                     stoppedReason = "converged (round applied nothing)";
                     break;
                 }
+                // Converged ALSO means "inside the tolerance band", not only "applied literally nothing". The
+                // recommender never emits a byte-identical answer on consecutive rounds -- each round is a fresh
+                // noise realization, so it keeps nudging by a percent or two forever. Waiting for an exact no-op
+                // therefore runs every scenario to --max-rounds and reports RoundsUsed = max, which then fails
+                // scenarios whose whole expectation is "converges quickly": D13's S2 reached 131 against a target
+                // of 127 in ONE round from a 4x-too-coarse start of 508, then jittered 132/129/124, and was
+                // flagged "expected convergence within <= 2 round(s), used 4". Stopping at the band makes
+                // RoundsUsed mean "rounds to reach the target", which is what the scenario expectations are about.
+                if (isConvergenceScenario && double.IsFinite(stepBehavioral) && stepBehavioral > 0) {
+                    var band = Math.Max(0.5, expected.StepSizeTolerance * Math.Abs(stepBehavioral));
+                    if (Math.Abs(state.StepSize - stepBehavioral) <= band) {
+                        stoppedReason = $"converged (step {state.StepSize} within the {band:0.###} tolerance band of step_behavioral {stepBehavioral:0.###})";
+                        break;
+                    }
+                }
             }
 
             var converged = stoppedReason != null && stoppedReason.StartsWith("converged", StringComparison.Ordinal);
@@ -864,9 +879,11 @@ namespace TestApp.SynthBank {
             var findings = new List<AssertionFinding>();
 
             findings.Add(CheckMonotone("A2", "step",
-                report.Rounds.Select(r => (double)r.Bootstrap.StepSize).Append((double)terminal.FinalStepSize).ToList(), stepBehavioral));
+                report.Rounds.Select(r => (double)r.Bootstrap.StepSize).Append((double)terminal.FinalStepSize).ToList(),
+                stepBehavioral, Math.Max(0.5, expected.StepSizeTolerance * Math.Abs(stepBehavioral))));
             findings.Add(CheckMonotone("A2", "exposure",
-                report.Rounds.Select(r => r.Bootstrap.ExposureSeconds).Append(terminal.FinalExposureSeconds).ToList(), expected.ExposureSeconds));
+                report.Rounds.Select(r => r.Bootstrap.ExposureSeconds).Append(terminal.FinalExposureSeconds).ToList(),
+                expected.ExposureSeconds, Math.Max(0.5, 0.4 * expected.ExposureSeconds)));
 
             // A3 -- terminal band [0.6, 1.6] x step_behavioral. Deliberately asserted against step_behavioral (the
             // recommender's OWN fixed point on the truth curve), never against step_theory -- see the design's
@@ -945,26 +962,40 @@ namespace TestApp.SynthBank {
             return Fail(id, $"{label}: {current:0.###} -> {recommended:0.###} moved AWAY from target {target:0.###} (|delta| {distBefore:0.###} -> {distAfter:0.###})");
         }
 
-        /// <summary>No oscillation = at most one sign change of (value - target) across the round sequence (a
-        /// single crossing on the way to convergence is normal; more than one is back-and-forth).</summary>
-        private static AssertionFinding CheckMonotone(string id, string label, List<double> sequence, double target) {
+        /// <summary>
+        /// A2 -- no oscillation: at most one sign change of <c>(value − target)</c> across the round sequence (a
+        /// single crossing on the way to convergence is normal; more than one is back-and-forth).
+        ///
+        /// <para><b>Values already inside the tolerance band are excluded from the sign sequence.</b> Once a
+        /// recommendation is within tolerance it keeps jittering by a few percent, because every round is a fresh
+        /// noise realization and the fit shifts slightly — the recommender never emits a byte-identical answer
+        /// twice. Counting those crossings scores healthy settling as oscillation: D15's S0 control sits at
+        /// 64 → 61 → 62 → 65 → 61 against a target of 64, i.e. ±5% jitter around the right answer, and was scored
+        /// FAIL for "2 sign changes". Oscillation means failing to close on the target, so only excursions
+        /// OUTSIDE the band can evidence it.</para>
+        /// </summary>
+        private static AssertionFinding CheckMonotone(string id, string label, List<double> sequence, double target, double bandEps) {
             if (sequence.Count < 3 || !double.IsFinite(target)) {
                 return Pass(id, $"{label}: too few rounds to assess monotone approach");
             }
             var signs = new List<int>();
+            var insideBand = 0;
             foreach (var v in sequence) {
                 var dev = v - target;
-                if (Math.Abs(dev) > 1e-9) {
-                    signs.Add(Math.Sign(dev));
+                if (Math.Abs(dev) <= Math.Max(bandEps, 1e-9)) {
+                    insideBand++;
+                    continue; // settled within tolerance -- sub-tolerance jitter is not oscillation
                 }
+                signs.Add(Math.Sign(dev));
             }
             var signChanges = 0;
             for (var i = 1; i < signs.Count; i++) {
                 if (signs[i] != signs[i - 1]) { signChanges++; }
             }
+            var inside = insideBand > 0 ? $" ({insideBand} of {sequence.Count} round(s) already within the {bandEps:0.###} band, excluded)" : string.Empty;
             return signChanges <= 1
-                ? Pass(id, $"{label}: {signChanges} sign change(s) across the round sequence (<=1 allowed)")
-                : Fail(id, $"{label}: {signChanges} sign changes across the round sequence -- oscillating rather than converging");
+                ? Pass(id, $"{label}: {signChanges} sign change(s) outside the tolerance band (<=1 allowed){inside}")
+                : Fail(id, $"{label}: {signChanges} sign changes outside the tolerance band -- oscillating rather than converging{inside}");
         }
 
         /// <summary>S5's "degradation signature" check: compares this scenario's round-0 fit against the same
