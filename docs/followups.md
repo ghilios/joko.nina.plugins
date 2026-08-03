@@ -432,6 +432,86 @@ a dead band around the 4.5/7.5 px boundaries so a marginal rig does not flip bet
 [F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic): the same
 under-reading pushes small-HFR rigs toward the `MinHFR` cliff.
 
+### F27 — The optimizer cannot reach the rejected-candidate diagnostics an approved spec says it can
+**Status:** Open · found 2026-08-03 implementing [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)
+
+[`docs/af-recommender-hardening-design.md`](af-recommender-hardening-design.md) lists "the rejected-candidate
+diagnostics (`CollectRejectedCandidateDiagnostics`)" among the signals "already collected" and available to
+build a false-positive term from. They are not reachable from the optimizer's evaluation path.
+
+**Evidence.** `RejectedCandidateRecord`s are produced onto `HocusFocusStarDetectorResult.RejectedCandidates`
+(`IStarDetector.cs:981`, set in `StarDetector.cs:878`). But `HocusFocusStarDetection.BuildStarDetectionResult`
+copies only `Metrics` onto the `HocusFocusStarDetectionResult` the optimizer consumes
+(`HocusFocusStarDetection.cs:818`), and that type has **no `RejectedCandidates` member at all**
+(`HocusFocusStarDetection.cs:180-213`; the identifier does not appear anywhere in that file). The optimizer's
+per-frame contract carries exactly three metric scalars — `RelaxationAdmittedCount`, `LowSensitivityCount`,
+`TooFlatCount` (`RunEvaluationData.cs:68,76,86`). Only the review/feedback path re-detects with the flag on,
+and it does so outside the optimizer loop (`Review/FrameReviewBuilder.cs:163-184`).
+
+**Why it matters.** It is a load-bearing claim in an approved spec — F23's wave 1 was written assuming a
+choice of three proxy signals and in fact had one. The gap is cheap to close: the flag is on the detection
+cache-key **denylist** (`IStarDetector.cs:523-542`), so enabling it inside the optimizer would invalidate no
+memo and no early-context key; the only cost is per-detection allocation in the hot loop.
+
+**Next step.** Either add `RejectedCandidates` to `HocusFocusStarDetectionResult` and summarise it into
+`FrameDetectionResult`, or correct the spec. Note the nine per-gate `*Bounds` rect lists **are** already on
+`Metrics` and reachable at the same one-line seam that reads `LowSensitivity`/`TooFlat`
+(`RunEvaluationLoader.cs:331-335`), so they are the cheaper signal if per-rejection geometry is wanted.
+
+### F28 — `LowSensitivity` reads exactly zero precisely when the Sensitivity gate has collapsed
+**Status:** Open · found 2026-08-03 implementing [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)
+
+The gate rejects on `sensitivity <= p.Sensitivity` (`StarDetector.cs:1763`), and every candidate's
+`sensitivity` is bounded below by `PeakResponse × EffectiveClipMultiplier` — 0.75 × 2.0 = **1.5** at shipped
+defaults. So a gate anywhere below 1.5 rejects **nothing**, and `StarDetectorMetrics.LowSensitivity` is
+identically 0.
+
+**Derivation.** Clip survivors satisfy `raw > background + clipMargin` with
+`clipMargin = EffectiveClipMultiplier · σ` (`StarDetector.cs:2179`), so `meanFlux > EffectiveClipMultiplier · σ`;
+`peak ≥ meanFlux`; and `NormalizedBrightness = peak − (1 − PeakResponse)·meanFlux ≥ PeakResponse · meanFlux`
+(`StarDetector.cs:2274`). Hence `sensitivity = NormalizedBrightness / σ > PeakResponse × EffectiveClipMultiplier`.
+
+**Why it matters.** `FrameLowSensitivityCounts` exists specifically to separate "the gate is holding stars
+back" from "there is nothing left to find" (`OptimizationObjective.cs:194-199`), and
+`ExposureRecommender.Recommend` turns it into `gateIsHoldingStarsBack = gateRejectedCount > 0`, which is the
+sole discriminator between `StarCountIsTheLimit` and `StarFieldIsExhausted` (`ExposureRecommender.cs:515-517`).
+The exposure advice is surfaced only when `HasLowStarSignal` — i.e. `Sensitivity ≤ 1.0`
+(`StarDetectionOptimizerWizardVM.cs:248`, `ExposureRecommender.cs:284,336`) — which sits strictly inside the
+provably-inert region. So on exactly the population the affordance was written for, the evidence test is
+structurally dead: `StarCountIsTheLimit` can never fire, `StarFieldIsExhausted` is always taken, and the
+recommender always concludes the field has nothing more to give.
+
+**Why it did not show up before.** The zero-rejections test was added from a real rig where it was correct
+and valuable (2 s → 5 rejections, 14 s → zero; the comment at `ExposureRecommender.cs:511-514` records it).
+That rig was not at the search floor. The defect is the *interaction* with the floor, not the test.
+
+**Next step.** Make the discriminator conditional on the gate being able to reject at all — compare
+`p.Sensitivity` against `PeakResponse × EffectiveClipMultiplier` and report "the gate is inert, so its
+rejection count carries no information" rather than silently reading it as exhaustion. Never use this counter
+as a false-positive signal: the pathological landing produces its cleanest possible value.
+
+### F30 — The published V2 config-A landings do not reproduce, and their inputs were not recorded
+**Status:** Open · found 2026-08-03 pinning the [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall) baseline
+
+Re-running `optimize --per-run` at HEAD on the bit-identical synthetic bank produces different landings from
+the V2 table in [`docs/synthetic-af-bank-baseline-results.md`](synthetic-af-bank-baseline-results.md): D03
+32.33 vs 17.67, D04 19.67 vs 17.67, D05 8 vs 10, D07 8 vs 7.
+
+**Evidence.** Separately, the `optimized_settings.json` copies left in each dataset's `attempt01/` match
+neither published config — 5 datasets at Sensitivity 0.0 where config A had 6 (D15 is 10.0 there, 0.0 in the
+table), and D17 is 0.0 where config B's published landing was 8.0. That is [F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings)
+biting: the prepass overwrites those files in place, so the last writer wins and neither arm survives.
+
+**Why it matters.** The V2 table is what the expectations file's `regressionRule` is meant to compare
+against, and it cannot be regenerated. `--max-evals` and the `harness_settings.json` state in force were not
+recorded alongside the results, and the prepass `--out` trees are gone, so the inputs are unrecoverable. Any
+before/after therefore needs a same-session control arm rather than the published numbers — which is how F23
+wave 1 was run.
+
+**Next step.** Record the provenance in `optimized_settings.json`, which already carries `CreatedAtUtc`,
+`RunCount`, `BaselineJ` and `FinalJ`: add the full `optimize` argv and a hash of the effective
+`harness_settings.json`. Cheap, and it makes a landing self-describing.
+
 ---
 
 ## Harness / tooling
