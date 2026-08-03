@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -115,6 +116,10 @@ namespace TestApp {
             // 2) Protected: our reference golden sidecars and per-run donut metadata.
             if (lower.EndsWith(".golden.json", StringComparison.Ordinal)) return new Decision(true, "golden sidecar");
             if (lower == "run_meta.json") return new Decision(true, "run metadata");
+            // Synthetic-bank per-DATASET metadata (matchRadiusPx, expected-optimal bootstrap params, etc.). It lives
+            // at the dataset root, one level above the run folder this classifier walks, so this entry is pure
+            // insurance in case a future caller ever runs the walk from the dataset root instead.
+            if (lower == "synthetic_meta.json") return new Decision(true, "synthetic dataset metadata");
             // 3) Protected: AF report JSON (run config + region geometry + step size — needed by golden eval).
             if (AutoFocusReportRegex.IsMatch(name)) return new Decision(true, "autofocus report");
             // 4) Protected: AF sweep frames + our linear-export sidecars.
@@ -185,6 +190,65 @@ namespace TestApp {
                     : $"high frac {s.DonutPeakFracMax:F2} but mild defocus (extreme HFR {s.ExtremeFrameMedianHFR:F1}<{HeavyDefocusHFR:F1}, " +
                       $"donut bbox {s.ExtremeDonutBBoxMedianPx:F0}<{LargeDonutBBoxPx:F0}px) — cwhite-style over-flag avoided";
             return new DonutDecision(donutAware, reason);
+        }
+    }
+
+    /// <summary>
+    /// V-P2: reads the synthetic bank's per-DATASET <c>synthetic_meta.json</c> for knobs the generator derived from
+    /// ground truth — today just <c>matchRadiusPx</c> (see docs/synthetic-af-bank-design.md's "V-P2 / V-P3"). Pure
+    /// file I/O + JSON, no NINA coupling, so it lives here alongside <see cref="BankCleanup"/> and is unit-testable
+    /// the same way.
+    /// </summary>
+    internal static class SyntheticDatasetMeta {
+
+        /// <summary>File name, per <c>TestApp synth-bank</c>'s writer (SynthBankRunner.WriteSyntheticMeta).</summary>
+        public const string FileName = "synthetic_meta.json";
+
+        /// <summary>
+        /// Looks for <c>synthetic_meta.json</c> starting at <paramref name="frameDir"/> (a run's frame folder,
+        /// e.g. <c>&lt;bank&gt;/&lt;datasetId&gt;/attempt01/</c>) and walking UPWARD one directory at a time. The
+        /// generator writes the file at the DATASET ROOT — one level above <c>attempt01</c> — deliberately outside
+        /// the per-run walk both <c>bank-clean</c> and <c>optimize --per-run</c> use, so a single parent-directory
+        /// check covers the current layout; the walk continues (bounded by, and including, <paramref
+        /// name="bankRoot"/>) so a future nested-attempt layout would still be found without a code change here.
+        /// The real bank has no such file at any level, so this is a silent no-op there — the entire point of
+        /// keeping the synthetic-only knob out of the real bank's code path.
+        /// </summary>
+        /// <param name="frameDir">Directory holding the run's frames (NOT the frame file itself).</param>
+        /// <param name="bankRoot">The bank root passed to <c>--runs</c>; the walk never looks above it.</param>
+        /// <returns>The parsed <c>matchRadiusPx</c>, or null when no meta file was found or it had no such field.</returns>
+        public static double? TryReadMatchRadiusPx(string frameDir, string bankRoot) {
+            if (string.IsNullOrWhiteSpace(frameDir)) {
+                return null;
+            }
+            var rootFull = string.IsNullOrWhiteSpace(bankRoot)
+                ? null
+                : Path.GetFullPath(bankRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var dir = Path.GetFullPath(frameDir);
+            while (dir != null) {
+                var candidate = Path.Combine(dir, FileName);
+                if (File.Exists(candidate)) {
+                    try {
+                        var o = JObject.Parse(File.ReadAllText(candidate));
+                        var v = o["matchRadiusPx"];
+                        return v != null && v.Type != JTokenType.Null ? (double?)v : null;
+                    } catch {
+                        // Malformed sidecar: treat exactly like "absent" rather than aborting the run over a
+                        // knob that has a well-defined fallback (CLI --match-radius / the 12px default).
+                        return null;
+                    }
+                }
+                var trimmed = dir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (rootFull != null && string.Equals(trimmed, rootFull, StringComparison.OrdinalIgnoreCase)) {
+                    break; // reached the bank root without finding one — do not search above the bank
+                }
+                var parent = Path.GetDirectoryName(dir);
+                if (parent == dir) {
+                    break; // filesystem root
+                }
+                dir = parent;
+            }
+            return null;
         }
     }
 }

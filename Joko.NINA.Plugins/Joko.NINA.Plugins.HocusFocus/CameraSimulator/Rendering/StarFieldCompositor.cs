@@ -130,7 +130,20 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         }
 
         /// <inheritdoc/>
-        public ushort[] Render(RenderRequest request, CancellationToken token) {
+        public ushort[] Render(RenderRequest request, CancellationToken token) => Render(request, null, token);
+
+        /// <summary>
+        /// Renders exactly what <see cref="Render(RenderRequest, CancellationToken)"/> does, and — when
+        /// <paramref name="truthSink"/> is non-null — appends one <see cref="StarTruth"/> per accepted star to
+        /// it as a side effect. This is the synthetic-bank generator's seam onto ground truth the compositor
+        /// already computes internally (position, flux, quantized defocus, kernel HFR) and would otherwise
+        /// discard; it exists as a second overload rather than a new interface member so
+        /// <see cref="IStarFieldCompositor"/> — the camera's MEF-composed seam — is untouched.
+        /// <b>Passing a null sink must render byte-identically to the single-argument overload</b>: this method
+        /// skips every truth computation entirely when <paramref name="truthSink"/> is null, so the two calls
+        /// run the identical stamp/development pipeline with no extra allocation on the hot path.
+        /// </summary>
+        public ushort[] Render(RenderRequest request, ICollection<StarTruth> truthSink, CancellationToken token) {
             if (request == null) throw new ArgumentNullException(nameof(request));
             token.ThrowIfCancellationRequested();
 
@@ -142,6 +155,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             // The radiometry/defocus/aberration models and the TAN projection all require a positive focal length
             // (plate scale). A focal length of 0 is a misconfiguration — the camera resolves it from the profile —
             // but rather than crash the exposure we render a dark frame (bias + dark + read noise, no sky/stars).
+            // No truth either way: a dark frame has no stars to have truth about.
             double sky = 0.0, dark = 0.0;
             List<StampJob> jobs;
             if (request.FocalLengthMillimeters > 0.0) {
@@ -150,7 +164,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 var aberration = AberrationSurface.FromRequest(request, sensor);
                 sky = radiometry.SkyElectronsPerPixel();
                 dark = radiometry.DarkElectronsPerPixel();
-                jobs = BuildStampJobs(request, sensor, radiometry, defocusModel, aberration, width, height, token);
+                jobs = BuildStampJobs(request, sensor, radiometry, defocusModel, aberration, width, height, truthSink, token);
             } else {
                 Logger.Warning(
                     $"Synthetic camera: focal length is {request.FocalLengthMillimeters} mm (must be > 0). " +
@@ -178,10 +192,16 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <summary>
         /// Projects the catalog stars and turns each on-frame (or wing-spilling) star into a <see cref="StampJob"/>:
         /// its sub-pixel centre, the cached PSF kernel for its quantized local defocus, and its total flux (e⁻).
+        /// When <paramref name="truthSink"/> is non-null, appends one <see cref="StarTruth"/> per accepted job to
+        /// it — same loop, same acceptance decision, so a wing-spill star that gets a <see cref="StampJob"/> also
+        /// gets truth (that is exactly the case a recall audit cares about: its donut lands on the sensor even
+        /// though its centre does not). When <paramref name="truthSink"/> is null this method does no extra work
+        /// or allocation beyond what it always did.
         /// </summary>
         private List<StampJob> BuildStampJobs(
                 RenderRequest request, SensorDefinition sensor, RadiometryCalculator radiometry,
-                DefocusModel defocusModel, AberrationSurface aberration, int width, int height, CancellationToken token) {
+                DefocusModel defocusModel, AberrationSurface aberration, int width, int height,
+                ICollection<StarTruth> truthSink, CancellationToken token) {
 
             var projection = new TanProjection(
                 request.RaDegreesJ2000, request.DecDegreesJ2000,
@@ -232,6 +252,30 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                     continue;
                 }
                 jobs.Add(new StampJob(x, y, kernel, flux));
+
+                if (truthSink != null) {
+                    // Same phase selection Stamp itself will make for this exact (x, y) and kernel — see
+                    // StarStamper.SelectPhase's doc for why this can never disagree with the actual stamp.
+                    StarStamper.SelectPhase(x, y, kernel.PhasesPerAxis, out var phaseX, out var phaseY);
+                    truthSink.Add(new StarTruth {
+                        CxPixels = x,
+                        CyPixels = y,
+                        RaDegrees = coordinates.RADegrees,
+                        DecDegrees = coordinates.Dec,
+                        MagnitudeV = star.Magnitude,
+                        FluxElectrons = flux,
+                        LocalDefocusMicrons = delta,
+                        QuantizedDefocusMicrons = level * quantumMicrons,
+                        AnalyticHfrPixels = kernel.AnalyticHfrPixels,
+                        MeasuredHfrPixels = kernel.MeasuredHfrPixels,
+                        OuterRadiusPixels = kernel.OuterRadiusPixels,
+                        InnerRadiusPixels = kernel.InnerRadiusPixels,
+                        KernelSupportRadiusPixels = kernel.Radius,
+                        PhaseX = phaseX,
+                        PhaseY = phaseY,
+                        KernelPeakFraction = kernel.PhasePeak(phaseX, phaseY)
+                    });
+                }
             }
             return jobs;
         }
@@ -340,8 +384,15 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <summary>
         /// Largest |Δ| (µm) whose kernel support stays within <see cref="MaxSafeKernelRadius"/>. Quantized defocus
         /// is clamped to this so a runaway field point can never allocate an unbounded kernel.
+        ///
+        /// This is the <b>single source of truth for the kernel-cap guard</b>: both this renderer's own
+        /// <see cref="QuantizeLevel"/> clamp and any external caller that needs to know "how far past focus can
+        /// this model still render" — e.g. a synthetic-bank generator picking a defocus sweep range without
+        /// risking a <see cref="PsfKernelGenerator.MaxKernelRadius"/> throw — must go through this one method,
+        /// so the render-time clamp and an offline check of it can never drift apart. Lifted from <c>private</c>
+        /// for exactly that reason.
         /// </summary>
-        private static double MaxAbsDefocusMicrons(DefocusModel model) {
+        internal static double MaxAbsDefocusMicrons(DefocusModel model) {
             // radius ≈ ceil(r_out + 5σ) ≤ MaxSafeKernelRadius ⇒ r_out ≤ MaxSafeKernelRadius − 5σ − 1 (px).
             var maxOuterRadiusPixels = MaxSafeKernelRadius - 5.0 * model.SigmaMinPixels - 1.0;
             if (maxOuterRadiusPixels <= 0.0) {

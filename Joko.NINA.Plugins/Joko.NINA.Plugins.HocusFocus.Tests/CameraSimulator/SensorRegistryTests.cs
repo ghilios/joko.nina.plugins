@@ -28,6 +28,7 @@ public class SensorRegistryTests {
     [TestCase(SonySensorModel.IMX571, 6248, 4176, 3.76, 16, 50000.0)]
     [TestCase(SonySensorModel.IMX533, 3008, 3008, 3.76, 14, 50000.0)]
     [TestCase(SonySensorModel.IMX294, 4144, 2822, 4.63, 14, 66000.0)]
+    [TestCase(SonySensorModel.IMX585, 3840, 2160, 2.90, 12, 40000.0)]
     public void SensorGeometryMatchesDatasheet(SonySensorModel model, int w, int h, double pixel, int bits, double fullWell) {
         var def = SensorRegistry.Get(model);
         Assert.Multiple(() => {
@@ -44,6 +45,7 @@ public class SensorRegistryTests {
     [TestCase(SonySensorModel.IMX571, 0.763)]
     [TestCase(SonySensorModel.IMX533, 3.052)]
     [TestCase(SonySensorModel.IMX294, 4.028)]
+    [TestCase(SonySensorModel.IMX585, 9.766)]
     public void ElectronsPerAduAtGain0_MatchesGain0Column_Within1Percent(SonySensorModel model, double gain0Column) {
         var def = SensorRegistry.Get(model);
         var ge0 = def.ElectronsPerAduAtGain(0);

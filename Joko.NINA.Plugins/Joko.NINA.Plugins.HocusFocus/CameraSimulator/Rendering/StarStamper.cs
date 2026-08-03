@@ -56,12 +56,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             var radius = kernel.Radius;
             var size = kernel.Size;
 
-            var x0 = (int)Math.Floor(cx);
-            var y0 = (int)Math.Floor(cy);
-            var a = (int)Math.Round((cx - x0) * s);
-            var b = (int)Math.Round((cy - y0) * s);
-            if (a == s) { a = 0; ++x0; }
-            if (b == s) { b = 0; ++y0; }
+            // Both axes quantize through QuantizeAxis so the pixel origin and the phase it is stamped with
+            // always agree, and so SelectPhase (the compositor's truth-sink seam) reports exactly the phase
+            // chosen here — see QuantizeAxis's doc for why this must be the only place that logic lives.
+            QuantizeAxis(cx, s, out var x0, out var a);
+            QuantizeAxis(cy, s, out var y0, out var b);
 
             var phase = kernel.GetPhaseKernel(a, b);
             var xStart = x0 - radius;
@@ -78,6 +77,39 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                     accumulator[accRow + ix] += (float)(flux * phase[kernelRow + ii]);
                 }
             }
+        }
+
+        /// <summary>
+        /// Quantizes one axis coordinate <paramref name="c"/> to an integer pixel origin and a sub-pixel phase
+        /// index in [0, phasesPerAxis): phase = round((c − ⌊c⌋)·S), and on the boundary case where that rounds
+        /// up to a full phase step (phase == S) it snaps back to phase 0 and the pixel origin is bumped by one
+        /// (the phase must never equal S — <see cref="PsfKernel.GetPhaseKernel"/> would reject it). This is the
+        /// single place that arithmetic lives: <see cref="Stamp"/> calls it directly (for both the pixel origin
+        /// and the phase it stamps with) and <see cref="SelectPhase"/> calls it too (for the phase alone), so a
+        /// caller recording which phase a star was stamped with — the compositor's truth sink — can never
+        /// disagree with what <see cref="Stamp"/> actually did.
+        /// </summary>
+        private static void QuantizeAxis(double c, int phasesPerAxis, out int pixel, out int phase) {
+            var p0 = (int)Math.Floor(c);
+            var raw = (int)Math.Round((c - p0) * phasesPerAxis);
+            if (raw == phasesPerAxis) {
+                raw = 0;
+                ++p0;
+            }
+            pixel = p0;
+            phase = raw;
+        }
+
+        /// <summary>
+        /// Selects the sub-pixel phase (phaseX, phaseY) that <see cref="Stamp"/> will stamp a star centred at
+        /// (cx, cy) with, via the exact same <see cref="QuantizeAxis"/> call <see cref="Stamp"/> itself makes.
+        /// The compositor calls this once per accepted stamp job to populate
+        /// <c>StarTruth.PhaseX</c>/<c>StarTruth.PhaseY</c> — see that type for why the phase matters (it picks
+        /// which normalized phase kernel <c>KernelPeakFraction</c> reads from).
+        /// </summary>
+        internal static void SelectPhase(double cx, double cy, int phasesPerAxis, out int phaseX, out int phaseY) {
+            QuantizeAxis(cx, phasesPerAxis, out _, out phaseX);
+            QuantizeAxis(cy, phasesPerAxis, out _, out phaseY);
         }
 
         /// <summary>Creates a flat CV_32F image of the given background value.</summary>

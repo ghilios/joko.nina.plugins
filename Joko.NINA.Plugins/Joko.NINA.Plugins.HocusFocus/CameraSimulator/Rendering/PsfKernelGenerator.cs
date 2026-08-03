@@ -161,7 +161,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             }
 
             var analyticHfr = isGaussian ? sigma * SigmaToHfr : RiceHfr(sigma, rIn, rOut);
-            return new PsfKernel(s, radius, rOut, measuredHfr, analyticHfr, phases, lut, radialStep);
+            return new PsfKernel(s, radius, rOut, rIn, measuredHfr, analyticHfr, phases, lut, radialStep);
         }
 
         /// <summary>

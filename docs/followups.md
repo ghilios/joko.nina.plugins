@@ -164,6 +164,217 @@ This changes the shipped recommender for every user, so it wants a design spec p
 as the acceptance metric, not an inline patch. Related: the flat-topped rejections that motivated this are
 surfaced as sweep-geometry evidence by `ExposureRecommendation.FlatRejectedCount` (PR #159).
 
+### F23 — The optimizer objective has no precision term, so it trades precision away for marginal recall
+**Status:** Open · found 2026-08-02, the first measurement of **exact** detector precision (synthetic AF bank)
+
+The objective `J` rewards star count and fit quality. Nothing in it penalises a false positive — and
+nothing could have, because until this bank existed precision was only ever a *lower bound* on real data
+(`F11`). Given exact precision, the optimizer's landings are revealed to be a bad trade: it gains a few
+points of recall and gives up **half** the precision.
+
+**Evidence.** `bank-verify --nc-sweep 2,3,4 --opt-a --opt-b` over all 17 synthetic datasets
+(`afbank-verify/3`, header pixel scale, 0 failed). C0 = stock defaults; A = `optimize --per-run`;
+B = the same with donut detection forced on. recall@high / precision:
+
+| dataset | C0@nc2 | A | B |
+|---|---|---|---|
+| D08_c11_2800mm | 1.000 / **0.959** | 0.990 / **0.748** | 1.000 / 0.781 |
+| D09_c14_3800mm | 0.922 / **0.993** | 0.956 / **0.451** | 1.000 / 0.448 |
+| D10_rc16_3250mm_sparse | 0.983 / **1.000** | 0.931 / **0.547** | 0.966 / 0.661 |
+| D11_rc10_585_afbin2 | 0.887 / **0.986** | 0.850 / **0.732** | 0.917 / 0.627 |
+| D12_c14_585_afbin2 | 0.897 / **0.952** | 0.897 / **0.653** | 0.879 / 0.506 |
+| D15_cdk20_3454mm_e47 | 0.954 / **0.979** | 0.943 / **0.531** | 0.931 / 0.708 |
+| D16_esprit550_ha3 | 0.886 / **0.985** | 0.908 / **0.744** | 0.739 / 0.983 |
+| D17_cdk14_oiii5 | 1.000 / **0.942** | 1.000 / **0.465** | 1.000 / 0.567 |
+
+C0's precision never drops below **0.942** on any of the 17 datasets. Config A drops as low as 0.451.
+On D09 the optimizer bought +0.034 recall for −0.542 precision.
+
+**Why it matters.** This is the wizard's headline output — the settings a user is invited to Accept. On
+a long-focal-length rig it is currently recommending a configuration that roughly doubles the false-
+positive rate. Those false positives then feed the autofocus fit and the sensor-model fit, so the cost
+is not confined to a reported number. It also reframes the real-bank optimizer results: every prior "A
+beat C0" conclusion was scored against a precision figure that could not see this.
+
+**Next step.** Add a precision-like term to the objective. It cannot be true precision on real data
+(that is the whole problem), but two proxies are already available: the golden-independent
+false-positive *proxies* the detector already collects, and — for tuning and regression — this bank,
+where precision is exact. Any change wants scoring against **both** banks, since the synthetic one can
+now measure exactly the quantity the real one cannot. Related: [F4](#f4--the-objective-has-no-sensor-model-term)
+is the same shape of gap (a term the objective omits), and [F11](#f11--precision-is-a-lower-bound-on-runs-whose-faint-tier-was-budget-truncated--re-measured) is why this went unseen.
+
+### F24 — Donut detection costs precision even where donuts exist, and badly where they do not
+**Status:** Open · found 2026-08-02 on the synthetic AF bank
+
+Config B (donut-aware detection forced on) reduced precision on **every** dataset where it was
+measurable, including the datasets that genuinely have donuts, and most sharply on the ε=0 control that
+has none.
+
+**Evidence.** `D13_apo200_1800mm` is a 1800 mm **unobstructed** refractor — the design's donut control,
+present precisely so "donut" and "long focal length" cannot be confounded. Its extreme-defocus PSFs are
+filled discs, not annuli:
+
+| dataset | ε | C0@nc2 precision | B precision |
+|---|---|---|---|
+| **D13_apo200_1800mm** | **0** | 0.962 | **0.653** |
+| D14_cdk14_2563mm_e47 | 0.47 | 0.965 | 0.671 |
+| D12_c14_585_afbin2 | 0.34 | 0.952 | 0.506 |
+| D09_c14_3800mm | 0.34 | 0.993 | 0.448 |
+
+Two further expectations the run overturned: the design assumed **C0 would be broken on donut datasets**
+(as it is on the real bank's `Panos`/`mufti`/`LinwoodFocus`) — it is not, reaching recall 1.000 on D08
+and D17 with precision 0.942–0.959. And `donutEffect` over the 17 A/B pairs is `donutHelpedAF: 5`,
+`donutHurtSensor: 6` — no clear win.
+
+**Why it matters.** Donut detection is a bootstrap input that gates nine optimizer axes, and there is
+still no product signal that recommends it ([F1](#f1--the-donut-heuristic-misses-small-donuts) is about
+the heuristic missing *small* donuts). This says the cost of enabling it wrongly is high and concrete,
+which raises the stakes on getting that signal right.
+
+**Next step.** Score the nine donut-gated axes individually against this bank to find which of them
+carries the precision cost — the synthetic donuts are clean and high-SNR, so anything that loses
+precision here is losing it structurally rather than to noise.
+
+### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
+**Status:** Open · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
+
+`ExposureRecommender`'s `S_now` is the median, across non-recovery frames, of each frame's
+**`NTarget`-th-brightest** accepted-star SNR, with `NTarget = 20`. Any reasonably wide field contains 20 stars
+bright enough to sail past the gate no matter what filter is in front of them, so `SensitivityIsAtFloor` never
+trips and no recommendation is ever offered.
+
+**Evidence.** Deriving the exposure band for the synthetic bank from the recommender's own arithmetic (see
+`docs/synthetic-af-bank-design.md`) produced the 0.5 s floor for **12 of 17** datasets. The clearest case is
+`D16_esprit550_ha3` — a 550 mm refractor behind a **3 nm Hα** filter, passing roughly 64× less flux than
+luminance. It still derives 0.5 s, because its 2.9° field carries 6835 on-frame stars and the 20th brightest is
+magnitude ~9. The datasets that do demand a long exposure are the *narrow, sparse* ones — `D10` (0.28° field,
+26 on-frame stars) derives 30 s — and they get there by having few bright stars, not by being photon-starved.
+
+**Why it matters.** The knob is sized by field richness rather than by whether the stars the autofocus fit
+actually depends on are above the noise. A long-focal-length rig on a bright field will report "exposure is not
+the limit" while its faint-end stars — the ones that carry the wings of the V-curve — are still noise-dominated.
+That is the same shape of gap as [F18](#f18--step-size-is-sized-by-curve-geometry-alone-so-the-sweep-outruns-what-the-detector-can-see):
+a recommendation computed from one convenient statistic rather than from what the fit needs.
+
+**Next step.** Decide deliberately whether `NTarget = 20` is the right population for this question. If autofocus
+genuinely only needs 20 good stars, then the current behaviour is correct and this entry closes as "working as
+intended" — but that should be a stated position, not an accident of which statistic was nearest to hand. If it
+is not, the candidate is a faint-end statistic (e.g. the SNR at the star count the fit actually consumes) rather
+than a fixed rank.
+
+### F20 — Below `MinHFR` the autofocus objective collapses to exactly zero, with no diagnostic
+**Status:** Open · found 2026-08-02 running `optimize --per-run` over the synthetic AF bank
+
+When a sweep's in-focus HFR falls below the detector's `MinHFR` gate (default 1.2 px), the whole core of the
+V-curve is rejected, the run objective is `0`, and the optimizer terminates having explored the space for
+nothing. Nothing in the output says "your stars are smaller than the minimum HFR".
+
+**Evidence.** `D01_ultrawide_40mm` (40 mm f/2.8, 19.4″/px) has truth HFR per frame
+`[2.27, 1.71, 1.15, 0.61, 0.24, 0.61, 1.15, 1.71, 2.27]` px — the middle **five of nine** frames sit at or below
+`MinHFR = 1.2`. `optimize --per-run` reports `Current settings J: 0`, then
+`Optimization complete: currentJ=0 -> bestJ=0 (no improvement over current), evals=88`. The goldens for those
+frames are populated (the stars are there and bright — tiering is by SNR, not size), so this is a gate rejecting
+real, well-detected signal, not an empty field.
+
+**Why it matters.** `J = 0` is indistinguishable from "starless frames", "wrong folder", and "detector
+misconfigured". A user pointing the wizard at a short-focal-length rig gets a silent null result.
+
+**And the capability is reachable — the optimizer simply cannot get to it.** `MinHFR` *is* a curated optimizer
+axis, searchable over **0.1–5.0** (`OptimizerVariable.CreateCuratedSet`), so lowering it is exactly the move that
+would unlock these rigs. What the landings show is that the optimizer only makes that move when it already has a
+gradient:
+
+| dataset | in-focus HFR (px) | `MinHFR` landed by config A | outcome |
+|---|---|---|---|
+| `D01_ultrawide_40mm` | 0.24 | **1.2 — the default, unmoved** | J = 0, recall 0.129 |
+| `D02_rich_135mm` | ~0.7 | **1.2 — the default, unmoved** | recall 0.451 |
+| `D03_redcat_250mm` | ~0.97 | **0.45** (moved down) | recall 0.396 → 0.537 under B |
+| `D05_tec140_1000mm` | 1.77 | 1.45 | recall 0.989 |
+
+D03 proves the search *can* find a sub-default `MinHFR` when the objective is non-zero. D01 and D02 never move it,
+because `J` is identically 0 across the neighbourhood the search explores — the objective only becomes non-zero
+once *enough* of the curve is simultaneously measurable, so no single-axis step off the seed improves anything.
+This is a **cold-start plateau**, not a missing knob, and it is why the earlier framing of this entry ("the gate
+is defensible, only the silence is a problem") was too generous: the gate costs a whole class of rigs their
+autofocus, and the fix is within the existing search space.
+
+**Next step.** Two parts, and the second is the substantive one.
+1. *Report it.* When a large fraction of accepted candidates are rejected by `MinHFR` specifically, say so and
+   name the pixel-scale / focal-length combination. The counts are already collected
+   (`CollectRejectedCandidateDiagnostics`), so this is reporting, not new measurement.
+2. *Seed out of the plateau.* Before optimizing, if the median in-focus HFR is at or below `MinHFR`, seed
+   `MinHFR` beneath it (the measured HFR is available from the same in-focus record
+   `DetectionBinningResolver` already consumes) so the search starts somewhere with a gradient. Score any change
+   on **D01–D03** of the synthetic bank, where the correct answer is known and current recall is 0.135 / 0.475 /
+   0.400.
+
+### F21 — `StepSizeRecommender`'s half-width is not stable against noise, even on a perfect fit
+**Status:** Open · found 2026-08-02 running the synthetic bank's S0 control
+
+Two sweeps of the **same dataset at the same step**, differing only in noise seed and both fitting at
+**R² = 1.0000**, produced half-widths an order of magnitude apart — and therefore recommended steps an order of
+magnitude apart.
+
+| dataset | round | fit R² | `HalfWidth` | recommended step |
+|---|---|---|---|---|
+| `D17_cdk14_oiii5` | 0 | 1.0000 | 143.6 | 41 |
+| `D17_cdk14_oiii5` | 1 | 1.0000 | **12.1** | **3** |
+| `D02_rich_135mm` | 0 | 0.9156 | 23.2 | 7 |
+| `D02_rich_135mm` | 1 | 0.9324 | **2.5** | **1** |
+
+**Evidence.** `TestApp synth-validate --scenarios S0`, bootstrap = the dataset's own expected optimum
+(D17: step 60). A recommended step of 3 where 60 is correct turns a ±240-step sweep into a ±12-step one — every
+frame lands inside the focus zone and the V-curve has no wings at all. This is *not* [F8](#f8--optimizer-landings-are-not-reproducible-across-invocations):
+F8 is about the optimizer's search landing in different corners of a flat valley, whereas here the fit is
+essentially exact both times and it is `FindHalfWidth`'s own outward search that returns a wildly different
+answer.
+
+**Why it matters.** The step size is the one recommendation a user is most likely to accept unread, and a
+collapse of this magnitude silently destroys the next autofocus run. It also makes any single measurement of
+"what step does the recommender want" untrustworthy — the same caveat F8 imposes on optimizer landings now
+applies to the recommender itself.
+
+**Next step.** Instrument `FindHalfWidth`: log the fitted `minimum`, the `3 × minimum` target, and the bracket it
+converged on, for both rounds of D17. The suspicion is that when the fitted minimum sits slightly high, the
+`3 × min` crossing is found very close to focus and the coarse walk terminates before it reaches the real one —
+but that is a hypothesis, not a diagnosis, and it should be confirmed on the two saved sweeps before any change.
+Reproduce: `synth-validate --datasets D17_cdk14_oiii5 --scenarios S0 --max-rounds 2` (seeds are deterministic).
+
+### F22 — Detection binning is a hard threshold on a measurement that under-reads, so boundary rigs get the wrong factor
+**Status:** Open · found 2026-08-02 running the synthetic bank's S0 control
+
+`DetectionBinningResolver.RecommendFromHfr` is `clamp(round(hfr / 3), 1, 4)` — a hard threshold with its 1→2
+boundary at **4.5 px**. The HFR it is given is the detector's *measured* in-focus HFR, which systematically
+under-reads the optical HFR, by 2–10% usually but by up to **38%** in the cases that matter. Rigs whose true HFR
+sits near 4.5 px therefore land on the wrong side.
+
+**Evidence.** On S0, where the bootstrap already *is* each dataset's expected optimum, three datasets that need
+binning 2 were told to use 1:
+
+| dataset | optical HFR_min (captured px) | measured vertex HFR | under-read | recommended | correct |
+|---|---|---|---|---|---|
+| `D14_cdk14_2563mm_e47` | 5.3 | 4.92 | −7% | **2** | 2 |
+| `D17_cdk14_oiii5` | 5.3 | 3.27 | **−38%** | **1** | 2 |
+| `D15_cdk20_3454mm_e47` | 5.9 | 4.02 | −32% | **1** | 2 |
+| `D12_c14_585_afbin2` | 5.07 | 3.94 | −22% | **1** | 2 |
+| `D10_rc16_3250mm_sparse` | 5.6 | 5.66 | +1% | 2 | 2 |
+
+The cleanest pair is **D14 vs D17**: *identical* optics (2563 mm f/7.2, ε=0.47), *identical* pixel size (3.76 µm),
+so identical true HFR — and opposite recommendations. The only differences are the filter and exposure (L at 0.5 s
+vs OIII 5 nm at 30 s), i.e. the star population and SNR. The measurement, not the optics, decided the answer.
+
+**Why it matters.** Binning is the highest-leverage knob for a long-focal-length rig — it is why
+`DetectionBinningResolver` exists — and the wizard's gate on it is fit quality (R² ≥ 0.9), which is satisfied
+here (R² = 1.0000). So the recommendation is delivered with full confidence and is wrong. Worse, it is
+*bistable*: the same rig can be told 1 on a narrowband night and 2 on a luminance night.
+
+**Next step.** Two candidates, not mutually exclusive. (a) Calibrate out the bias — the measured-vs-optical
+under-read is systematic and could be characterised against this bank rather than guessed. (b) Add hysteresis or
+a dead band around the 4.5/7.5 px boundaries so a marginal rig does not flip between sessions, and say
+"borderline" in the UI rather than presenting a coin flip as a recommendation. Note this compounds with
+[F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic): the same
+under-reading pushes small-HFR rigs toward the `MinHFR` cliff.
+
 ---
 
 ## Harness / tooling

@@ -90,51 +90,22 @@ namespace TestApp {
 
         /// <summary>Writes a minimal standard FITS (BITPIX=16, BZERO=32768 unsigned convention, big-endian data)
         /// from a CV_32F [0,1] Mat scaled to [0,65535] — exactly the layout tools/golden/snr_ref.py parses
-        /// (reads '>i2', applies BSCALE*value+BZERO). Header + data are zero-padded to 2880-byte FITS blocks.</summary>
+        /// (reads '>i2', applies BSCALE*value+BZERO). Thin adapter over <see cref="MonoFits16Writer"/> (converts
+        /// the Mat to a ushort[] and delegates the actual byte layout) so there is exactly one implementation of
+        /// it. Passes NO extra cards: snr_ref.py only tolerates the minimal card set this produces.</summary>
         private static void WriteMonoFits16(string path, Mat mat32f) {
             int w = mat32f.Width, h = mat32f.Height;
-            // [0,1] float -> [0,65535] ushort -> store as int16 with BZERO=32768 (val - 32768), big-endian.
-            var bytes = new byte[w * h * 2];
+            // [0,1] float -> [0,65535] ushort; MonoFits16Writer does the BZERO/big-endian encoding.
+            var pixels = new ushort[(long)w * h];
             unsafe {
                 var src = (float*)mat32f.DataPointer;
                 long n = (long)w * h;
                 for (long i = 0; i < n; ++i) {
                     var v = src[i];
-                    int u = (int)Math.Round(Math.Max(0f, Math.Min(1f, v)) * 65535f);
-                    short s = (short)(u - 32768);          // unsigned->signed via BZERO offset
-                    bytes[i * 2] = (byte)((s >> 8) & 0xFF); // big-endian (FITS)
-                    bytes[i * 2 + 1] = (byte)(s & 0xFF);
+                    pixels[i] = (ushort)Math.Round(Math.Max(0f, Math.Min(1f, v)) * 65535f);
                 }
             }
-            using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
-            WriteHeader(fs, w, h);
-            fs.Write(bytes, 0, bytes.Length);
-            PadToBlock(fs);
-        }
-
-        private static void WriteHeader(FileStream fs, int w, int h) {
-            var sb = new System.Text.StringBuilder();
-            void Card(string s) => sb.Append(s.PadRight(80).Substring(0, 80));
-            Card("SIMPLE  =                    T / HocusFocus linear export");
-            Card("BITPIX  =                   16");
-            Card("NAXIS   =                    2");
-            Card($"NAXIS1  = {w,20}");
-            Card($"NAXIS2  = {h,20}");
-            Card("BZERO   =                32768");
-            Card("BSCALE  =                    1");
-            Card("END");
-            var header = sb.ToString();
-            int pad = (2880 - (header.Length % 2880)) % 2880;
-            header += new string(' ', pad);
-            var hb = System.Text.Encoding.ASCII.GetBytes(header);
-            fs.Write(hb, 0, hb.Length);
-        }
-
-        private static void PadToBlock(FileStream fs) {
-            int rem = (int)(fs.Position % 2880);
-            if (rem != 0) {
-                fs.Write(new byte[2880 - rem], 0, 2880 - rem);
-            }
+            MonoFits16Writer.Write(path, pixels, w, h, Array.Empty<FitsCard>());
         }
     }
 }

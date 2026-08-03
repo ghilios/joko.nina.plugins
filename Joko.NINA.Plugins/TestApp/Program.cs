@@ -184,6 +184,23 @@ namespace TestApp {
                 return;
             }
 
+            // Synthetic AF-bank generator: `TestApp synth-bank --spec <json> --out <bank-root> ...`. Renders the
+            // checked-in dataset matrix (TestApp/SynthBank/synthetic-bank-spec.json) into a fresh on-disk bank via
+            // the real simulator, with exact per-star ground truth (docs/synthetic-af-bank-design.md, workstream G).
+            if (args.Length > 0 && args[0].Equals("synth-bank", StringComparison.OrdinalIgnoreCase)) {
+                await TestApp.SynthBank.SynthBankRunner.Run(args);
+                return;
+            }
+
+            // Synthetic-bank convergence driver: `TestApp synth-validate --spec <json> --out <dir> ...`. Per
+            // (dataset, scenario), deliberately starts the optimizer's bootstrap wrong and measures whether the
+            // step-size/exposure/detection-binning recommendations walk it back toward the dataset's physics-derived
+            // expected-optimal (docs/synthetic-af-bank-design.md, workstream V1). Writes synth_validate_report.{json,md}.
+            if (args.Length > 0 && args[0].Equals("synth-validate", StringComparison.OrdinalIgnoreCase)) {
+                await TestApp.SynthBank.SynthValidateRunner.Run(args);
+                return;
+            }
+
             // Headless aberration-inspector alignment reproducer: `TestApp inspect-align --runs <folder> ...`.
             // Drives the real SensorModel.RegisterStarsAndFit RANSAC alignment and reports the reference frame,
             // per-frame triangle counts, frames aligned, and every registration warning.

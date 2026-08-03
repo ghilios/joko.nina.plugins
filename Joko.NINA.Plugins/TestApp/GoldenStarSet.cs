@@ -68,6 +68,14 @@ namespace TestApp {
         [JsonProperty("imageFile", NullValueHandling = NullValueHandling.Ignore)] public string ImageFile { get; set; }
         [JsonProperty("focuserPosition")] public int FocuserPosition { get; set; }
         [JsonProperty("schemaVersion")] public int SchemaVersion { get; set; } = 1;
+
+        /// <summary>How this golden frame was produced, e.g. <c>"SNR-ref+montageQA"</c> (the real-bank
+        /// pipeline, <c>tools/golden/build_goldens.py</c>) or <c>"synthetic"</c> (<c>GoldenFromTruth</c>,
+        /// built from exact render truth rather than any detector/QA pass). The Python writer has emitted
+        /// this since schema v2; this C# record had no equivalent field until now, so every C#-authored
+        /// golden was silently missing provenance that the JSON schema already expected elsewhere.</summary>
+        [JsonProperty("method", NullValueHandling = NullValueHandling.Ignore)] public string Method { get; set; }
+
         [JsonProperty("stars")] public List<GoldenStarBox> Stars { get; set; } = new List<GoldenStarBox>();
 
         [JsonProperty("coveredTiles", NullValueHandling = NullValueHandling.Ignore)]

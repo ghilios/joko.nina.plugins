@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "_comment": [
+    "Expected precision/recall bands for the synthetic AF bank, checked in so a V2 bank-verify run can be",
+    "scored against a stated expectation instead of against whatever it happened to produce. A cell landing",
+    "outside its band is a FLAG that gets triaged into docs/followups.md -- it is NEVER fixed by widening the",
+    "band here. Widening a band is a deliberate, separately-justified edit.",
+    "",
+    "Why these numbers can be demanded at all: golden tier 'high' is peak SNR >= 20, which is 2x the detector's",
+    "own default Sensitivity gate (~10). A star the detector misses at 2x its own threshold, on a clean synthetic",
+    "frame whose truth is exact, is a genuine recall defect rather than a borderline call. And because synthetic",
+    "truth is complete, precision here is an exact measurement, not the lower bound the real bank can only give."
+  ],
+
+  "classes": {
+    "W": {
+      "description": "Wide field, unobstructed, severely oversampled (HFR_min at or under the R2 pixelization floor). Judged on C0@nc2 -- these need no optimizer enrichment.",
+      "config": "C0@nc2",
+      "recallHighMin": 0.90,
+      "precisionMin": 0.95,
+      "_recallRationale": "Lower than the M class on purpose: at 0.7px HFR_min the PSF is at the pixelization limit, where centroiding and the MinHFR floor legitimately cost recall.",
+      "_measured2026_08_02": [
+        "MISSED, badly: D01 0.135, D02 0.475, D03 0.400 against the 0.90 floor. Precision was met (0.963/0.991/0.988).",
+        "The band is NOT widened to fit. It is recorded as wrong for a specific, understood reason: it was set",
+        "assuming a gentle pixelization loss, when the actual mechanism is the hard MinHFR = 1.2px gate (F20).",
+        "D01's in-focus frames detect ZERO stars while their goldens are fully populated, so this is a cliff, not a slope.",
+        "Revisit this band only when F20 is addressed -- as written it encodes an assumption about a gate that",
+        "would change. Recall rises monotonically with focal length across the bank (0.135 -> 0.982 by 1000mm),",
+        "which is the physically expected shape and is the real result here."
+      ]
+    },
+    "M": {
+      "description": "Mid focal length, unobstructed, well sampled. The 'well-sampled implies ~everything' anchor.",
+      "config": "C0@nc2",
+      "recallHighMin": 0.97,
+      "precisionMin": 0.95,
+      "_recallRationale": "The strictest band in the set. If the detector cannot find 97% of stars at 2x its own gate on a clean, well-sampled synthetic frame, something is wrong that no amount of real-bank noise should have been hiding."
+    },
+    "L34": {
+      "description": "Long focal length, 0.34 central obstruction (SCT class). Donut PSFs at the sweep extremes.",
+      "config": "B",
+      "recallHighMin": 0.90,
+      "precisionMin": 0.90,
+      "_configRationale": "Judged on config B (donut detection forced on) because C0 is expected to be broken on donut datasets -- that breakage is recorded, not treated as a failure."
+    },
+    "L47": {
+      "description": "Long focal length, 0.47 central obstruction (RC/CDK class). The deepest donuts in the bank.",
+      "config": "B",
+      "recallHighMin": 0.90,
+      "precisionMin": 0.90
+    }
+  },
+
+  "datasetClasses": {
+    "D01_ultrawide_40mm": "W",
+    "D02_rich_135mm": "W",
+    "D03_redcat_250mm": "W",
+    "D04_esprit_550mm": "M",
+    "D05_tec140_1000mm": "M",
+    "D06_sparse_1000mm": "M",
+    "D13_apo200_1800mm": "M",
+    "D16_esprit550_ha3": "M",
+    "D07_rc10_2000mm": "L47",
+    "D10_rc16_3250mm_sparse": "L47",
+    "D11_rc10_585_afbin2": "L47",
+    "D14_cdk14_2563mm_e47": "L47",
+    "D15_cdk20_3454mm_e47": "L47",
+    "D17_cdk14_oiii5": "L47",
+    "D08_c11_2800mm": "L34",
+    "D09_c14_3800mm": "L34",
+    "D12_c14_585_afbin2": "L34"
+  },
+
+  "globalBands": {
+    "configAPrecisionMinNonDonut": 0.98,
+    "_configAComment": "Config A is the optimizer's own landing with donut detection OFF. On a dataset with no donuts, the optimizer has every opportunity to tune precision, so 0.98 is the floor for it having done so. Donut datasets are exempt because A deliberately withholds the axis they need.",
+    "autofocusRSquaredMin": 0.95,
+    "_afR2Comment": "Per-run autofocus fit R^2 on the synthetic hyperbola. The render matches DefocusModel by construction, so anything below 0.95 means the DETECTOR's HFR is not tracking the optical truth -- which is the interesting failure, not a fitting artifact.",
+    "sensorModelRSquaredMin": 0.90,
+    "_sensorComment": "Aberrations are disabled across the bank, so the sensor-model fit is against a flat field. A low R^2 here is a harness signal, not an optics one."
+  },
+
+  "regressionRule": {
+    "_comment": "Applies when comparing two runs on the SAME schema (afbank-verify/3) and the same bank seeds. Any breach is a FLAG for triage, not an automatic failure -- read the per-run notes first.",
+    "recallHighDropMax": 0.02,
+    "precisionDropMax": 0.02,
+    "sigmaFocusWorseFractionMax": 0.20,
+    "autofocusRSquaredDropMax": 0.005
+  },
+
+  "knownExpectedConditions": [
+    {
+      "condition": "C0 (stock defaults, donut detection off) is broken on every donut dataset",
+      "datasets": ["D07_rc10_2000mm", "D08_c11_2800mm", "D09_c14_3800mm", "D10_rc16_3250mm_sparse", "D11_rc10_585_afbin2", "D12_c14_585_afbin2", "D14_cdk14_2563mm_e47", "D15_cdk20_3454mm_e47", "D17_cdk14_oiii5"],
+      "expected": "Low recall at the sweep extremes where the PSF is annular. Recorded, not flagged. These datasets are judged on config B."
+    },
+    {
+      "condition": "D13 must NOT benefit from donut detection",
+      "datasets": ["D13_apo200_1800mm"],
+      "expected": "1800mm unobstructed: extreme defocus makes filled discs, not annuli. If config B beats config A here by more than noise, donut detection is firing on something that is not a donut -- that is a defect, and it is the reason D13 exists."
+    },
+    {
+      "condition": "Sparse datasets may legitimately report StarFieldIsExhausted",
+      "datasets": ["D06_sparse_1000mm", "D10_rc16_3250mm_sparse"],
+      "expected": "65 and 26 on-frame stars respectively. Exhaustion here is correct behavior, not a flag."
+    }
+  ]
+}
