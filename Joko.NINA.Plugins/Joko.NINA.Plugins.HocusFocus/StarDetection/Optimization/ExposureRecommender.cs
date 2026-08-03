@@ -12,6 +12,7 @@
 
 using System;
 using System.Collections.Generic;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
@@ -170,6 +171,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// is the conservative direction, since it withholds an exposure recommendation rather than inventing one.
         /// </summary>
         public int GateRejectedCount { get; set; }
+
+        /// <summary>
+        /// <see cref="StarDetector.InertSensitivityBound"/> for the detector settings this recommendation was
+        /// computed from — the gate value at or below which the Sensitivity gate provably cannot reject anything.
+        /// <see cref="double.NaN"/> when <see cref="ExposureRecommender.Recommend"/> was called without detector
+        /// params, which is treated as "unknown", never as "inert".
+        /// </summary>
+        public double InertGateBound { get; set; } = double.NaN;
+
+        /// <summary>
+        /// True when the run's Sensitivity gate sat at or below <see cref="InertGateBound"/> AND
+        /// <see cref="GateRejectedCount"/> is 0 — the gate could not have rejected anything, so its zero rejection
+        /// count is empty by construction and is NOT evidence that the star field is exhausted (F28). Always false
+        /// when the bound is unknown.
+        ///
+        /// <para>The <c>GateRejectedCount == 0</c> conjunct is a consistency guard rather than part of the proof:
+        /// an observed rejection refutes the derivation and wins, which can only happen when the params handed to
+        /// <see cref="ExposureRecommender.Recommend"/> do not describe the run that produced the metrics.</para>
+        /// </summary>
+        public bool GateIsProvablyInert { get; set; }
 
         /// <summary>
         /// Candidates rejected as flat-topped across the whole run (recovery frames included). Heavily defocused
@@ -424,7 +445,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// recommend shortening a deliberately long exposure back down to the cap) — the branch is unconditional,
         /// not incidental to either scenario's arithmetic.</para>
         /// </summary>
-        public static ExposureRecommendation Recommend(RunEvaluationMetrics metrics, ObjectiveConstants c, double currentExposureSeconds) {
+        /// <param name="detectorParams">
+        /// The detector settings the scored run was evaluated WITH, used only to compute
+        /// <see cref="StarDetector.InertSensitivityBound"/> so a Sensitivity gate that provably cannot reject
+        /// anything is not mistaken for a field with nothing left (F28). MUST be the variant's own params — pair
+        /// optimized metrics with optimized params and baseline metrics with baseline params, the same way
+        /// <c>OptimizationSummary.VariantSensitivity</c>/<c>BaselineSensitivity</c> are paired. Null ⇒ the bound is
+        /// unknown, and every verdict is identical to the pre-F28 behaviour.
+        /// </param>
+        public static ExposureRecommendation Recommend(RunEvaluationMetrics metrics, ObjectiveConstants c, double currentExposureSeconds,
+                                                       StarDetectorParams detectorParams = null) {
             if (metrics?.FrameStarSnrs == null) {
                 return NoRecommendation(currentExposureSeconds, usableFrameCount: 0, shortFrameCount: 0);
             }
@@ -514,8 +544,32 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // times the exposure bought six stars across five frames. Without this test the probe recommended
             // another doubling every run, and the user climbed 2 s -> 14 s on its advice for nothing.
             var gateIsHoldingStarsBack = gateRejectedCount > 0;
-            var starCountIsTheLimit = signalIsSufficient && everyFrameShort && gateIsHoldingStarsBack;
-            var starFieldIsExhausted = signalIsSufficient && everyFrameShort && !gateIsHoldingStarsBack;
+
+            // ...but a count of zero only MEANS anything when the gate could have produced a non-zero one. The
+            // clip/normalize stage guarantees every candidate's gate statistic exceeds
+            // PeakResponse × EffectiveClipMultiplier (1.5 at shipped defaults), so a Sensitivity at or below that
+            // rejects NOTHING regardless of what the frames contain, and LowSensitivity is identically 0. That
+            // inert region strictly CONTAINS the band this advice is surfaced in — OptimizationSummary
+            // .HasLowStarSignal fires at Sensitivity <= 1.0 — so reading the empty counter as exhaustion made
+            // StarFieldIsExhausted unconditional and StarCountIsTheLimit unreachable for precisely the population
+            // the affordance was written for. That is F28.
+            //
+            // The bound is computed, never hard-coded: PeakResponse and StarClippingMultiplier are both searched
+            // axes, and the donut master caps the effective clip for extended candidates.
+            //
+            // This does NOT walk back the 2/7/14 s measurement above. That rig rejected 5 candidates at 2 s, so
+            // its gate was demonstrably live; it still lands on starFieldIsExhausted, unchanged. The two
+            // populations are disjoint by construction — an inert gate requires gateRejectedCount == 0.
+            var inertGateBound = StarDetector.InertSensitivityBound(detectorParams);
+            // Observation beats derivation: an actual rejection refutes the proof (which can only mean the params
+            // do not describe the run that produced these metrics), so it clears the flag rather than arguing with
+            // it. Unknown params leave the flag false, i.e. byte-identical to the pre-F28 behaviour.
+            var gateIsProvablyInert = !gateIsHoldingStarsBack && double.IsFinite(inertGateBound)
+                && detectorParams.Sensitivity <= inertGateBound;
+            // An absent measurement is not a negative one. An inert gate falls to the PROBE — which ships with its
+            // own stopping rule — rather than to a verdict of exhaustion nothing in the run supports.
+            var starCountIsTheLimit = signalIsSufficient && everyFrameShort && (gateIsHoldingStarsBack || gateIsProvablyInert);
+            var starFieldIsExhausted = signalIsSufficient && everyFrameShort && !gateIsHoldingStarsBack && !gateIsProvablyInert;
             var exposureIsNotTheLimit = signalIsSufficient && !everyFrameShort;
 
             // Sky-limited scaling answers the S/N question only. Under starCountIsTheLimit the ratio is <= 1, so it
@@ -565,7 +619,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 StarCountIsTheLimit = starCountIsTheLimit,
                 StarFieldIsExhausted = starFieldIsExhausted,
                 GateRejectedCount = gateRejectedCount,
-                FlatRejectedCount = flatRejectedCount
+                FlatRejectedCount = flatRejectedCount,
+                InertGateBound = inertGateBound,
+                GateIsProvablyInert = gateIsProvablyInert
             };
         }
 
@@ -584,7 +640,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 StarCountIsTheLimit = false,
                 StarFieldIsExhausted = false,
                 GateRejectedCount = 0,
-                FlatRejectedCount = 0
+                FlatRejectedCount = 0,
+                InertGateBound = double.NaN,
+                GateIsProvablyInert = false
             };
         }
 

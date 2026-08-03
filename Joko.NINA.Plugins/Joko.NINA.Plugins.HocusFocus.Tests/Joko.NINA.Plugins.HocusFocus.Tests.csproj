@@ -30,6 +30,7 @@
     <!-- G5's golden policy (StarTruth to GoldenFrame): pure, no NINA/OpenCV coupling, so it links the same way. -->
     <Compile Include="..\TestApp\SynthBank\GoldenFromTruth.cs" Link="Golden\GoldenFromTruth.cs" />
     <Compile Include="..\TestApp\SynthBank\TruthProtection.cs" Link="Golden\TruthProtection.cs" />
+    <Compile Include="..\TestApp\SynthBank\ConvergenceBand.cs" Link="Bank\ConvergenceBand.cs" />
   </ItemGroup>
 
   <ItemGroup>

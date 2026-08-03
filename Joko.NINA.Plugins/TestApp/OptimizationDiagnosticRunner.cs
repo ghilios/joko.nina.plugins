@@ -827,7 +827,7 @@ namespace TestApp {
             var landedSensitivity = outcome.Result.BestParams.Sensitivity;
             var sensitivityAtFloor = ExposureRecommender.SensitivityIsAtFloor(landedSensitivity);
             var exposureRecommendation = sensitivityAtFloor
-                ? ExposureRecommender.Recommend(bestM, outcome.ObjectiveConstants, run.CapturedExposureSeconds)
+                ? ExposureRecommender.Recommend(bestM, outcome.ObjectiveConstants, run.CapturedExposureSeconds, outcome.Result.BestParams)
                 : null;
 
             return new AggregateRow {
@@ -1171,7 +1171,9 @@ namespace TestApp {
                 // this set, so its Sensitivity is the same landed value for each row; bestM/run.CapturedExposureSeconds
                 // are this run's own metrics/exposure, and c is the same ObjectiveConstants the runs were scored with.
                 var sensitivityIsAtFloor = ExposureRecommender.SensitivityIsAtFloor(result.BestParams.Sensitivity);
-                var exposureRec = sensitivityIsAtFloor ? ExposureRecommender.Recommend(bestM, c, run.CapturedExposureSeconds) : null;
+                var exposureRec = sensitivityIsAtFloor
+                    ? ExposureRecommender.Recommend(bestM, c, run.CapturedExposureSeconds, result.BestParams)
+                    : null;
                 AppendExposureRecommendationLines(sb, "    ", result.BestParams.Sensitivity, sensitivityIsAtFloor, exposureRec);
             }
             sb.AppendLine();

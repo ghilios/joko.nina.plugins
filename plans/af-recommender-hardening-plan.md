@@ -1,6 +1,9 @@
 # AF recommender hardening — implementation plan (wave 1: F23 only)
 
-Design spec: [`docs/af-recommender-hardening-design.md`](../docs/af-recommender-hardening-design.md).
+Design spec: **never committed.** `docs/af-recommender-hardening-design.md` does not exist in the repository
+and no revision of it does, so this plan is the design of record. Its "Signals already available" table
+(below) is what actually held up under checking; the spec's version of that claim did not. See
+[F27](../docs/followups.md).
 Baseline measurements: [`docs/synthetic-af-bank-baseline-results.md`](../docs/synthetic-af-bank-baseline-results.md).
 Followups: [`docs/followups.md`](../docs/followups.md) — F23 is the only entry this plan touches.
 

@@ -13,6 +13,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NUnit.Framework;
@@ -556,6 +557,112 @@ public class ExposureRecommenderTests {
             Assert.That(rec.ExposureIsNotTheLimit, Is.True);
             Assert.That(rec.IncreasesExposure, Is.False, "must not simultaneously claim the exposure is fine AND propose raising it");
             Assert.That(rec.RecommendedSeconds, Is.EqualTo(3.2).Within(1e-9), "returns current EXACTLY -- not a rounded-then-maxed approximation");
+        });
+    }
+
+    // ── F28: a zero rejection count means nothing when the gate could not reject ────────────────────────────
+
+    /// <summary>Params at shipped defaults except for the gate: PeakResponse 0.75, StarClip 2.0 ⇒ the gate is
+    /// provably inert at or below 1.5.</summary>
+    private static StarDetectorParams GateParams(double sensitivity, double peakResponse = 0.75, double starClip = 2.0) =>
+        new StarDetectorParams { Sensitivity = sensitivity, PeakResponse = peakResponse, StarClippingMultiplier = starClip };
+
+    [TestCase(0.0)]
+    [TestCase(1.0)]   // ExposureRecommender.SensitivityFloorThreshold — the whole population this advice is shown to
+    [TestCase(1.5)]   // the bound itself; the gate rejects on `<=`, so a candidate AT the bound still survives
+    public void Recommend_GateBelowItsOwnInertBound_IsStarCountLimited_NotExhausted(double sensitivity) {
+        // F28. Every candidate's gate statistic exceeds PeakResponse x EffectiveClipMultiplier = 1.5, so a gate
+        // at or below that rejects NOTHING no matter what the frames hold. Reading the resulting zero as
+        // "the field is exhausted" made StarFieldIsExhausted unconditional exactly where the advice is surfaced
+        // (HasLowStarSignal fires at Sensitivity <= 1.0), so StarCountIsTheLimit could never fire for the users
+        // it was written for.
+        var frame = Frame(20.0, 21.0, 22.0, 23.0, 24.0);
+        var metrics = BuildMetrics(new[] { frame, frame, frame }, gateRejectionsPerFrame: 0);
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 2.0, GateParams(sensitivity));
+
+        Assert.Multiple(() => {
+            Assert.That(rec.GateIsProvablyInert, Is.True);
+            Assert.That(rec.InertGateBound, Is.EqualTo(1.5).Within(1e-12));
+            Assert.That(rec.StarCountIsTheLimit, Is.True, "no evidence is not negative evidence — offer the probe");
+            Assert.That(rec.StarFieldIsExhausted, Is.False);
+        });
+    }
+
+    [Test]
+    public void Recommend_GateAboveItsInertBound_StillReadsZeroRejectionsAsExhausted() {
+        // The 2/7/14 s measurement must not be walked back. That rig's gate was live (it rejected 5 candidates at
+        // 2 s), so a zero there IS evidence, and the verdict is unchanged.
+        var frame = Frame(20.0, 21.0, 22.0, 23.0, 24.0);
+        var metrics = BuildMetrics(new[] { frame, frame, frame }, gateRejectionsPerFrame: 0);
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 14.0, GateParams(sensitivity: 10.0));
+
+        Assert.Multiple(() => {
+            Assert.That(rec.GateIsProvablyInert, Is.False);
+            Assert.That(rec.StarFieldIsExhausted, Is.True);
+            Assert.That(rec.StarCountIsTheLimit, Is.False);
+        });
+    }
+
+    [Test]
+    public void Recommend_InertBound_TracksTheSearchedAxes_NotAHardCodedConstant() {
+        // PeakResponse and StarClippingMultiplier are BOTH searched optimizer axes, and F23 wave 1 measured
+        // landings at StarClip 6.25 and 6.75. Hard-coding 1.5 would misjudge exactly those configurations.
+        var frame = Frame(20.0, 21.0, 22.0, 23.0, 24.0);
+        var metrics = BuildMetrics(new[] { frame, frame, frame }, gateRejectionsPerFrame: 0);
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 2.0,
+            GateParams(sensitivity: 6.0, peakResponse: 1.0, starClip: 6.25));
+
+        Assert.Multiple(() => {
+            Assert.That(rec.InertGateBound, Is.EqualTo(6.25).Within(1e-12));
+            Assert.That(rec.GateIsProvablyInert, Is.True, "a gate of 6.0 under a 6.25 bound is still inert");
+        });
+    }
+
+    [Test]
+    public void Recommend_AnObservedRejection_RefutesTheInertProof() {
+        // The proof says the gate cannot reject; an actual rejection says it did. Observation wins — that can only
+        // mean the params handed in do not describe the run that produced these metrics.
+        var frame = Frame(20.0, 21.0, 22.0, 23.0, 24.0);
+        var metrics = BuildMetrics(new[] { frame, frame, frame }, gateRejectionsPerFrame: 3);
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 2.0, GateParams(sensitivity: 0.0));
+
+        Assert.Multiple(() => {
+            Assert.That(rec.GateIsProvablyInert, Is.False);
+            Assert.That(rec.StarCountIsTheLimit, Is.True, "via the ordinary rejection evidence, not the inert path");
+        });
+    }
+
+    [Test]
+    public void Recommend_WithoutDetectorParams_IsIdenticalToThePreF28Behaviour() {
+        // Every existing caller and test passes no params. "Unknown" must never be read as "inert".
+        var frame = Frame(20.0, 21.0, 22.0, 23.0, 24.0);
+        var metrics = BuildMetrics(new[] { frame, frame, frame }, gateRejectionsPerFrame: 0);
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 14.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.InertGateBound, Is.NaN);
+            Assert.That(rec.GateIsProvablyInert, Is.False);
+            Assert.That(rec.StarFieldIsExhausted, Is.True);
+        });
+    }
+
+    [Test]
+    public void InertSensitivityBound_UsesTheDonutCap_WhenTheMasterCanCap() {
+        // EffectiveClipMultiplier caps at 2.0 for extended candidates when the donut master is on, so the SMALLEST
+        // value it can return -- which is what a settings-level bound must use -- is the capped one.
+        var p = new StarDetectorParams {
+            PeakResponse = 0.75, StarClippingMultiplier = 8.0,
+            DefocusAwareDonutDetection = true, DefocusDistortionSizeReference = 30.0
+        };
+        Assert.Multiple(() => {
+            Assert.That(StarDetector.MinEffectiveClipMultiplier(p), Is.EqualTo(2.0).Within(1e-12));
+            Assert.That(StarDetector.InertSensitivityBound(p), Is.EqualTo(1.5).Within(1e-12));
+            Assert.That(StarDetector.InertSensitivityBound(null), Is.NaN);
         });
     }
 
