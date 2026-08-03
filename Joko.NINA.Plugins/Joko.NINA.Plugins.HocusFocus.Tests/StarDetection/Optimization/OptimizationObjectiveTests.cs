@@ -1278,4 +1278,189 @@ public class OptimizationObjectiveTests {
             Assert.That(OptimizationObjective.JRun(m, c, recall: 0.7, precision: 0.6), Is.EqualTo(LegacyJRun(m, c, 0.7, 0.6)));
         });
     }
+
+    // ---- SMarginalSnr (F23 marginal-SNR false-positive proxy) ----
+
+    // Builds a run whose accepted-star Sensitivity-gate SNRs are supplied per frame, mirroring HfrRun above.
+    // Positions default to all-at-bestFocus (every frame inside the near-focus window); pass explicit positions to
+    // place frames outside it. StarCounts are derived from each frame's SNR list length.
+    private static RunEvaluationMetrics SnrRun(
+            IReadOnlyList<double>[] frameSnrs, int[] positions = null,
+            int stepSize = 100, int bestFocus = 5000, double sigmaFocus = 0.05) {
+        var n = frameSnrs.Length;
+        var pos = positions ?? Enumerable.Repeat(bestFocus, n).ToArray();
+        var counts = frameSnrs.Select(f => f.Count).ToArray();
+        return new RunEvaluationMetrics {
+            SigmaFocus = sigmaFocus,
+            LooStdError = double.NaN,
+            StepSize = stepSize,
+            RSquared = 0.99,
+            ReducedChiSquared = 1.0,
+            FrameStarCounts = counts,
+            FrameFocuserPositions = pos,
+            FrameStarSnrs = frameSnrs,
+            BestFocusPosition = bestFocus
+        };
+    }
+
+    // n healthy stars sharing one SNR comfortably above the 5.0 floor.
+    private static double[] Bright(int n, double snr = 20.0) => Enumerable.Repeat(snr, n).ToArray();
+
+    // n bright stars plus k marginal ones below the floor — the noise-blob signature of a Sensitivity-0 landing.
+    private static double[] BrightPlusMarginal(int n, int k, double marginal = 2.0) =>
+        Bright(n).Concat(Enumerable.Repeat(marginal, k)).ToArray();
+
+    // The shipping default is MarginalSnrStrength = 0 (the term is measured-but-not-enabled; see the constant's
+    // rationale). These tests exercise the TERM, so they opt in explicitly with an enabled-constants fixture.
+    private static ObjectiveConstants Enabled(double wtie = 0.02) =>
+        new ObjectiveConstants { MarginalSnrStrength = 1.0, Wtie = wtie };
+
+    [Test]
+    public void SMarginalSnr_DefaultConstants_AreDisabled_SoJIsBitIdentical() {
+        var c = new ObjectiveConstants();
+        Assert.Multiple(() => {
+            Assert.That(c.MarginalSnrStrength, Is.EqualTo(0.0), "shipping default: the term is off");
+            var m = SnrRun(new IReadOnlyList<double>[] { BrightPlusMarginal(1, 9) });
+            Assert.That(OptimizationObjective.SMarginalSnr(m, c), Is.EqualTo(1.0),
+                "with strength 0 even a wholly-marginal population is unpenalized");
+        });
+    }
+
+    [Test]
+    public void SMarginalSnr_NoData_ReturnsExactlyOne() {
+        // GoodRun has null FrameStarSnrs (the legacy caller shape) => no penalty, so J is bit-identical.
+        Assert.That(OptimizationObjective.SMarginalSnr(GoodRun(), Enabled()), Is.EqualTo(1.0));
+    }
+
+    [Test]
+    public void SMarginalSnr_AllAboveFloor_ReturnsExactlyOne() {
+        // THE structural guarantee: accepted stars are left-censored at the candidate's own Sensitivity, so any
+        // candidate with Sensitivity >= MarginalSnrFloor has NO accepted star below the floor and pays exactly
+        // nothing. This is why the shipped default (Sensitivity 10, floor 5) is untouched by the term.
+        var m = SnrRun(new IReadOnlyList<double>[] { Bright(10), Bright(10) });
+        Assert.That(OptimizationObjective.SMarginalSnr(m, Enabled()), Is.EqualTo(1.0));
+    }
+
+    [Test]
+    public void SMarginalSnr_StrengthZero_ReturnsExactlyOne() {
+        // The --legacy-objective escape hatch: strength 0 disables the term even with a floor-violating population.
+        var c = new ObjectiveConstants { MarginalSnrStrength = 0.0 };
+        var m = SnrRun(new IReadOnlyList<double>[] { BrightPlusMarginal(1, 9) });
+        Assert.That(OptimizationObjective.SMarginalSnr(m, Enabled()), Is.LessThan(1.0), "precondition: this population does penalize at default strength");
+        Assert.That(OptimizationObjective.SMarginalSnr(m, c), Is.EqualTo(1.0));
+    }
+
+    [Test]
+    public void SMarginalSnr_MarginalFraction_AppliesThePenaltyShape() {
+        // 9 bright + 1 marginal => frac 0.10; excess over the 0.05 threshold => 1 − 1.0·(0.10 − 0.05) = 0.95.
+        var m = SnrRun(new IReadOnlyList<double>[] { BrightPlusMarginal(9, 1) });
+        Assert.That(OptimizationObjective.SMarginalSnr(m, Enabled()), Is.EqualTo(0.95).Within(1e-12));
+    }
+
+    [Test]
+    public void SMarginalSnr_ClampsAtMinFactor() {
+        // A wholly-marginal near-focus population (frac 1.0) would give 1 − 0.95 = 0.05; the floor holds it at 0.5,
+        // so this term alone can never drive J to zero — the hard floors own the hard-fail path.
+        var m = SnrRun(new IReadOnlyList<double>[] { Bright(0).Concat(Enumerable.Repeat(1.5, 12)).ToArray() });
+        Assert.That(OptimizationObjective.SMarginalSnr(m, Enabled()), Is.EqualTo(0.5).Within(1e-12));
+    }
+
+    [Test]
+    public void SMarginalSnr_OnlyDefocusedExtremesAreMarginal_ReturnsExactlyOne() {
+        // THE window is load-bearing: far from focus a REAL star spreads out and its per-pixel peak SNR legitimately
+        // collapses. Marginal SNRs confined to the defocused wings must NOT be penalized.
+        var positions = new[] { 4000, 5000, 6000 };  // window = 1.5 × 100 = 150, so only the middle frame qualifies
+        var m = SnrRun(
+            new IReadOnlyList<double>[] { BrightPlusMarginal(0, 10), Bright(10), BrightPlusMarginal(0, 10) },
+            positions);
+        Assert.That(OptimizationObjective.SMarginalSnr(m, Enabled()), Is.EqualTo(1.0));
+    }
+
+    [Test]
+    public void SMarginalSnr_RecoveryFramesExempt() {
+        // A recovery frame that lands INSIDE the near-focus window (short/skewed sweep) is exempt on both numerator
+        // and denominator, matching every other near-focus term.
+        var m = SnrRun(new IReadOnlyList<double>[] { Bright(10), BrightPlusMarginal(0, 10) });
+        Assert.That(OptimizationObjective.SMarginalSnr(m, Enabled()), Is.LessThan(1.0), "precondition: penalized without the recovery tag");
+        m.FrameIsRecovery = new[] { false, true };
+        Assert.That(OptimizationObjective.SMarginalSnr(m, Enabled()), Is.EqualTo(1.0));
+    }
+
+    [Test]
+    public void SMarginalSnr_NonFiniteSnrsAreSkipped_NotCountedAsMarginal() {
+        // MeasuredSensitivity is NaN on the legacy cache path. NaN carries no information, so it must inflate
+        // neither the numerator nor the denominator — otherwise a stale cache would look like a precision failure.
+        var m = SnrRun(new IReadOnlyList<double>[] { Bright(10).Concat(new[] { double.NaN, double.NaN }).ToArray() });
+        Assert.That(OptimizationObjective.SMarginalSnr(m, Enabled()), Is.EqualTo(1.0));
+    }
+
+    [Test]
+    public void SMarginalSnr_FallbackPool_ThinRunNotPenalised() {
+        // No fitted minimum => no near-focus window => run-level fallback, which requires MinFramesForPenalty (3)
+        // eligible frames before it may penalize. Two frames is too thin to trust.
+        var m = SnrRun(new IReadOnlyList<double>[] { BrightPlusMarginal(1, 9), BrightPlusMarginal(1, 9) });
+        m.BestFocusPosition = double.NaN;
+        Assert.That(OptimizationObjective.SMarginalSnr(m, Enabled()), Is.EqualTo(1.0));
+    }
+
+    [Test]
+    public void SMarginalSnr_FallbackPool_PenalisesOnceThickEnough() {
+        var m = SnrRun(new IReadOnlyList<double>[] {
+            BrightPlusMarginal(9, 1), BrightPlusMarginal(9, 1), BrightPlusMarginal(9, 1)
+        });
+        m.BestFocusPosition = double.NaN;
+        Assert.That(OptimizationObjective.SMarginalSnr(m, Enabled()), Is.EqualTo(0.95).Within(1e-12));
+    }
+
+    [Test]
+    public void SMarginalSnr_RelaxesAsBrightStarsAdded_Dilution() {
+        // Companion to SHfrOutlier's dilution contract: with a FIXED count of marginal detections, admitting more
+        // healthy stars shrinks the fraction, so the penalty is non-decreasing and returns to exactly 1.0 once the
+        // fraction falls to the threshold. The term charges for the marginal SHARE, not for detecting more.
+        double prev = 0.0;
+        for (var bright = 4; bright <= 40; bright += 4) {
+            var m = SnrRun(new IReadOnlyList<double>[] { BrightPlusMarginal(bright, 1) });
+            var penalty = OptimizationObjective.SMarginalSnr(m, Enabled());
+            Assert.That(penalty, Is.GreaterThanOrEqualTo(prev), $"penalty must not fall as healthy stars are added (bright={bright})");
+            prev = penalty;
+        }
+        Assert.That(prev, Is.EqualTo(1.0), "1/41 <= 0.05 threshold => exactly no penalty");
+    }
+
+    [Test]
+    public void JRun_BitIdentical_WhenNoStarSnrData() {
+        // The F23 default-on-is-safe guarantee, in the same shape as JRun_BitIdentical_WhenNoHfrOrCoverageData:
+        // default constants (MarginalSnrStrength 1.0) with metrics carrying no per-star SNRs => term inert => J
+        // byte-identical to the legacy weighted sum, labeled and unlabeled.
+        var c = new ObjectiveConstants { Wtie = 0.0 };
+        var m = RunWithPositions(frameCount: 9, starsPerFrame: 40, sigmaFocus: 0.18);
+        Assert.Multiple(() => {
+            Assert.That(m.FrameStarSnrs, Is.Null, "baseline: no per-star SNR data");
+            Assert.That(OptimizationObjective.JRun(m, c), Is.EqualTo(LegacyJRun(m, c, null, null)));
+            Assert.That(OptimizationObjective.JRun(m, c, recall: 0.7, precision: 0.6), Is.EqualTo(LegacyJRun(m, c, 0.7, 0.6)));
+        });
+    }
+
+    [Test]
+    public void JRun_BitIdentical_WhenEveryAcceptedStarIsAboveTheFloor() {
+        // The stronger statement: even WITH per-star SNR data populated (the production optimizer path), a run whose
+        // Sensitivity sits at or above the floor pays exactly nothing — so the term cannot perturb any configuration
+        // that was already healthy.
+        var c = Enabled(wtie: 0.0);
+        var m = RunWithPositions(frameCount: 9, starsPerFrame: 40, sigmaFocus: 0.18);
+        m.FrameStarSnrs = Enumerable.Range(0, 9).Select(_ => (IReadOnlyList<double>)Bright(40)).ToArray();
+        Assert.That(OptimizationObjective.JRun(m, c), Is.EqualTo(LegacyJRun(m, c, null, null)));
+    }
+
+    [Test]
+    public void JRun_MarginalPopulation_LowersJ() {
+        // The behavioural point of F23: an otherwise-identical run that admits a marginal-SNR tail must score LOWER
+        // than one that does not. Without this, star count is free and the search drives Sensitivity to 0.
+        var c = Enabled(wtie: 0.0);
+        var clean = RunWithPositions(frameCount: 9, starsPerFrame: 40, sigmaFocus: 0.18);
+        clean.FrameStarSnrs = Enumerable.Range(0, 9).Select(_ => (IReadOnlyList<double>)Bright(40)).ToArray();
+        var junky = RunWithPositions(frameCount: 9, starsPerFrame: 40, sigmaFocus: 0.18);
+        junky.FrameStarSnrs = Enumerable.Range(0, 9).Select(_ => (IReadOnlyList<double>)BrightPlusMarginal(20, 20)).ToArray();
+        Assert.That(OptimizationObjective.JRun(junky, c), Is.LessThan(OptimizationObjective.JRun(clean, c)));
+    }
 }

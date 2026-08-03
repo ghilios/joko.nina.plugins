@@ -30,6 +30,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using TestApp.SynthBank;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -268,7 +269,11 @@ namespace TestApp {
 
             // Golden sidecars per frame (shared across configs — detector-independent).
             var goldenByFocuser = new Dictionary<int, GoldenFrame>();
-            int goldenStars = 0, goldenHigh = 0;
+            // F31: the per-frame truth sidecar, when one exists (synthetic bank only). Its `omitted` /
+            // `merged-into` entries are REAL stars the golden policy dropped, and detections of them were being
+            // charged as false positives. Read once here and shared across configs, like the goldens.
+            var truthByFocuser = new Dictionary<int, IReadOnlyList<SyntheticStarDisposition>>();
+            int goldenStars = 0, goldenHigh = 0, protectedStars = 0;
             foreach (var (focuser, path, _) in loaded) {
                 var gp = string.IsNullOrWhiteSpace(goldenDir) ? path : Path.Combine(goldenDir, Path.GetFileName(path));
                 var gf = GoldenStarSetStore.LoadForImage(gp);
@@ -277,7 +282,17 @@ namespace TestApp {
                     goldenStars += gf.Stars.Count;
                     goldenHigh += gf.Stars.Count(s => GoldenConfidence.Rank(s.Confidence) >= 3);
                 }
+                var td = TruthProtection.LoadForImage(path);
+                if (td != null) {
+                    truthByFocuser[focuser] = td;
+                    protectedStars += TruthProtection.BuildProtectionBoxes(td, effectiveMatchRadius).Count;
+                }
             }
+            var scoringMode = truthByFocuser.Count > 0 ? "golden+truth-protected" : "golden";
+            Console.WriteLine($"  scoring: {scoringMode}"
+                + (truthByFocuser.Count > 0
+                    ? $" ({protectedStars} real-but-unboxed truth stars protected from FP scoring across {truthByFocuser.Count} frames)"
+                    : " (no truth sidecars; false positives scored against the golden alone)"));
 
             // RunEvaluationData for the AF fit (mirrors OptimizationDiagnosticRunner.PrepareRunAsync).
             var stepSize = InferStepSize(ordered.Select(f => (double)f.FocuserPosition).ToList());
@@ -315,6 +330,8 @@ namespace TestApp {
             rr.pixelScaleSource = pixelScaleSource;
             rr.matchRadius = effectiveMatchRadius;
             rr.matchRadiusSource = matchRadiusSource;
+            rr.scoringMode = scoringMode;
+            rr.protectedStars = protectedStars;
 
             StarDetectorParams BaseDefault() {
                 var p = HocusFocusStarDetection.BuildDefaultStarDetectorParams();
@@ -334,7 +351,7 @@ namespace TestApp {
                     p.LocallyAdaptiveBinarization = adaptiveBinarizeOverride.Value;
                 }
                 p.AdaptiveNoiseBlockSize = adaptiveBlockSize;
-                var cm = await ScoreConfigAsync($"C0@nc{nc:0.#}", nc, false, p, evalData, loaded, goldenByFocuser, effectiveMatchRadius,
+                var cm = await ScoreConfigAsync($"C0@nc{nc:0.#}", nc, false, p, evalData, loaded, goldenByFocuser, truthByFocuser, effectiveMatchRadius,
                     inspectorOptions, alglib, profileService, activeProfile, stepSize, detector);
                 rr.configs.Add(cm);
                 Console.WriteLine($"    {cm.config}: recall@high={Fmt(cm.recallHigh)} prec={Fmt(cm.precision)} σ={Fmt(cm.sigmaFocus)} sR²={Fmt(cm.sR2)} aligned={cm.framesAligned}/{loaded.Count}");
@@ -345,7 +362,7 @@ namespace TestApp {
             if (aSettings != null) {
                 var p = BaseDefault();
                 OverlayOptimized(p, aSettings, forceDonutMaster: false);
-                var cm = await ScoreConfigAsync("A", p.NoiseClippingMultiplier, p.DefocusAwareDonutDetection, p, evalData, loaded, goldenByFocuser, effectiveMatchRadius,
+                var cm = await ScoreConfigAsync("A", p.NoiseClippingMultiplier, p.DefocusAwareDonutDetection, p, evalData, loaded, goldenByFocuser, truthByFocuser, effectiveMatchRadius,
                     inspectorOptions, alglib, profileService, activeProfile, stepSize, detector);
                 cm.sensitivity = p.Sensitivity;
                 rr.configs.Add(cm);
@@ -357,7 +374,7 @@ namespace TestApp {
             if (bSettings != null) {
                 var p = BaseDefault();
                 OverlayOptimized(p, bSettings, forceDonutMaster: true);
-                var cm = await ScoreConfigAsync("B", p.NoiseClippingMultiplier, true, p, evalData, loaded, goldenByFocuser, effectiveMatchRadius,
+                var cm = await ScoreConfigAsync("B", p.NoiseClippingMultiplier, true, p, evalData, loaded, goldenByFocuser, truthByFocuser, effectiveMatchRadius,
                     inspectorOptions, alglib, profileService, activeProfile, stepSize, detector);
                 cm.sensitivity = p.Sensitivity;
                 rr.configs.Add(cm);
@@ -378,7 +395,8 @@ namespace TestApp {
         /// sensor-model fit; the AF fit comes from the validated <see cref="RunEvaluationData.EvaluateAndFitAsync"/>.</summary>
         private static async Task<ConfigMetrics> ScoreConfigAsync(
             string label, double nc, bool donut, StarDetectorParams p, RunEvaluationData evalData,
-            List<(int focuser, string path, IRenderedImage image)> loaded, Dictionary<int, GoldenFrame> goldenByFocuser, double matchRadius,
+            List<(int focuser, string path, IRenderedImage image)> loaded, Dictionary<int, GoldenFrame> goldenByFocuser,
+            Dictionary<int, IReadOnlyList<SyntheticStarDisposition>> truthByFocuser, double matchRadius,
             InspectorOptions inspectorOptions, AlglibAPI alglib, ProfileService profileService, NINA.Profile.Interfaces.IProfile activeProfile, int stepSize,
             StarDetector detector) {
 
@@ -406,7 +424,15 @@ namespace TestApp {
                     var det = stars.Select(s => new DetBox(RectD.FromRect(s.StarBoundingBox), s.Center.X, s.Center.Y)).ToList();
                     var goldenRects = gf.Stars.Select(b => new RectD(b.X, b.Y, b.W, b.H)).ToList();
                     var match = GoldenMatch.Match(goldenRects, det, GoldenMatchMode.Centroid, 0.3, matchRadius);
-                    tp += match.Pairs.Count; fp += match.FalsePositives.Count; fn += match.FalseNegatives.Count;
+                    // F31: subtract detections that land on a box the reference cannot judge — the golden's own
+                    // `unresolved`, PLUS the real-but-unboxed truth stars (`omitted` / `merged-into`) that the
+                    // golden policy dropped. This runner previously did neither, so every detection of a
+                    // sub-3.5-SNR real star was charged as a false positive; measured, 96% of the bank's reported
+                    // false positives were real stars. Empty for the real bank (no truth sidecar) => no-op.
+                    var exclusionRects = TruthProtection.BuildExclusionRects(
+                        gf.Unresolved, truthByFocuser.TryGetValue(focuser, out var td) ? td : null, matchRadius);
+                    var falsePositives = GoldenMatch.ExcludeUnresolved(match.FalsePositives, det, exclusionRects);
+                    tp += match.Pairs.Count; fp += falsePositives.Count; fn += match.FalseNegatives.Count;
                     var matchedGolden = new HashSet<int>(match.Pairs.Select(x => x.Golden));
                     for (int gi = 0; gi < gf.Stars.Count; gi++) {
                         var matched = matchedGolden.Contains(gi);
@@ -551,12 +577,23 @@ namespace TestApp {
                 // V-P1/V-P2 (per-run pixel scale from the frame header, per-run match radius from synthetic_meta.json)
                 // changed the C0/A/B numbers on a shared code path the real bank also runs through, so the schema
                 // bumps to mark reports built before/after this change as not directly comparable.
-                schema = "afbank-verify/3",
+                // F31 bumps this to /4: false positives are no longer charged for detections of real stars the
+                // golden policy dropped, so precision from a /4 report is NOT comparable to a /3 one. Recall is
+                // unchanged by construction (the golden's `stars` list still defines what must be found).
+                schema = "afbank-verify/4",
                 generatedUtc = utc,
                 detectorCommit = commit,
                 // The bank-wide --pixel-scale mode ("header" default, "profile" the pre-V-P1 escape hatch). The
                 // per-run pixelScale/pixelScaleSource below is what actually applied — this is just the mode.
                 pixelScaleMode,
+                // Aggregate of the per-run scoringMode: "golden+truth-protected" iff every scored run had a
+                // truth sidecar, "golden" iff none did, "mixed" otherwise (a bank holding both kinds).
+                scoringMode = (runs.Count(r => r.scoringMode == "golden+truth-protected"), runs.Count(r => r.scoringMode == "golden")) switch {
+                    (> 0, 0) => "golden+truth-protected",
+                    (0, > 0) => "golden",
+                    (0, 0) => "none",
+                    _ => "mixed"
+                },
                 // Read from the product rather than hardcoded: a literal here said 2.0 while the shipped default was
                 // 4.0, so the report misdescribed the very baseline it was measuring.
                 noiseClipDefault,
@@ -644,6 +681,12 @@ namespace TestApp {
             // came from the dataset's own synthetic_meta.json or the CLI/default.
             public double matchRadius { get; set; } = double.NaN;
             public string matchRadiusSource { get; set; }
+            // F31: "golden+truth-protected" when a per-frame truth sidecar was found and its real-but-unboxed
+            // stars (omitted / merged-into) were excluded from false-positive scoring; "golden" otherwise (the
+            // real bank, and every report written before this fix). Reports differing here are NOT comparable
+            // on precision.
+            public string scoringMode { get; set; }
+            public int protectedStars { get; set; }
             public string error { get; set; }
             public List<ConfigMetrics> configs { get; set; }
         }

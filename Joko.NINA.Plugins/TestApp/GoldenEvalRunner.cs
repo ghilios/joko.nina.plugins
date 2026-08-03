@@ -25,6 +25,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using TestApp.SynthBank;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -260,8 +261,12 @@ namespace TestApp {
                 var goldenRects = gf.Stars.Select(b => new RectD(b.X, b.Y, b.W, b.H)).ToList();
                 // Unresolved candidates are neither stars nor confirmed non-stars, so they are absent from
                 // goldenRects (no effect on recall) and are subtracted from the false positives below.
-                var unresolvedRects = (gf.Unresolved ?? new List<GoldenStarBox>())
-                    .Select(b => new RectD(b.X, b.Y, b.W, b.H)).ToList();
+                // F31: the golden's own `unresolved` boxes PLUS the real-but-unboxed truth stars the golden
+                // policy dropped (`omitted` / `merged-into`). Without the second group, every detection of a
+                // sub-3.5-SNR real star is charged as a false positive — 96% of the synthetic bank's reported
+                // false positives were real stars. No sidecar (the real bank) => identical to before.
+                var unresolvedRects = TruthProtection.BuildExclusionRects(
+                    gf.Unresolved, TruthProtection.LoadForImage(frame.Path), effectiveMatchRadius);
                 var match = GoldenMatch.Match(goldenRects, det, matchMode, tau, effectiveMatchRadius);
                 var falsePositives = GoldenMatch.ExcludeUnresolved(match.FalsePositives, det, unresolvedRects);
 

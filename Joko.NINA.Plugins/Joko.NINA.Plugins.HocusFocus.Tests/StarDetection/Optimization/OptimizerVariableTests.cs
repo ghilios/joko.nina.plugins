@@ -323,4 +323,62 @@ public class OptimizerVariableTests {
             Assert.That(structure.Upper, Is.EqualTo(4), "structure boost keeps its full [0,4] range");
         });
     }
+
+    // ---- F23 mechanism (b): a floor on the searchable Sensitivity range ----
+
+    [Test]
+    public void CreateCuratedSet_ShippingSensitivityBounds_AreUnflooredZeroToFifty() {
+        // Pins the SHIPPING domain. DefaultSensitivityLower is 0.0 — the false-positive cost is carried by the
+        // objective's SMarginalSnr term, not by restricting the search domain. If this assertion is ever changed,
+        // it means mechanism (b) shipped instead of (a), which is a documented decision, not an incidental edit.
+        var sens = OptimizerVariable.CreateCuratedSet().Single(v => v.Name == nameof(StarDetectorParams.Sensitivity));
+        Assert.Multiple(() => {
+            Assert.That(OptimizerVariable.DefaultSensitivityLower, Is.EqualTo(0.0));
+            Assert.That(sens.Lower, Is.EqualTo(0.0).Within(1e-9));
+            Assert.That(sens.Upper, Is.EqualTo(50.0).Within(1e-9));
+        });
+    }
+
+    [Test]
+    public void CreateCuratedSet_ExplicitSensitivityFloor_RaisesOnlyThatAxisLowerBound() {
+        var seed = new StarDetectorParams { DefocusAwareDonutDetection = false };
+        var floored = OptimizerVariable.CreateCuratedSet(seed, 2.5);
+        var sens = floored.Single(v => v.Name == nameof(StarDetectorParams.Sensitivity));
+        var clip = floored.Single(v => v.Name == nameof(StarDetectorParams.StarClippingMultiplier));
+        Assert.Multiple(() => {
+            Assert.That(sens.Lower, Is.EqualTo(2.5).Within(1e-9));
+            Assert.That(sens.Upper, Is.EqualTo(50.0).Within(1e-9), "the ceiling is untouched");
+            Assert.That(clip.Lower, Is.EqualTo(0.25).Within(1e-9), "no other axis moves");
+            // The floor is enforced through the variable's own Quantize, so the optimizer cannot propose beneath it.
+            var p = new StarDetectorParams();
+            sens.Write(p, 0.0);
+            Assert.That(p.Sensitivity, Is.EqualTo(2.5).Within(1e-9));
+        });
+    }
+
+    [Test]
+    public void CreateCuratedSet_NullSensitivityFloor_IsTheShippingDefault() {
+        var seed = new StarDetectorParams { DefocusAwareDonutDetection = false };
+        var explicitDefault = OptimizerVariable.CreateCuratedSet(seed, null)
+            .Single(v => v.Name == nameof(StarDetectorParams.Sensitivity));
+        var shipping = OptimizerVariable.CreateCuratedSet(seed)
+            .Single(v => v.Name == nameof(StarDetectorParams.Sensitivity));
+        Assert.That(explicitDefault.Lower, Is.EqualTo(shipping.Lower));
+    }
+
+    [Test]
+    public void CreateCuratedSet_SensitivityFloor_PropagatesIntoTheWarmStartBand() {
+        // CreateWarmStartSet clamps with Math.Max(v.Lower, …), so a floored base set must floor the warm-start band
+        // too — otherwise the second optimize pass would silently escape back below the floor.
+        var seed = new StarDetectorParams { DefocusAwareDonutDetection = false };
+        var before = new StarDetectorParams { Sensitivity = 16.0 };
+        var after = new StarDetectorParams { Sensitivity = 3.5 };
+        var ws = OptimizerVariable.CreateWarmStartSet(OptimizerVariable.CreateCuratedSet(seed, 2.5), before, after);
+        var sens = ws.Single(v => v.Name == nameof(StarDetectorParams.Sensitivity));
+        Assert.Multiple(() => {
+            // Unfloored this band is [0.5, 6.5]; the 2.5 floor dominates the lower edge.
+            Assert.That(sens.Lower, Is.EqualTo(2.5).Within(1e-9));
+            Assert.That(sens.Upper, Is.EqualTo(6.5).Within(1e-9));
+        });
+    }
 }

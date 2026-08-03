@@ -142,6 +142,17 @@ namespace TestApp.SynthBank {
                 }
                 maxEvals = me;
             }
+            // F23: lets the V1 matrix be re-scored with the marginal-SNR false-positive term ENABLED, so the
+            // design spec's prediction -- that fixing F23 dissolves F22 and F26 -- can actually be tested. The
+            // shipping default is 0 (the term is measured-but-not-enabled), which reproduces HEAD exactly.
+            double? marginalSnrStrength = null;
+            var msArg = DiagnosticUtil.GetArg(args, "--marginal-snr-strength");
+            if (!string.IsNullOrWhiteSpace(msArg)) {
+                if (!double.TryParse(msArg, NumberStyles.Float, CultureInfo.InvariantCulture, out var ms) || !double.IsFinite(ms) || ms < 0.0) {
+                    throw new ArgumentException($"--marginal-snr-strength: '{msArg}' must be a finite number >= 0");
+                }
+                marginalSnrStrength = ms;
+            }
             var catalogOverride = DiagnosticUtil.GetArg(args, "--catalog");
             var profileId = DiagnosticUtil.GetArg(args, "--profile-id");
 
@@ -219,6 +230,7 @@ namespace TestApp.SynthBank {
                 perFilterStore: new StubPerFilterStarDetectionStore(harnessSettings.Accessor));
 
             var ctx = new SharedContext {
+                MarginalSnrStrength = marginalSnrStrength,
                 ProfileService = profileService,
                 HarnessSettings = harnessSettings,
                 AfOptions = afOptions,
@@ -294,6 +306,10 @@ namespace TestApp.SynthBank {
             public AutoFocusOptions AfOptions;
             public AlglibAPI AlglibAPI;
             public IHocusFocusStarDetection Detection;
+
+            /// <summary>F23: override ObjectiveConstants.MarginalSnrStrength for this pass; null ⇒ shipping default
+            /// (0, i.e. the term is off and J is bit-identical to the pre-F23 objective).</summary>
+            public double? MarginalSnrStrength;
         }
 
         /// <summary>Mutable round-to-round state for one (dataset, scenario) run: the bootstrap the NEXT round will
@@ -640,6 +656,9 @@ namespace TestApp.SynthBank {
             OptimizationResult result;
             RunEvaluationResult bestEval;
             var objectiveConstants = new ObjectiveConstants();
+            if (ctx.MarginalSnrStrength.HasValue) {
+                objectiveConstants.MarginalSnrStrength = ctx.MarginalSnrStrength.Value;
+            }
             try {
                 var evaluator = RunEvaluationData.CreateEvaluator(new List<RunEvaluationData> { data });
                 var settings = new OptimizerSettings();

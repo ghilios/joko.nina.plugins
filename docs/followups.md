@@ -187,9 +187,26 @@ F18 is the sweep over-reaching what the detector can see, and this is the recomm
 over-reach once it has. A user who starts too wide — the likely case on an unfamiliar rig — can be walked
 further out rather than back in. The recovery on D05 was luck, not design.
 
+**Re-measured 2026-08-03 (F23 wave 1) — the manifestation is seed-dependent.** On the re-run D05 S2 fits at
+**R² = −0.106** (still negative — no usable curve) and the recommender answers **140**, i.e. it *held* the step
+rather than widening it to 240. The specific 4×→7× over-reach in the evidence above did not recur.
+
+The code gap this entry names is untouched, so the entry stands: `Recommend` still has no fit-quality gate, and
+whether a degenerate fit happens to hold or to widen is left to the noise realization. But the headline number
+is not the typical case.
+
+**Found while re-measuring — a fourth harness-calibration bug.** That same D05 S2 run is scored
+`converged: true`, `stoppedReason: "converged (round applied nothing)"`, with `finalStepSize 140` against
+`stepBehavioral 35` — four times too wide. Assertion A3 correctly FAILs it (`final step 140 outside [21,56]`),
+but the convergence flag reads PASS. A degenerate fit produces a no-op recommendation, and the loop reads
+"nothing changed" as "converged". This inflates convergence counts on exactly the runs that are most broken,
+and belongs with the three calibration bugs already recorded in
+[`docs/synthetic-af-bank-baseline-results.md`](synthetic-af-bank-baseline-results.md).
+
 **Next step.** Gate the recommendation on fit quality. The R² is already in hand at the call site; a fit below
 some floor should either hold the current step or shrink it, never widen it. Reproduce with
-`synth-validate --datasets D05_tec140_1000mm --scenarios S2 --max-rounds 4`.
+`synth-validate --datasets D05_tec140_1000mm --scenarios S2 --max-rounds 4`. Separately: make "converged" require
+being inside the tolerance band, not merely unchanged.
 
 ### F26 — A stuck binning recommendation starves the step update indefinitely
 **Status:** Open · found 2026-08-03 running scenarios S1/S6 on the synthetic AF bank
@@ -216,6 +233,29 @@ whose true HFR sits near the 4.5 px binning boundary, i.e. exactly F22's populat
 flips a threshold, plus an ordering rule that waits for that threshold to settle. The user sees the wizard
 "recommending" the same wrong binning every round and never getting to the knob that actually matters. Neither
 F22 nor the ordering rule looks broken on its own, which is why this needs its own entry.
+
+**Re-measured 2026-08-03 (F23 wave 1) — the LIVELOCK does not reproduce; the deferral does.** Same harness,
+same datasets, `--max-rounds 4 --max-evals 120`:
+
+| run | recorded evidence | re-measured |
+|---|---|---|
+| D08 S1 | step held at 21 for **4 rounds**, target 82 | 21 → 21 → 36 → **62**, converged in 3 rounds |
+| D12 S6 | 35 → 60 → 60 → 74, target 141 | 35 → 60 → 60 → 80, still not converged at round 4 |
+
+The binning-first deferral is still visible and still costs a round — D08 applies step 21 twice, and D12
+applies 60 twice — but the step then updates and D08 converges. The unbounded stall does not recur. The
+difference is that the landed Sensitivity varied round to round here (16.7 / 15.7 / 10 on D08) rather than
+sitting at the floor, so the binning recommendation settled instead of being persistently wrong — which is
+consistent with F26 being downstream of [F22](#f22--detection-binning-is-a-hard-threshold-on-a-measurement-that-under-reads-so-boundary-rigs-get-the-wrong-factor)/F23
+rather than an independent defect.
+
+Also measured: with the F23 marginal-SNR term enabled, **D12 S6 converges** (3 rounds, final step 103) where
+shipping does not (4 rounds, final 80, not converged). So the objective fix helps this loop even though it
+fails its own precision gates.
+
+**Status revision.** The one-round deferral cost is real and worth the guard below; the "indefinitely" in this
+entry's title is not supported by re-measurement and should be read as "for at least one round, unbounded in
+principle".
 
 **Next step.** Bound the deferral: if the binning recommendation has not changed the applied value for N
 consecutive rounds, stop deferring and let the step update proceed. Fixing F22 would also dissolve this, but the
@@ -253,7 +293,43 @@ positive rate. Those false positives then feed the autofocus fit and the sensor-
 is not confined to a reported number. It also reframes the real-bank optimizer results: every prior "A
 beat C0" conclusion was scored against a precision figure that could not see this.
 
-**Next step.** Add a precision-like term to the objective. It cannot be true precision on real data
+**Wave 1 executed 2026-08-03 — BOTH candidate mechanisms measured, both REJECTED.** Plan:
+[`plans/af-recommender-hardening-plan.md`](../plans/af-recommender-hardening-plan.md); full results:
+[`docs/f23-objective-precision-term-results.md`](f23-objective-precision-term-results.md). Three arms, one
+binary, arm selected by flag; scored by `bank-verify` config A against a same-session control:
+
+| arm | precision < 0.90 | recall@high drop > 0.02 | σ_focus worse > 20% |
+|---|---|---|---|
+| H — unmodified HEAD (control) | 8/17 | — | — |
+| b — hard floor on the searchable Sensitivity range | **9/17** | | |
+| a — `SMarginalSnr` objective term | **7/17** | 3 | 3 |
+
+**(b) is worse than doing nothing.** Forcing Sensitivity to 6 breaks four datasets that were healthy — D13
+0.985 → 0.860, D14 0.948 → 0.739, D04 0.977 → 0.859 — while helping three. Restricting the *domain* does not
+remove the incentive to buy star count; the search simply loosens other gates to win the stars back, admitting
+junk through a different door. This is the strongest available argument that the fix belongs in the objective.
+
+**(a) works where it can fire, and is structurally escapable.** Real gains (D09 0.451 → **0.944**, D17 0.465 →
+0.735, D10 0.547 → 0.814) but no gate cleared. The reason is not a mis-set constant: the gate guarantees
+`sensitivity >= PeakResponse × StarClippingMultiplier`, and **both are searchable curated axes**, so the
+optimizer can lift the statistic's own lower bound above the floor and make the penalty unable to fire while
+the false positives remain. Measured: D12 landed at `1.0 × 6.25 = 6.25` and D15 at `1.0 × 6.75 = 6.75`, both
+just past the 6.0 floor, precision stranded at 0.659 and 0.587. A floor of 8 would be escaped at 8, so the
+budgeted retune round was deliberately not spent.
+
+**Also learned:** D08 lands at Sensitivity 8 — above any floor, term legitimately inert — with precision
+0.748. So a floored Sensitivity is **not** the only source of false positives, and this entry's mechanism
+section describes part of the problem, not all of it.
+
+`MarginalSnrStrength` therefore ships at **0** (inert; J bit-identical to before). The implementation is kept,
+tested and flag-selectable so the next attempt starts from a measured position.
+
+**Next step (revised).** The proxy must be computed on a statistic the search cannot lift — `peak/σ` with
+`PeakResponse` out of the expression — which needs new plumbing, since `Star` exposes only the gated
+`MeasuredSensitivity` today. Independently, find the second false-positive source that operates at healthy
+Sensitivity (D08, D16). Original framing below.
+
+**Next step (original).** Add a precision-like term to the objective. It cannot be true precision on real data
 (that is the whole problem), but two proxies are already available: the golden-independent
 false-positive *proxies* the detector already collects, and — for tuning and regression — this bank,
 where precision is exact. Any change wants scoring against **both** banks, since the synthetic one can
@@ -425,12 +501,202 @@ vs OIII 5 nm at 30 s), i.e. the star population and SNR. The measurement, not th
 here (R² = 1.0000). So the recommendation is delivered with full confidence and is wrong. Worse, it is
 *bistable*: the same rig can be told 1 on a narrowband night and 2 on a luminance night.
 
-**Next step.** Two candidates, not mutually exclusive. (a) Calibrate out the bias — the measured-vs-optical
-under-read is systematic and could be characterised against this bank rather than guessed. (b) Add hysteresis or
+**Confirmed as an F23 symptom (2026-08-03) — measured with a toggle, not inferred.** The marginal-SNR
+false-positive term built in F23 wave 1 is switchable (`--marginal-snr-strength`) and changes *only* the
+objective, so the same frames and the same seed can be scored with the optimizer landing at Sensitivity 0 or
+above it. `D17_cdk14_oiii5` scenario S0:
+
+| objective | landed Sensitivity | measured in-focus HFR | binning recommended |
+|---|---|---|---|
+| term OFF (shipping) | 0.0 | **3.27 px** | 1 |
+| term ON | 7.0 | **4.66 px** | **2** |
+
+The 4.5 px threshold sits between the two readings, so the Sensitivity landing *alone* flips the factor — a
+30% shift in the measured HFR from nothing but admitted noise. The same signature appears on
+`D12_c14_585_afbin2` S6 round 2 (Sensitivity 0 → 6 moves the in-focus HFR 2.99 → 4.45, +49%) and on
+`D08_c11_2800mm` S0. This is the causal chain the design spec asserted, now measured: **noise blobs admitted
+at a floored Sensitivity pull the in-focus HFR median down, and on a boundary rig that flips the binning
+factor.**
+
+The term does **not** ship (it fails its acceptance gates — see [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)),
+so F22 still reproduces in shipping behaviour. What is settled is the *attribution*, and with it that
+calibrating the HFR bias would have been the wrong fix — the bias is not a property of the measurement, it is
+a property of what the optimizer chose to detect.
+
+**Next step.** Two candidates, not mutually exclusive. (a) ~~Calibrate out the bias~~ — **ruled out** by the
+measurement above; the under-read is not systematic, it tracks the Sensitivity landing. (b) Add hysteresis or
 a dead band around the 4.5/7.5 px boundaries so a marginal rig does not flip between sessions, and say
 "borderline" in the UI rather than presenting a coin flip as a recommendation. Note this compounds with
 [F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic): the same
 under-reading pushes small-HFR rigs toward the `MinHFR` cliff.
+
+### F27 — The optimizer cannot reach the rejected-candidate diagnostics an approved spec says it can
+**Status:** Open · found 2026-08-03 implementing [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)
+
+[`docs/af-recommender-hardening-design.md`](af-recommender-hardening-design.md) lists "the rejected-candidate
+diagnostics (`CollectRejectedCandidateDiagnostics`)" among the signals "already collected" and available to
+build a false-positive term from. They are not reachable from the optimizer's evaluation path.
+
+**Evidence.** `RejectedCandidateRecord`s are produced onto `HocusFocusStarDetectorResult.RejectedCandidates`
+(`IStarDetector.cs:981`, set in `StarDetector.cs:878`). But `HocusFocusStarDetection.BuildStarDetectionResult`
+copies only `Metrics` onto the `HocusFocusStarDetectionResult` the optimizer consumes
+(`HocusFocusStarDetection.cs:818`), and that type has **no `RejectedCandidates` member at all**
+(`HocusFocusStarDetection.cs:180-213`; the identifier does not appear anywhere in that file). The optimizer's
+per-frame contract carries exactly three metric scalars — `RelaxationAdmittedCount`, `LowSensitivityCount`,
+`TooFlatCount` (`RunEvaluationData.cs:68,76,86`). Only the review/feedback path re-detects with the flag on,
+and it does so outside the optimizer loop (`Review/FrameReviewBuilder.cs:163-184`).
+
+**Why it matters.** It is a load-bearing claim in an approved spec — F23's wave 1 was written assuming a
+choice of three proxy signals and in fact had one. The gap is cheap to close: the flag is on the detection
+cache-key **denylist** (`IStarDetector.cs:523-542`), so enabling it inside the optimizer would invalidate no
+memo and no early-context key; the only cost is per-detection allocation in the hot loop.
+
+**Next step.** Either add `RejectedCandidates` to `HocusFocusStarDetectionResult` and summarise it into
+`FrameDetectionResult`, or correct the spec. Note the nine per-gate `*Bounds` rect lists **are** already on
+`Metrics` and reachable at the same one-line seam that reads `LowSensitivity`/`TooFlat`
+(`RunEvaluationLoader.cs:331-335`), so they are the cheaper signal if per-rejection geometry is wanted.
+
+### F28 — `LowSensitivity` reads exactly zero precisely when the Sensitivity gate has collapsed
+**Status:** Open · found 2026-08-03 implementing [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)
+
+The gate rejects on `sensitivity <= p.Sensitivity` (`StarDetector.cs:1763`), and every candidate's
+`sensitivity` is bounded below by `PeakResponse × EffectiveClipMultiplier` — 0.75 × 2.0 = **1.5** at shipped
+defaults. So a gate anywhere below 1.5 rejects **nothing**, and `StarDetectorMetrics.LowSensitivity` is
+identically 0.
+
+**Derivation.** Clip survivors satisfy `raw > background + clipMargin` with
+`clipMargin = EffectiveClipMultiplier · σ` (`StarDetector.cs:2179`), so `meanFlux > EffectiveClipMultiplier · σ`;
+`peak ≥ meanFlux`; and `NormalizedBrightness = peak − (1 − PeakResponse)·meanFlux ≥ PeakResponse · meanFlux`
+(`StarDetector.cs:2274`). Hence `sensitivity = NormalizedBrightness / σ > PeakResponse × EffectiveClipMultiplier`.
+
+**Why it matters.** `FrameLowSensitivityCounts` exists specifically to separate "the gate is holding stars
+back" from "there is nothing left to find" (`OptimizationObjective.cs:194-199`), and
+`ExposureRecommender.Recommend` turns it into `gateIsHoldingStarsBack = gateRejectedCount > 0`, which is the
+sole discriminator between `StarCountIsTheLimit` and `StarFieldIsExhausted` (`ExposureRecommender.cs:515-517`).
+The exposure advice is surfaced only when `HasLowStarSignal` — i.e. `Sensitivity ≤ 1.0`
+(`StarDetectionOptimizerWizardVM.cs:248`, `ExposureRecommender.cs:284,336`) — which sits strictly inside the
+provably-inert region. So on exactly the population the affordance was written for, the evidence test is
+structurally dead: `StarCountIsTheLimit` can never fire, `StarFieldIsExhausted` is always taken, and the
+recommender always concludes the field has nothing more to give.
+
+**Why it did not show up before.** The zero-rejections test was added from a real rig where it was correct
+and valuable (2 s → 5 rejections, 14 s → zero; the comment at `ExposureRecommender.cs:511-514` records it).
+That rig was not at the search floor. The defect is the *interaction* with the floor, not the test.
+
+**Next step.** Make the discriminator conditional on the gate being able to reject at all — compare
+`p.Sensitivity` against `PeakResponse × EffectiveClipMultiplier` and report "the gate is inert, so its
+rejection count carries no information" rather than silently reading it as exhaustion. Never use this counter
+as a false-positive signal: the pathological landing produces its cleanest possible value.
+
+### F30 — A stored `optimized_settings.json` does not say which config produced it
+**Status:** Open · found 2026-08-03 pinning the [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall) baseline
+
+**Retraction first.** This entry was originally filed as "the published V2 config-A landings do not
+reproduce". **That was wrong, and the error was mine, not the tool's.** Re-running `optimize --per-run` at
+HEAD reproduces the V2 config A *exactly*: the same six datasets at `BrightnessSensitivity` 0.0 (D09, D10,
+D11, D12, D15, D17 — precisely the design spec's Evidence-1 list) and identical `bank-verify` precision on
+**all 17 datasets**, to every published digit. C0@nc2 likewise reproduces exactly. The optimizer, the bank,
+the detector and the scoring chain are all reproducible.
+
+**What actually happened.** The `optimized_settings.json` copies sitting in each dataset's `attempt01/` were
+compared against the published **config A** table and found not to match — 5 at Sensitivity 0.0 instead of 6,
+D15 at 10.0 instead of 0.0. They did not match because **they were config B's landings**, written by the
+`--donut` prepass that ran last (each carried `DefocusAwareDonutDetection: true`, which is the tell, and which
+was visible in the file the whole time). Nothing was irreproducible; the artifact was simply misattributed.
+
+**The real gap, which survives.** `OptimizedStarDetectionSettings` records `CreatedAtUtc`, `RunCount`,
+`BaselineJ`, `FinalJ` and `SchemaVersion` — but nothing that identifies **which invocation produced it**. Since
+[F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings) has the prepass overwrite these files in
+place, a bank folder accumulates landings from whichever run went last, and there is no way to tell config A's
+from config B's except by inferring it from `DefocusAwareDonutDetection` — an inference that is only valid
+while `--donut` is the only thing that varies between prepasses. It stops being valid the moment two arms
+differ by anything else, which is exactly what F23 wave 1 did (three arms differing by objective constants and
+search domain).
+
+**Why it matters.** The misattribution cost real time and produced a wrong followup entry that was committed
+twice before the control arm disproved it. A one-line provenance field would have made it impossible.
+
+**Next step.** Add the effective `optimize` argv (and ideally a hash of the resolved `harness_settings.json`)
+to `OptimizedStarDetectionSettings`, so a landing is self-describing and a stale copy announces itself.
+
+**Next step.** Record the provenance in `optimized_settings.json`, which already carries `CreatedAtUtc`,
+`RunCount`, `BaselineJ` and `FinalJ`: add the full `optimize` argv and a hash of the effective
+`harness_settings.json`. Cheap, and it makes a landing self-describing.
+
+### F31 — Synthetic-bank precision is NOT exact: the golden omits real stars, and they score as false positives
+**Status:** Open · found 2026-08-03 verifying the [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall) wave-1 result · **INVALIDATES F23's evidence base**
+
+`docs/synthetic-af-bank-baseline-results.md` headlines the synthetic bank with "Golden precision (D06,
+`golden eval`) **1.000** — 205 TP, **0 FP**. Exact, not a lower bound." That claim does not generalise. Measured
+against each frame's own `*.truth.json`, **96% of the false positives the bank reports are real rendered stars.**
+
+**Evidence.** `D09_c14_3800mm`, config A as landed by an unmodified-HEAD control arm, all 9 frames, 12 px
+centroid match:
+
+| | count |
+|---|---|
+| detections | 510 |
+| scored FP against `*.golden.json` | 280 |
+| of those, a **real truth star** within 12 px | **269 (96.1%)** |
+| genuinely spurious | **11** |
+
+The 269 break down by truth tier as **198 `omitted`** and **71 `unresolved`**. Re-scored against truth, the
+four datasets that drove the F23 finding all sit at 0.95–1.00 precision on **every** arm:
+
+| dataset | true precision (control / floor / term) | golden-scored (what F23 used) |
+|---|---|---|
+| D09_c14_3800mm | **0.978** / 1.000 / 1.000 | 0.525 / 0.991 / 1.000 |
+| D10_rc16_3250mm_sparse | **0.946** / 1.000 / 0.993 | 0.634 / 0.933 / 0.974 |
+| D11_rc10_585_afbin2 | **1.000** / 1.000 / 1.000 | 0.871 / 1.000 / 0.967 |
+| D12_c14_585_afbin2 | **1.000** / 1.000 / 1.000 | 0.899 / 0.736 / 0.905 |
+
+**Mechanism.** `GoldenFromTruth` tiers truth stars by native **peak-pixel** SNR (`GoldenFromTruth.cs`, thresholds
+`goldenHighSnr` 20 / `goldenMediumSnr` 10 / `goldenLowSnr` 5 / `goldenUnresolvedSnr` 3.5 in
+`SynthBank/synthetic-bank-spec.json`). Below 3.5 a star is tiered `omitted` and appears in **neither** `stars`
+**nor** `unresolved` — so `GoldenMatch.ExcludeUnresolved` (`GoldenEvalRunner.cs:261-266`) cannot protect it, and
+`bank-verify` does not call `ExcludeUnresolved` at all. Defocus destroys peak-pixel SNR while leaving integrated
+flux intact, so the golden evaporates toward the sweep wings: D08 holds **81 golden stars at focus and 9 at the
+extreme frame**, against 123–126 truth stars per frame throughout.
+
+**Coordinate alignment was null-tested** before believing this: detections match truth at 100% as-is, 2.3% at
+0.5× or 2× scale (chance), 0% under a 300 px shift.
+
+**Why it matters — this inverts F23.** F23's headline is "C0 precision never drops below 0.942; config A reaches
+0.451, so the optimizer trades precision away for marginal recall." The real mechanism is the opposite: C0 at
+`Sensitivity` 10 detects only bright stars, all of which are in the golden; config A at `Sensitivity` 0 detects
+**many more real but faint stars**, which the golden omits, and the metric charges every one as a false positive.
+The control arm detects **510** stars on D09 at **97.8%** true precision where the term-on arm detects **231** at
+100% — so both F23 wave-1 mechanisms were suppressing *real detections*, not junk.
+
+**Why it matters — this also inverts the bank's selling point.** Precision against the synthetic golden is a
+**lower bound**, for exactly the reason [F11](#f11--precision-is-a-lower-bound-on-runs-whose-faint-tier-was-budget-truncated--re-measured)
+gives on the real bank: the reference is incomplete below the tier cut. The synthetic bank's claim to measure
+precision *exactly* is what justified building it, and as implemented it does not hold.
+
+**Re-scored with the repair in place (afbank-verify/4).** Control arm, config A, 17 datasets: the `/3`
+golden-only metric gave 0.451–0.992 with 8 datasets below 0.90; the repaired metric gives **0.982–1.000**,
+none below 0.90. The detector's real false-positive rate on this bank is **0–1.8%** at every configuration
+tested. The residual is real rather than noise — the only four datasets short of 1.000 are D09 (0.991),
+D17 (0.986), D15 (0.988) and D10 (0.982), i.e. the long-focal-length rigs landing at Sensitivity 0 plus the
+sparse field. That is F23's predicted effect at roughly **1/30th** the size of the artifact that masked it.
+
+**A caution for whoever re-baselines.** The first cut of the repair sized protection by the star's light
+footprint (2·HFR, ~40 px on a wing donut). That removed the bias and replaced it with **saturation**:
+precision read 1.000 on all 17 datasets for all three arms — which looks like a clean result and measures
+nothing. Protection is now the match radius exactly. Before trusting a re-baseline, check that precision
+still SPREADS across datasets; all-1.000 means the metric is saturated again, not that the detector is
+perfect.
+
+**Next step.** Three separable pieces.
+1. **Score against truth, not the golden**, for synthetic runs — the truth sidecar is already written beside every
+   frame and is complete by construction. This is the correct fix and it makes the bank's original claim true.
+2. Failing that, make `bank-verify` honour the golden's `coverage` field (it currently ignores it,
+   `GoldenStarSet.cs:81-93`) and call `ExcludeUnresolved`, and emit `omitted` stars into `unresolved` so they are
+   at least excludable rather than invisible.
+3. **Regenerate every precision number that rests on this**: the V2 matrix in
+   `synthetic-af-bank-baseline-results.md`, `docs/synthetic-af-bank-baseline.json`, F23, F24, and the
+   `precisionMin` bands in `synthetic-af-bank-expectations.json`. Until then, treat synthetic precision as a
+   lower bound and do not use it as an acceptance gate.
 
 ---
 

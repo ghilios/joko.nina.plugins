@@ -121,6 +121,17 @@ namespace TestApp {
             // result is the pre-change objective + detection. Default (no flag) = the new behavior (the "after" pass).
             bool legacyObjective = DiagnosticUtil.HasFlag(args, "--legacy-objective");
 
+            // ── F23 head-to-head knobs (docs/af-recommender-hardening-design.md, wave 1) ──────────────────────
+            // Two candidate false-positive costs are shipped in one binary so the bank can decide between them
+            // without rebuilding per arm (and so "did I build the right arm?" cannot silently corrupt a result):
+            //   (a) --marginal-snr-strength / --marginal-snr-floor : the objective's SMarginalSnr term. Strength 0
+            //       disables it, reproducing the pre-F23 objective exactly.
+            //   (b) --sensitivity-floor : a hard floor on the SEARCHABLE Sensitivity range (OptimizerVariable).
+            // Omitting both = shipping defaults. Values are echoed into the run header so a log identifies its arm.
+            double? marginalSnrStrength = ParseOptionalDouble(args, "--marginal-snr-strength", min: 0.0);
+            double? marginalSnrFloor = ParseOptionalDouble(args, "--marginal-snr-floor", min: 0.0);
+            double? sensitivityFloor = ParseOptionalDouble(args, "--sensitivity-floor", min: 0.0);
+
             // --continue-rounds <0-2> mirrors the wizard's "Continue optimizing" button: after the first optimize,
             // re-seed from the prior best and run again (fresh curated set / step scale) up to this many more times
             // (3 passes total). Validates the chaining headlessly; per-round J is reported.
@@ -292,7 +303,10 @@ namespace TestApp {
                 LowSigmaOutlierRejection = lowSigmaOutlierRejection,
                 Seed = seed,
                 Baseline = baseline,
-                Variables = OptimizerVariable.CreateCuratedSet(seed),
+                Variables = OptimizerVariable.CreateCuratedSet(seed, sensitivityFloor),
+                SensitivityFloor = sensitivityFloor,
+                MarginalSnrStrength = marginalSnrStrength,
+                MarginalSnrFloor = marginalSnrFloor,
                 MaxEvals = maxEvals,
                 LabelsDir = labelsDir,
                 AnnotateAll = annotateAll,
@@ -338,6 +352,11 @@ namespace TestApp {
             public bool Inspection;     // --inspection: use the aberration-inspection objective
             public bool LegacyObjective; // --legacy-objective: zero the HFR-outlier penalty + coverage reward (A/B "before")
             public int ContinueRounds;  // --continue-rounds: extra chained passes after the first (0-2)
+
+            // F23 arm selectors; null ⇒ shipping default. See the flag comments in RunImpl.
+            public double? SensitivityFloor;      // --sensitivity-floor: mechanism (b)
+            public double? MarginalSnrStrength;   // --marginal-snr-strength: mechanism (a); 0 disables
+            public double? MarginalSnrFloor;      // --marginal-snr-floor: mechanism (a) peak-SNR floor, in σ
         }
 
         /// <summary>Outcome of optimizing one set of runs (joint or a single per-run), for the aggregate report.</summary>
@@ -560,7 +579,23 @@ namespace TestApp {
                 // excluded from the weighted sum).
                 objectiveConstants.HfrOutlierStrength = 0.0;
                 objectiveConstants.Wcov = 0.0;
+                // F23: also zero the marginal-SNR false-positive proxy, so --legacy-objective stays a true
+                // pre-change arm rather than "pre-change except for the newest term".
+                objectiveConstants.MarginalSnrStrength = 0.0;
             }
+            // F23 arm overrides. Applied HERE — after the constants are built, before the optimizer is constructed —
+            // because this single instance feeds the search, baselineJ, the hard floor, the summary and the exposure
+            // recommendation; mutating it at any later point would cover only some of them.
+            if (ctx.MarginalSnrStrength.HasValue) {
+                objectiveConstants.MarginalSnrStrength = ctx.MarginalSnrStrength.Value;
+            }
+            if (ctx.MarginalSnrFloor.HasValue) {
+                objectiveConstants.MarginalSnrFloor = ctx.MarginalSnrFloor.Value;
+            }
+            Console.WriteLine(
+                $"  objective: marginalSnr strength={F(objectiveConstants.MarginalSnrStrength)} floor={F(objectiveConstants.MarginalSnrFloor)}σ " +
+                $"threshold={F(objectiveConstants.MarginalSnrThreshold)}; searchable Sensitivity lower bound=" +
+                $"{F(ctx.SensitivityFloor ?? OptimizerVariable.DefaultSensitivityLower)}");
             var optimizer = new StarDetectionOptimizer(objectiveConstants);
 
             var baselineJ = OptimizationObjective.JTotal(
@@ -594,7 +629,7 @@ namespace TestApp {
             var roundBestJ = new List<double> { result.BestJ };
             for (var roundIdx = 0; roundIdx < ctx.ContinueRounds; roundIdx++) {
                 var seedN = result.BestParams;
-                var variablesN = OptimizerVariable.CreateCuratedSet(seedN);
+                var variablesN = OptimizerVariable.CreateCuratedSet(seedN, ctx.SensitivityFloor);
                 var next = await optimizer.OptimizeAsync(seedN, variablesN, evaluator, settings, progress, CancellationToken.None).ConfigureAwait(false);
                 Console.WriteLine($"Continue round {roundIdx + 1}: bestJ {F(result.BestJ)} -> {F(next.BestJ)}");
                 result = next;
@@ -873,6 +908,20 @@ namespace TestApp {
                 $"usable frames={rec.UsableFrameCount}, short frames={rec.ShortFrameCount})");
         }
 
+        /// <summary>Parses an optional numeric flag, throwing (rather than silently ignoring) on a malformed or
+        /// out-of-range value — a typo in an arm selector must fail the run, not quietly produce the default arm.</summary>
+        private static double? ParseOptionalDouble(string[] args, string name, double min) {
+            var raw = DiagnosticUtil.GetArg(args, name);
+            if (string.IsNullOrWhiteSpace(raw)) {
+                return null;
+            }
+            if (!double.TryParse(raw, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                || !double.IsFinite(value) || value < min) {
+                throw new ArgumentException($"{name}: '{raw}' must be a finite number >= {min.ToString(CultureInfo.InvariantCulture)}");
+            }
+            return value;
+        }
+
         private static void PrintUsage() {
             Console.Error.WriteLine("Usage: TestApp optimize --runs <folder> [--per-run] [--profile-id <guid>] [--out <dir>] [--max-evals <int>] [--annotate extremes|all] [--labels <dir>] [--inspection] [--donut] [--start-from-current] [--continue-rounds <0-2>] [--verbose]");
             Console.Error.WriteLine("  --runs       (required) folder of saved AF runs. Runs are 'attempt*' folders (recursively, <=4 deep) with >=3 focuser positions; or --runs itself.");
@@ -888,6 +937,9 @@ namespace TestApp {
             Console.Error.WriteLine("  --legacy-objective (optional) disable the HFR-outlier penalty + region-coverage reward + saturated-HFR exclusion (the pre-change 'before' for an A/B).");
             Console.Error.WriteLine("  --continue-rounds (optional, 0-2) extra chained passes after the first, each re-seeded from the prior best (3 total).");
             Console.Error.WriteLine("  --verbose    (optional) restore TRACE logging (default INFO). Slower: serializes per-detection stage timings to the NINA log.");
+            Console.Error.WriteLine("  --marginal-snr-strength (optional) override ObjectiveConstants.MarginalSnrStrength (F23 false-positive proxy). 0 disables the term.");
+            Console.Error.WriteLine("  --marginal-snr-floor    (optional) override ObjectiveConstants.MarginalSnrFloor, the absolute peak-SNR floor in sigma (default 6).");
+            Console.Error.WriteLine("  --sensitivity-floor     (optional) floor the SEARCHABLE Sensitivity range (F23 mechanism (b)). <=1.5 is provably inert at shipped defaults.");
         }
 
         // ---- Run / frame discovery -------------------------------------------------------------------------

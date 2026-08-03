@@ -118,9 +118,36 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public static IReadOnlyList<OptimizerVariable> CreateCuratedSet(StarDetectorParams seed)
             => CreateCuratedSet(includeDefocusAxes: seed != null && seed.DefocusAwareDonutDetection);
 
-        private static IReadOnlyList<OptimizerVariable> CreateCuratedSet(bool includeDefocusAxes) {
+        /// <summary>
+        /// Curated set with an explicit floor on the searchable <see cref="StarDetectorParams.Sensitivity"/> range —
+        /// F23 mechanism (b), the CRUDE alternative to the objective's <see cref="OptimizationObjective.SMarginalSnr"/>
+        /// term, kept so the two can be measured head-to-head on the synthetic bank.
+        ///
+        /// <para><paramref name="sensitivityLower"/> null ⇒ <see cref="DefaultSensitivityLower"/> (the shipping
+        /// value), so every existing caller is unchanged. A floor at or below ~1.5 is PROVABLY INERT at shipped
+        /// defaults: the structure/clip stage guarantees the gate's measured sensitivity is at least
+        /// <c>PeakResponse × StarClippingMultiplier</c> (0.75 × 2.0 = 1.5), so no candidate can ever be rejected by
+        /// a threshold below that. Do not confuse this with <c>ExposureRecommender.SensitivityFloorThreshold</c>
+        /// (1.0), which is a "the optimizer hit its floor" predicate, not a detection floor.</para>
+        /// </summary>
+        public static IReadOnlyList<OptimizerVariable> CreateCuratedSet(StarDetectorParams seed, double? sensitivityLower)
+            => CreateCuratedSet(
+                includeDefocusAxes: seed != null && seed.DefocusAwareDonutDetection,
+                sensitivityLower: sensitivityLower ?? DefaultSensitivityLower);
+
+        /// <summary>
+        /// The shipping lower bound of the searchable Sensitivity range. 0.0 — i.e. the axis is NOT floored, and the
+        /// false-positive cost is carried by the objective (<see cref="OptimizationObjective.SMarginalSnr"/>) rather
+        /// than by restricting the search domain. See docs/af-recommender-hardening-design.md for why a hard floor
+        /// is the cruder of the two mechanisms: it forces every rig upward, including the ones whose low landing was
+        /// measurably correct.
+        /// </summary>
+        public const double DefaultSensitivityLower = 0.0;
+
+        private static IReadOnlyList<OptimizerVariable> CreateCuratedSet(
+            bool includeDefocusAxes, double sensitivityLower = DefaultSensitivityLower) {
             // --- Heuristic bounds (no hard UI validation range; chosen pragmatically). Edit here to retune. ---
-            const double SensitivityLower = 0.0;       // heuristic
+            double SensitivityLower = sensitivityLower;  // heuristic; see DefaultSensitivityLower / CreateCuratedSet
             const double SensitivityUpper = 50.0;      // heuristic; widened 20 -> 50 because rich fields pinned the old 20 ceiling
             const double StarClipLower = 0.25;         // heuristic; widened 0.5 -> 0.25 (a setup pinned the old 0.5 floor)
             const double StarClipUpper = 10.0;         // heuristic; widened 5 -> 10 because rich fields pinned the old 5 ceiling
