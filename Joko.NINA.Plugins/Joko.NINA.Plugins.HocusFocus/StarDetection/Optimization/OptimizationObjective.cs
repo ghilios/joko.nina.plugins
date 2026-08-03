@@ -209,22 +209,32 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // Penalty strength: 1 − Strength · max(0, frac − Threshold). 0 ⇒ the term is disabled and J is
         // bit-identical to the pre-F23 objective (used by --legacy-objective and by the A/B "before" arm).
         //
-        // DEFAULT 0 — MEASURED, AND NOT SHIPPABLE AS-IS. On the synthetic bank at strength 1.0 / floor 6.0 this
-        // term does real work where it can fire (D09 precision 0.451 → 0.944, D17 0.465 → 0.735, D10 0.547 →
-        // 0.814) but misses every acceptance gate: 7/17 datasets still below 0.90 precision (control: 8/17),
-        // recall@high dropping > 0.02 on three datasets, and σ_focus worsening > 20% on three more.
+        // DEFAULT 0 — THE PROBLEM THIS TERM WAS BUILT FOR MAY NOT EXIST. Do not enable it without reading F31.
         //
-        // The reason is STRUCTURAL, not a mis-set constant, which is why raising the floor does not fix it. The
-        // gate guarantees sensitivity >= PeakResponse × StarClippingMultiplier, and BOTH of those are searchable
-        // curated axes — so the optimizer can lift the statistic's own LOWER BOUND above MarginalSnrFloor and make
-        // this penalty structurally unable to fire, while the false positives remain. Measured, it does exactly
-        // that: D12 landed at PeakResponse 1.0 × StarClip 6.25 = 6.25 and D15 at 1.0 × 6.75 = 6.75, both just past
-        // the 6.0 floor, with precision stranded at 0.659 and 0.587. A floor of 8 would simply be escaped at 8.
+        // It was written for F23: "the optimizer trades precision away for marginal recall — stock defaults never
+        // drop below 0.942 precision, config A reaches 0.451". Re-scoring the wave-1 arms against each frame's own
+        // *.truth.json instead of the golden showed **96% of those false positives are REAL rendered stars**
+        // (D09 control arm: 280 scored FP, 269 with a truth star within 12 px, 11 genuinely spurious). True
+        // precision on the four datasets that drove F23 is 0.946–1.000 on EVERY arm, including unmodified HEAD.
         //
-        // The fix is a signal the search cannot lift — peak/σ with PeakResponse out of the expression — which needs
-        // new plumbing (Star exposes only the gated MeasuredSensitivity today) and is therefore wave-2 scope.
-        // Kept implemented, tested and flag-selectable (`--marginal-snr-strength`) so the next attempt starts from
-        // a measured position rather than from scratch. See docs/f23-objective-precision-term-results.md.
+        // The mechanism is in the reference, not the detector: GoldenFromTruth tiers by native PEAK-PIXEL SNR and
+        // drops sub-3.5 stars to `omitted`, which lands in neither `stars` nor `unresolved`, so nothing excludes
+        // them. Defocus destroys peak SNR while leaving integrated flux intact, so the golden evaporates at the
+        // sweep wings. A low Sensitivity finds MORE REAL STARS and the metric charges every one as a false
+        // positive — which is the opposite of what F23 asserts. See F31 in docs/followups.md.
+        //
+        // So the wave-1 measurement of this term (7/17 below 0.90, three recall and three σ_focus regressions)
+        // was taken against a metric that cannot support it, in EITHER direction: it is not evidence the term
+        // works, and not evidence it fails. The one thing it did establish, on a metric F31 does not touch, is
+        // F22's attribution — toggling this term moves the measured in-focus HFR across the 4.5 px binning
+        // threshold (D17 S0: Sensitivity 0 → 3.27 px → binning 1; Sensitivity 7 → 4.66 px → binning 2).
+        //
+        // Kept implemented, tested and flag-selectable (`--marginal-snr-strength`) because that toggle is a useful
+        // instrument regardless of whether the term ever ships. Before reviving it: fix the metric (score against
+        // truth), then re-establish whether F23 is real at all. Also note the term is structurally escapable —
+        // sensitivity >= PeakResponse × StarClippingMultiplier and both are searchable axes, so the search can
+        // lift the statistic's own lower bound past MarginalSnrFloor (D12 landed at 1.0 × 6.25, D15 at 1.0 × 6.75).
+        // That flaw is real independently of the metric, and any successor needs a signal the search cannot lift.
         public double MarginalSnrStrength { get; set; } = 0.0;
 
         // Floor on the penalty so this term alone can never drive J to 0 (the hard floors own the hard-fail path).
