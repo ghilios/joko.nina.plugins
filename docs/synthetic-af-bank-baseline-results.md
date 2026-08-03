@@ -11,8 +11,8 @@ Plan: [`plans/synthetic-af-bank-plan.md`](../plans/synthetic-af-bank-plan.md). E
 optimizer's recommendations have never been checked for convergence — what do they look like when the
 right answer is known by construction?***
 
-Everything below is **flagged, not fixed**. Five product findings became `docs/followups.md` entries
-(F19–F22 plus the standing donut note); none of them changed product behaviour in this branch.
+Everything below is **flagged, not fixed**. Six product findings became `docs/followups.md` entries
+(F19–F24); none of them changed product behaviour in this branch.
 
 ## Headline
 
@@ -23,6 +23,7 @@ Everything below is **flagged, not fixed**. Five product findings became `docs/f
 | Determinism | **PASS** — D07 + D12 regenerated from seeds: 36/36 frames and golden sidecars bit-identical |
 | Golden precision (D06, `golden eval`) | **1.000** — 205 TP, **0 FP**. Exact, not a lower bound |
 | S0 control (harness self-test) | **13 PASS · 1 FLAG · 3 FAIL**; R² = 1.0000 on 15 of 17 |
+| V2 precision/recall baseline | 17 runs, 0 failed, `afbank-verify/3` — see the V2 section; C0 precision never below **0.942**, config A as low as **0.451** |
 | Pixel-scale default change (V-P1) | **no measurable effect** — see "The pixel-scale change did nothing" below |
 | Full unit suite | 3293 passed at gate #1; 3292/3293 on the final pass, the one failure being the known-flaky `SendAsync_WritesOnABackgroundThread` EAT test (timing-sensitive, unrelated, and the machine was running two optimizer processes) |
 
@@ -124,10 +125,91 @@ recall@≥12=0.181, sensor R²=0.9933, 7/9 aligned. That is a **config-B** numbe
 donut forced on) from the June prepass and sits behind every merge into `develop` since, so it is not a
 valid guard for this change. The single-commit before/after above is the guard that isolates it.
 
+## V2 — the precision/recall baseline, and the biggest result in this document
+
+`bank-verify --runs D:\SyntheticAutofocusBank --nc-sweep 2,3,4 --opt-a … --opt-b …`, schema
+`afbank-verify/3`, header pixel scale, 17 runs, 0 failed. C0 = stock defaults; A = `optimize --per-run`;
+B = the same with donut detection forced on. Cells are **recall@high / precision**.
+
+| dataset | C0@nc2 | A | B | afR² (C0) |
+|---|---|---|---|---|
+| D01_ultrawide_40mm | 0.135 / 0.963 | 0.129 / 0.970 | 0.115 / 0.967 | 0.9098 |
+| D02_rich_135mm | 0.475 / 0.991 | 0.451 / 0.991 | 0.442 / 0.990 | 0.9172 |
+| D03_redcat_250mm | 0.400 / 0.988 | 0.396 / 0.992 | 0.537 / 0.991 | 0.9512 |
+| D04_esprit_550mm | 0.810 / 0.979 | 0.855 / 0.977 | 0.697 / 0.977 | 0.9993 |
+| D05_tec140_1000mm | **0.982** / 0.986 | 0.989 / 0.966 | 0.978 / 0.992 | 0.9999 |
+| D06_sparse_1000mm | **0.982** / 0.978 | 0.964 / 0.984 | 0.988 / 0.977 | 0.9997 |
+| D07_rc10_2000mm | 0.965 / 0.953 | 0.973 / 0.941 | 0.944 / 0.859 | 1.0000 |
+| D08_c11_2800mm | **1.000** / 0.959 | 0.990 / **0.748** | 1.000 / 0.781 | 0.9996 |
+| D09_c14_3800mm | 0.922 / 0.993 | 0.956 / **0.451** | 1.000 / **0.448** | 0.9992 |
+| D10_rc16_3250mm_sparse | 0.983 / **1.000** | 0.931 / **0.547** | 0.966 / 0.661 | 0.9996 |
+| D11_rc10_585_afbin2 | 0.887 / 0.986 | 0.850 / **0.732** | 0.917 / 0.627 | 1.0000 |
+| D12_c14_585_afbin2 | 0.897 / 0.952 | 0.897 / **0.653** | 0.879 / **0.506** | 0.9994 |
+| D13_apo200_1800mm (ε=0 control) | **1.000** / 0.962 | 1.000 / 0.985 | 0.986 / **0.653** | 0.9992 |
+| D14_cdk14_2563mm_e47 | 0.979 / 0.965 | 0.990 / 0.948 | 0.984 / 0.671 | 0.9997 |
+| D15_cdk20_3454mm_e47 | 0.954 / 0.979 | 0.943 / **0.531** | 0.931 / 0.708 | 0.9992 |
+| D16_esprit550_ha3 | 0.886 / 0.985 | 0.908 / **0.744** | 0.739 / 0.983 | 0.9954 |
+| D17_cdk14_oiii5 | **1.000** / 0.942 | 1.000 / **0.465** | 1.000 / 0.567 | 0.9988 |
+
+**Reading it — three things, in order of importance.**
+
+**1. The optimizer trades precision away for marginal recall (F23).** C0's precision never falls below
+**0.942** on any dataset. Config A falls to 0.451. On D09 the optimizer bought +0.034 recall for −0.542
+precision; on D10, +0.000 recall (it lost 0.052) for −0.453 precision. The objective rewards star count
+and fit quality and has no false-positive term — and could not have had one, because on the real bank
+precision is only a lower bound (F11). This is the single result that most justifies the bank existing:
+it is invisible without exact truth, and it reframes every prior "A beat C0" conclusion.
+
+**2. Recall tracks focal length exactly as physics predicts, then cliffs.** 0.135 → 0.475 → 0.400 →
+0.810 → **0.982** as the PSF grows past `MinHFR` and becomes well sampled. The design's M-class anchor
+("well-sampled ⇒ essentially everything", ≥0.97) is **validated** at 0.982/0.982/1.000. The W-class band
+(≥0.90) is **missed badly**, and for a reason worth stating: it was set assuming a gentle pixelization
+loss, but the real mechanism is the hard `MinHFR` cliff (F20) — D01 detects *zero* stars at focus while
+its goldens are fully populated. The band is left as written, with a note; it should be revisited when
+F20 is addressed, not widened to fit.
+
+**3. Donut detection costs precision everywhere, including where donuts are absent (F24).** D13 is the
+1800 mm **unobstructed** control, present exactly so "donut" and "long focal length" cannot be
+confounded — config B takes its precision from 0.962 to **0.653**. Two design assumptions also fell:
+C0 is *not* broken on synthetic donut datasets (D08 and D17 reach recall 1.000 at precision 0.942–0.959),
+unlike the real bank's donut runs; and `donutEffect` across the 17 A/B pairs is `donutHelpedAF: 5`,
+`donutHurtSensor: 6` — no clear win either way.
+
+The NC sweep independently recommends **NC = 2** (recall@high 0.95, precision 0.98, still rising at the
+bottom of the swept range), which agrees with the real bank's conclusion in
+`af-bank-noiseclip-sweep-results.md` — a useful cross-check that the synthetic bank is not living in its
+own universe.
+
+### Expectation-band scorecard
+
+| band | result |
+|---|---|
+| W class C0@nc2 recall@high ≥ 0.90 | **MISS** (0.135 / 0.475 / 0.400) — F20, band left unwidened |
+| W class C0@nc2 precision ≥ 0.95 | PASS (0.963 / 0.991 / 0.988) |
+| M class C0@nc2 recall@high ≥ 0.97 | PARTIAL — D05/D06/D13 pass (0.982–1.000); D04 0.810 and D16 0.886 miss |
+| M class C0@nc2 precision ≥ 0.95 | PASS (0.962–0.986) |
+| L classes on config B, recall ≥ 0.90 | mostly PASS (0.879–1.000; D12 0.879 marginal) |
+| L classes on config B, precision ≥ 0.90 | **MISS across the board** (0.448–0.859) — F23/F24 |
+| Config A precision ≥ 0.98, non-donut | PARTIAL — D02/D03 pass; D16 0.744 misses badly |
+| afR² floor 0.95 | PASS on 15/17; D01 0.910 and D02 0.917 miss (F20) |
+
+## What was not run
+
+Stated plainly so the baseline is not read as more complete than it is:
+
+- **V1 scenarios S1–S6 were not run.** Only S0, the control, completed (all 17 datasets, twice). The
+  perturbation scenarios — step ×0.25 and ×4, exposure ×0.25, binning, donut-off, combined — are
+  implemented and smoke-tested but the matrix is several hours of compute that this session did not
+  reach. S0 was the gating self-test and it is done; S1–S6 remain.
+- **The CLI-parity check and the `--max-evals` 120-vs-250 stability check** listed in the plan's
+  self-verification order were not run.
+
 ## Followups raised
 
 | id | finding |
 |---|---|
+| **F23** | The optimizer objective has no precision term, so it trades precision away for marginal recall — C0 never drops below 0.942, config A reaches 0.451 |
+| **F24** | Donut detection costs precision even where donuts exist, and worst on the ε=0 control (D13: 0.962 → 0.653) |
 | **F19** | The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one — a 3 nm Hα refractor still derives the 0.5 s floor because its 2.9° field holds 6835 stars |
 | **F20** | Below `MinHFR` the autofocus objective collapses to exactly 0 with no diagnostic, indistinguishable from an empty field or a wrong folder |
 | **F21** | `StepSizeRecommender`'s half-width is not stable against noise: D17 gave 143.6 and 12.1 on two seeds, both fitting at R²=1.0000 — steps of 41 and 3 where 60 is correct |

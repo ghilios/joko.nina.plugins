@@ -164,6 +164,77 @@ This changes the shipped recommender for every user, so it wants a design spec p
 as the acceptance metric, not an inline patch. Related: the flat-topped rejections that motivated this are
 surfaced as sweep-geometry evidence by `ExposureRecommendation.FlatRejectedCount` (PR #159).
 
+### F23 — The optimizer objective has no precision term, so it trades precision away for marginal recall
+**Status:** Open · found 2026-08-02, the first measurement of **exact** detector precision (synthetic AF bank)
+
+The objective `J` rewards star count and fit quality. Nothing in it penalises a false positive — and
+nothing could have, because until this bank existed precision was only ever a *lower bound* on real data
+(`F11`). Given exact precision, the optimizer's landings are revealed to be a bad trade: it gains a few
+points of recall and gives up **half** the precision.
+
+**Evidence.** `bank-verify --nc-sweep 2,3,4 --opt-a --opt-b` over all 17 synthetic datasets
+(`afbank-verify/3`, header pixel scale, 0 failed). C0 = stock defaults; A = `optimize --per-run`;
+B = the same with donut detection forced on. recall@high / precision:
+
+| dataset | C0@nc2 | A | B |
+|---|---|---|---|
+| D08_c11_2800mm | 1.000 / **0.959** | 0.990 / **0.748** | 1.000 / 0.781 |
+| D09_c14_3800mm | 0.922 / **0.993** | 0.956 / **0.451** | 1.000 / 0.448 |
+| D10_rc16_3250mm_sparse | 0.983 / **1.000** | 0.931 / **0.547** | 0.966 / 0.661 |
+| D11_rc10_585_afbin2 | 0.887 / **0.986** | 0.850 / **0.732** | 0.917 / 0.627 |
+| D12_c14_585_afbin2 | 0.897 / **0.952** | 0.897 / **0.653** | 0.879 / 0.506 |
+| D15_cdk20_3454mm_e47 | 0.954 / **0.979** | 0.943 / **0.531** | 0.931 / 0.708 |
+| D16_esprit550_ha3 | 0.886 / **0.985** | 0.908 / **0.744** | 0.739 / 0.983 |
+| D17_cdk14_oiii5 | 1.000 / **0.942** | 1.000 / **0.465** | 1.000 / 0.567 |
+
+C0's precision never drops below **0.942** on any of the 17 datasets. Config A drops as low as 0.451.
+On D09 the optimizer bought +0.034 recall for −0.542 precision.
+
+**Why it matters.** This is the wizard's headline output — the settings a user is invited to Accept. On
+a long-focal-length rig it is currently recommending a configuration that roughly doubles the false-
+positive rate. Those false positives then feed the autofocus fit and the sensor-model fit, so the cost
+is not confined to a reported number. It also reframes the real-bank optimizer results: every prior "A
+beat C0" conclusion was scored against a precision figure that could not see this.
+
+**Next step.** Add a precision-like term to the objective. It cannot be true precision on real data
+(that is the whole problem), but two proxies are already available: the golden-independent
+false-positive *proxies* the detector already collects, and — for tuning and regression — this bank,
+where precision is exact. Any change wants scoring against **both** banks, since the synthetic one can
+now measure exactly the quantity the real one cannot. Related: [F4](#f4--the-objective-has-no-sensor-model-term)
+is the same shape of gap (a term the objective omits), and [F11](#f11--precision-is-a-lower-bound-on-runs-whose-faint-tier-was-budget-truncated--re-measured) is why this went unseen.
+
+### F24 — Donut detection costs precision even where donuts exist, and badly where they do not
+**Status:** Open · found 2026-08-02 on the synthetic AF bank
+
+Config B (donut-aware detection forced on) reduced precision on **every** dataset where it was
+measurable, including the datasets that genuinely have donuts, and most sharply on the ε=0 control that
+has none.
+
+**Evidence.** `D13_apo200_1800mm` is a 1800 mm **unobstructed** refractor — the design's donut control,
+present precisely so "donut" and "long focal length" cannot be confounded. Its extreme-defocus PSFs are
+filled discs, not annuli:
+
+| dataset | ε | C0@nc2 precision | B precision |
+|---|---|---|---|
+| **D13_apo200_1800mm** | **0** | 0.962 | **0.653** |
+| D14_cdk14_2563mm_e47 | 0.47 | 0.965 | 0.671 |
+| D12_c14_585_afbin2 | 0.34 | 0.952 | 0.506 |
+| D09_c14_3800mm | 0.34 | 0.993 | 0.448 |
+
+Two further expectations the run overturned: the design assumed **C0 would be broken on donut datasets**
+(as it is on the real bank's `Panos`/`mufti`/`LinwoodFocus`) — it is not, reaching recall 1.000 on D08
+and D17 with precision 0.942–0.959. And `donutEffect` over the 17 A/B pairs is `donutHelpedAF: 5`,
+`donutHurtSensor: 6` — no clear win.
+
+**Why it matters.** Donut detection is a bootstrap input that gates nine optimizer axes, and there is
+still no product signal that recommends it ([F1](#f1--the-donut-heuristic-misses-small-donuts) is about
+the heuristic missing *small* donuts). This says the cost of enabling it wrongly is high and concrete,
+which raises the stakes on getting that signal right.
+
+**Next step.** Score the nine donut-gated axes individually against this bank to find which of them
+carries the precision cost — the synthetic donuts are clean and high-SNR, so anything that loses
+precision here is losing it structurally rather than to noise.
+
 ### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
 **Status:** Open · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
 
