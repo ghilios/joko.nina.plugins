@@ -803,9 +803,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// so the fold is additive and does not double-count values already present on the main metrics.
         /// </summary>
         /// <summary>
-        /// Returns all seven <c>*Bounds</c> lists in a fixed, canonical order. Every method that needs to
-        /// iterate over all bounds lists (Merge, SortBounds, AddROIOffset) uses this helper so that adding an
-        /// eighth bounds list in the future requires only a single edit here.
+        /// Returns all NINE <c>*Bounds</c> lists in a fixed, canonical order. Every method that needs to iterate
+        /// over all bounds lists (Merge, SortBounds, AddROIOffset) uses this helper, so adding another one
+        /// requires a single edit here. (The count read "seven" long after TooElongatedBounds and
+        /// BloomSuppressedBounds joined the list — the helper is the source of truth, not the prose.)
         /// </summary>
         private List<List<Rect>> AllBoundsLists() => new List<List<Rect>> {
             TooDistortedBounds,
@@ -933,9 +934,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
     /// <summary>
     /// Per-rejected-candidate diagnostics, captured only when
     /// <see cref="StarDetectorParams.CollectRejectedCandidateDiagnostics"/> is enabled. One record is produced for
-    /// EVERY candidate a late gate rejects (unlike the metrics <c>*Bounds</c> lists, which only exist for seven of
-    /// the gates), so the label-driven recommender can attribute a labeled "wrongly-rejected" star to the exact
-    /// gate that killed it and invert that gate's threshold. <see cref="MeasuredValue"/> is the scalar the gate
+    /// EVERY candidate a late gate rejects — unlike the metrics <c>*Bounds</c> lists, which carry only geometry
+    /// (a rect, with no measured value and no threshold) and do not even span the gates: there are NINE of them
+    /// against <see cref="RejectionGate"/>'s TWELVE constants, they cover eight (TooSmall, OnBorder,
+    /// HFRAnalysisFailed and TooLowHFR have none), and the ninth, <c>SaturatedBounds</c>, corresponds to no gate
+    /// at all because saturated stars are kept and masked during the PSF fit rather than rejected. So the
+    /// label-driven recommender can
+    /// attribute a labeled "wrongly-rejected" star to the exact gate that killed it and invert that gate's
+    /// threshold.
+    ///
+    /// <para><b>Not reachable from the optimizer</b> (F30's sibling, F27). These records live on
+    /// <c>HocusFocusStarDetectorResult.RejectedCandidates</c>, and
+    /// <c>HocusFocusStarDetection.BuildStarDetectionResult</c> copies only <c>Metrics</c> forward — the type the
+    /// optimizer consumes has no member for them at all. Only the review/feedback path re-detects with the flag
+    /// on, outside the optimizer loop. Anything in the objective needing per-rejection detail has to plumb this
+    /// through first; the <c>*Bounds</c> rect lists ARE reachable at the same seam that reads
+    /// <c>LowSensitivity</c>/<c>TooFlat</c>, but they answer a strictly weaker question.</para> <see cref="MeasuredValue"/> is the scalar the gate
     /// compared against <see cref="ThresholdValue"/>; both are <see cref="double.NaN"/> for the non-scalar gates
     /// (OnBorder/Degenerate/HFRAnalysisFailed), which can only be flagged, not threshold-recovered.
     /// </summary>

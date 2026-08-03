@@ -68,10 +68,44 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double FinalJ { get; set; }
         public int RecommendedStepSize { get; set; }
         public int RecommendedOffsetSteps { get; set; }
-        public int SchemaVersion { get; set; } = 2;
+
+        /// <summary>
+        /// v1 = the original curated knob set. v2 added the defocus-aware axes. v3 added the optional
+        /// <see cref="Provenance"/> block (F30) and changed NO knob semantics, so a v3 file stays knob-compatible
+        /// with v2 in both directions — an older build ignores the unknown key, and a newer build reads a v1/v2
+        /// file with <see cref="Provenance"/> left null. Nothing branches on this number and nothing should start
+        /// REJECTING a higher one: the whole AF-bank toolchain reads this DTO, and a hard version gate would break
+        /// it on the next bump.
+        /// </summary>
+        public const int CurrentSchemaVersion = 3;
+
+        public int SchemaVersion { get; set; } = CurrentSchemaVersion;
+
+        /// <summary>
+        /// WHICH INVOCATION produced this landing — null when that is unknown, which covers every file written
+        /// before schema 3 and every snapshot that captures live settings rather than an optimizer result. Null
+        /// means <b>unattributable</b> and must never be read as "matches me".
+        ///
+        /// <para><b>Why this exists.</b> A landing recorded when it was written and how well it scored, and nothing
+        /// about what produced it. <c>optimize --per-run</c> writes each landing back into the RUN's own folder as
+        /// well as into <c>--out</c> (F15), so a bank folder accumulates whichever prepass went last and a reader
+        /// has to INFER the arm from a knob value. That inference holds only while exactly one knob varies between
+        /// arms. F23 wave 1 ran three arms differing by objective constants and search domain, the inference
+        /// silently broke, and the misattribution produced a wrong followup entry that was committed twice before
+        /// a control arm disproved it.</para>
+        ///
+        /// <para>Omitted from the JSON entirely when null, so a plugin-written snapshot is byte-identical to
+        /// before this field existed.</para>
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public OptimizerProvenance Provenance { get; set; }
 
         public OptimizedStarDetectionSettings Clone() {
-            return (OptimizedStarDetectionSettings)MemberwiseClone();
+            var copy = (OptimizedStarDetectionSettings)MemberwiseClone();
+            // MemberwiseClone is shallow, so without this every copy would ALIAS one provenance instance — and a
+            // mutation through any of them would rewrite the history of all the others.
+            copy.Provenance = Provenance?.Clone();
+            return copy;
         }
 
         /// <summary>
@@ -82,8 +116,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// headless harness (<c>OptimizationDiagnosticRunner</c>) call this so the two paths can never drift.
         /// <see cref="CreatedAtUtc"/> is stamped with <see cref="DateTime.UtcNow"/> at the call site.
         /// </summary>
+        /// <param name="provenance">Optional record of the invocation that produced this landing. Leave it null
+        /// for a snapshot that CAPTURES live settings rather than reporting an optimizer result — the tilt
+        /// wizard's <c>CaptureDetectionSettings</c> is exactly that, and stamping a producer on it would be a
+        /// lie.</param>
         public static OptimizedStarDetectionSettings FromParams(
-            StarDetectorParams p, int runCount, double baselineJ, double finalJ, int recommendedStepSize, int recommendedOffsetSteps) {
+            StarDetectorParams p, int runCount, double baselineJ, double finalJ, int recommendedStepSize, int recommendedOffsetSteps,
+            OptimizerProvenance provenance = null) {
             if (p == null) {
                 throw new ArgumentNullException(nameof(p));
             }
@@ -124,8 +163,51 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 BaselineJ = baselineJ,
                 FinalJ = finalJ,
                 RecommendedStepSize = recommendedStepSize,
-                RecommendedOffsetSteps = recommendedOffsetSteps
+                RecommendedOffsetSteps = recommendedOffsetSteps,
+                Provenance = provenance?.Clone()
             };
+        }
+    }
+
+    /// <summary>
+    /// Which invocation produced an <see cref="OptimizedStarDetectionSettings"/> landing, and under what
+    /// configuration (F30). Metadata only — nothing here is ever applied to
+    /// <see cref="StarDetectorParams"/>, and every overlay helper ignores it.
+    ///
+    /// <para>Every field is optional and the block is omitted from the JSON when null, so a snapshot written by
+    /// the SHIPPING plugin — which has no argv and no harness settings file — stays exactly as it was, and a file
+    /// written before this existed still loads, reporting "no provenance" rather than a fabricated one.</para>
+    /// </summary>
+    [JsonObject(MemberSerialization.OptOut, ItemNullValueHandling = NullValueHandling.Ignore)]
+    public sealed class OptimizerProvenance {
+
+        /// <summary>What wrote this, e.g. <c>"TestApp optimize"</c> or <c>"HocusFocus wizard"</c>. The coarse
+        /// discriminator: argv is meaningful only for the harness.</summary>
+        public string Producer { get; set; }
+
+        /// <summary>The effective command line, arguments joined by a single space. This is the field F30 is
+        /// about: two prepasses differing by one flag are otherwise indistinguishable once written.</summary>
+        public string CommandLine { get; set; }
+
+        /// <summary>Stable fingerprint of the settings the run was DRIVEN by. Hashes the semantic content rather
+        /// than the file's bytes, so re-exporting or re-indenting a settings file does not make a landing look
+        /// like it came from a different configuration.</summary>
+        public string SettingsFingerprint { get; set; }
+
+        /// <summary>Assembly informational version of whatever produced this, so a landing also identifies the
+        /// build it came from.</summary>
+        public string ProducerVersion { get; set; }
+
+        public OptimizerProvenance Clone() => (OptimizerProvenance)MemberwiseClone();
+
+        /// <summary>One-line summary for a log or a console line; skips whatever is unset.</summary>
+        public override string ToString() {
+            var parts = new System.Collections.Generic.List<string>();
+            if (!string.IsNullOrWhiteSpace(Producer)) { parts.Add(Producer); }
+            if (!string.IsNullOrWhiteSpace(ProducerVersion)) { parts.Add($"v{ProducerVersion}"); }
+            if (!string.IsNullOrWhiteSpace(CommandLine)) { parts.Add(CommandLine); }
+            if (!string.IsNullOrWhiteSpace(SettingsFingerprint)) { parts.Add($"settings#{SettingsFingerprint}"); }
+            return parts.Count > 0 ? string.Join(" | ", parts) : "(no provenance)";
         }
     }
 }

@@ -1285,6 +1285,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 nameof(OptimizedStarDetectionSettings.RecommendedStepSize),
                 nameof(OptimizedStarDetectionSettings.RecommendedOffsetSteps),
                 nameof(OptimizedStarDetectionSettings.SchemaVersion),
+                // F30 provenance: records WHICH INVOCATION produced the landing. Metadata, not a knob — nothing
+                // applies it to StarDetectorParams, and the replay overlay must not try to.
+                nameof(OptimizedStarDetectionSettings.Provenance),
             };
             var curatedKnobs = typeof(OptimizedStarDetectionSettings)
                 .GetProperties(BindingFlags.Public | BindingFlags.Instance)

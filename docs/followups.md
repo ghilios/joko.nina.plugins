@@ -538,7 +538,7 @@ a dead band around the 4.5/7.5 px boundaries so a marginal rig does not flip bet
 under-reading pushes small-HFR rigs toward the `MinHFR` cliff.
 
 ### F27 — The optimizer cannot reach the rejected-candidate diagnostics an approved spec says it can
-**Status:** Open · found 2026-08-03 implementing [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)
+**Status:** **Done** (2026-08-03, wave 2 — the spec was never committed; record corrected and the seam documented in code) · found 2026-08-03 implementing [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)
 
 [`docs/af-recommender-hardening-design.md`](af-recommender-hardening-design.md) lists "the rejected-candidate
 diagnostics (`CollectRejectedCandidateDiagnostics`)" among the signals "already collected" and available to
@@ -558,13 +558,39 @@ choice of three proxy signals and in fact had one. The gap is cheap to close: th
 cache-key **denylist** (`IStarDetector.cs:523-542`), so enabling it inside the optimizer would invalidate no
 memo and no early-context key; the only cost is per-detection allocation in the hot loop.
 
-**Next step.** Either add `RejectedCandidates` to `HocusFocusStarDetectionResult` and summarise it into
-`FrameDetectionResult`, or correct the spec. Note the nine per-gate `*Bounds` rect lists **are** already on
-`Metrics` and reachable at the same one-line seam that reads `LowSensitivity`/`TooFlat`
-(`RunEvaluationLoader.cs:331-335`), so they are the cheaper signal if per-rejection geometry is wanted.
+**Resolved 2026-08-03 by correcting the record, not the code.** Every code claim above was re-verified line by
+line and holds at HEAD. Two things changed the resolution:
+
+1. **The spec was never merged.** `docs/af-recommender-hardening-design.md` is absent from `develop`; it exists
+   only on the unmerged branch `ghilios/af-recommender-hardening-design` (`8b7867c`). Three merged documents
+   linked to it, so every one of those links dangles for anyone not sitting on that branch. They now point at
+   [`plans/af-recommender-hardening-plan.md`](../plans/af-recommender-hardening-plan.md), the design of record on
+   `develop`. (Worth stating precisely: a first pass at this entry said the spec "was never committed and no
+   revision of it exists", which is wrong in the direction that would have justified rewriting it from
+   scratch.)
+2. **The plan already had it right.** Its "signals already available" table reads `CollectRejectedCandidateDiagnostics
+   records | no — RejectedCandidates never reaches HocusFocusStarDetectionResult`. So the false claim lived only
+   in the uncommitted spec, and the committed artifact contradicted it correctly the whole time. Wave 1 was
+   written from the version that was wrong.
+
+**Not plumbed, deliberately.** Adding `RejectedCandidates` to the optimizer's contract buys per-rejection detail
+nothing currently needs, at a per-detection allocation cost in the hot loop. The seam is instead **documented
+where someone would look for it** (`Interfaces/IStarDetector.cs`, on `RejectedCandidateRecord`), so the next
+person to assume the optimizer can see these records is told otherwise by the type itself rather than by a
+design document that may not survive. The `*Bounds` rect lists are noted there too, with the caveat the original
+entry left out: they carry geometry only — no measured value, no threshold — so they answer a strictly weaker
+question and are not a drop-in substitute.
+
+**Also fixed:** the `AllBoundsLists()` doc comment said "seven" and "an eighth in the future" while the helper
+returns **nine** — it had drifted when `TooElongatedBounds` and `BloomSuppressedBounds` were added. The
+`RejectedCandidateRecord` comment repeated the same stale count, and the true relationship is more lopsided than
+either number suggests: `RejectionGate` has **twelve** constants, the nine `*Bounds` lists cover **eight** of
+them (TooSmall, OnBorder, HFRAnalysisFailed and TooLowHFR have none), and the ninth — `SaturatedBounds` —
+corresponds to no gate at all, because saturated stars are KEPT and masked during the PSF fit rather than
+rejected. So "the `*Bounds` lists cover most gates" was making the gap look smaller than it is.
 
 ### F28 — `LowSensitivity` reads exactly zero precisely when the Sensitivity gate has collapsed
-**Status:** Open · found 2026-08-03 implementing [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)
+**Status:** **Done** (2026-08-03, wave 2 — discriminator now gated on the gate being able to reject; user-visible) · found 2026-08-03 implementing [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)
 
 The gate rejects on `sensitivity <= p.Sensitivity` (`StarDetector.cs:1763`), and every candidate's
 `sensitivity` is bounded below by `PeakResponse × EffectiveClipMultiplier` — 0.75 × 2.0 = **1.5** at shipped
@@ -590,13 +616,25 @@ recommender always concludes the field has nothing more to give.
 and valuable (2 s → 5 rejections, 14 s → zero; the comment at `ExposureRecommender.cs:511-514` records it).
 That rig was not at the search floor. The defect is the *interaction* with the floor, not the test.
 
-**Next step.** Make the discriminator conditional on the gate being able to reject at all — compare
-`p.Sensitivity` against `PeakResponse × EffectiveClipMultiplier` and report "the gate is inert, so its
-rejection count carries no information" rather than silently reading it as exhaustion. Never use this counter
-as a false-positive signal: the pathological landing produces its cleanest possible value.
+**Fixed 2026-08-03 (wave 2).** The discriminator is now conditional on the gate being able to reject at all.
+`StarDetector.InertSensitivityBound(p)` = `PeakResponse × MinEffectiveClipMultiplier(p)` is computed from the
+run's own params — never hard-coded, because both factors are searched axes and F23 wave 1 measured landings at
+`StarClip` 6.25 and 6.75 where the bound is over 4× the default. `ExposureRecommendation` gains
+`InertGateBound` and `GateIsProvablyInert`; an inert gate now falls to the **probe** (which ships with its own
+stopping rule) rather than to a verdict of exhaustion nothing in the run supports, and the derivation tooltip
+says why the rejection count carries no information.
+
+**This is user-visible**, and narrowly so: signal-sufficient runs where every frame is short of the star-count
+target AND the gate sat below its own inert bound move from "no exposure offered" to a 2× probe. The rig that
+motivated the zero-rejections test is untouched — it rejected 5 candidates at 2 s, so its gate was demonstrably
+live, and the two populations are disjoint by construction (`gateIsProvablyInert` requires
+`gateRejectedCount == 0`). An observed rejection refutes the derivation and wins.
+
+The entry's closing warning stands and is worth repeating: **never use this counter as a false-positive
+signal.** The pathological landing produces its cleanest possible value.
 
 ### F30 — A stored `optimized_settings.json` does not say which config produced it
-**Status:** Open · found 2026-08-03 pinning the [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall) baseline
+**Status:** **Done** (2026-08-03, wave 2 — provenance block added, schema 3) · found 2026-08-03 pinning the [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall) baseline
 
 **Retraction first.** This entry was originally filed as "the published V2 config-A landings do not
 reproduce". **That was wrong, and the error was mine, not the tool's.** Re-running `optimize --per-run` at
@@ -623,12 +661,21 @@ search domain).
 **Why it matters.** The misattribution cost real time and produced a wrong followup entry that was committed
 twice before the control arm disproved it. A one-line provenance field would have made it impossible.
 
-**Next step.** Add the effective `optimize` argv (and ideally a hash of the resolved `harness_settings.json`)
-to `OptimizedStarDetectionSettings`, so a landing is self-describing and a stale copy announces itself.
+**Fixed 2026-08-03 (wave 2).** `OptimizedStarDetectionSettings` gains an optional `Provenance` block
+(`Producer`, `CommandLine`, `SettingsFingerprint`, `ProducerVersion`) and the schema goes to **3**. The
+fingerprint hashes the harness settings' *semantic* content — the parsed option bag, key-sorted, plus the
+resolved pixel-scale inputs — not the file's bytes, so re-exporting or re-indenting a settings file does not make
+a landing look as though it came from a different configuration.
 
-**Next step.** Record the provenance in `optimized_settings.json`, which already carries `CreatedAtUtc`,
-`RunCount`, `BaselineJ` and `FinalJ`: add the full `optimize` argv and a hash of the effective
-`harness_settings.json`. Cheap, and it makes a landing self-describing.
+**Degrades in both directions.** The block is omitted from the JSON entirely when null, so a snapshot written by
+the shipping plugin is byte-identical to before; a v1/v2 file still loads with `Provenance` null, which reads as
+**unattributable** and must never be read as "matches me"; and the tilt wizard's `CaptureDetectionSettings` —
+which snapshots *live* settings rather than an optimizer result — deliberately keeps it null, because stamping a
+producer on it would be a lie. `Clone()` deep-copies it: `MemberwiseClone` is shallow, so without that every copy
+would alias one instance.
+
+The underlying overwrite ([F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings)) is unchanged — a
+bank folder still accumulates whichever prepass went last. What changes is that the survivor now says so.
 
 ### F31 — Synthetic-bank precision is NOT exact: the golden omits real stars, and they score as false positives
 **Status:** Open · found 2026-08-03 verifying the [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall) wave-1 result · **INVALIDATES F23's evidence base**
@@ -798,6 +845,42 @@ Using the golden star bbox to detect donuts fails: `Panos` is a genuine donut ru
 frame measures a median bbox of only 12 px, because the SNR reference detects **fragments** of a thin ring rather
 than the ring. This is the documented under-counting of defocused donuts in `.claude/docs/golden-star-set.md`.
 Use the heuristic's own donut statistics, or render the pixels and classify them.
+
+### F34 — `synth-validate` scored a stalled run as converged, at a step 4× outside the band its own assertion failed it on
+**Status:** **Done** (2026-08-03, wave 2) · found 2026-08-03 re-measuring [F25](#f25--from-a-far-too-wide-sweep-the-step-recommender-widens-it-further-inflating-the-sweep-to-3x-its-correct-width)
+
+The fourth harness-calibration bug on this bank, and the third in the convergence-predicate family. The round
+loop set `stoppedReason = "converged (round applied nothing)"` unconditionally, and `ScenarioTerminal.Converged`
+was then derived by string-matching that reason for a `"converged"` prefix.
+
+**Evidence.** `D05_tec140_1000mm` S2:
+
+```
+converged: true
+stoppedReason: "converged (round applied nothing)"
+finalStepSize: 140     stepBehavioral: 35     deltaStepVsExpected: +105
+assertions: A3 verdict=FAIL  "final step 140 outside [21,56] = [0.6,1.6]x step_behavioral (35)"
+```
+
+Two verdicts contradicting each other inside one JSON object.
+
+**Mechanism.** `StepSizeRecommender.Degenerate` **holds the current step** whenever the fit is unusable — no
+`Fitting`, a non-finite vertex, a non-positive minimum HFR, or the 3× band never crossed. The driver applies a
+step only when it differs, so a degenerate fit produces `AppliedAnything == false` that is byte-identical to the
+recommender genuinely agreeing. The loop read "nothing changed" as success, which inflates convergence counts on
+exactly the runs that are most broken.
+
+**Fixed.** A no-op round still STOPS the loop — the recommender is not going to move on its own — but it counts
+as convergence only when the step is inside the tolerance band, and reports `stalled` otherwise. The band moved
+into `ConvergenceBand` so both stop branches share one definition, and it is a strict subset of A3's `[0.6,1.6]×`
+sharing its lower bound, so the two verdicts cannot contradict each other again. `Converged` is now set
+explicitly at each stop site instead of parsed out of prose, and `stepToleranceBand` is recorded on the terminal
+so the claim is checkable from the report alone.
+
+**Why it is worth a numbered entry.** Four calibration bugs have now been found on this harness — three in this
+family — every one by someone happening to look rather than by anything failing. A harness that reports its own
+success is load-bearing for every conclusion drawn from it; see also the `truthViolations` /
+`precisionNull` guards added to `bank-verify` for the same reason ([F31](#f31--synthetic-bank-precision-is-not-exact-the-golden-omits-real-stars-and-they-score-as-false-positives)).
 
 ---
 

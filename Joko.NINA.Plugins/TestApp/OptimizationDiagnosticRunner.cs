@@ -185,6 +185,18 @@ namespace TestApp {
             // profile-sourced seed is mutable machine state nothing records, and TryLoad("") picks whichever
             // profile is ACTIVE -- two runs of the same data minutes apart were seeded from different telescopes.
             var harnessSettings = HarnessSettingsStore.Resolve(args, profileService, activeProfile);
+            // F30: a landing must say which invocation produced it. Without this, `optimize --per-run` writing
+            // back into each run's own folder (F15) leaves a bank holding whichever prepass went last, and the
+            // only way to tell two arms apart is to INFER the arm from a knob — an inference that broke the moment
+            // F23 wave 1 ran three arms differing by more than one flag.
+            var provenance = new OptimizerProvenance {
+                Producer = "TestApp optimize",
+                CommandLine = string.Join(" ", args ?? Array.Empty<string>()),
+                SettingsFingerprint = HarnessSettingsStore.Fingerprint(harnessSettings),
+                ProducerVersion = (System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(
+                    System.Reflection.Assembly.GetEntryAssembly()))?.InformationalVersion
+            };
+            Console.WriteLine($"provenance: {provenance}");
             var accessor = harnessSettings.Accessor;
             var starDetectionOptions = new StarDetectionOptions(profileService, accessor);
             var afOptions = new AutoFocusOptions(profileService);
@@ -294,6 +306,7 @@ namespace TestApp {
             var ctx = new RunDetectionContext {
                 ProfileService = profileService,
                 HarnessSettings = harnessSettings,
+                Provenance = provenance,
                 AfOptions = afOptions,
                 AlglibAPI = alglibAPI,
                 Detector = detector,
@@ -352,6 +365,10 @@ namespace TestApp {
             public bool Inspection;     // --inspection: use the aberration-inspection objective
             public bool LegacyObjective; // --legacy-objective: zero the HFR-outlier penalty + coverage reward (A/B "before")
             public int ContinueRounds;  // --continue-rounds: extra chained passes after the first (0-2)
+
+            // F30: which invocation is producing these landings. Stamped onto every optimized_settings.json this
+            // run writes, so a bank folder full of prepasses from different arms stops being ambiguous.
+            public OptimizerProvenance Provenance;
 
             // F23 arm selectors; null ⇒ shipping default. See the flag comments in RunImpl.
             public double? SensitivityFloor;      // --sensitivity-floor: mechanism (b)
@@ -686,7 +703,7 @@ namespace TestApp {
             // so the headless and in-app handoffs can never drift. The source-folder copies each carry that run's OWN
             // recommended step (StepSizeRecommender, exactly as BuildAggregateRow computes it); the single --out copy
             // uses the representative (first) run's step in joint mode (see WriteOptimizedSettings).
-            WriteOptimizedSettings(targetDir, loadedRuns, perRunBest, result, baselineJ, focuserMaxStep);
+            WriteOptimizedSettings(targetDir, loadedRuns, perRunBest, result, baselineJ, focuserMaxStep, ctx.Provenance);
 
             await WriteAnnotatedFrames(targetDir, loadedRuns, result.BestParams, ctx.Detector,
                 ctx.MeasurementAverage, ctx.HighSigmaOutlierRejection, ctx.LowSigmaOutlierRejection, ctx.AnnotateAll).ConfigureAwait(false);
@@ -719,14 +736,14 @@ namespace TestApp {
         /// </summary>
         private static void WriteOptimizedSettings(
             string targetDir, List<LoadedHarnessRun> loadedRuns, List<RunEvaluationResult> perRunBest,
-            OptimizationResult result, double baselineJ, int? focuserMaxStep) {
+            OptimizationResult result, double baselineJ, int? focuserMaxStep, OptimizerProvenance provenance = null) {
             // Per-run source-folder copies: each run's frame directory gets the winner snapshot with its OWN step.
             for (int i = 0; i < loadedRuns.Count; i++) {
                 var run = loadedRuns[i];
                 try {
                     var rec = StepSizeRecommender.Recommend(perRunBest[i].BestFit, run.StepSize, focuserMaxStep);
                     var dto = OptimizedStarDetectionSettings.FromParams(
-                        result.BestParams, loadedRuns.Count, baselineJ, result.BestJ, rec.StepSize, rec.OffsetSteps);
+                        result.BestParams, loadedRuns.Count, baselineJ, result.BestJ, rec.StepSize, rec.OffsetSteps, provenance);
                     var json = JsonConvert.SerializeObject(dto);
 
                     // The run's source folder is the directory holding its frames (each run's frames live together).
@@ -753,7 +770,7 @@ namespace TestApp {
                 try {
                     var rec = StepSizeRecommender.Recommend(perRunBest[0].BestFit, representative.StepSize, focuserMaxStep);
                     var dto = OptimizedStarDetectionSettings.FromParams(
-                        result.BestParams, loadedRuns.Count, baselineJ, result.BestJ, rec.StepSize, rec.OffsetSteps);
+                        result.BestParams, loadedRuns.Count, baselineJ, result.BestJ, rec.StepSize, rec.OffsetSteps, provenance);
                     var json = JsonConvert.SerializeObject(dto);
                     var outPath = Path.Combine(targetDir, "optimized_settings.json");
                     File.WriteAllText(outPath, json);
