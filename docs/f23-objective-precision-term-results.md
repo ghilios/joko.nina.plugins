@@ -10,6 +10,33 @@ the optimizer drives `BrightnessSensitivity` to its 0.0 floor and config-A preci
 Two candidate costs were implemented — a proxy term in `J`, and a hard floor on the searchable range.
 Which one works, and does fixing this dissolve F22 and F26 as predicted?*
 
+> ## ⚠ CORRECTION (2026-08-03, after the arms completed)
+>
+> **The acceptance metric this document is scored against is largely an artifact, and the conclusions below
+> are therefore not safe to act on.** Re-scored against each frame's own `*.truth.json`, **96% of the false
+> positives `bank-verify` reports on the synthetic bank are real rendered stars** — `GoldenFromTruth` tiers
+> them `omitted` below peak-SNR 3.5, which puts them in neither `stars` nor `unresolved`, so nothing excludes
+> them and every detection of one scores as a false positive.
+>
+> True precision on the four datasets that drove F23 is **0.946–1.000 on every arm**, including the
+> unmodified control:
+>
+> | dataset | control (H) | floor (b) | term (a) | golden-scored control |
+> |---|---|---|---|---|
+> | D09_c14_3800mm | **0.978** | 1.000 | 1.000 | 0.525 |
+> | D10_rc16_3250mm_sparse | **0.946** | 1.000 | 0.993 | 0.634 |
+> | D11_rc10_585_afbin2 | **1.000** | 1.000 | 1.000 | 0.871 |
+> | D12_c14_585_afbin2 | **1.000** | 1.000 | 1.000 | 0.899 |
+>
+> **This inverts the premise.** The control detects **510** stars on D09 at 97.8% true precision where the
+> term-on arm detects **231** at 100% — so both mechanisms were suppressing *real detections*, not junk. F23's
+> "the optimizer trades precision away for marginal recall" describes the golden's incompleteness, not the
+> optimizer's behaviour. Filed as **F31**; the rest of this document is retained as the record of how the
+> result was reached, but every precision number in it needs regenerating against truth.
+>
+> What survives unaffected: the reproducibility checks, the F22 toggle evidence (a binning/HFR result, not a
+> precision one), the F26/F21/F25 re-measurements, and F27/F28/F30.
+
 ## Headline
 
 | what | result |

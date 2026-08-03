@@ -623,6 +623,67 @@ to `OptimizedStarDetectionSettings`, so a landing is self-describing and a stale
 `RunCount`, `BaselineJ` and `FinalJ`: add the full `optimize` argv and a hash of the effective
 `harness_settings.json`. Cheap, and it makes a landing self-describing.
 
+### F31 — Synthetic-bank precision is NOT exact: the golden omits real stars, and they score as false positives
+**Status:** Open · found 2026-08-03 verifying the [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall) wave-1 result · **INVALIDATES F23's evidence base**
+
+`docs/synthetic-af-bank-baseline-results.md` headlines the synthetic bank with "Golden precision (D06,
+`golden eval`) **1.000** — 205 TP, **0 FP**. Exact, not a lower bound." That claim does not generalise. Measured
+against each frame's own `*.truth.json`, **96% of the false positives the bank reports are real rendered stars.**
+
+**Evidence.** `D09_c14_3800mm`, config A as landed by an unmodified-HEAD control arm, all 9 frames, 12 px
+centroid match:
+
+| | count |
+|---|---|
+| detections | 510 |
+| scored FP against `*.golden.json` | 280 |
+| of those, a **real truth star** within 12 px | **269 (96.1%)** |
+| genuinely spurious | **11** |
+
+The 269 break down by truth tier as **198 `omitted`** and **71 `unresolved`**. Re-scored against truth, the
+four datasets that drove the F23 finding all sit at 0.95–1.00 precision on **every** arm:
+
+| dataset | true precision (control / floor / term) | golden-scored (what F23 used) |
+|---|---|---|
+| D09_c14_3800mm | **0.978** / 1.000 / 1.000 | 0.525 / 0.991 / 1.000 |
+| D10_rc16_3250mm_sparse | **0.946** / 1.000 / 0.993 | 0.634 / 0.933 / 0.974 |
+| D11_rc10_585_afbin2 | **1.000** / 1.000 / 1.000 | 0.871 / 1.000 / 0.967 |
+| D12_c14_585_afbin2 | **1.000** / 1.000 / 1.000 | 0.899 / 0.736 / 0.905 |
+
+**Mechanism.** `GoldenFromTruth` tiers truth stars by native **peak-pixel** SNR (`GoldenFromTruth.cs`, thresholds
+`goldenHighSnr` 20 / `goldenMediumSnr` 10 / `goldenLowSnr` 5 / `goldenUnresolvedSnr` 3.5 in
+`SynthBank/synthetic-bank-spec.json`). Below 3.5 a star is tiered `omitted` and appears in **neither** `stars`
+**nor** `unresolved` — so `GoldenMatch.ExcludeUnresolved` (`GoldenEvalRunner.cs:261-266`) cannot protect it, and
+`bank-verify` does not call `ExcludeUnresolved` at all. Defocus destroys peak-pixel SNR while leaving integrated
+flux intact, so the golden evaporates toward the sweep wings: D08 holds **81 golden stars at focus and 9 at the
+extreme frame**, against 123–126 truth stars per frame throughout.
+
+**Coordinate alignment was null-tested** before believing this: detections match truth at 100% as-is, 2.3% at
+0.5× or 2× scale (chance), 0% under a 300 px shift.
+
+**Why it matters — this inverts F23.** F23's headline is "C0 precision never drops below 0.942; config A reaches
+0.451, so the optimizer trades precision away for marginal recall." The real mechanism is the opposite: C0 at
+`Sensitivity` 10 detects only bright stars, all of which are in the golden; config A at `Sensitivity` 0 detects
+**many more real but faint stars**, which the golden omits, and the metric charges every one as a false positive.
+The control arm detects **510** stars on D09 at **97.8%** true precision where the term-on arm detects **231** at
+100% — so both F23 wave-1 mechanisms were suppressing *real detections*, not junk.
+
+**Why it matters — this also inverts the bank's selling point.** Precision against the synthetic golden is a
+**lower bound**, for exactly the reason [F11](#f11--precision-is-a-lower-bound-on-runs-whose-faint-tier-was-budget-truncated--re-measured)
+gives on the real bank: the reference is incomplete below the tier cut. The synthetic bank's claim to measure
+precision *exactly* is what justified building it, and as implemented it does not hold.
+
+**Next step.** Three separable pieces.
+1. **Score against truth, not the golden**, for synthetic runs — the truth sidecar is already written beside every
+   frame and is complete by construction. This is the correct fix and it makes the bank's original claim true.
+2. Failing that, make `bank-verify` honour the golden's `coverage` field (it currently ignores it,
+   `GoldenStarSet.cs:81-93`) and call `ExcludeUnresolved`, and emit `omitted` stars into `unresolved` so they are
+   at least excludable rather than invisible.
+3. **Regenerate every precision number that rests on this**: the V2 matrix in
+   `synthetic-af-bank-baseline-results.md`, `docs/synthetic-af-bank-baseline.json`, F23, F24, and the
+   `precisionMin` bands in `synthetic-af-bank-expectations.json`. Until then, treat synthetic precision as a
+   lower bound and do not use it as an acceptance gate.
+
 ---
 
 ## Harness / tooling
