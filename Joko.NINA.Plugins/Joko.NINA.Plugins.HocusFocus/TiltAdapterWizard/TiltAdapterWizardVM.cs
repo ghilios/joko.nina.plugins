@@ -54,8 +54,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     /// <summary>
     /// The discrete calibration measurement steps. Each step is a single physical screw move followed by one
     /// measurement, so two changes are never compounded between measurements: the all-inward and per-screw moves
-    /// are each bracketed by an explicit re-baseline. Screw angles are derived from the move relative to the
-    /// re-baseline that immediately precedes it (c→d for screw 1, e→f for screw 2).
+    /// are each bracketed by an explicit re-baseline. Screw 1's angle is derived from the move relative to
+    /// mid(c, e) — the midpoint of the re-baselines that bracket it — which cancels a linear tilt drift across
+    /// the sequence exactly. Screw 2's angle is derived relative to e alone unless a measured final re-baseline
+    /// is present, in which case it gets the same midpoint symmetry (see
+    /// <see cref="TiltCalibrationCalculator.Screw2Delta"/>).
     /// </summary>
     public enum WizardStep {
         Baseline = 0,     // a

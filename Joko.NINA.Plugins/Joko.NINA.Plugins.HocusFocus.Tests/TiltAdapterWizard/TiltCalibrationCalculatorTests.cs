@@ -346,8 +346,16 @@ public class TiltCalibrationCalculatorTests {
         };
         var clean = TiltCalibrationCalculator.Calibrate(cleanInputs);
         var driftedResult = TiltCalibrationCalculator.Calibrate(drifted);
-        // screw-1 recovery is drift-immune; screw-2 (no final re-baseline yet) is allowed to differ.
-        Assert.That(driftedResult.Screw1DirectionDegrees, Is.EqualTo(clean.Screw1DirectionDegrees).Within(1e-9));
+        Assert.Multiple(() => {
+            // Screw 1's move is bracketed by ReBaseline1/ReBaseline2, so its recovered direction is drift-immune.
+            Assert.That(driftedResult.Screw1DirectionDegrees, Is.EqualTo(clean.Screw1DirectionDegrees).Within(1e-9));
+            // Screw 2 has no measured final re-baseline (HasFinalRebaseline defaults false), so it keeps the old
+            // ReBaseline2-only reference and is NOT drift-immune -- this is an intentional lock on that asymmetry,
+            // not a caveat: it fails if a future change accidentally gives Screw2Delta symmetric behavior before
+            // Task 6 wires HasFinalRebaseline. The measured direction shift here is ~7.57 degrees (82.43 vs
+            // 90.00), comfortably beyond any floating-point tolerance.
+            Assert.That(driftedResult.Screw2DirectionDegrees, Is.Not.EqualTo(clean.Screw2DirectionDegrees).Within(1e-6));
+        });
     }
 
     [Test]

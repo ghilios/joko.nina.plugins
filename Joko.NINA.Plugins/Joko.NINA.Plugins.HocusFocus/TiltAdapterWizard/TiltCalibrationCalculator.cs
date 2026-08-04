@@ -216,7 +216,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         /// re-baseline drifts in a 6-step run, only the single re-baseline drift in a 4-step run. All magnitudes are
         /// computed in physical gradient space (<see cref="PhysicalDelta"/>), not raw (A,B) — see the F2 fix. Screw
         /// moves use the same drift-cancelling reference as <see cref="Calibrate"/> (<see cref="Screw1Delta"/> /
-        /// <see cref="Screw2Delta"/>), so the signal is unaffected by linear tilt drift too.
+        /// <see cref="Screw2Delta"/>), so the signal is unaffected by linear tilt drift too. The noise probes
+        /// (all-inward residual, both re-baseline drifts) are deliberately left on their raw, non-midpoint
+        /// readings: they exist specifically to measure the drift/backlash the signal is now immune to, so
+        /// midpoint-referencing them would erase the very quantity they are there to detect.
         /// </summary>
         public static TiltCalibrationConfidence ComputeConfidence(TiltCalibrationInputs inputs) {
             var (s1x, s1y) = PhysicalDelta(Screw1Delta(inputs), inputs);
