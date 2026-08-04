@@ -57,7 +57,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
     ///   would drive the simulator backwards on one of the two rig directions and the loop would diverge.
     ///
     /// • <b>The piston is the one place the rig direction survives</b> — see <see cref="PistonDirectionSign"/>.
-    ///   This mirrors the guidance exactly, which applies the curvature sign to its backfocus row only.
+    ///   This mirrors the guidance exactly, which applies the curvature sign to its backfocus row only. What that
+    ///   physical piston then DOES lives entirely in <see cref="SimulatedTiltInjection.Fold"/>: it lowers the
+    ///   mean best-focus position (−piston) and raises the curvature effect (+piston). The extra minus on the
+    ///   geometric shift is physics, not a frame convention, so it is stated there and not re-derived here.
     /// </summary>
     public sealed class SimulatedTiltAdapter {
         private readonly double[] anglesDegrees;
@@ -95,6 +98,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         /// angle to absorb the flip and keeps the sign. This is the same asymmetry the guidance has, where
         /// <see cref="TiltScrewGeometry.SignedTotalAdjustment"/> applies the curvature sign to the backfocus
         /// component only; the two cancel, so backfocus guidance converges too.
+        ///
+        /// This converts the response frame to the physical frame and nothing more. How the resulting physical
+        /// piston splits into a mean-focus shift and a curvature-effect change — with opposite signs — belongs to
+        /// <see cref="SimulatedTiltInjection.Fold"/>.
         /// </summary>
         public int PistonDirectionSign => InwardCurvatureSign;
 

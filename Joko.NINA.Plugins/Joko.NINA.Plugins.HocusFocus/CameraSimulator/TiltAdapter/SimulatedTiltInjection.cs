@@ -51,6 +51,15 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         /// component only; the two cancel, so backfocus guidance converges on both rig directions. Feeding the
         /// raw fitted constant in here is correct only on σ=+1 rigs and silently backwards on the other half —
         /// pinned by SimulatedTiltAdapterVMTests.BackfocusMove_OnOppositeRigs_MovesBackfocusInOppositeDirections.
+        ///
+        /// That physical piston then drives TWO responses with OPPOSITE signs, and the asymmetry is real physics,
+        /// not bookkeeping (docs/focuser-direction-convention-design.md §1 and §4):
+        ///   • the geometric mean-focus shift is <c>−pistonMicrons</c> — a plate move toward the camera increases
+        ///     the sensor's objective-distance, so best focus is reached at a LOWER focuser position (§1(a));
+        ///   • the curvature-effect (backfocus) response is <c>+pistonMicrons</c>, because σ is DEFINED as the
+        ///     sign of that response to a CW turn.
+        /// The simulator is pure z-space and never reads the display-only focuser-direction setting k: the
+        /// focuser convention cancels out of both responses (§1(c)), so no knob belongs here.
         /// </summary>
         public static bool Fold(ICameraSimulatorOptions options, AberrationDelta delta, int pistonDirectionSign) {
             var (halfW, halfH) = SensorHalfDimensionsMicrons(options);
@@ -71,13 +80,19 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
 
             var pistonMicrons = pistonDirectionSign * delta.PistonMicrons;
             if (pistonMicrons != 0.0) {
-                // The sensor moving axially both shifts best focus... Effective, not raw: the raw value is the -1
-                // "unset" sentinel on an uncalibrated Inspector, and the render uses Effective, so converting the
-                // piston with anything else would move best focus somewhere the star field is not defocused about.
-                options.OptimalFocuserPosition += (int)Math.Round(pistonMicrons / options.EffectiveFocuserStepSizeMicrons);
+                // The sensor moving axially both shifts best focus — and the shift OPPOSES the piston. A positive
+                // piston drives the plate toward the camera, which increases the sensor's objective-distance, so
+                // the focus point is reached at a LOWER focuser position: Δz̄ = −piston/step (design §1(a)/(c)).
+                // This line carried a + until 2026-08-04, built to satisfy the then-inverted ComputeCurvatureSign;
+                // both were corrected together, or a simulated 6-step run would measure −σ_config (design §4).
+                // Effective, not raw: the raw value is the -1 "unset" sentinel on an uncalibrated Inspector, and
+                // the render uses Effective, so converting the piston with anything else would move best focus
+                // somewhere the star field is not defocused about.
+                options.OptimalFocuserPosition -= (int)Math.Round(pistonMicrons / options.EffectiveFocuserStepSizeMicrons);
 
-                // ...and violates the optics' backfocus spacing. The curvature responds to the PISTON, not to any
-                // individual screw move, so a corner move (piston 0 by symmetry) correctly leaves it untouched.
+                // ...and violates the optics' backfocus spacing — this one WITH the piston, which is why the two
+                // signs differ. The curvature responds to the PISTON, not to any individual screw move, so a
+                // corner move (piston 0 by symmetry) correctly leaves it untouched.
                 // The proportionality is fixed by being the exact inverse of the inspector's backfocus row: it asks
                 // for an axial ΔZ0_phys = -CurvatureAt(R) = -K·R² per screw, which must null K exactly, so
                 // ΔK = ΔZ0_phys / R². Equivalently — and this is the independent check that fixes the sign —

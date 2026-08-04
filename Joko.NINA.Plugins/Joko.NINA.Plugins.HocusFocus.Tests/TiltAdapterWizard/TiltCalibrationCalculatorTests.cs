@@ -96,12 +96,25 @@ public class TiltCalibrationCalculatorTests {
     }
 
     [Test]
-    public void ComputeCurvatureSign_PositiveWhenAllScrewsMeanHigher() {
+    public void ComputeCurvatureSign_PositiveWhenAllScrewsMeanLower() {
+        // σ = −sign(allScrewsMean − baselineMean): an all-screws-CW step that LOWERS the mean
+        // best-focus position is σ = +1 (docs/focuser-direction-convention-design.md §1(c)).
         Assert.Multiple(() => {
-            Assert.That(TiltCalibrationCalculator.ComputeCurvatureSign(1100, 1000), Is.EqualTo(1));
-            Assert.That(TiltCalibrationCalculator.ComputeCurvatureSign(900, 1000), Is.EqualTo(-1));
+            Assert.That(TiltCalibrationCalculator.ComputeCurvatureSign(1100, 1000), Is.EqualTo(-1));
+            Assert.That(TiltCalibrationCalculator.ComputeCurvatureSign(900, 1000), Is.EqualTo(1));
+            // Degenerate zero delta still resolves to +1, as it always has.
             Assert.That(TiltCalibrationCalculator.ComputeCurvatureSign(1000, 1000), Is.EqualTo(1));
         });
+    }
+
+    [Test]
+    public void ComputeCurvatureSign_Session20260803_BaselineHigherMeansTowardCamera() {
+        // Session 20260803-200647: a +150 backfocus step (vendor mnemonic — plate toward the
+        // CAMERA, so m = +1) on a standard focuser (k = +1) moved the mean best-focus position
+        // 5498.4 → 5136.6. σ = −sign(−361.8) = +1, which reads "clockwise moves the adapter toward
+        // the CAMERA" via m = σ·k — exactly the value the user had to set by hand before this fix
+        // to make corrections converge. This is the regression pin for that incident.
+        Assert.That(TiltCalibrationCalculator.ComputeCurvatureSign(5136.6, 5498.4), Is.EqualTo(1));
     }
 
     [Test]
@@ -261,7 +274,8 @@ public class TiltCalibrationCalculatorTests {
             Assert.That(r.Screw2AngleDegrees, Is.EqualTo(120).Within(1e-4));
             Assert.That(r.Screw3AngleDegrees, Is.EqualTo(240).Within(1e-4));
             Assert.That(r.MeasuredHardwareMicrons, Is.EqualTo(pitch).Within(1e-3));
-            Assert.That(r.CurvatureSign, Is.EqualTo(1));
+            // AllInward mean (1075) above baseline (1000) ⇒ σ = −1.
+            Assert.That(r.CurvatureSign, Is.EqualTo(-1));
         });
     }
 
@@ -285,7 +299,7 @@ public class TiltCalibrationCalculatorTests {
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
             Baseline = new TiltGradient(0, 0, 1000),
-            AllInward = new TiltGradient(0, 0, 1075), // all-screws-inward raised mean focus -> +1
+            AllInward = new TiltGradient(0, 0, 1075), // all-screws-inward raised mean focus -> −1
             Screw1 = SingleScrewReading(0, pitch, 3, 1000),
             Screw2 = SingleScrewReading(120, pitch, 3, 1000),
             ImageWidthPixels = ImgW,
@@ -303,7 +317,7 @@ public class TiltCalibrationCalculatorTests {
             Assert.That(r.Screw3AngleDegrees, Is.EqualTo(240).Within(1e-4));
             Assert.That(r.CalibratedScrewCount, Is.EqualTo(3));
             Assert.That(r.IsCalibrated, Is.True);
-            Assert.That(r.CurvatureSign, Is.EqualTo(1));
+            Assert.That(r.CurvatureSign, Is.EqualTo(-1));
             Assert.That(r.MeasuredHardwareMicrons, Is.EqualTo(pitch).Within(1e-3));
             Assert.That(r.Screw1DirectionDegrees, Is.EqualTo(0).Within(1e-4));
             Assert.That(r.Screw2DirectionDegrees, Is.EqualTo(120).Within(1e-4));
