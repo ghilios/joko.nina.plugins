@@ -632,9 +632,12 @@ artifact of the render, and the affected population is not hypothetical.
    the objective is flat in its neighbourhood on exactly these rigs, which is why the search never moves it
    today. Seed it to a value *measured* from the frames, not to a permissively low one, and re-check that a rig
    which does NOT need the seed (D05, whose search finds 1.45 unaided) is left alone. Compounding factor from
-   [F22](#f22--detection-binning-is-a-hard-threshold-on-a-measurement-that-under-reads-so-boundary-rigs-get-the-wrong-factor):
-   the same measured-HFR under-read that flips the binning factor also pushes small-HFR rigs toward this cliff,
-   so a seed derived from the measured value inherits that bias.
+   [F22](#f22--detection-binning-is-a-hard-threshold-on-a-measurement-that-under-reads-so-boundary-rigs-get-the-wrong-factor),
+   **with its direction corrected in wave 4**: below ~1.1 px the measurement *over*-reads (the pixelization
+   floor, ~0.7 px), it does not under-read, so it makes an undersampled rig look further from this cliff than it
+   is rather than closer. The rig is still gated — `MinHFR` defaults to 1.2 and the floored measurement sits
+   below it — but any seed sized from that measurement inherits an understatement of how far the gate must come
+   down, which is the bias F35 exists to route around.
 
 ### F21 — `StepSizeRecommender`'s half-width is not stable against noise, even on a perfect fit
 **Status:** Open · found 2026-08-02 running the synthetic bank's S0 control
@@ -672,9 +675,14 @@ Reproduce: `synth-validate --datasets D17_cdk14_oiii5 --scenarios S0 --max-round
 **Status:** Open · found 2026-08-02 running the synthetic bank's S0 control
 
 `DetectionBinningResolver.RecommendFromHfr` is `clamp(round(hfr / 3), 1, 4)` — a hard threshold with its 1→2
-boundary at **4.5 px**. The HFR it is given is the detector's *measured* in-focus HFR, which systematically
-under-reads the optical HFR, by 2–10% usually but by up to **38%** in the cases that matter. Rigs whose true HFR
-sits near 4.5 px therefore land on the wrong side.
+boundary at **4.5 px**. The HFR it is given is the detector's *measured* in-focus HFR, which departs from the
+optical HFR by 2–10% usually but by up to **38%** in the cases that matter. Rigs whose true HFR sits near 4.5 px
+therefore land on the wrong side.
+
+> **The "under-reads" in this entry's title is only half the story (recorded 2026-08-04, wave 4).** The departure
+> is **bimodal**, not a systematic under-read — see the measurement below. It under-reads on the large-HFR rigs
+> this entry is about, and *over-reads*, sometimes enormously, on small-HFR rigs. Both halves matter, and they
+> matter to different entries.
 
 **Evidence.** On S0, where the bootstrap already *is* each dataset's expected optimum, three datasets that need
 binning 2 were told to use 1:
@@ -718,12 +726,34 @@ so F22 still reproduces in shipping behaviour. What is settled is the *attributi
 calibrating the HFR bias would have been the wrong fix — the bias is not a property of the measurement, it is
 a property of what the optimizer chose to detect.
 
-**Next step.** Two candidates, not mutually exclusive. (a) ~~Calibrate out the bias~~ — **ruled out** by the
-measurement above; the under-read is not systematic, it tracks the Sensitivity landing. (b) Add hysteresis or
-a dead band around the 4.5/7.5 px boundaries so a marginal rig does not flip between sessions, and say
-"borderline" in the UI rather than presenting a coin flip as a recommendation. Note this compounds with
-[F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic): the same
-under-reading pushes small-HFR rigs toward the `MinHFR` cliff.
+**And the departure is BIMODAL, which reverses its sign on the rigs F20 is about.** Measured-vs-optical in-focus
+HFR across all 17 datasets (originally from the AF-recommender-hardening design spec, PR #167, which was closed
+as superseded — this is the part of it that survived re-measurement):
+
+| regime | datasets | measured vs optical |
+|---|---|---|
+| HFR ≳ 1.8 px | D05–D15, D17 | **−4% to −23%** (under-reads) |
+| HFR ≲ 1.1 px | D01–D04, D16 | **+26% to +234%** (OVER-reads) |
+
+The over-read at small HFR is the **pixelization floor**: a star whose flux lands in essentially one pixel still
+measures a few tenths of a pixel, so the measurement cannot follow the optics down. `D01_ultrawide_40mm`'s
+optical vertex is **0.231 px** and it measures **0.77 px**. That is independently corroborated three ways: the
+bank's own truth model carries `hfrMinEffective = 0.7` for D01 (`synthetic_meta.json`), the derivations use a
+0.70 px floor for R2, and [F35](#f35--minhfr-should-be-seeded-from-the-sweep-wings-and-neither-available-hfr-statistic-can-size-it)'s
+live pre-search fit independently read **0.762 px** against the same 0.238 px truth.
+
+**Next step.** Two candidates, not mutually exclusive. (a) ~~Calibrate out the bias~~ — **ruled out twice over**:
+the departure is not systematic (it tracks the Sensitivity landing) *and* it is not even one-signed (it inverts
+below ~1.1 px). (b) Add hysteresis or a dead band around the 4.5/7.5 px boundaries so a marginal rig does not
+flip between sessions, and say "borderline" in the UI rather than presenting a coin flip as a recommendation.
+
+> **Correction to this entry's own compounding note (wave 4).** It previously read "the same under-reading pushes
+> small-HFR rigs toward the `MinHFR` cliff." That is **backwards in direction**: below ~1.1 px the measurement
+> *over*-reads, so it makes a rig look FURTHER from the gate than it is. The real compounding with
+> [F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic) is subtler and
+> worse: the over-read is floored near 0.7 px while `MinHFR` defaults to **1.2**, so an undersampled rig is still
+> gated — the measurement simply **understates how far below the gate it really sits**. That is exactly why F35
+> concluded the fit may only TRIGGER the seed and must never SIZE it.
 
 ### F27 — The optimizer cannot reach the rejected-candidate diagnostics an approved spec says it can
 **Status:** **Done** (2026-08-03, wave 2 — the spec was never committed; record corrected and the seam documented in code) · found 2026-08-03 implementing [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)
