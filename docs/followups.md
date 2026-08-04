@@ -1036,8 +1036,15 @@ Three things follow, and the third is the one that changes the plan:
 Reproduce: `D:\hf_w3\f32_dynrange.py` (reads `hf_w2/verify_v5`, `hf_f23/verify_real_H`, and the `H_A` / `B_A`
 / `H_real_A` landings; no detector run).
 
-### F33 — The synthetic bank does not reproduce the real bank's optimizer failure mode
-**Status:** Open · found 2026-08-03 re-reading the wave-1 arms side by side
+### F33 — ~~The synthetic bank does not reproduce the real bank's optimizer failure mode~~ → it does now
+**Status:** Done (part 1 wave 3, part 2 wave 4) · found 2026-08-03 re-reading the wave-1 arms side by side
+
+> **Both parts are shipped.** Part 1 (report the *effective* gate) landed in wave 3 as
+> `StarDetector.EffectiveSensitivityGate`. Part 2 (decide whether the bank grows a shedding class) was decided
+> **yes** in wave 4, and the class was generated and **validated against a criterion fixed before generation** —
+> `D18`/`D19` shed at trade rates −53.4/−40.4 inside the real bank's regime, while the `D20` control comes back
+> at **+44.9**. The title's claim no longer holds: the synthetic bank now reproduces the regime, so the
+> "never the synthetic alone" rule it imposed on objective changes is satisfiable rather than blocking.
 
 On the synthetic bank the optimizer drives `BrightnessSensitivity` **down** to its 0.0 floor and detects *more*.
 On the real bank it drives Sensitivity **up**, often to the top of the range, and detects far *fewer*. Those are
