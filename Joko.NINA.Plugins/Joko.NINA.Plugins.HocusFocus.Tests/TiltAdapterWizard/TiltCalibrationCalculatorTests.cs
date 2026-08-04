@@ -731,6 +731,116 @@ public class TiltCalibrationCalculatorTests {
         Assert.That(TiltCalibrationCalculator.PistonImpliedMicronsPerStep(inputs), Is.NaN);
     }
 
+    // --- Synthetic full-wizard round trip: a known adapter (explicit pitch + radius) is pushed through the
+    // wizard's ACTUAL move sequence and Calibrate must recover the pitch exactly, and the tilt-derived and
+    // piston-implied pitches must agree exactly. The forward model here is deliberately NOT the calculator's
+    // lever-arm shortcut: each state is synthesized from per-corner plate heights (what the hardware
+    // physically does) and the definitional least-squares plane over the screw contact points,
+    // G = (2/(n·R²))·Σ hᵢ·pᵢ. For the 4-screw wizard move that plane is exact (it interpolates all four
+    // corners), so any constant-factor error in the recovery chain — e.g. treating the coupled ±d diagonal
+    // rock as a single-screw move (lever 2R instead of R), or vice versa for the 3-screw single-screw move
+    // (1.5R) — fails these tests by exactly that factor. Geometry is the real ghilios_corrected rig
+    // (9576x6388 @ 3.76 µm, 0.269 µm focuser step, R = 55 mm, 150 steps of a 1.8 µm/step stepper), so the
+    // numbers are directly comparable to that run's 1.84 (tilt) vs 2.23 (piston) discrepancy: the round
+    // trip proves the math introduces no such gap on its own.
+    private const double RunPixelSize = 3.76;
+    private const int RunImgW = 9576;
+    private const int RunImgH = 6388;
+    private const double RunFStep = 0.269;
+    private const double RunRadiusMm = 55.0;
+    private const double RunRadiusMicrons = RunRadiusMm * 1000.0;
+    private const double RunPitch = 1.8;      // µm per stepper step (the adapter spec)
+    private const double RunApplied = 150.0;  // steps per wizard calibration move
+
+    // Least-squares plane over the n screw contact points for the given per-corner axial plate heights
+    // (microns), returned as a TiltGradient (A, B in focuser steps per normalized coordinate) on top of a
+    // baseline gradient. The mean focuser position shifts by the piston component -h̄/fStep (all-screws-in
+    // lowers the mean on this rig, matching the real run's sign; PistonImplied takes |Δ| so only the
+    // magnitude matters).
+    private static TiltGradient StateFromCornerHeights(
+        TiltGradient baseline, double[] cornerHeightsMicrons, double[] cornerAnglesDeg, double baselineMeanSteps) {
+        int n = cornerAnglesDeg.Length;
+        double gx = 0, gy = 0, hBar = 0;
+        for (int i = 0; i < n; i++) {
+            var (px, py) = TiltScrewGeometry.ScrewPositionMicrons(cornerAnglesDeg[i], RunRadiusMicrons);
+            gx += 2.0 / (n * RunRadiusMicrons * RunRadiusMicrons) * cornerHeightsMicrons[i] * px;
+            gy += 2.0 / (n * RunRadiusMicrons * RunRadiusMicrons) * cornerHeightsMicrons[i] * py;
+            hBar += cornerHeightsMicrons[i] / n;
+        }
+        double a = gx * (RunImgW * RunPixelSize) / RunFStep;
+        double b = gy * (RunImgH * RunPixelSize) / RunFStep;
+        return new TiltGradient(baseline.A + a, baseline.B + b, baselineMeanSteps - hBar / RunFStep);
+    }
+
+    [TestCase(4)]
+    [TestCase(3)]
+    public void Calibrate_SyntheticWizardSequence_RoundTripsPitchExactly_TiltAgreesWithPiston(int screwCount) {
+        double d = RunApplied * RunPitch; // physical plate travel per moved corner, µm
+        double theta1 = 210.0;
+        double thetaStep = screwCount == 4 ? -90.0 : -120.0; // CCW winding, like the real run
+        var angles = new double[screwCount];
+        for (int i = 0; i < screwCount; i++) {
+            angles[i] = TiltCalibrationCalculator.NormalizeAngle(theta1 + i * thetaStep);
+        }
+        double theta2 = angles[1];
+
+        // The wizard's actual per-corner move pattern (EatWizardMapping for 4 screws): Screw1 is the coupled
+        // DiagonalA rock (+d at screw 1, -d at the opposite screw 3), Screw2 the DiagonalB rock. The 3-screw
+        // wizard turns a single screw with the others untouched.
+        double[] Heights(int movedIndex) {
+            var h = new double[screwCount];
+            h[movedIndex] = d;
+            if (screwCount == 4) {
+                h[(movedIndex + 2) % 4] = -d;
+            }
+            return h;
+        }
+        double[] allIn = new double[screwCount];
+        for (int i = 0; i < screwCount; i++) { allIn[i] = d; }
+
+        var baselineG = new TiltGradient(-30.0, -50.0, 0); // arbitrary non-zero starting tilt
+        const double baselineMean = 11280.0;
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = screwCount,
+            Baseline = new TiltGradient(baselineG.A, baselineG.B, baselineMean),
+            AllInward = StateFromCornerHeights(baselineG, allIn, angles, baselineMean),
+            ReBaseline1 = new TiltGradient(baselineG.A, baselineG.B, baselineMean),
+            Screw1 = StateFromCornerHeights(baselineG, Heights(0), angles, baselineMean),
+            ReBaseline2 = new TiltGradient(baselineG.A, baselineG.B, baselineMean),
+            Screw2 = StateFromCornerHeights(baselineG, Heights(1), angles, baselineMean),
+            ImageWidthPixels = RunImgW,
+            ImageHeightPixels = RunImgH,
+            PixelSizeMicrons = RunPixelSize,
+            FocuserStepMicrons = RunFStep,
+            ScrewRadiusMillimeters = RunRadiusMm,
+            CalibrationAppliedAmount = RunApplied,
+            IsStepperAdjustment = true
+        };
+
+        var r = TiltCalibrationCalculator.Calibrate(inputs);
+        var (_, screw1Pitch, screw2Pitch) = TiltCalibrationCalculator.RecoverHardwareDetailed(inputs);
+        Assert.Multiple(() => {
+            // The decisive assertions: the tilt path must return the pitch that produced the planes — no
+            // hidden constant factor from the gradient -> per-screw-displacement conversion — and it must
+            // equal the radius-free piston-implied pitch exactly. EACH screw's own recovered pitch is
+            // asserted, not just the mean: averaging is exactly what hid the ghilios_corrected run's bad
+            // screw-2 measurement behind a plausible-looking 1.84 (see PitchUncertaintyMicrons's doc).
+            Assert.That(screw1Pitch, Is.EqualTo(RunPitch).Within(1e-9));
+            Assert.That(screw2Pitch, Is.EqualTo(RunPitch).Within(1e-9));
+            Assert.That(r.MeasuredHardwareMicrons, Is.EqualTo(RunPitch).Within(1e-9));
+            Assert.That(r.PistonImpliedMicronsPerStep, Is.EqualTo(RunPitch).Within(1e-9));
+            Assert.That(r.PistonImpliedMicronsPerStep / r.MeasuredHardwareMicrons, Is.EqualTo(1.0).Within(1e-9));
+            Assert.That(r.PitchUncertaintyMicrons, Is.EqualTo(0).Within(1e-9));
+            Assert.That(r.MoveMagnitudeRatio, Is.EqualTo(1.0).Within(1e-9));
+            // Geometry sanity: the same synthetic run recovers the screw layout it was built from.
+            Assert.That(r.Screw1AngleDegrees, Is.EqualTo(theta1).Within(1e-6));
+            Assert.That(r.Screw2AngleDegrees, Is.EqualTo(theta2).Within(1e-6));
+            Assert.That(r.Screw1DirectionDegrees, Is.EqualTo(theta1).Within(1e-6));
+            // All-screws-inward lowered the mean best-focus position -> σ = +1.
+            Assert.That(r.CurvatureSign, Is.EqualTo(1));
+        });
+    }
+
     [TestCase(30.0, true, 3, 30.0, 150.0, 270.0, double.NaN)]
     [TestCase(30.0, false, 3, 30.0, 270.0, 150.0, double.NaN)]
     [TestCase(350.0, true, 4, 350.0, 80.0, 170.0, 260.0)]
