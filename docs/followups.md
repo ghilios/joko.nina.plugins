@@ -1599,3 +1599,55 @@ run that were meant to be independent can silently share an arm.
 
 **Next step.** Consider writing only to `--out` unless a flag opts into updating the run folder, or snapshot the
 previous file alongside it.
+
+### F37 — The CI test host crashes natively (`AccessViolationException`), aborting ~2000 tests with zero failures
+**Status:** Open · found 2026-08-04 merging [PR #170](https://github.com/ghilios/hocus-focus/pull/170)
+
+CI's `Run unit tests` job died with
+`Fatal error. System.AccessViolationException: Attempted to read or write protected memory` — a **native crash of
+the test host process**, not a test failure. The run reported `Passed: 1389, Failed: 0` out of a suite of
+**3371**, so roughly 2000 tests never executed, and the job failed on exit code 1 rather than on any assertion.
+
+**It is provably not caused by the code under test.** Two runs on the same branch, minutes apart:
+
+| run | commit | contents | result |
+|---|---|---|---|
+| `30873901415` | `a29f6df` | **every code change in the PR** | **success** |
+| `30874276311` | `b9095fa` | `a29f6df` **+ two markdown files** | **AccessViolationException** |
+| `30874276311` (re-run) | `b9095fa` | unchanged | **success** |
+
+A docs-only delta cannot cause a native memory violation, and re-running the identical commit passed. So this is
+non-deterministic and environmental.
+
+**The preserved evidence.** The failed attempt's TRX artifact survives (`8879261120`, attempt 1). It contains
+1390 results — **1389 `Passed`, 0 `Failed`**, one `NotExecuted` (`SavedRuns_Benchmark`, skipped by design). The
+last tests to complete finished at `03:35:05.622` and the host died at `03:35:06.004`. Tests run in parallel, so
+the last-completed test is **not** necessarily the one that crashed — the TRX cannot identify the culprit, which
+is exactly why the next step below is needed.
+
+**The prime suspect is the coverage profiler, not the tests.** `.github/workflows/tests.yml:38` runs with
+`--collect "XPlat Code Coverage"`, attaching the coverlet profiler to a test host that loads
+**OpenCvSharp native** (`OpenCvSharpExtern.dll`). An instrumenting profiler over heavy native interop is a
+well-known source of `AccessViolationException`, and it is the clearest difference between CI and local: local
+full-suite runs use no `--collect` and passed **3371/3371 twice consecutively** on the same commit.
+
+**Do not conflate this with the known flaky test.** The recorded flake
+(`SendAsync_WritesOnABackgroundThread`, EAT serial transport) is an **assertion failure in one test**; this is a
+**process crash with no failing assertion**. Different signature, and treating them as one thing would hide
+whichever is real.
+
+**One local observation that may or may not belong here.** During the same session, one local full-suite run
+reported a single failure while two `optimize --per-run` bank passes were saturating the CPU. Its name was not
+captured, and it did not recur across four subsequent full runs. Whether it is this defect, the EAT flake, or a
+third thing is **unknown** — recorded so the next occurrence is not read as the first, not as evidence of a link.
+
+**Why it matters.** A green suite is the merge gate. A failure mode that aborts two thirds of the suite while
+reporting zero failures is the worst shape for a gate: it is indistinguishable at a glance from a real
+regression, it costs a re-run every time, and — the real risk — **a crash that lands early enough would let a
+genuine regression through in the ~2000 tests that never ran**, because nothing reports them as unexecuted.
+
+**Next step.** Add `--blame-crash` to the CI test invocation so the run produces a sequence file and a crash
+dump naming the test that was executing, and keep the existing `if: always()` artifact upload so it survives.
+Then test the profiler hypothesis directly by running CI once **without** `--collect "XPlat Code Coverage"`; if
+the crash stops reproducing, move coverage to a separate job so a coverage-only defect cannot fail the merge
+gate. Cheap to start: the crash has now been seen once in CI, so the first step is instrumentation, not a fix.
