@@ -298,4 +298,68 @@ public class OptimizationSummaryTests {
             Assert.That(s.DetectionBinningText, Is.EqualTo("1x1 -> 2x2 (applied on Accept; measured in-focus HFR 8.4 px)"));
         });
     }
+
+    /// <summary>
+    /// F20 part 1 — the entry's actual title. An undersampled rig (D01_ultrawide_40mm: fit vertex 0.762 px against
+    /// the 1.2 px default gate) must report that its stars are smaller than the minimum HFR.
+    /// </summary>
+    [Test]
+    public void HasUndersampledStars_FiresWhenTheVertexIsAtOrBelowTheGate() {
+        var s = new OptimizationSummary { MeasuredInFocusHfr = 0.762, VariantMinHfr = 1.2, RunDetectionBinning = 1 };
+        Assert.That(s.HasUndersampledStars, Is.True);
+    }
+
+    /// <summary>D05_tec140_1000mm, the control: vertex 1.804 px, well clear of the gate. Must stay silent.</summary>
+    [Test]
+    public void HasUndersampledStars_StaysSilentOnAWellSampledRig() {
+        var s = new OptimizationSummary { MeasuredInFocusHfr = 1.804, VariantMinHfr = 1.2, RunDetectionBinning = 1 };
+        Assert.That(s.HasUndersampledStars, Is.False);
+    }
+
+    /// <summary>
+    /// F38 — the summary reports in CAPTURED pixels while the gate is BINNED, so the flag has to convert. A 2.2 px
+    /// captured vertex clears a 1.2 px gate at 1x1 and does NOT at 2x2, where it is really 1.1 binned px. Shares
+    /// MinHfrSeed.IsBelowGate with the seed so the two can never disagree.
+    /// </summary>
+    [Test]
+    public void HasUndersampledStars_ConvertsCapturedPixelsIntoTheGatesBinnedSpace() {
+        var unbinned = new OptimizationSummary { MeasuredInFocusHfr = 2.2, VariantMinHfr = 1.2, RunDetectionBinning = 1 };
+        var binned = new OptimizationSummary { MeasuredInFocusHfr = 2.2, VariantMinHfr = 1.2, RunDetectionBinning = 2 };
+        Assert.Multiple(() => {
+            Assert.That(unbinned.HasUndersampledStars, Is.False, "2.2 px clears a 1.2 px gate at 1x1");
+            Assert.That(binned.HasUndersampledStars, Is.True, "the same 2.2 px is 1.1 binned px at 2x2");
+        });
+    }
+
+    /// <summary>
+    /// A summary built before this feature (or by a test that does not exercise it) carries NaN for both operands
+    /// and must not fire — the note is an assertion about a measurement, so no measurement means no note.
+    /// </summary>
+    [Test]
+    public void HasUndersampledStars_StaysSilentWithoutAMeasurement() {
+        Assert.Multiple(() => {
+            Assert.That(new OptimizationSummary().HasUndersampledStars, Is.False);
+            Assert.That(new OptimizationSummary { MeasuredInFocusHfr = 0.5 }.HasUndersampledStars, Is.False);
+            Assert.That(new OptimizationSummary { VariantMinHfr = 1.2 }.HasUndersampledStars, Is.False);
+        });
+    }
+
+    /// <summary>
+    /// The flag follows the VARIANT, which is the whole reason it is named that way: on the Current view the gate
+    /// is the user's own hand-set value. A user who raised MinHFR themselves must be told their own gate is what
+    /// emptied the curve, not the optimizer's.
+    /// </summary>
+    [Test]
+    public void HasUndersampledStars_FollowsTheVariantsOwnGate() {
+        var optimizedClears = new OptimizationSummary {
+            MeasuredInFocusHfr = 1.5, VariantMinHfr = 1.2, BaselineMinHfr = 3.0, RunDetectionBinning = 1
+        };
+        var currentDoesNot = new OptimizationSummary {
+            MeasuredInFocusHfr = 1.5, VariantMinHfr = 3.0, BaselineMinHfr = 3.0, RunDetectionBinning = 1
+        };
+        Assert.Multiple(() => {
+            Assert.That(optimizedClears.HasUndersampledStars, Is.False);
+            Assert.That(currentDoesNot.HasUndersampledStars, Is.True);
+        });
+    }
 }

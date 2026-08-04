@@ -302,6 +302,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // follow — a sweep-geometry problem, not an exposure or gate problem. Null when unpopulated.
         public IReadOnlyList<int> FrameTooFlatCounts { get; set; }
 
+        // Per-frame below-minimum-HFR rejections (PARALLEL to FrameStarCounts). Also INERT in the objective -- this
+        // wave adds reporting, not scoring. Its shape is the diagnostic: concentrated on the INNER frames it is the
+        // F20 collapse (the gate emptying the curve's core, which the NHard floor then turns into J = 0 exactly),
+        // whereas the Sensitivity and flat-topped tallies concentrate on the OUTER frames. Null when unpopulated.
+        public IReadOnlyList<int> FrameTooLowHFRCounts { get; set; }
+
         // Per-frame focuser position (PARALLEL to FrameStarCounts), needed to identify NEAR-FOCUS frames for the
         // precision penalty. May be null for callers that don't populate it (then SDefocusPrecision falls back to
         // the run-level relaxed-fraction signal).

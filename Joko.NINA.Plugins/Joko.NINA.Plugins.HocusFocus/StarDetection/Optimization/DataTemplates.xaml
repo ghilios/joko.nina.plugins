@@ -736,6 +736,19 @@
                             TextWrapping="Wrap"
                             Visibility="{Binding HasExposureBlock, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
+                        <!--  F20 — the minimum-HFR gate emptying the curve's CORE. A sibling of the note above and
+                              placed for the same reason (Accept is outside the ScrollViewer), but a DIFFERENT gate
+                              with a different remedy, so it is deliberately not folded into the Star signal block,
+                              whose contract covers Sensitivity only. Both can be visible at once: an undersampled
+                              rig can also be running a floored Sensitivity, and each names its own knob.  -->
+                        <TextBlock
+                            Margin="0,0,0,8"
+                            FontStyle="Italic"
+                            Foreground="{StaticResource NotificationWarningBrush}"
+                            Text="{Binding UndersampledStarsChartNote, Mode=OneWay}"
+                            TextWrapping="Wrap"
+                            Visibility="{Binding HasUndersampledStarsNote, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+
                         <!--  Auto-focus curve for the selected variant (rebuilt on toggle via the ContentControl).  -->
                         <Border
                             Height="260"
