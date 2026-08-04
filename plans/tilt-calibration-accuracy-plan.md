@@ -477,14 +477,14 @@ public void Calibrate_WithFinalRebaseline_Screw2DeltaIsDriftImmune() {
 **Files:**
 - Modify: `Joko.NINA.Plugins/TestApp/TiltCalibrationRunner.cs`
 
-- [ ] **Step 7.1:** Region path fix: at :583-586 the runner calls the 8-arg `TiltPlaneModel.Create(...)` with its own region fits (regions from `BuildTiltRegions`, corner centers at ±1/3 with default ROI). Pass the new corner design points: compute `cornerXNorm`/`cornerYNorm` from the `BuildTiltRegions` rects exactly as Task 1 does (`Math.Abs(tlRect.StartX + tlRect.Width / 2.0 - 0.5)`) and pass them. Its recovered step size and SNR become honest (the ×0.62 scale disappears).
-- [ ] **Step 7.2:** Add to `WriteReport` (:780), after the paraboloid section:
+- [x] **Step 7.1:** Region path fix: at :583-586 the runner calls the 8-arg `TiltPlaneModel.Create(...)` with its own region fits (regions from `BuildTiltRegions`, corner centers at ±1/3 with default ROI). Pass the new corner design points: compute `cornerXNorm`/`cornerYNorm` from the `BuildTiltRegions` rects exactly as Task 1 does (`Math.Abs(tlRect.StartX + tlRect.Width / 2.0 - 0.5)`) and pass them. Its recovered step size and SNR become honest (the ×0.62 scale disappears).
+- [x] **Step 7.2:** Add to `WriteReport` (:780), after the paraboloid section:
   - a per-move comparison block: physical magnitudes of Screw1/Screw2 deltas for BOTH estimators (via `TiltCalibrationCalculator.Screw1Delta`/`Screw2Delta` + `PhysicalDelta`), their relative differences, and both `MeasuredHardwareMicrons`;
   - `Line($"Piston-implied hardware: {TiltCalibrationCalculator.PistonImpliedMicronsPerStep(inputs):0.###} µm/step");`
   - a curvature cross-check: per-step `cornerSagSteps = (TL+TR+BL+BR)/4 − center` from `RegionPositions` vs the paraboloid K's predicted sag at the corner-region radius (predicted = `K × rEff²` with `rEff²` computed from the region rects and pixel size — the design doc §4 shows the arithmetic; on ghilios_corrected this prints measured ≈ 2× predicted).
   - json: extend the anonymous object with `estimatorComparison = new { paraboloidMove1, paraboloidMove2, cornerMove1, cornerMove2, relDiff1, relDiff2, cornerHardwareMicrons, paraboloidHardwareMicrons, pistonImpliedMicronsPerStep }`.
-- [ ] **Step 7.3:** Update the "NOTE: the two screw turns produced very unequal tilt changes" text (:893) to add: `"If the corner-AF cross-check above disagrees with the paraboloid magnitudes, suspect the per-star fit before suspecting the hardware."` Keep verdicts and exit codes unchanged (the comparison is informational).
-- [ ] **Step 7.4:** Rebuild and re-run the replay against the bank run; verify the new sections appear and the corner path's recovered step size lands near 2.0–2.2 µm/step (was 1.376 with the lever-arm bug):
+- [x] **Step 7.3:** Update the "NOTE: the two screw turns produced very unequal tilt changes" text (:893) to add: `"If the corner-AF cross-check above disagrees with the paraboloid magnitudes, suspect the per-star fit before suspecting the hardware."` Keep verdicts and exit codes unchanged (the comparison is informational).
+- [x] **Step 7.4:** Rebuild and re-run the replay against the bank run; verify the new sections appear and the corner path's recovered step size lands near 2.0–2.2 µm/step (was 1.376 with the lever-arm bug):
 ```bash
 dotnet.exe build Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo
 cd Joko.NINA.Plugins/TestApp/bin/Debug/net8.0-windows7.0 && \
@@ -492,7 +492,7 @@ cd Joko.NINA.Plugins/TestApp/bin/Debug/net8.0-windows7.0 && \
   --dataset 'D:\Tilt Calibration Bank\ghilios_corrected' --out <scratch>/tilt_replay_v2
 ```
   Expected: paraboloid section unchanged (ratio ~1.52); 4-corner recovered step size ≈ 2.0–2.2; estimator comparison prints relDiff ≈ 0.20 on move 2; piston-implied ≈ 2.23.
-- [ ] **Step 7.5: Commit** — `feat(testapp): estimator comparison, honest region lever arms, piston pitch in tilt validator`
+- [x] **Step 7.5: Commit** — `feat(testapp): estimator comparison, honest region lever arms, piston pitch in tilt validator`
 
 ---
 
@@ -502,14 +502,14 @@ cd Joko.NINA.Plugins/TestApp/bin/Debug/net8.0-windows7.0 && \
 - Modify: `documentation/docs/overview/tilt-adapter-wizard.md` (hardware table :131-132, measured-pitch note :160-165)
 - Modify: `docs/tilt-calibration-pitch-nonlinearity-design.md` (status)
 
-- [ ] **Step 8.1:** Read `.claude/docs/documentation-style.md` (house voice) before editing the manual.
-- [ ] **Step 8.2:** In `tilt-adapter-wizard.md`, rewrite the measured-pitch note to explain the frame factor in the house voice. Content requirements (style per the doc guide, not verbatim):
+- [x] **Step 8.1:** Read `.claude/docs/documentation-style.md` (house voice) before editing the manual.
+- [x] **Step 8.2:** In `tilt-adapter-wizard.md`, rewrite the measured-pitch note to explain the frame factor in the house voice. Content requirements (style per the doc guide, not verbatim):
   - The wizard measures pitch through the optics and focuser — an *effective* µm/step in focus-shift terms. On rigs where focuser travel and sensor travel are not 1:1 (moving optics, reducer on the drawtube), the measured value can sit well above or below the mechanical spec **and that is not an error**.
   - Corrections are computed in the same effective frame, so applying "Use measured value" makes them self-consistent; keeping the mechanical spec on such a rig over- or under-corrects by the frame ratio.
   - The new "Piston-implied" line is an independent estimate of the same effective value; the wizard warns when the two disagree by more than 20%.
   - Document the new "Measure final re-baseline" setting (one extra AF; makes the second screw measurement immune to steady drift).
-- [ ] **Step 8.3:** In the design doc, mark §7 items 1, 2, 5, 6 implemented (with commit refs), item 3 in progress (Task 9), item 7 pending Task 9's outcome.
-- [ ] **Step 8.4: Commit** — `docs(tilt): frame-factor explanation and new wizard fields in the manual`
+- [x] **Step 8.3:** In the design doc, mark §7 items 1, 2, 5, 6 implemented (with commit refs), item 3 in progress (Task 9), item 7 pending Task 9's outcome.
+- [x] **Step 8.4: Commit** — `docs(tilt): frame-factor explanation and new wizard fields in the manual`
 
 ---
 
@@ -530,7 +530,7 @@ The replay already wrote per-state solver diagnostics to `<scratch>/tilt_replay/
 
 ### Task 10: Final gate
 
-- [ ] **Step 10.1:** Full suite: `dotnet.exe test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo` (timeout 600000). All green — except `SendAsync_WritesOnABackgroundThread` may flake (known, unrelated; re-run it in isolation before dismissing, and do not pipe through `tail`, which masks the exit code).
+- [x] **Step 10.1:** Full suite: `dotnet.exe test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo` (timeout 600000). All green — except `SendAsync_WritesOnABackgroundThread` may flake (known, unrelated; re-run it in isolation before dismissing, and do not pipe through `tail`, which masks the exit code).
 - [ ] **Step 10.2:** Re-run the Task 7 replay command once more from the final tree; eyeball the summary against the design doc's numbers (paraboloid ratio ~1.52 reported WITH the cross-check warning present; corner hardware ≈ 2.0; piston ≈ 2.23).
 - [ ] **Step 10.3:** Push branch, open PR to `develop` titled "Tilt calibration accuracy: physical-space metrics, drift-symmetric deltas, estimator cross-checks". PR body summarizes the four root causes from the design doc and maps each commit to a §7 item. End the body with the standard generated-with footer.
 

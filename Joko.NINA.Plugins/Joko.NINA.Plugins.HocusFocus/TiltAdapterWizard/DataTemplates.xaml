@@ -300,7 +300,7 @@
                 Margin="0,2"
                 VerticalAlignment="Center"
                 Columns="2"
-                ToolTip="The direction of the curvature response to clockwise screw turns (+ steps for stepper motors). Set by the adapter direction in the Measurement settings, or measured by a 6-step calibration run.">
+                ToolTip="The direction of the curvature response to clockwise screw turns (+ steps for stepper motors). Set by the adapter direction in the Measurement settings, or measured by a calibration run with direction measurement enabled.">
                 <UniformGrid.Style>
                     <Style TargetType="UniformGrid">
                         <Setter Property="Visibility" Value="Collapsed" />

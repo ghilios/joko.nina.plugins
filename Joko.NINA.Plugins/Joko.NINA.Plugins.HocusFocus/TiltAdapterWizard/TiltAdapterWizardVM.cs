@@ -1197,7 +1197,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 ? "Direction was measured by a calibration run."
                 : tiltAdapterOptions.MeasureCurvatureDuringCalibration
                     ? "Direction will be measured on the next calibration run."
-                    : "Direction is assumed — enable the measurement below (or run a 6-step calibration) to verify it.";
+                    : "Direction is assumed — enable the measurement below (it adds the all-screws steps to the run) to verify it.";
 
         private double manualScrew1AngleDegrees;
 
@@ -1638,9 +1638,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     hasDefaultedMeasureCurvatureOnConnect = true;
                     if (!tiltAdapterOptions.MeasureCurvatureDuringCalibration && !userExplicitlyDisabledMeasureCurvatureThisSession) {
                         tiltAdapterOptions.MeasureCurvatureDuringCalibration = true;
-                        // Surface the silent 4→6-step change so the extra "all screws" steps aren't confusing.
-                        Notification.ShowInformation("Enabled direction measurement (6-step calibration) for the connected device — " +
-                            "recommended for hands-off runs. You can turn it off under the measurement settings.");
+                        // Surface the silent lengthening of the run so the extra "all screws" steps aren't confusing.
+                        // Don't quote a step count here: the run length also depends on MeasureFinalRebaseline.
+                        Notification.ShowInformation("Enabled direction measurement for the connected device — it adds the " +
+                            "all-screws steps to the run, and is recommended for hands-off runs. You can turn it off under " +
+                            "the measurement settings.");
                     }
                 }
                 RaisePropertyChanged(nameof(TiltDeviceStatusText));
