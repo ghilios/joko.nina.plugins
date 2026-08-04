@@ -34,6 +34,9 @@ public class InspectorOptionsTests {
             Assert.That(options.NumRegionsWide, Is.EqualTo(7));
             Assert.That(options.LoopingExposureAnalysisEnabled, Is.False);
             Assert.That(options.MicronsPerFocuserStep, Is.EqualTo(-1));
+            // Default k: standard focuser (increasing position moves the camera AWAY from the objective),
+            // which reproduces every caption exactly as it rendered before the setting existed.
+            Assert.That(options.FocuserIncreasesTowardObjective, Is.False);
             Assert.That(options.EccentricityColorMapEnabled, Is.True);
             Assert.That(options.MouseOnChartsEnabled, Is.True);
             Assert.That(options.SensorCurveModelEnabled, Is.False);
@@ -69,6 +72,7 @@ public class InspectorOptionsTests {
         options.DetailedAnalysisExposureSeconds = 4.0;
         options.LoopingExposureAnalysisEnabled = true;
         options.MicronsPerFocuserStep = 1.5;
+        options.FocuserIncreasesTowardObjective = true;
         options.EccentricityColorMapEnabled = false;
         options.MouseOnChartsEnabled = false;
         options.SensorCurveModelEnabled = true;
@@ -99,6 +103,7 @@ public class InspectorOptionsTests {
             Assert.That(store.Snapshot[nameof(InspectorOptions.NumRegionsWide)], Is.EqualTo(9));
             Assert.That(store.Snapshot[nameof(InspectorOptions.LoopingExposureAnalysisEnabled)], Is.True);
             Assert.That(store.Snapshot[nameof(InspectorOptions.MicronsPerFocuserStep)], Is.EqualTo(1.5));
+            Assert.That(store.Snapshot[nameof(InspectorOptions.FocuserIncreasesTowardObjective)], Is.True);
             Assert.That(store.Snapshot[nameof(InspectorOptions.EccentricityColorMapEnabled)], Is.False);
             Assert.That(store.Snapshot[nameof(InspectorOptions.MouseOnChartsEnabled)], Is.False);
             Assert.That(store.Snapshot[nameof(InspectorOptions.SensorCurveModelEnabled)], Is.True);
@@ -203,6 +208,7 @@ public class InspectorOptionsTests {
     [TestCase(nameof(InspectorOptions.CenterFocuserBeforeRun), true)]
     [TestCase(nameof(InspectorOptions.LoopingExposureAnalysisEnabled), true)]
     [TestCase(nameof(InspectorOptions.MicronsPerFocuserStep), 2.5)]
+    [TestCase(nameof(InspectorOptions.FocuserIncreasesTowardObjective), true)]
     [TestCase(nameof(InspectorOptions.SensorROI), 0.6)]
     [TestCase(nameof(InspectorOptions.UseRANSAC), false)]
     [TestCase(nameof(InspectorOptions.FrameReviewEnabled), true)]

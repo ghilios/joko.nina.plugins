@@ -32,6 +32,7 @@
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="NumRegionsWide_Tooltip" Text="How many cells wide to divide the sensor pixels when generating a grid of eccentricity vectors. This value must be an odd, positive integer, and the height will be calculated proportionally from it based on the sensor resolution" />
     <TextBlock x:Key="MicronsPerFocuserStep_Tooltip" Text="How much the focuser moves per step, in microns. If this is set, the adjustment chart will include adjustments in microns" />
+    <TextBlock x:Key="Inspector_FocuserDirection_Tooltip" Text="Which way your focuser travels: does a HIGHER focuser position move the camera away from the objective (standard), or toward it (reversed)? This affects direction LABELS AND DIAGRAMS ONLY — the &quot;move toward/away from the objective&quot; captions, the Telescope/Sensor labels on the sensor model, the spacer advice, and the up/down motion arrows in the tilt guidance. It can never change a measurement, a screw angle, or a correction: the tilt adapter's direction is measured in focuser units, and the focuser convention cancels out of that measurement entirely. So if these labels read backwards on your rig, flip this — nothing you have already calibrated is affected, and nothing will start turning the other way." />
     <TextBlock x:Key="EccentricityColorMapEnabled_Tooltip" Text="Enable color on the eccentricity map" />
     <TextBlock x:Key="MouseOnChartsEnabled_Tooltip" Text="Enable mouse events on charts to scroll, pan, and zoom. Disable this if you don't want the charts to intercept mouse actions" />
     <TextBlock x:Key="SlewToZenith_Tooltip" Text="Slews to zenith while leaving tracking running. Doing this is optional, but you may find better seeing conditions and consistency as far from the horizon as possible" />
@@ -1926,6 +1927,44 @@
                             Grid.Column="1"
                             Orientation="Horizontal">
                             <CheckBox Margin="5,0,0,0" IsChecked="{Binding InspectorOptions.FixedSensorCenter}" />
+                        </StackPanel>
+
+                        <!--
+                            The focuser direction convention k — display-only by contract
+                            (docs/focuser-direction-convention-design.md §2.2). It drives the direction captions
+                            on this dock, the Telescope/Sensor labels, the spacer advice, and the tilt guidance's
+                            motion arrows; it never reaches a measurement, the planner, or the simulator. Also
+                            editable under Options → Hocus Focus → Auto Focus, like Focuser Step Size.
+                        -->
+                        <TextBlock
+                            Grid.Row="6"
+                            Grid.Column="2"
+                            Margin="5"
+                            VerticalAlignment="Center"
+                            Text="Increasing focuser position"
+                            ToolTip="{StaticResource Inspector_FocuserDirection_Tooltip}" />
+                        <StackPanel
+                            Grid.Row="6"
+                            Grid.Column="3"
+                            Orientation="Horizontal">
+                            <ComboBox
+                                MinWidth="40"
+                                Margin="5,0,0,0"
+                                VerticalAlignment="Center"
+                                SelectedValue="{Binding InspectorOptions.FocuserIncreasesTowardObjective}"
+                                SelectedValuePath="Tag"
+                                ToolTip="{StaticResource Inspector_FocuserDirection_Tooltip}">
+                                <ComboBoxItem Content="Moves camera away from objective (standard)">
+                                    <ComboBoxItem.Tag>
+                                        <s:Boolean>False</s:Boolean>
+                                    </ComboBoxItem.Tag>
+                                </ComboBoxItem>
+                                <ComboBoxItem Content="Moves camera toward objective (reversed)">
+                                    <ComboBoxItem.Tag>
+                                        <s:Boolean>True</s:Boolean>
+                                    </ComboBoxItem.Tag>
+                                </ComboBoxItem>
+                            </ComboBox>
                         </StackPanel>
 
                         <Expander

@@ -70,6 +70,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             numRegionsWide = optionsAccessor.GetValueInt32(nameof(NumRegionsWide), 7);
             loopingExposureAnalysisEnabled = optionsAccessor.GetValueBoolean(nameof(LoopingExposureAnalysisEnabled), false);
             micronsPerFocuserStep = optionsAccessor.GetValueDouble(nameof(MicronsPerFocuserStep), -1);
+            focuserIncreasesTowardObjective = optionsAccessor.GetValueBoolean(nameof(FocuserIncreasesTowardObjective), false);
             eccentricityColorMapEnabled = optionsAccessor.GetValueBoolean(nameof(EccentricityColorMapEnabled), true);
             mouseOnChartsEnabled = optionsAccessor.GetValueBoolean(nameof(MouseOnChartsEnabled), true);
             sensorCurveModelEnabled = optionsAccessor.GetValueBoolean(nameof(SensorCurveModelEnabled), false);
@@ -104,6 +105,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             NumRegionsWide = 7;
             LoopingExposureAnalysisEnabled = false;
             MicronsPerFocuserStep = -1;
+            FocuserIncreasesTowardObjective = false;
             EccentricityColorMapEnabled = true;
             MouseOnChartsEnabled = true;
             SensorCurveModelEnabled = false;
@@ -270,6 +272,24 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (micronsPerFocuserStep != value) {
                     micronsPerFocuserStep = value;
                     optionsAccessor.SetValueDouble(nameof(MicronsPerFocuserStep), micronsPerFocuserStep);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool focuserIncreasesTowardObjective;
+
+        /// <summary>
+        /// The focuser direction convention k. DISPLAY-ONLY — see
+        /// <see cref="IInspectorOptions.FocuserIncreasesTowardObjective"/> for the full contract and the two
+        /// sanctioned exceptions.
+        /// </summary>
+        public bool FocuserIncreasesTowardObjective {
+            get => focuserIncreasesTowardObjective;
+            set {
+                if (focuserIncreasesTowardObjective != value) {
+                    focuserIncreasesTowardObjective = value;
+                    optionsAccessor.SetValueBoolean(nameof(FocuserIncreasesTowardObjective), focuserIncreasesTowardObjective);
                     RaisePropertyChanged();
                 }
             }

@@ -527,6 +527,7 @@
     <TextBlock x:Key="MeasurementAverage_Tooltip" Text="Controls how the average star measurement across the frame is calculated. Median is robust to outliers, and is the default." />
     <TextBlock x:Key="MaxAutoFocusOutlierRejections_Tooltip" Text="Controls the maximum number of points that can be rejected as outliers during Auto Focus curve fitting." />
     <TextBlock x:Key="MaxBlindStepsPerDirection_Tooltip" Text="Maximum number of blind AutoFocus steps attempted in each direction before reversing to try the other side. Set to 0 to disable the cap." />
+    <TextBlock x:Key="FocuserIncreasesTowardObjective_Tooltip" Text="Which way your focuser travels: does a HIGHER focuser position move the camera away from the objective (standard), or toward it (reversed)? This affects direction LABELS AND DIAGRAMS ONLY — the &quot;move toward/away from the objective&quot; captions, the Telescope/Sensor labels on the sensor model, the spacer advice, and the up/down motion arrows in the tilt guidance. It can never change a measurement, a screw angle, or a correction: the tilt adapter's direction is measured in focuser units, and the focuser convention cancels out of that measurement entirely. So if these labels read backwards on your rig, flip this — nothing you have already calibrated is affected, and nothing will start turning the other way." />
     <TextBlock x:Key="AutoFocusOutlierRejectionConfidence_Tooltip" Text="Confidence level for a two-tailed Grubbs statistical test of outliers to use during Auto Focus curve fitting. 95% is a reasonable default. Must be above 50% and below 100%." />
     <DataTemplate x:Key="HocusFocus_AutoFocus_Options">
         <Grid Margin="5" VerticalAlignment="Top">
@@ -579,6 +580,7 @@
                 <RowDefinition />
                 <RowDefinition Style="{StaticResource ShowOnReducedChiSquaredCriterion}" />
                 <RowDefinition Style="{StaticResource ShowOnRSquaredCriterion}" />
+                <RowDefinition />
                 <RowDefinition />
             </Grid.RowDefinitions>
             <TextBlock
@@ -945,6 +947,41 @@
                     </Binding.ValidationRules>
                 </Binding>
             </ninactrl:UnitTextBox>
+
+            <!--
+                The focuser direction convention k. A rig/focuser property, so it sits with the other
+                focuser settings; it is persisted on InspectorOptions (NOT on ITiltAdapterOptions, where it
+                would be fused with the measured curvature sign again — docs/focuser-direction-convention-design.md
+                §2.2). Bool Tag pattern, mirroring the wizard's direction combo. The same setting is also
+                editable on the Aberration Inspector dock (AutoFocus/DataTemplates.xaml), like Focuser Step Size.
+            -->
+            <TextBlock
+                Grid.Row="17"
+                Grid.Column="0"
+                VerticalAlignment="Center"
+                Text="Increasing focuser position"
+                ToolTip="{StaticResource FocuserIncreasesTowardObjective_Tooltip}" />
+            <ComboBox
+                Grid.Row="17"
+                Grid.Column="1"
+                MinWidth="80"
+                Margin="5,5,0,0"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                SelectedValue="{Binding InspectorOptions.FocuserIncreasesTowardObjective}"
+                SelectedValuePath="Tag"
+                ToolTip="{StaticResource FocuserIncreasesTowardObjective_Tooltip}">
+                <ComboBoxItem Content="Moves camera away from objective (standard)">
+                    <ComboBoxItem.Tag>
+                        <s:Boolean>False</s:Boolean>
+                    </ComboBoxItem.Tag>
+                </ComboBoxItem>
+                <ComboBoxItem Content="Moves camera toward objective (reversed)">
+                    <ComboBoxItem.Tag>
+                        <s:Boolean>True</s:Boolean>
+                    </ComboBoxItem.Tag>
+                </ComboBoxItem>
+            </ComboBox>
         </Grid>
     </DataTemplate>
     <DataTemplate x:Key="HocusFocus_StarDetection_Options">
