@@ -58,6 +58,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             screwInwardCurvatureSign = optionsAccessor.GetValueInt32(nameof(ScrewInwardCurvatureSign), TiltScrewGeometry.DefaultScrewInwardCurvatureSign);
             screwInwardCurvatureSignIsMeasured = optionsAccessor.GetValueBoolean(nameof(ScrewInwardCurvatureSignIsMeasured), false);
             measureCurvatureDuringCalibration = optionsAccessor.GetValueBoolean(nameof(MeasureCurvatureDuringCalibration), false);
+            measureFinalRebaseline = optionsAccessor.GetValueBoolean(nameof(MeasureFinalRebaseline), true);
             calibrationIsManual = optionsAccessor.GetValueBoolean(nameof(CalibrationIsManual), false);
             adjustmentType = optionsAccessor.GetValueEnum(nameof(AdjustmentType), TiltAdjustmentType.Screws);
             angleDisplayUnit = optionsAccessor.GetValueEnum(nameof(AngleDisplayUnit), TiltGuidanceAngleUnit.Turns);
@@ -270,6 +271,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 if (measureCurvatureDuringCalibration != value) {
                     measureCurvatureDuringCalibration = value;
                     optionsAccessor.SetValueBoolean(nameof(MeasureCurvatureDuringCalibration), measureCurvatureDuringCalibration);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool measureFinalRebaseline;
+
+        public bool MeasureFinalRebaseline {
+            get => measureFinalRebaseline;
+            set {
+                if (measureFinalRebaseline != value) {
+                    measureFinalRebaseline = value;
+                    optionsAccessor.SetValueBoolean(nameof(MeasureFinalRebaseline), measureFinalRebaseline);
                     RaisePropertyChanged();
                 }
             }

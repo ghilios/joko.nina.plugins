@@ -270,9 +270,12 @@ namespace TestApp {
                     : $"    paraboloid fit FAILED: {ps.Status}");
             }
             TiltCalibrationResult paraboloidCalibration = null;
+            // Hoisted out of the `if` (rather than a `var` local to it) so WriteReport's Step 7.2 estimator
+            // comparison can reuse the SAME inputs object Calibrate() consumed here — not a re-derived copy.
+            TiltCalibrationInputs pinputs = null;
             if (paraboloidSteps.All(p => p.Fitted)) {
                 var pbyStep = paraboloidSteps.ToDictionary(s => s.Step, StringComparer.OrdinalIgnoreCase);
-                var pinputs = new TiltCalibrationInputs {
+                pinputs = new TiltCalibrationInputs {
                     ScrewCount = metadata.NumberOfScrews,
                     Baseline = hasCurvatureSteps ? pbyStep["Baseline"].Gradient : default,
                     AllInward = hasCurvatureSteps ? pbyStep["AllInward"].Gradient : default,
@@ -293,7 +296,7 @@ namespace TestApp {
                 paraboloidCalibration = TiltCalibrationCalculator.Calibrate(pinputs);
             }
 
-            WriteReport(outDir, metadata, optimizationSource, perStep, inputs, calibration, paraboloidSteps, paraboloidCalibration);
+            WriteReport(outDir, metadata, optimizationSource, perStep, inputs, calibration, paraboloidSteps, paraboloidCalibration, pinputs, regions);
             Console.WriteLine($"Wrote tilt_summary.txt and tilt_summary.json to {outDir}");
         }
 
@@ -580,10 +583,19 @@ namespace TestApp {
                     regionR2[ri] = rSquared;
                 }
 
+                // The corner-region samples sit at the REGION CENTERS BuildTiltRegions actually laid out (±1/3
+                // normalized with default ROI), not at the true frame corners (±0.5) the 8-arg overload defaults
+                // to for the paraboloid caller (which evaluates its surface AT the real corners). Passing the
+                // actual design points — mirroring TiltPlaneModel.Create(AutoFocusResult, ...)'s own Task-1 fix —
+                // makes the regressed A/B honest; leaving the defaulted ±0.5 in place here silently attenuates
+                // them by (design-point / 0.5), the ×0.62 magnitude scale on this harness's region-path move
+                // ratio and recovered step size that Task 7.1 removes.
+                var (cornerXNorm, cornerYNorm) = CornerDesignPoint(regions);
                 var model = TiltPlaneModel.Create(
                     imageSize: imageSize, fRatio: fRatio, focuserStepSizeMicrons: focuserStepMicrons,
                     centerFocuser: regionFinal[1], topLeftFocuser: regionFinal[2], topRightFocuser: regionFinal[3],
-                    bottomLeftFocuser: regionFinal[4], bottomRightFocuser: regionFinal[5]);
+                    bottomLeftFocuser: regionFinal[4], bottomRightFocuser: regionFinal[5],
+                    cornerXNorm: cornerXNorm, cornerYNorm: cornerYNorm);
 
                 double tiltAngleDeg = TiltAngleDegrees(model.A, model.B, imageSize, focuserStepMicrons, pixelSizeMicrons);
 
@@ -610,6 +622,11 @@ namespace TestApp {
             public int StarsInModel;
             public double RSquared;
             public double TiltAngleDeg;
+
+            // Isotropic curvature coefficient from the same paraboloid fit (SensorParaboloidModel.K): the
+            // surface's z += K·(x-X0)² + K·(y-Y0)² term, with x/y/z all in sensor/focuser MICRONS (see
+            // SensorModel.FitParaboloidModel). Used by the Step 7.2 curvature cross-check. NaN when !Fitted.
+            public double K = double.NaN;
             public bool Fitted;
             public string Status;           // why the fit failed, when !Fitted
         }
@@ -695,6 +712,7 @@ namespace TestApp {
                         StarsInModel = fit.StarsInModel,
                         RSquared = fit.GoodnessOfFit,
                         TiltAngleDeg = fit.Theta * 180.0 / Math.PI,
+                        K = fit.K,
                         Fitted = true
                     };
                 } catch (Exception ex) {
@@ -770,6 +788,17 @@ namespace TestApp {
             };
         }
 
+        /// <summary>The 4-corner region's design point — the actual center of the TL corner region
+        /// <see cref="BuildTiltRegions"/> laid out, in normalized [-0.5, 0.5] image coordinates — mirroring
+        /// <c>TiltPlaneModel.Create(AutoFocusResult, ...)</c>'s own derivation (Task 1). Used both to regress the
+        /// region plane against where the samples actually are (Step 7.1) and, at the SAME radius, to predict the
+        /// paraboloid's corner-vs-center curvature sag for the cross-check (Step 7.2) — one source of truth for
+        /// "where do the corner regions sit" so the two never disagree with each other.</summary>
+        private static (double xNorm, double yNorm) CornerDesignPoint(List<StarDetectionRegion> regions) {
+            var tl = regions[2].OuterBoundary;
+            return (Math.Abs(tl.StartX + tl.Width / 2.0 - 0.5), Math.Abs(tl.StartY + tl.Height / 2.0 - 0.5));
+        }
+
         private static int InferStepSize(IEnumerable<int> focusers) {
             var positions = focusers.Distinct().OrderBy(x => x).Take(2).ToList();
             return positions.Count > 1 ? Math.Abs(positions[0] - positions[1]) : 0;
@@ -780,7 +809,8 @@ namespace TestApp {
         private static void WriteReport(
             string outDir, TiltCalibrationMetadata metadata, string optimizationSource, List<StepResult> perStep,
             TiltCalibrationInputs inputs, TiltCalibrationResult calibration,
-            List<ParaboloidStepResult> paraboloidSteps, TiltCalibrationResult paraboloidCalibration) {
+            List<ParaboloidStepResult> paraboloidSteps, TiltCalibrationResult paraboloidCalibration,
+            TiltCalibrationInputs pinputs, List<StarDetectionRegion> regions) {
 
             bool isStepper = inputs.IsStepperAdjustment;
             double groundTruthHardware = isStepper ? metadata.StepperStepSizeMicrons : metadata.ScrewThreadPitchMicrons;
@@ -881,6 +911,89 @@ namespace TestApp {
             }
             Line();
 
+            // Estimator comparison (Task 7.2): physical-gradient-space move magnitudes for BOTH estimators, now
+            // that Step 7.1 makes the 4-corner (`calibration`/`inputs`) numbers honest (no more region-path ×0.62
+            // scale). Reuses the SAME shared helpers Calibrate() itself uses internally — Screw1Delta/Screw2Delta
+            // + PhysicalDelta, via ScrewMoveMagnitude — so this comparison can never drift from the wizard's math,
+            // and relDiff is computed the SAME way as EstimatorRelativeDifference (paraboloid vs. corner-AF as the
+            // reference), just kept per-screw here rather than collapsed to the pair's max.
+            double paraboloidMove1 = double.NaN, paraboloidMove2 = double.NaN;
+            double cornerMove1 = double.NaN, cornerMove2 = double.NaN;
+            double relDiff1 = double.NaN, relDiff2 = double.NaN;
+            double paraboloidHardwareMicrons = double.NaN;
+            if (paraboloidCalibration != null && pinputs != null) {
+                paraboloidMove1 = TiltCalibrationCalculator.ScrewMoveMagnitude(1, pinputs);
+                paraboloidMove2 = TiltCalibrationCalculator.ScrewMoveMagnitude(2, pinputs);
+                cornerMove1 = TiltCalibrationCalculator.ScrewMoveMagnitude(1, inputs);
+                cornerMove2 = TiltCalibrationCalculator.ScrewMoveMagnitude(2, inputs);
+                relDiff1 = cornerMove1 > 0 ? Math.Abs(paraboloidMove1 - cornerMove1) / cornerMove1 : double.NaN;
+                relDiff2 = cornerMove2 > 0 ? Math.Abs(paraboloidMove2 - cornerMove2) / cornerMove2 : double.NaN;
+                paraboloidHardwareMicrons = paraboloidCalibration.MeasuredHardwareMicrons;
+
+                Line("Estimator comparison (per-star paraboloid vs 4-corner region-AF; physical gradient-space move magnitudes):");
+                Line($"  Screw1 move: paraboloid={F(paraboloidMove1)}  corner-AF={F(cornerMove1)}  relDiff={F(relDiff1 * 100.0)}%");
+                Line($"  Screw2 move: paraboloid={F(paraboloidMove2)}  corner-AF={F(cornerMove2)}  relDiff={F(relDiff2 * 100.0)}%");
+                Line($"  Recovered {(isStepper ? "step size" : "pitch")}: paraboloid={F(paraboloidHardwareMicrons)} µm/{(isStepper ? "step" : "turn")}  " +
+                    $"corner-AF={F(measuredHardware)} µm/{(isStepper ? "step" : "turn")}");
+            } else {
+                Line("Estimator comparison not computed — paraboloid calibration unavailable (see above).");
+            }
+            double pistonImpliedMicronsPerStep = TiltCalibrationCalculator.PistonImpliedMicronsPerStep(inputs);
+            Line($"Piston-implied hardware: {pistonImpliedMicronsPerStep:0.###} µm/step");
+            Line();
+
+            // Curvature cross-check (Task 7.2): does the paraboloid's own K predict the same corner-vs-center sag
+            // the 4-corner region AF directly measured? K is SensorParaboloidModel's isotropic curvature
+            // coefficient — the surface's z += K·(x-X0)² + K·(y-Y0)² term, with x/y/z ALL IN SENSOR/FOCUSER
+            // MICRONS (SensorModel.FitParaboloidModel builds the solver with sensorSizeMicronsX/Y = pixels ×
+            // pixelSize and inFocusMicrons = focuserPosition × focuserStepMicrons) — so K·rEff² is already in
+            // MICRONS, no unit conversion needed on the predicted side. "measured" comes from THIS HARNESS'S OWN
+            // per-region re-detection + hyperbolic re-fit (RegionPositions, populated by MeasureTiltAsync/
+            // FitFinalFocus — always unweighted, "for robustness headless") — raw FOCUSER STEPS, so it needs ×
+            // FocuserStepMicrons before it is comparable to the predicted side. rEff is the corner-region's design
+            // point (the SAME cornerXNorm/cornerYNorm Step 7.1 regresses against, via CornerDesignPoint) converted
+            // to sensor microns — the radius the corner samples actually came from, not the true frame corner.
+            //
+            // COMPARABILITY CAVEAT (confirmed against ghilios_corrected's own 01_Baseline\...\attempt01\
+            // autofocus_report_Region{1..5}.json, which the wizard itself wrote during the live run): the region
+            // RECTS this harness uses are byte-identical to the wizard's own (both ±1/3-normalized boxes; verified
+            // OuterBoundary StartX/StartY/Width/Height match exactly at default ROI) — this is NOT a region-geometry
+            // mismatch. But the wizard's stored Region1 (center) CalculatedFocusPoint reads ~46 focuser steps higher
+            // than this harness's headless re-fit of the SAME frames, while the four corner regions differ by only
+            // 5-31 steps — so the design doc §4 sag (measured from the wizard's OWN stored per-region results:
+            // -147.2 steps / -39.6 µm on Baseline, ≈2× the paraboloid K's prediction) is NOT reproducible from
+            // RegionPositions here, because RegionPositions was never validated for ABSOLUTE per-region accuracy
+            // (only the SLOPE across the four corners was — see Step 7.1's recovered-step-size check, which is
+            // corner-only and excludes the center region entirely, and does land in the expected 2.0-2.2 range).
+            // The ratio below is therefore a same-run, self-consistent diagnostic (this harness's own measured sag
+            // vs. this harness's own paraboloid-predicted sag) — useful for noticing a large same-run disagreement,
+            // but its magnitude should NOT be expected to reproduce the design doc's live-AF-report-derived ×2.
+            var (cornerXNorm, cornerYNorm) = CornerDesignPoint(regions);
+            double sensorWidthMicrons = perStep[0].ImageSize.Width * metadata.PixelSizeMicrons;
+            double sensorHeightMicrons = perStep[0].ImageSize.Height * metadata.PixelSizeMicrons;
+            double rEffMicrons = Math.Sqrt(Math.Pow(cornerXNorm * sensorWidthMicrons, 2) + Math.Pow(cornerYNorm * sensorHeightMicrons, 2));
+            double rEffSquaredMicrons2 = rEffMicrons * rEffMicrons;
+
+            Line($"Curvature cross-check (this harness's OWN re-measured corner-AF sag vs. paraboloid K's predicted sag at rEff={F(rEffMicrons)} µm):");
+            Line("  NOTE: \"measured\" is this harness's independent headless per-region re-fit, not the wizard's stored");
+            Line("  per-region AF results — an absolute-position quantity like this sag is far more sensitive to that");
+            Line("  re-measurement noise than the slope-only 4-corner (A,B) tilt plane is, so this ratio is a same-run");
+            Line("  self-consistency check only; it is not expected to reproduce the design doc's §4 finding.");
+            Line($"  {"Step",-10} {"measured µm",12} {"predicted µm",13} {"ratio",7}");
+            for (int i = 0; i < perStep.Count && i < paraboloidSteps.Count; i++) {
+                var s = perStep[i];
+                var ps = paraboloidSteps[i];
+                if (!ps.Fitted) {
+                    continue;
+                }
+                double cornerSagSteps = (s.RegionPositions[2] + s.RegionPositions[3] + s.RegionPositions[4] + s.RegionPositions[5]) / 4.0 - s.RegionPositions[1];
+                double measuredMicrons = cornerSagSteps * metadata.FocuserStepSizeMicrons;
+                double predictedMicrons = ps.K * rEffSquaredMicrons2;
+                double ratio = (predictedMicrons != 0 && double.IsFinite(predictedMicrons)) ? measuredMicrons / predictedMicrons : double.NaN;
+                Line($"  {s.Step,-10} {F(measuredMicrons),12} {F(predictedMicrons),13} {F(ratio),7}");
+            }
+            Line();
+
             // Verdicts. The screw-1 angle and hardware checks need ground truth that a wizard-written metadata.json
             // does not carry; when absent they are reported "n/a" and do not fail the run.
             bool angleProvided = !double.IsNaN(metadata.ExpectedPositionAngleScrew1Deg);
@@ -891,7 +1004,9 @@ namespace TestApp {
             bool magnitudeOk = !double.IsNaN(calibration.MoveMagnitudeRatio) && calibration.MoveMagnitudeRatio <= 1.5;
             if (!magnitudeOk) {
                 Line("  NOTE: the two screw turns produced very unequal tilt changes — the recovered hardware/angles " +
-                    "are unreliable. Re-capture turning each screw the same amount.");
+                    "are unreliable. Re-capture turning each screw the same amount. If the corner-AF cross-check " +
+                    "above disagrees with the paraboloid magnitudes, suspect the per-star fit before suspecting " +
+                    "the hardware.");
             }
             bool confidenceOk = conf.IsReliable;
             string V(bool ok, bool provided) => !provided ? "n/a" : (ok ? "PASS" : "FAIL");
@@ -934,9 +1049,23 @@ namespace TestApp {
                 paraboloid = new {
                     perStep = paraboloidSteps.Select(p => new {
                         p.Step, p.Fitted, p.Status, p.StarsInModel, p.RSquared,
-                        A = p.Gradient.A, B = p.Gradient.B, p.TiltAngleDeg
+                        A = p.Gradient.A, B = p.Gradient.B, p.TiltAngleDeg, p.K
                     }),
                     calibration = paraboloidCalibration
+                },
+                // Additive (Task 7.2): both estimators' physical-gradient-space move magnitudes and recovered
+                // hardware, plus the geometry-free piston probe. NaN fields when the paraboloid calibration
+                // could not be computed (see the "Estimator comparison not computed" report line above).
+                estimatorComparison = new {
+                    paraboloidMove1,
+                    paraboloidMove2,
+                    cornerMove1,
+                    cornerMove2,
+                    relDiff1,
+                    relDiff2,
+                    cornerHardwareMicrons = measuredHardware,
+                    paraboloidHardwareMicrons,
+                    pistonImpliedMicronsPerStep
                 },
                 verdict = new { angleOk, gapOk, hardwareOk, magnitudeOk, confidenceOk }
             };

@@ -539,6 +539,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.ReBaseline1), Is.True);
                 Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.ReBaseline2), Is.True);
                 Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.Complete), Is.True);
+                Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.ReBaseline3), Is.True);
                 Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.AllInward), Is.False);
                 Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.Screw1), Is.False);
                 Assert.That(TiltAdapterWizardVM.StepIsAtBaseline(WizardStep.Screw2), Is.False);
@@ -579,11 +580,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         [Test]
         public void GetMeasurementSteps_FourStepFlowSkipsCurvatureSteps() {
             Assert.Multiple(() => {
-                Assert.That(TiltAdapterWizardVM.GetMeasurementSteps(measureCurvature: true), Is.EqualTo(new[] {
+                Assert.That(TiltAdapterWizardVM.GetMeasurementSteps(measureCurvature: true, measureFinalRebaseline: false), Is.EqualTo(new[] {
                     WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1,
                     WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2 }));
-                Assert.That(TiltAdapterWizardVM.GetMeasurementSteps(measureCurvature: false), Is.EqualTo(new[] {
+                Assert.That(TiltAdapterWizardVM.GetMeasurementSteps(measureCurvature: false, measureFinalRebaseline: false), Is.EqualTo(new[] {
                     WizardStep.Baseline, WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2 }));
+            });
+        }
+
+        // --- Task 6: optional measured final re-baseline appended to either base flow ---
+
+        [Test]
+        public void GetMeasurementSteps_WithFinalRebaseline_AppendsReBaseline3AsTheLastStep() {
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterWizardVM.GetMeasurementSteps(measureCurvature: true, measureFinalRebaseline: true), Is.EqualTo(new[] {
+                    WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1,
+                    WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2, WizardStep.ReBaseline3 }));
+                Assert.That(TiltAdapterWizardVM.GetMeasurementSteps(measureCurvature: false, measureFinalRebaseline: true), Is.EqualTo(new[] {
+                    WizardStep.Baseline, WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2, WizardStep.ReBaseline3 }));
             });
         }
 
@@ -600,6 +614,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                     Does.Contain("screw 1 CLOCKWISE").And.Contain("screw 3 COUNTER-CLOCKWISE"));
                 Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.Screw2, 3, false, 1.5),
                     Does.Contain("screw 2 CLOCKWISE exactly 1.5 turns"));
+                // Task 6: the optional measured final re-baseline undoes screw 2's move (motor/screw 2 and,
+                // 4-screw, its opposite motor/screw 4) -- same shape as ReBaseline2's undo of screw 1, mirrored.
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline3, 3, false, 1.0),
+                    Does.Contain("screw 2 back COUNTER-CLOCKWISE").And.Contain("returning to the baseline position"));
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline3, 4, false, 1.0),
+                    Does.Contain("screw 2 back COUNTER-CLOCKWISE").And.Contain("screw 4 back CLOCKWISE"));
             });
         }
 
@@ -612,6 +632,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                     Does.Contain("−2 steps to motor 1"));
                 Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.Screw1, 4, true, 2.0),
                     Does.Contain("+2 steps to motor 1").And.Contain("−2 steps to motor 3"));
+                // Task 6: stepper wording for the optional measured final re-baseline (motor 2 / motor 4).
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline3, 4, true, 2.0),
+                    Does.Contain("−2 steps to motor 2").And.Contain("+2 steps to motor 4"));
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline3, 3, true, 2.0),
+                    Does.Contain("−2 steps to motor 2").And.Not.Contain("motor 4"));
             });
         }
 
@@ -622,6 +647,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         [TestCase(WizardStep.ReBaseline2, "Return to Baseline")]
         [TestCase(WizardStep.Screw2, "Move Screw 2")]
         [TestCase(WizardStep.Complete, "Calibration Complete")]
+        [TestCase(WizardStep.ReBaseline3, "Return to Baseline")]
         public void StepTitleText_IsShortPerStepHeader(WizardStep step, string expected) {
             Assert.That(TiltAdapterWizardVM.StepTitleText(step), Is.EqualTo(expected));
         }
@@ -640,6 +666,26 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                     Does.Contain("Click Run Measurement"));
                 Assert.That(TiltAdapterWizardVM.DeviceStepInstructionsText(WizardStep.Screw1, 150, autoRunning: true),
                     Does.StartWith("Running automatically").And.Not.Contain("Click"));
+            });
+        }
+
+        [Test]
+        public void DeviceStepInstructionsText_Complete_NoMoveOnlyWhenMeasuredFinalRebaseline() {
+            // Default (measuredFinalRebaseline: false, the implicit default) -- unchanged from before Task 6:
+            // Complete's own restore move is described.
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterWizardVM.DeviceStepInstructionsText(WizardStep.Complete, 150, autoRunning: false),
+                    Does.Contain("diagonal-B (restore)").And.Contain("Click Run Measurement"));
+                Assert.That(TiltAdapterWizardVM.DeviceStepInstructionsText(WizardStep.Complete, 150, autoRunning: true),
+                    Does.Contain("diagonal-B (restore)"));
+
+                // measuredFinalRebaseline: true -- ReBaseline3 (an earlier ordinary step in this same run)
+                // already sent and measured the restore, so Complete becomes pure status/no-op wording, with
+                // no move description and no second restore mentioned.
+                Assert.That(TiltAdapterWizardVM.DeviceStepInstructionsText(WizardStep.Complete, 150, autoRunning: false, measuredFinalRebaseline: true),
+                    Is.EqualTo("Click Run Measurement to continue.").And.Not.Contain("diagonal-B"));
+                Assert.That(TiltAdapterWizardVM.DeviceStepInstructionsText(WizardStep.Complete, 150, autoRunning: true, measuredFinalRebaseline: true),
+                    Is.EqualTo("Running automatically — measuring…").And.Not.Contain("diagonal-B"));
             });
         }
 
@@ -885,6 +931,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(vm4.StepDescription(WizardStep.Screw1), Is.EqualTo("Screw 1 ⟳, Screw 3 ⟲"));
                 Assert.That(vm4.StepDescription(WizardStep.ReBaseline2), Is.EqualTo("Re-baseline (Screw 1 ⟲, Screw 3 ⟳)"));
                 Assert.That(vm4.StepDescription(WizardStep.Screw2), Is.EqualTo("Screw 2 ⟳, Screw 4 ⟲"));
+                // Task 6: the optional measured final re-baseline undoes screw 2's move.
+                Assert.That(vm3.StepDescription(WizardStep.ReBaseline3), Is.EqualTo("Re-baseline (Screw 2 ⟲)"));
+                Assert.That(vm4.StepDescription(WizardStep.ReBaseline3), Is.EqualTo("Re-baseline (Screw 2 ⟲, Screw 4 ⟳)"));
             });
         }
 
@@ -1165,6 +1214,69 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             Assert.That(walked, Is.EqualTo(new[] {
                 WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1,
                 WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2, WizardStep.Complete }));
+        }
+
+        // Task 6, code-quality follow-up (Fix 2): the shipped DEFAULT configuration (curvature measurement
+        // OFF, MeasureFinalRebaseline ON) is a 5-step run. RunCalibrationForTest bypasses activeMeasurementSteps/
+        // NextStep entirely (it seeds stepReadings directly and calls RunCalibrationMath), and ReplayAsync is a
+        // structurally different loop -- neither exercises the real production state machine every live user's
+        // default run actually walks. This mirrors NextStep_FourStepFlow_SkipsCurvatureStepsAndCompletes above,
+        // with ReBaseline3 appended.
+        [Test]
+        public void NextStep_FiveStepFlow_WithFinalRebaseline_WalksAndCompletes() {
+            var (vm, _, _, _) = Build(configureOptions: o => {
+                o.MeasureCurvatureDuringCalibration.Returns(false);
+                o.MeasureFinalRebaseline.Returns(true);
+            });
+            vm.StartCommand.Execute(null);
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Baseline));
+
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline3, 0.0, 0.0, 1000.0);
+
+            var walked = new List<WizardStep> { vm.CurrentStep };
+            for (int i = 0; i < 5; i++) {
+                vm.NextStep();
+                walked.Add(vm.CurrentStep);
+            }
+
+            Assert.Multiple(() => {
+                Assert.That(walked, Is.EqualTo(new[] {
+                    WizardStep.Baseline, WizardStep.Screw1, WizardStep.ReBaseline2,
+                    WizardStep.Screw2, WizardStep.ReBaseline3, WizardStep.Complete }));
+                Assert.That(vm.IsComplete, Is.True);
+            });
+        }
+
+        // Cheap to also cover: curvature ON + final re-baseline ON is a 7-step run.
+        [Test]
+        public void NextStep_SevenStepFlow_WithCurvatureAndFinalRebaseline_WalksAndCompletes() {
+            var (vm, _, _, _) = Build(configureOptions: o => {
+                o.MeasureCurvatureDuringCalibration.Returns(true);
+                o.MeasureFinalRebaseline.Returns(true);
+            });
+            vm.StartCommand.Execute(null);
+
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.AllInward, 0.0, 0.0, 1010.0);
+            vm.SeedStepReading(WizardStep.ReBaseline1, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline3, 0.0, 0.0, 1000.0);
+
+            var walked = new List<WizardStep> { vm.CurrentStep };
+            for (int i = 0; i < 7; i++) {
+                vm.NextStep();
+                walked.Add(vm.CurrentStep);
+            }
+
+            Assert.That(walked, Is.EqualTo(new[] {
+                WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1, WizardStep.Screw1,
+                WizardStep.ReBaseline2, WizardStep.Screw2, WizardStep.ReBaseline3, WizardStep.Complete }));
         }
 
         // --- Curvature-sign persistence semantics at run completion ---
@@ -1869,6 +1981,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         [TestCase(WizardStep.ReBaseline2, TiltMoveAxis.DiagonalA, -150)]
         [TestCase(WizardStep.Screw2, TiltMoveAxis.DiagonalB, 150)]
         [TestCase(WizardStep.Complete, TiltMoveAxis.DiagonalB, -150)]
+        // Task 6, code-quality follow-up (Fix 1): ReBaseline3's move is unconditional in EatWizardMapping
+        // (only Complete branches on measuredFinalRebaseline), so this proves DiagonalB/-N is sent for it
+        // without needing StartCommand first (mirrors every other case above, none of which call it either).
+        [TestCase(WizardStep.ReBaseline3, TiltMoveAxis.DiagonalB, -150)]
         public void ExecuteDeviceMoveForCurrentStepAsync_EachStep_SendsExpectedMove(WizardStep step, TiltMoveAxis expectedAxis, int expectedSteps) {
             var (vm, options, service, controller, _, _) = BuildMotorized();
             options.CalibrationAppliedAmount.Returns(150.0);
@@ -1882,6 +1998,32 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 controller.Received(1).ExecuteMoveAsync(
                     Arg.Is<TiltAdapterMove>(m => m.Axis == expectedAxis && m.Steps == expectedSteps),
                     Arg.Any<IProgress<string>>(), Arg.Any<CancellationToken>());
+            });
+        }
+
+        // Task 6, code-quality follow-up (Fix 1): this is the wiring that decides what physically moves the
+        // hardware -- with MeasureFinalRebaseline active for THIS run (captured into activeMeasurementSteps by
+        // StartCommand, exactly as a live device-driven run would), ReBaseline3 (an earlier ordinary step in
+        // the same sequence) already sent and measured the restore, so Complete must send NOTHING to the
+        // controller here. A second DiagonalB(-N) would be a spurious, physically real move on real hardware.
+        [Test]
+        public void ExecuteDeviceMoveForCurrentStepAsync_Complete_SendsNothingWhenFinalRebaselineWasMeasured() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            StubSuccessfulMoves(controller);
+            Connect(vm);
+            // Connecting defaults MeasureCurvatureDuringCalibration ON (T11 item 4); re-assert false AFTER
+            // connecting so StartAsync (read fresh at Start) resolves the 4-step base flow this test wants,
+            // with ReBaseline3 appended by MeasureFinalRebaseline below.
+            options.MeasureCurvatureDuringCalibration.Returns(false);
+            options.MeasureFinalRebaseline.Returns(true);
+            vm.StartCommand.Execute(null); // captures activeMeasurementSteps INCLUDING ReBaseline3
+
+            bool result = vm.ExecuteDeviceMoveForCurrentStepAsync(WizardStep.Complete, CancellationToken.None).GetAwaiter().GetResult();
+
+            Assert.Multiple(() => {
+                Assert.That(result, Is.True, "Complete succeeds trivially -- there is nothing left to send");
+                controller.DidNotReceive().ExecuteMoveAsync(Arg.Any<TiltAdapterMove>(), Arg.Any<IProgress<string>>(), Arg.Any<CancellationToken>());
             });
         }
 
@@ -2563,6 +2705,139 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             }
         }
 
+        // Task 6: a saved run captured WITH the optional measured final re-baseline replays as a 5-step run
+        // (ReBaseline3 detected from RunStepMapping, exactly how AllInward's presence already detects the
+        // 6- vs 4-step curvature flow) -- the "think rather than transcribe" backward-compatibility point:
+        // a metadata file predating this feature simply has no "ReBaseline3" entry, so byStep.ContainsKey
+        // comes back false and this replays as an ordinary 4-step run (already covered by every OTHER
+        // ReplayAsync test above, none of which include a ReBaseline3 folder).
+        [Test]
+        public void ReplayAsync_WithReBaseline3InMetadata_ReplaysFiveStepsAndCompletes() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+
+            string runRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hf-tilt-replay-rb3-test-" + Guid.NewGuid().ToString("N"));
+            var stepFolders = new[] { "01_Baseline", "02_Screw1", "03_ReBaseline2", "04_Screw2", "07_ReBaseline3" };
+            var steps = new[] { WizardStep.Baseline, WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2, WizardStep.ReBaseline3 };
+            System.IO.Directory.CreateDirectory(runRoot);
+            try {
+                foreach (var stepFolder in stepFolders) {
+                    System.IO.Directory.CreateDirectory(System.IO.Path.Combine(runRoot, stepFolder));
+                }
+                var metadata = new TiltCalibrationMetadata {
+                    NumberOfScrews = 4,
+                    PixelSizeMicrons = 3.76,
+                    FocuserStepSizeMicrons = 3.6,
+                    ScrewRadiusMillimeters = 44,
+                    CalibrationAppliedAmount = 1.0,
+                    RunStepMapping = steps.Select((s, i) => new TiltRunStepMapping { Step = s.ToString(), Folder = stepFolders[i] }).ToList()
+                };
+                System.IO.File.WriteAllText(System.IO.Path.Combine(runRoot, "metadata.json"), metadata.Serialize());
+
+                var tiltPlane = new TiltPlaneModel(new System.Drawing.Size(6248, 4176), fRatio: 7,
+                    a: 0.1, b: 0.05, c: 0, mean: 7000, focuserStepSizeMicrons: 3.6,
+                    centerPosition: 7000, topLeftPosition: 7000, topRightPosition: 7000,
+                    bottomLeftPosition: 7000, bottomRightPosition: 7000);
+                vm.CalibrationTiltPlaneOverrideForTest = tiltPlane;
+                vm.SelectReplayFolderForTest = _ => runRoot;
+                vm.SelectReplaySettingsForTest = _ => Task.FromResult(ReplaySettingsChoice.UseCurrentSettings);
+
+                var observedSteps = new List<WizardStep>();
+                vm.ReplayStepOverrideForTest = (step, ct) => {
+                    observedSteps.Add(step);
+                    return Task.FromResult(true);
+                };
+
+                ((AsyncRelayCommand)vm.ReplayCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+                Assert.Multiple(() => {
+                    Assert.That(vm.IsComplete, Is.True, "precondition: the replay actually ran to completion");
+                    Assert.That(observedSteps, Is.EqualTo(steps), "every saved step, including the optional ReBaseline3, is replayed in order");
+                });
+            } finally {
+                System.IO.Directory.Delete(runRoot, recursive: true);
+            }
+        }
+
+        // Fix 4 (post-review): CornerTiltPlaneOverrideForTest mirrors CalibrationTiltPlaneOverrideForTest but
+        // was never exercised by a test -- ReplayAsync's corner-capture line only ever ran its null/NaN
+        // fallback. Sets BOTH overrides per replayed step (a fresh TiltPlaneModel each time, since
+        // ReplayStepOverrideForTest runs before ReplayAsync reads CalibrationTiltPlane/corner for that step) to
+        // the SAME 25%-higher-corner geometry as RunCalibrationForTest_CornerMagnitudes25PercentHigherThan-
+        // Paraboloid... above, proving the real capture site (not just the SeedStepReading test shortcut) wires
+        // through to the cross-check end to end. UseCaptureTimeSettingsInMemory (rather than UseCurrentSettings,
+        // used by the other ReplayAsync tests) so RunCalibrationMath's geometry comes entirely from `metadata`
+        // (radius/pixel/focuser-step/applied all under test control), matching the isotropic-sensor convention
+        // the seeded-reading tests use -- not from the unconfigured profile/options substitutes.
+        [Test]
+        public void ReplayAsync_CapturesCornerReadingsAndTheCrossCheckFires() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+
+            string runRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hf-tilt-replay-corner-test-" + Guid.NewGuid().ToString("N"));
+            var stepFolders = new[] { "01_Baseline", "02_Screw1", "03_ReBaseline2", "04_Screw2" };
+            System.IO.Directory.CreateDirectory(runRoot);
+            try {
+                foreach (var stepFolder in stepFolders) {
+                    System.IO.Directory.CreateDirectory(System.IO.Path.Combine(runRoot, stepFolder));
+                }
+                var metadata = new TiltCalibrationMetadata {
+                    NumberOfScrews = 4,
+                    PixelSizeMicrons = 1,
+                    FocuserStepSizeMicrons = 1,
+                    ScrewRadiusMillimeters = 44,
+                    CalibrationAppliedAmount = 1.0,
+                    RunStepMapping = new List<TiltRunStepMapping> {
+                        new TiltRunStepMapping { Step = "Baseline", Folder = stepFolders[0] },
+                        new TiltRunStepMapping { Step = "Screw1", Folder = stepFolders[1] },
+                        new TiltRunStepMapping { Step = "ReBaseline2", Folder = stepFolders[2] },
+                        new TiltRunStepMapping { Step = "Screw2", Folder = stepFolders[3] },
+                    }
+                };
+                System.IO.File.WriteAllText(System.IO.Path.Combine(runRoot, "metadata.json"), metadata.Serialize());
+
+                // Paraboloid: clean (0,-5e-5)/(5e-5,0) deltas (magnitude 5e-5 each). Corner: the SAME deltas
+                // scaled 25% higher (magnitude 6.25e-5 each) -- identical numbers to the seeded-reading
+                // disagreement test, so the expected outputs below are the same known values (2.75 µm/turn).
+                var paraboloidByStep = new Dictionary<WizardStep, (double a, double b)> {
+                    [WizardStep.Baseline] = (0.0, 0.0),
+                    [WizardStep.Screw1] = (0.0, -0.00005),
+                    [WizardStep.ReBaseline2] = (0.0, 0.0),
+                    [WizardStep.Screw2] = (0.00005, 0.0),
+                };
+                var cornerByStep = new Dictionary<WizardStep, (double a, double b)> {
+                    [WizardStep.Baseline] = (0.0, 0.0),
+                    [WizardStep.Screw1] = (0.0, -0.0000625),
+                    [WizardStep.ReBaseline2] = (0.0, 0.0),
+                    [WizardStep.Screw2] = (0.0000625, 0.0),
+                };
+                TiltPlaneModel PlaneFor(double a, double b) => new TiltPlaneModel(new System.Drawing.Size(1, 1), fRatio: 7,
+                    a: a, b: b, c: 0, mean: 1000, focuserStepSizeMicrons: 1,
+                    centerPosition: 1000, topLeftPosition: 1000, topRightPosition: 1000,
+                    bottomLeftPosition: 1000, bottomRightPosition: 1000);
+
+                vm.SelectReplayFolderForTest = _ => runRoot;
+                vm.SelectReplaySettingsForTest = _ => Task.FromResult(ReplaySettingsChoice.UseCaptureTimeSettingsInMemory);
+                vm.ReplayStepOverrideForTest = (step, ct) => {
+                    var (pa, pb) = paraboloidByStep[step];
+                    vm.CalibrationTiltPlaneOverrideForTest = PlaneFor(pa, pb);
+                    var (ca, cb) = cornerByStep[step];
+                    vm.CornerTiltPlaneOverrideForTest = PlaneFor(ca, cb);
+                    return Task.FromResult(true);
+                };
+
+                ((AsyncRelayCommand)vm.ReplayCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+                Assert.Multiple(() => {
+                    Assert.That(vm.IsComplete, Is.True, "precondition: the replay actually completed (RunCalibrationMath was reached)");
+                    Assert.That(vm.HasCornerCrossCheck, Is.True);
+                    Assert.That(vm.CornerCrossCheckDisplay, Is.EqualTo("Corner-AF cross-check: 2.75 µm/turn"));
+                    Assert.That(vm.WarningText, Does.Contain("The per-star model and the corner-region AF differ by"));
+                    Assert.That(vm.WarningText, Does.Contain("corner-region AF puts the pitch at 2.75 µm"));
+                });
+            } finally {
+                System.IO.Directory.Delete(runRoot, recursive: true);
+            }
+        }
+
         [Test]
         public void ApplyManualCalibrationCommand_ClearsDeviceLinkedMarker() {
             var (vm, options, _, _) = Build();
@@ -2585,7 +2860,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
             vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0);
 
-            vm.RunCalibrationForTest(deviceDriven: true);
+            // No tiltPlaneOverride -> RunCalibrationMath's inputs fall back to a 1x1 image size, so real (any
+            // positive, equal-for-both-axes) pixel/focuser sizes must be supplied explicitly: PhysicalDelta has
+            // no fallback for a zero sensor size (geometry is a precondition -- see its doc comment), and
+            // BuildMotorized's mocked profile otherwise leaves PixelSize at its NSubstitute default of 0. A 1x1
+            // image size keeps the conversion isotropic, so the SNR ratio (and thus IsReliable) is unchanged
+            // from the pre-F2-fix raw-(A,B) computation this test was written against.
+            vm.RunCalibrationForTest(deviceDriven: true, pixelSizeMicrons: 3.76, focuserStepMicrons: 3.6);
 
             options.Received(1).CalibrationIsReliable = true;
         }
@@ -2602,12 +2883,311 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             vm.SeedStepReading(WizardStep.ReBaseline2, 0.4, 0.0, 1000.0);
             vm.SeedStepReading(WizardStep.Screw2, 0.9, 0.0, 1000.0);
 
-            vm.RunCalibrationForTest(deviceDriven: true);
+            // Explicit isotropic geometry -- see RunCalibrationForTest_DeviceDriven_ReliableCalibration_SetsCalibrationIsReliableTrue.
+            vm.RunCalibrationForTest(deviceDriven: true, pixelSizeMicrons: 3.76, focuserStepMicrons: 3.6);
 
             Assert.Multiple(() => {
                 options.Received(1).CalibrationIsReliable = false;
                 options.Received(1).DeviceLinkedCalibrationDeviceName = "ASG Electronic EAT - 90mm";
             });
+        }
+
+        // F2 regression lock at the VM<->calculator seam: RunCalibrationMath must persist the PHYSICAL-space
+        // screw angles/ratio TiltCalibrationCalculator.Calibate() computes, not raw (A,B)-tilt-plane-coefficient
+        // values. The bug this refactor fixed (RunCalibrationMath hand-mirroring angle/ratio algebra in raw
+        // (A,B) space) manifested exactly at this seam, and the calculator-level anisotropic tests alone can't
+        // catch a future edit that bypasses Calibrate() again here.
+        //
+        // Two single-screw moves of EQUAL physical magnitude at physical directions 200 deg and 290 deg (90 deg
+        // apart -- this adapter's ideal 4-screw spacing) on a strongly non-square 6000x2000 image. Physically
+        // (what Calibrate() now correctly produces): Screw1 = 200 deg exactly, Screw2 = 290 deg exactly,
+        // RawAngleDiffDegrees = 90 deg, MoveMagnitudeRatio = 1.0 -- no warning.
+        // In raw (A,B) space (what the pre-refactor/pre-F2-fix inline math in RunCalibrationMath produced for
+        // these exact same deltas): Screw1 ~= 207.22 deg, Screw2 ~= 297.22 deg, RawAngleDiffDegrees ~= 49.4 deg,
+        // MoveMagnitudeRatio ~= 2.04 -- comfortably past the 1.5x "unequal tilt changes" warning threshold.
+        [Test]
+        public void RunCalibrationForTest_AnisotropicSensor_PersistsPhysicalSpaceScrewAnglesNotRawSpace() {
+            var (vm, options, _, _) = Build(screwCount: 4);
+            var tiltPlane = new TiltPlaneModel(new System.Drawing.Size(6000, 2000), fRatio: 7,
+                a: 0, b: 0, c: 0, mean: 1000, focuserStepSizeMicrons: 0.5,
+                centerPosition: 1000, topLeftPosition: 1000, topRightPosition: 1000,
+                bottomLeftPosition: 1000, bottomRightPosition: 1000);
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, -30.86389773370834, 28.265954033240128, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, -84.79786209972038, -10.287965911236123, 1000.0);
+
+            vm.RunCalibrationForTest(pixelSizeMicrons: 3.76, focuserStepMicrons: 0.5, tiltPlaneOverride: tiltPlane);
+
+            Assert.Multiple(() => {
+                options.Received(1).Screw1AngleDegrees = Arg.Is<double>(v => Math.Abs(v - 200.0) < 0.01);
+                options.Received(1).Screw2AngleDegrees = Arg.Is<double>(v => Math.Abs(v - 290.0) < 0.01);
+                // MoveMagnitudeRatio has no direct public getter, but it feeds the very same
+                // ValidateCalibrationQuality warning check as the angle gap: the physical ratio (1.0) is
+                // nowhere near the 1.5x threshold, whereas the raw-(A,B) ratio (~2.04x) would have tripped it
+                // -- so a clean (no-warning) WarningText is itself evidence MoveMagnitudeRatio came from
+                // Calibrate()'s physical result, not a raw-(A,B) recomputation.
+                Assert.That(vm.HasWarning, Is.False);
+                Assert.That(vm.WarningText, Is.Empty);
+            });
+        }
+
+        // --- Piston-implied-pitch warning wiring (Task 4) -------------------------------------------------
+
+        // Both piston tests share the same clean screw geometry: Screw1's delta is (0, -g), Screw2's is
+        // (g, 0) with g = 5e-5. A 1x1 isotropic tiltPlaneOverride + unit pixel size/focuser step (see
+        // RunCalibrationForTest below) makes PhysicalDelta byte-identical to these raw (A,B) seeds -- no
+        // forward/inverse conversion needed to reason about the numbers. That gives:
+        //  - equal magnitudes (ratio 1.0, comfortably under the 1.5x MagnitudeRatioWarnThreshold)
+        //  - a clean 90 deg gap (screw count 4's exact expected spacing, no angle warning)
+        //  - CalibrationAppliedAmount defaults to 1 turn (unconfigured options resolve to the VM's "Manual"
+        //    device-preset fallback -- see CalibrationAppliedAmount's getter), and the 4-screw lever arm is
+        //    the screw radius itself, so measured (tilt-derived) hardware = g * radiusMicrons / applied
+        //    = 0.00005 * 44000 / 1 = 2.2 um/turn.
+        // So the only thing that varies between the two tests below is AllInward's mean focuser position,
+        // which drives the piston-implied pitch relative to that fixed 2.2 um/turn -- isolating the piston
+        // check from the angle/magnitude checks (which never contribute a warning part in either case).
+        private static TiltPlaneModel IsotropicPistonWarningTiltPlane() =>
+            new TiltPlaneModel(new System.Drawing.Size(1, 1), fRatio: 7,
+                a: 0, b: 0, c: 0, mean: 1000, focuserStepSizeMicrons: 1,
+                centerPosition: 1000, topLeftPosition: 1000, topRightPosition: 1000,
+                bottomLeftPosition: 1000, bottomRightPosition: 1000);
+
+        [Test]
+        public void RunCalibrationForTest_PistonDisagreesWithMeasuredHardwareBy30Percent_WarnsAndDisplaysPiston() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            // AllInward's mean sits 2.86 focuser units below the Baseline/ReBaseline1 midpoint (both 1000.0,
+            // so there is no drift to correct for): piston = |1000.0 - 997.14| * fStep(1) / applied(1) =
+            // 2.86 um/turn. Relative to measured = 2.2 um/turn, that is a 30% disagreement (2.86 / 2.2 =
+            // 1.3) -- comfortably over the 20% PistonDisagreementWarnThreshold.
+            vm.SeedStepReading(WizardStep.AllInward, 0.0, 0.0, 997.14);
+            vm.SeedStepReading(WizardStep.ReBaseline1, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, 0.00005, 0.0, 1000.0);
+
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasWarning, Is.True);
+                Assert.That(vm.WarningText, Does.Contain(
+                    "The piston-implied pitch (2.86 µm) and the tilt-derived pitch (2.2 µm) differ by 30%."));
+                Assert.That(vm.PistonPitchDisplay, Is.EqualTo("Piston-implied: 2.9 µm/turn"));
+            });
+        }
+
+        [Test]
+        public void RunCalibrationForTest_PistonAgreesWithMeasuredHardwareWithin20Percent_NoWarning() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            // Same fixed measured hardware (2.2 um/turn) as the disagreement test above, but AllInward's mean
+            // is only 2.53 focuser units below the Baseline/ReBaseline1 midpoint: piston = 2.53 um/turn, a
+            // 15% relative difference from measured (2.53 / 2.2 = 1.15) -- comfortably under the 20%
+            // threshold without being close to zero, so this is a meaningful negative case, not a trivial one.
+            vm.SeedStepReading(WizardStep.AllInward, 0.0, 0.0, 997.47);
+            vm.SeedStepReading(WizardStep.ReBaseline1, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, 0.00005, 0.0, 1000.0);
+
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasWarning, Is.False);
+                Assert.That(vm.WarningText, Is.Empty);
+                Assert.That(vm.PistonPitchDisplay, Is.EqualTo("Piston-implied: 2.5 µm/turn"));
+            });
+        }
+
+        // --- Corner-region AF cross-check wiring (Task 5) -------------------------------------------------
+
+        // All three tests below share the same clean paraboloid geometry as the piston tests above (Screw1
+        // delta (0,-5e-5), Screw2 delta (5e-5,0) — equal magnitudes, a clean 90° gap, no AllInward/ReBaseline1
+        // step so no piston check contributes either) and the same isotropic 1x1 pseudo-sensor, so the ONLY
+        // thing that varies between them is the corner-region reading — isolating the cross-check from every
+        // other warning the same way the piston tests isolate PistonAgreement.
+        private static void SeedCleanParaboloidReadings(TiltAdapterWizardVM vm,
+            double screw1CornerA, double screw1CornerB, double screw2CornerA, double screw2CornerB) {
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, cornerA: 0.0, cornerB: 0.0, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0, cornerA: screw1CornerA, cornerB: screw1CornerB, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0, cornerA: 0.0, cornerB: 0.0, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, 0.00005, 0.0, 1000.0, cornerA: screw2CornerA, cornerB: screw2CornerB, cornerMean: 1000.0);
+        }
+
+        [Test]
+        public void RunCalibrationForTest_CornerCrossCheckAgreesWithin15Percent_NoNewWarningPart() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+            // Corner deltas are a uniform 10% higher magnitude than the paraboloid's (0,-5.5e-5) / (5.5e-5,0)
+            // vs (0,-5e-5) / (5e-5,0): relative difference |5e-5 - 5.5e-5| / 5.5e-5 = 9.09% -- comfortably
+            // under the 15% threshold without being the trivial (identical-values) case.
+            SeedCleanParaboloidReadings(vm, screw1CornerA: 0.0, screw1CornerB: -0.000055, screw2CornerA: 0.000055, screw2CornerB: 0.0);
+
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasWarning, Is.False);
+                Assert.That(vm.WarningText, Is.Empty);
+                // The cross-check estimate itself is still computed and displayed regardless of whether it
+                // disagrees enough to warn -- the display and the warning are separate signals (locked
+                // decision: flag/display, never silently blend).
+                Assert.That(vm.HasCornerCrossCheck, Is.True);
+                Assert.That(vm.CornerCrossCheckDisplay, Is.EqualTo("Corner-AF cross-check: 2.42 µm/turn"));
+            });
+        }
+
+        [Test]
+        public void RunCalibrationForTest_CornerMagnitudes25PercentHigherThanParaboloid_WarnsAndDisplaysCornerEstimate() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+            // Corner deltas are a uniform 25% higher magnitude than the paraboloid's: (0,-6.25e-5) /
+            // (6.25e-5,0) vs (0,-5e-5) / (5e-5,0) -- relative difference |5e-5 - 6.25e-5| / 6.25e-5 = 20%,
+            // comfortably over the 15% threshold.
+            SeedCleanParaboloidReadings(vm, screw1CornerA: 0.0, screw1CornerB: -0.0000625, screw2CornerA: 0.0000625, screw2CornerB: 0.0);
+
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasWarning, Is.True);
+                Assert.That(vm.WarningText, Does.Contain("The per-star model and the corner-region AF differ by"));
+                Assert.That(vm.WarningText, Does.Contain("corner-region AF puts the pitch at 2.75 µm"));
+                Assert.That(vm.HasCornerCrossCheck, Is.True);
+                Assert.That(vm.CornerCrossCheckDisplay, Is.EqualTo("Corner-AF cross-check: 2.75 µm/turn"));
+            });
+        }
+
+        [Test]
+        public void RunCalibrationForTest_PartialCornerData_SkipsCrossCheckCleanly() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+            // Same 25%-higher corner geometry as the disagreement test above -- WOULD warn if the cross-check
+            // ran -- but Screw1's corner reading is left at its NaN default (never seeded), simulating a step
+            // whose corner regions failed to fit / an older saved run captured before this feature shipped.
+            // A partially-available run must degrade to "no cross-check" cleanly: no NaN-contaminated warning
+            // text, no display, and — critically — no OTHER warning either (proving the missing corner data
+            // doesn't leak NaN into the rest of ValidateCalibrationQuality).
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, cornerA: 0.0, cornerB: 0.0, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0); // corner NaN -- not seeded
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0, cornerA: 0.0, cornerB: 0.0, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, 0.00005, 0.0, 1000.0, cornerA: 0.0000625, cornerB: 0.0, cornerMean: 1000.0);
+
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasWarning, Is.False);
+                Assert.That(vm.WarningText, Is.Empty);
+                Assert.That(vm.HasCornerCrossCheck, Is.False);
+                Assert.That(vm.CornerCrossCheckDisplay, Is.Empty);
+            });
+        }
+
+        [Test]
+        public void RunCalibrationForTest_StepEntirelyMissingFromReadings_SkipsCrossCheckCleanly() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+            // Distinct from the partial-corner-data test above (which SEEDS Screw1 but leaves its corner
+            // fields at their NaN default): here Screw2 is never seeded AT ALL, so stepReadings has no entry
+            // for it. Reading(WizardStep.Screw2) then falls back to default(StepReading), whose CornerA/B/Mean
+            // are a struct-default 0.0 -- NOT NaN -- so a completeness check built on the non-NaN test alone
+            // would be fooled into treating this as a complete, valid (0,0,0) corner reading for Screw2 (Fix
+            // 2, post-review). Screw2's corner delta would then be (0,0) - ReBaseline2's corner (0,0) = (0,0),
+            // and 4-screw RecoverHardwareDetailed's own guard only rejects an overall measured <= 0 (not a
+            // per-screw zero) -- averaging that zero against Screw1's real corner move still yields a
+            // non-NaN, plausible-looking µm/turn, so this specific failure mode would NOT be caught by
+            // downstream NaN propagation; only the explicit stepReadings.ContainsKey/TryGetValue check does.
+            // (Screw2's paraboloid side is equally absent, which trips the UNRELATED screw-angle-gap warning
+            // -- expected, and not asserted against; this test only cares about the corner outputs.)
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, cornerA: 0.0, cornerB: 0.0, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0, cornerA: 0.0, cornerB: -0.0000625, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0, cornerA: 0.0, cornerB: 0.0, cornerMean: 1000.0);
+            // WizardStep.Screw2 intentionally NEVER seeded.
+
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasCornerCrossCheck, Is.False);
+                Assert.That(vm.CornerCrossCheckDisplay, Is.Empty);
+                Assert.That(vm.WarningText, Does.Not.Contain("corner-region AF differ"));
+            });
+        }
+
+        // --- Task 6: optional measured final re-baseline wiring (RunCalibrationMath reads a seeded
+        // ReBaseline3 reading and passes it -- and HasFinalRebaseline -- through the SAME shared MakeInputs
+        // both the paraboloid and (Task 5) corner-cross-check estimators are built from) -----------------
+
+        [Test]
+        public void RunCalibrationForTest_ReBaseline3EqualToReBaseline2_MatchesRunWithoutFinalRebaseline() {
+            // When the seeded ReBaseline3 reading is IDENTICAL to ReBaseline2, the drift-cancelling midpoint
+            // mid(ReBaseline2, ReBaseline3) collapses to ReBaseline2 itself -- Screw2Delta becomes numerically
+            // identical to the no-final-rebaseline reference (Screw2 - ReBaseline2 alone). Proves
+            // RunCalibrationMath actually reads a seeded ReBaseline3 rather than ignoring it, without
+            // re-deriving the drift-cancelling algebra itself (already pinned exactly by
+            // TiltCalibrationCalculatorTests.Calibrate_WithFinalRebaseline_Screw2DeltaIsDriftImmune).
+            var (vmWithout, _, _, _) = Build(screwCount: 4);
+            vmWithout.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vmWithout.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0);
+            vmWithout.SeedStepReading(WizardStep.ReBaseline2, 0.0002, -0.0001, 1000.0);
+            vmWithout.SeedStepReading(WizardStep.Screw2, 0.00005, 0.0, 1000.0);
+            vmWithout.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            var (vmWith, _, _, _) = Build(screwCount: 4);
+            vmWith.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vmWith.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0);
+            vmWith.SeedStepReading(WizardStep.ReBaseline2, 0.0002, -0.0001, 1000.0);
+            vmWith.SeedStepReading(WizardStep.Screw2, 0.00005, 0.0, 1000.0);
+            vmWith.SeedStepReading(WizardStep.ReBaseline3, 0.0002, -0.0001, 1000.0); // identical to ReBaseline2
+            vmWith.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.Multiple(() => {
+                Assert.That(vmWith.MeasuredHardwareDisplay, Is.EqualTo(vmWithout.MeasuredHardwareDisplay));
+                Assert.That(vmWith.PitchUncertaintyDisplay, Is.EqualTo(vmWithout.PitchUncertaintyDisplay));
+            });
+        }
+
+        [Test]
+        public void RunCalibrationForTest_ReBaseline3DifferentFromReBaseline2_ChangesRecoveredHardware() {
+            // Now ReBaseline3 genuinely differs from ReBaseline2 -- Screw2Delta references
+            // mid(ReBaseline2, ReBaseline3) instead of ReBaseline2 alone, so the recovered hardware must
+            // differ from the no-ReBaseline3 run. Proves the wizard is actually READING and USING the
+            // seeded ReBaseline3 value (not silently ignoring it because HasFinalRebaseline never got wired).
+            var (vmWithout, _, _, _) = Build(screwCount: 4);
+            vmWithout.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vmWithout.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0);
+            vmWithout.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vmWithout.SeedStepReading(WizardStep.Screw2, 0.00005, 0.0, 1000.0);
+            vmWithout.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            var (vmWith, _, _, _) = Build(screwCount: 4);
+            vmWith.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vmWith.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0);
+            vmWith.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vmWith.SeedStepReading(WizardStep.Screw2, 0.00005, 0.0, 1000.0);
+            vmWith.SeedStepReading(WizardStep.ReBaseline3, 0.00002, 0.00002, 1000.0); // drifted from ReBaseline2
+            vmWith.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.That(vmWith.MeasuredHardwareDisplay, Is.Not.EqualTo(vmWithout.MeasuredHardwareDisplay));
+        }
+
+        [Test]
+        public void StartAsync_WithMeasureFinalRebaseline_ExtendsActiveStepsToFive() {
+            // StartAsync (the live-run caller of GetMeasurementSteps) must read BOTH options -- proves the
+            // wiring reaches the real entry point, not just the static GetMeasurementSteps helper tested
+            // directly above.
+            var (vm, _, _, _) = Build(configureOptions: o => {
+                o.MeasureCurvatureDuringCalibration.Returns(false);
+                o.MeasureFinalRebaseline.Returns(true);
+            });
+
+            vm.StartCommand.Execute(null);
+
+            Assert.That(vm.StepProgressDisplay, Is.EqualTo("Step 1 of 5"));
         }
 
         [Test]
@@ -2692,7 +3272,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         // and a drift scale to compare it against.
         private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options) RunSixStepWithCurvature(
                 double baselineE, double allInwardE, double reBaseline1E, double reBaseline2E) {
-            var (vm, options, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(true));
+            // Deliberately isotropic UNIT geometry (1 µm pixels, 1 µm focuser step). ComputeConfidence converts
+            // its deltas to physical gradient space, where valid sensor/focuser geometry is a precondition — an
+            // unpopulated profile makes the conversion non-finite, which fails safe to an SNR warning and would
+            // drown out the curvature cross-check these tests are actually about. Unit geometry over the 1x1
+            // pseudo-sensor makes that conversion the identity, so the SNR here is exactly what raw (A,B) gives.
+            var profile = Substitute.For<IProfileService>();
+            profile.ActiveProfile.CameraSettings.PixelSize.Returns(1.0);
+            var inspectorOptions = Substitute.For<IInspectorOptions>();
+            inspectorOptions.EffectiveMicronsPerFocuserStep.Returns(1.0);
+            var (vm, options, _, _) = Build(
+                configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(true),
+                profileService: profile,
+                inspectorOptions: inspectorOptions);
             vm.StartCommand.Execute(null);
 
             vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, baselineE);
@@ -2756,7 +3348,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         public void CurvatureCrossCheck_FourStepRun_NeverWarns() {
             // No all-screws step ⇒ no curvature channel to compare against, and the configured sign is left
             // untouched anyway.
-            var (vm, _, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(false));
+            // Unit geometry for the same reason as RunSixStepWithCurvature: without it the physical-gradient
+            // conversion is non-finite and fails safe to an SNR warning, which is not what this test is about.
+            var profile = Substitute.For<IProfileService>();
+            profile.ActiveProfile.CameraSettings.PixelSize.Returns(1.0);
+            var inspectorOptions = Substitute.For<IInspectorOptions>();
+            inspectorOptions.EffectiveMicronsPerFocuserStep.Returns(1.0);
+            var (vm, _, _, _) = Build(
+                configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(false),
+                profileService: profile,
+                inspectorOptions: inspectorOptions);
             vm.StartCommand.Execute(null);
 
             vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, -400);

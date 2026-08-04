@@ -33,11 +33,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                     new TiltPerStepResult {
                         Step = "Baseline", TiltPlaneA = 1.1, TiltPlaneB = -2.2, MeanFocuserPosition = 1000,
                         TiltAngleDeg = 0.5, DirectionDeg = 153.4,
-                        CurvatureRadiusMillimeters = 1234.5, CurvatureEffectMicronsAtScrewRadius = 5.5
+                        CurvatureRadiusMillimeters = 1234.5, CurvatureEffectMicronsAtScrewRadius = 5.5,
+                        CornerTiltPlaneA = 1.05, CornerTiltPlaneB = -2.35, CornerMeanFocuserPosition = 999.4
                     }
                 },
                 Calibration = new TiltCalibrationResultRecord {
-                    Screw1AngleDegrees = 10, Screw2AngleDegrees = 100, CurvatureSign = -1, MeasuredHardwareMicrons = 400
+                    Screw1AngleDegrees = 10, Screw2AngleDegrees = 100, CurvatureSign = -1, MeasuredHardwareMicrons = 400,
+                    CornerMeasuredHardwareMicrons = 410.5, EstimatorRelativeDifference = 0.0909
                 }
             };
 
@@ -54,8 +56,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(back.PerStep[0].TiltPlaneB, Is.EqualTo(-2.2).Within(1e-9));
                 Assert.That(back.PerStep[0].CurvatureRadiusMillimeters, Is.EqualTo(1234.5).Within(1e-9));
                 Assert.That(back.PerStep[0].CurvatureEffectMicronsAtScrewRadius, Is.EqualTo(5.5).Within(1e-9));
+                Assert.That(back.PerStep[0].CornerTiltPlaneA, Is.EqualTo(1.05).Within(1e-9));
+                Assert.That(back.PerStep[0].CornerTiltPlaneB, Is.EqualTo(-2.35).Within(1e-9));
+                Assert.That(back.PerStep[0].CornerMeanFocuserPosition, Is.EqualTo(999.4).Within(1e-9));
                 Assert.That(back.Calibration.MeasuredHardwareMicrons, Is.EqualTo(400).Within(1e-9));
                 Assert.That(back.Calibration.CurvatureSign, Is.EqualTo(-1));
+                Assert.That(back.Calibration.CornerMeasuredHardwareMicrons, Is.EqualTo(410.5).Within(1e-9));
+                Assert.That(back.Calibration.EstimatorRelativeDifference, Is.EqualTo(0.0909).Within(1e-9));
             });
         }
 
@@ -66,7 +73,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 FocuserStepSizeMicrons = 3.6, CalibrationAppliedAmount = 1.0,
                 Calibration = new TiltCalibrationResultRecord {
                     Screw1AngleDegrees = 67.1, SignalToNoise = 2.16,
-                    PredictedAngleUncertaintyDeg = 24.9, PitchUncertaintyMicrons = 43.0, ConfidenceIsReliable = true
+                    PredictedAngleUncertaintyDeg = 24.9, PitchUncertaintyMicrons = 43.0, ConfidenceIsReliable = true,
+                    PistonImpliedMicronsPerStep = 2.233258
                 }
             };
             var back = TiltCalibrationMetadata.Deserialize(meta.Serialize());
@@ -75,6 +83,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(back.Calibration.PredictedAngleUncertaintyDeg, Is.EqualTo(24.9).Within(1e-9));
                 Assert.That(back.Calibration.PitchUncertaintyMicrons, Is.EqualTo(43.0).Within(1e-9));
                 Assert.That(back.Calibration.ConfidenceIsReliable, Is.True);
+                Assert.That(back.Calibration.PistonImpliedMicronsPerStep, Is.EqualTo(2.233258).Within(1e-9));
             });
         }
 

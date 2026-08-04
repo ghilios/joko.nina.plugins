@@ -311,7 +311,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         ///
         /// <para><paramref name="includeExposureAnalysis"/> exists for callers that consume only the fitted sensor
         /// model, the Tilt Adapter Wizard's calibration steps above all: that validation exposure costs a further
-        /// <c>SimpleExposureSeconds</c> plus a full-frame PSF-modeling detection on EVERY step of a six-step run,
+        /// <c>SimpleExposureSeconds</c> plus a full-frame PSF-modeling detection on EVERY step of a calibration run,
         /// for panels the wizard neither reads nor shows — and, because a failure here fails the whole call, it
         /// could also fail a calibration step whose sensor model had already been fitted successfully.</para>
         /// </summary>

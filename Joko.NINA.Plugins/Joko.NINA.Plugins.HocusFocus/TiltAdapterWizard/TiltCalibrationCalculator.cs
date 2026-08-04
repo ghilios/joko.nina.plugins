@@ -34,18 +34,21 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
     /// <summary>Geometry + per-step readings needed to calibrate a tilt adapter from a sequence of measurements.
     /// The discrete 6-step flow measures: Baseline (a), AllInward (b), ReBaseline1 (c), Screw1 (d), ReBaseline2 (e),
-    /// Screw2 (f). Each screw's angle/hardware is derived from the move relative to the re-baseline that immediately
-    /// precedes it (c→d for screw 1, e→f for screw 2), so a single physical move is isolated per measurement pair.
-    /// In the 4-step flow (no curvature steps) Baseline/AllInward are unset, HasCurvatureMeasurement is false, and
-    /// the baseline reading occupies the ReBaseline1 slot.
+    /// Screw2 (f). Screw 1's move is referenced to mid(c, e) — the re-baselines that bracket it symmetrically
+    /// (see <see cref="TiltCalibrationCalculator.Screw1Delta"/>), which cancels a linear tilt drift across the
+    /// sequence exactly. Screw 2's move is referenced to e alone unless a measured final re-baseline (g) is
+    /// present, in which case it gets the same mid(e, g) symmetry (see
+    /// <see cref="TiltCalibrationCalculator.Screw2Delta"/>). Either way a single physical move is isolated per
+    /// screw. In the 4-step flow (no curvature steps) Baseline/AllInward are unset, HasCurvatureMeasurement is
+    /// false, and the baseline reading occupies the ReBaseline1 slot.
     /// </summary>
     public sealed class TiltCalibrationInputs {
         public int ScrewCount { get; set; }                 // 3 or 4
         public TiltGradient Baseline { get; set; }          // a
         public TiltGradient AllInward { get; set; }         // b: all screws inward once; for the curvature (backfocus) sign (a→b)
-        public TiltGradient ReBaseline1 { get; set; }       // c: all screws back out once (≈ baseline); reference for screw 1
+        public TiltGradient ReBaseline1 { get; set; }       // c: all screws back out once (≈ baseline); first half of the screw-1 bracket
         public TiltGradient Screw1 { get; set; }            // d: screw 1 inward once (4-screw: + screw 3 outward)
-        public TiltGradient ReBaseline2 { get; set; }       // e: undo the screw-1 move (≈ c); reference for screw 2
+        public TiltGradient ReBaseline2 { get; set; }       // e: undo the screw-1 move (≈ c); second half of the screw-1 bracket, and reference for screw 2
         public TiltGradient Screw2 { get; set; }            // f: screw 2 inward once (4-screw: + screw 4 outward)
         public double ImageWidthPixels { get; set; }
         public double ImageHeightPixels { get; set; }
@@ -57,12 +60,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         /// <summary>False for a 4-step run that skipped the curvature-direction steps: Baseline and
         /// AllInward were never measured (leave them default) and the baseline reading is supplied
-        /// in the ReBaseline1 slot, which is the screw-1 reference in both flows.</summary>
+        /// in the ReBaseline1 slot, one of the two screw-1 reference points (mid(ReBaseline1,
+        /// ReBaseline2)) in both flows.</summary>
         public bool HasCurvatureMeasurement { get; set; } = true;
 
         /// <summary>Curvature sign carried into the result when HasCurvatureMeasurement is false
         /// (the configured/assumed ScrewInwardCurvatureSign; 0 = unknown).</summary>
         public int FallbackCurvatureSign { get; set; }
+
+        /// <summary>Optional final re-baseline (g): undo the screw-2 move (≈ e). Only measured when
+        /// <see cref="HasFinalRebaseline"/> is true, which lets <see cref="TiltCalibrationCalculator.Screw2Delta"/>
+        /// reference screw 2's move to mid(ReBaseline2, ReBaseline3) — the same drift-cancelling symmetry
+        /// screw 1 always gets from mid(ReBaseline1, ReBaseline2).</summary>
+        public TiltGradient ReBaseline3 { get; set; }
+
+        /// <summary>True when ReBaseline3 was actually measured (an optional extra step beyond the
+        /// standard 6-step flow). Default false: Screw2Delta falls back to referencing ReBaseline2 alone.</summary>
+        public bool HasFinalRebaseline { get; set; }
     }
 
     /// <summary>Result of calibrating a tilt adapter: per-screw position angles, curvature sign, and recovered hardware.</summary>
@@ -76,19 +90,29 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public double RawAngleDiffDegrees { get; set; }      // measured screw1->screw2 gap before the constrained fit
         public int CurvatureSign { get; set; }               // +1 / -1; 0 = unknown (4-step run whose fallback sign was never configured)
         public double MeasuredHardwareMicrons { get; set; }  // µm/turn (screws) or µm/step (steppers); NaN if uncomputable
-        public double Screw1DirectionDegrees { get; set; }   // raw measured direction of screw 1's move (atan2(dA,-dB))
-        public double Screw2DirectionDegrees { get; set; }   // raw measured direction of screw 2's move
+        public double Screw1DirectionDegrees { get; set; }   // measured direction of screw 1's move in physical gradient space (atan2(gx,-gy))
+        public double Screw2DirectionDegrees { get; set; }   // measured direction of screw 2's move in physical gradient space
 
-        /// <summary>Ratio (&gt;= 1) of the larger to the smaller single-screw gradient-change magnitude. For two
-        /// clean, equal single-screw moves this is ~1; a large value means the two calibration turns were unequal
-        /// (uneven turning / backlash) and the recovered pitch/step size is unreliable. NaN if a magnitude is 0.</summary>
+        /// <summary>Ratio (&gt;= 1) of the larger to the smaller single-screw gradient-change magnitude, computed
+        /// in physical gradient space (see <see cref="PhysicalDelta"/>). For two clean, equal single-screw moves
+        /// this is ~1; a large value means the two calibration turns were unequal (uneven turning / backlash) and
+        /// the recovered pitch/step size is unreliable. NaN if a magnitude is 0.</summary>
         public double MoveMagnitudeRatio { get; set; }
 
         /// <summary>Half the absolute difference of the two single-screw recovered pitches (µm/turn or µm/step).
-        /// This is the physical-space 1σ on the recovered hardware — it captures screw-to-screw disagreement the
-        /// (A,B) <see cref="MoveMagnitudeRatio"/> misses because the plane→physical conversion is anisotropic.
-        /// NaN when the hardware is uncomputable.</summary>
+        /// This is the physical-space 1σ on the recovered hardware, expressed as an absolute µm delta after the
+        /// per-screw lever-arm conversion — a differently-scaled, complementary view of the same screw-to-screw
+        /// disagreement <see cref="MoveMagnitudeRatio"/> reports as a dimensionless ratio. NaN when the hardware
+        /// is uncomputable.</summary>
         public double PitchUncertaintyMicrons { get; set; }
+
+        /// <summary>Focuser-frame µm-per-applied-unit implied by the AllInward piston — a free, tilt-fit-independent
+        /// third estimate of the same hardware <see cref="MeasuredHardwareMicrons"/> reports. "PerStep" names the
+        /// applied unit generically, same convention as <see cref="MeasuredHardwareMicrons"/>: it is a turn on
+        /// thread-pitch (screw) adapters, a step on stepper adapters. See
+        /// <see cref="TiltCalibrationCalculator.PistonImpliedMicronsPerStep"/>. NaN for 4-step runs (no piston
+        /// measured).</summary>
+        public double PistonImpliedMicronsPerStep { get; set; }
 
         /// <summary>Signal-to-noise / reliability of the whole calibration, derived from the per-step tilt vectors.
         /// Populated by <see cref="TiltCalibrationCalculator.Calibrate"/>.</summary>
@@ -100,19 +124,22 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     /// needed. The screw-move magnitudes are the <i>signal</i>; quantities that must be ~0 in a noise-free,
     /// stationary measurement are <i>noise probes</i>: turning all screws inward equally is a pure piston (no net
     /// tilt change vs baseline), and each re-baseline should return to its predecessor (zero drift). A 6-step run
-    /// has all three noise probes; a 4-step run (no curvature steps) has only the single re-baseline drift, and
-    /// <see cref="AllInwardTiltResidual"/> / <see cref="Rebaseline1Drift"/> are NaN there. When the noise probes
-    /// rival the screw-move signal the recovered geometry is dominated by measurement noise / between step drift,
-    /// no matter how cleanly the screws were turned.
+    /// has all three base noise probes; a 4-step run (no curvature steps) has only the single re-baseline drift, and
+    /// <see cref="AllInwardTiltResidual"/> / <see cref="Rebaseline1Drift"/> are NaN there. Either base flow gains a
+    /// fourth (6-step) or second (4-step) probe, <see cref="Rebaseline3Drift"/>, when the optional measured final
+    /// re-baseline (Task 6) is present; NaN when it is not. When the noise probes rival the screw-move signal the
+    /// recovered geometry is dominated by measurement noise / between step drift, no matter how cleanly the screws
+    /// were turned.
     /// </summary>
     public sealed class TiltCalibrationConfidence {
-        public double ScrewMoveSignal { get; set; }               // mean |single-screw move| magnitude (the signal)
-        public double NoiseEstimate { get; set; }                 // RMS of the noise probes below
+        public double ScrewMoveSignal { get; set; }               // mean |single-screw move| magnitude in physical gradient units (µm/µm) (the signal)
+        public double NoiseEstimate { get; set; }                 // RMS of the noise probes below, in physical gradient units (µm/µm)
         public double SignalToNoise { get; set; }                 // ScrewMoveSignal / NoiseEstimate (Inf if noise 0)
         public double PredictedAngleUncertaintyDeg { get; set; }  // ~1σ on each recovered screw direction
         public double AllInwardTiltResidual { get; set; }         // |AllInward − Baseline|, should be ~0 (pure piston); NaN for 4-step runs
         public double Rebaseline1Drift { get; set; }              // |ReBaseline1 − Baseline|, should be ~0; NaN for 4-step runs
         public double Rebaseline2Drift { get; set; }              // |ReBaseline2 − ReBaseline1|, should be ~0
+        public double Rebaseline3Drift { get; set; } = double.NaN; // |ReBaseline3 − ReBaseline2|, should be ~0; NaN unless HasFinalRebaseline
         public bool IsReliable { get; set; }                      // SignalToNoise >= MinReliableSignalToNoise
     }
 
@@ -124,7 +151,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     /// results to its options; keeping the math here guarantees the validator and the wizard never drift.
     ///
     /// Angle convention matches the rest of the plugin: degrees clockwise from straight up (12 o'clock) in image
-    /// space (+x right, +y down), via <c>atan2(dA, -dB)</c>.
+    /// space (+x right, +y down), via <c>atan2(gx, -gy)</c> on the physical gradient (gx, gy) — see
+    /// <see cref="PhysicalDelta"/>. NOT the raw (A, B) tilt-plane coefficients: A and B are per-normalized-
+    /// coordinate and distort directions/magnitudes on a non-square sensor (the F2 bug).
     /// </summary>
     public static class TiltCalibrationCalculator {
 
@@ -136,33 +165,123 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private static double Magnitude(double a, double b) => Math.Sqrt(a * a + b * b);
 
+        /// <summary>Screw-move delta in physical gradient space (µm focus travel per µm of sensor
+        /// displacement). Angles and magnitude ratios MUST be computed here, not in (A,B) space —
+        /// A and B are per-normalized-coordinate and distort directions on non-square sensors.
+        ///
+        /// Geometry is a PRECONDITION, not an option: every caller — production (the wizard's
+        /// <c>TiltAdapterWizardVM.RunCalibrationMath</c>, TestApp's headless validator) and test alike — must
+        /// populate real ImageWidthPixels, ImageHeightPixels, PixelSizeMicrons, and FocuserStepMicrons. This
+        /// mirrors <see cref="RecoverHardwareDetailed"/>'s philosophy: one class of geometry precondition, one
+        /// failure behavior. There is deliberately NO fallback for invalid geometry (sensor size or focuser
+        /// step &lt;= 0) — it divides through and yields non-finite (Inf/NaN) gx/gy, which callers must treat as
+        /// unreliable (see <see cref="ComputeConfidence"/>'s NaN/Inf-safe SNR guard). A silent "degrade to raw
+        /// (A,B) units" fallback was tried and removed: on the production wizard path it would have let
+        /// mis-configured/zeroed geometry silently reintroduce the F2 bug (raw-(A,B)-space angles/ratio/SNR)
+        /// with no signal anywhere that anything was wrong.</summary>
+        internal static (double gx, double gy) PhysicalDelta(TiltGradient to, TiltGradient from, TiltCalibrationInputs inputs) {
+            double dA = to.A - from.A;
+            double dB = to.B - from.B;
+            return PhysicalDelta((dA, dB), inputs);
+        }
+
+        /// <summary>Overload of <see cref="PhysicalDelta(TiltGradient, TiltGradient, TiltCalibrationInputs)"/> for
+        /// callers that already have a raw (A, B) delta — e.g. the drift-cancelling <see cref="Screw1Delta"/> /
+        /// <see cref="Screw2Delta"/> helpers, which reference a midpoint rather than a single reading. Same
+        /// geometry precondition and no-fallback behavior as the two-reading overload.</summary>
+        internal static (double gx, double gy) PhysicalDelta((double dA, double dB) delta, TiltCalibrationInputs inputs) {
+            double sensorW = inputs.ImageWidthPixels * inputs.PixelSizeMicrons;
+            double sensorH = inputs.ImageHeightPixels * inputs.PixelSizeMicrons;
+            return TiltScrewGeometry.PlaneGradientToPhysical(delta.dA, delta.dB, inputs.FocuserStepMicrons, sensorW, sensorH);
+        }
+
+        /// <summary>Screw-1 move referenced to the MIDPOINT of the re-baselines that bracket it (ReBaseline1 and
+        /// ReBaseline2). For a linear tilt drift across the measurement sequence, the midpoint of two readings
+        /// taken symmetrically before/after the screw-1 move is exactly the drift-free reference at the time of
+        /// the move, so the recovered move is drift-immune — unconditionally, no extra measurement required.
+        /// Works identically in the 4-step flow (the baseline reading sits in the ReBaseline1 slot; see
+        /// <see cref="TiltCalibrationInputs.HasCurvatureMeasurement"/>).</summary>
+        internal static (double dA, double dB) Screw1Delta(TiltCalibrationInputs inputs) {
+            double midA = (inputs.ReBaseline1.A + inputs.ReBaseline2.A) / 2.0;
+            double midB = (inputs.ReBaseline1.B + inputs.ReBaseline2.B) / 2.0;
+            return (inputs.Screw1.A - midA, inputs.Screw1.B - midB);
+        }
+
+        /// <summary>Screw-2 move. Gets the same drift-cancelling midpoint symmetry as <see cref="Screw1Delta"/>
+        /// (mid(ReBaseline2, ReBaseline3)) only when the optional measured final re-baseline actually ran
+        /// (<see cref="TiltCalibrationInputs.HasFinalRebaseline"/>); otherwise referenced to ReBaseline2 alone,
+        /// as before.</summary>
+        internal static (double dA, double dB) Screw2Delta(TiltCalibrationInputs inputs) {
+            if (inputs.HasFinalRebaseline) {
+                double midA = (inputs.ReBaseline2.A + inputs.ReBaseline3.A) / 2.0;
+                double midB = (inputs.ReBaseline2.B + inputs.ReBaseline3.B) / 2.0;
+                return (inputs.Screw2.A - midA, inputs.Screw2.B - midB);
+            }
+            return (inputs.Screw2.A - inputs.ReBaseline2.A, inputs.Screw2.B - inputs.ReBaseline2.B);
+        }
+
         /// <summary>
         /// Estimates how trustworthy the calibration is from the per-step tilt vectors. See
         /// <see cref="TiltCalibrationConfidence"/> for the model: screw moves are the signal; the noise probes are
         /// independent quantities that are each ~0 in an ideal measurement — the all-inward piston residual and both
-        /// re-baseline drifts in a 6-step run, only the single re-baseline drift in a 4-step run.
+        /// re-baseline drifts in a 6-step run, only the single re-baseline drift in a 4-step run, plus (either flow)
+        /// the optional measured final re-baseline's drift (<see cref="TiltCalibrationInputs.HasFinalRebaseline"/>,
+        /// Task 6) when present. All magnitudes are computed in physical gradient space (<see cref="PhysicalDelta"/>),
+        /// not raw (A,B) — see the F2 fix. Screw moves use the same drift-cancelling reference as
+        /// <see cref="Calibrate"/> (<see cref="Screw1Delta"/> / <see cref="Screw2Delta"/>), so the signal is
+        /// unaffected by linear tilt drift too. The noise probes (all-inward residual, every re-baseline drift) are
+        /// deliberately left on their raw, non-midpoint readings: they exist specifically to measure the
+        /// drift/backlash the signal is now immune to, so midpoint-referencing them would erase the very quantity
+        /// they are there to detect.
         /// </summary>
         public static TiltCalibrationConfidence ComputeConfidence(TiltCalibrationInputs inputs) {
-            double s1 = Magnitude(inputs.Screw1.A - inputs.ReBaseline1.A, inputs.Screw1.B - inputs.ReBaseline1.B);
-            double s2 = Magnitude(inputs.Screw2.A - inputs.ReBaseline2.A, inputs.Screw2.B - inputs.ReBaseline2.B);
+            var (s1x, s1y) = PhysicalDelta(Screw1Delta(inputs), inputs);
+            var (s2x, s2y) = PhysicalDelta(Screw2Delta(inputs), inputs);
+            double s1 = Magnitude(s1x, s1y);
+            double s2 = Magnitude(s2x, s2y);
             double signal = 0.5 * (s1 + s2);
 
-            double drift2 = Magnitude(inputs.ReBaseline2.A - inputs.ReBaseline1.A, inputs.ReBaseline2.B - inputs.ReBaseline1.B);
+            var (drift2x, drift2y) = PhysicalDelta(inputs.ReBaseline2, inputs.ReBaseline1, inputs);
+            double drift2 = Magnitude(drift2x, drift2y);
+            double drift3 = double.NaN;
+            if (inputs.HasFinalRebaseline) {
+                var (drift3x, drift3y) = PhysicalDelta(inputs.ReBaseline3, inputs.ReBaseline2, inputs);
+                drift3 = Magnitude(drift3x, drift3y);
+            }
             double allInward = double.NaN;
             double drift1 = double.NaN;
             double noise;
             if (inputs.HasCurvatureMeasurement) {
-                allInward = Magnitude(inputs.AllInward.A - inputs.Baseline.A, inputs.AllInward.B - inputs.Baseline.B);
-                drift1 = Magnitude(inputs.ReBaseline1.A - inputs.Baseline.A, inputs.ReBaseline1.B - inputs.Baseline.B);
-                noise = Math.Sqrt((allInward * allInward + drift1 * drift1 + drift2 * drift2) / 3.0);
+                var (aiX, aiY) = PhysicalDelta(inputs.AllInward, inputs.Baseline, inputs);
+                allInward = Magnitude(aiX, aiY);
+                var (d1x, d1y) = PhysicalDelta(inputs.ReBaseline1, inputs.Baseline, inputs);
+                drift1 = Magnitude(d1x, d1y);
+                noise = inputs.HasFinalRebaseline
+                    ? Math.Sqrt((allInward * allInward + drift1 * drift1 + drift2 * drift2 + drift3 * drift3) / 4.0)
+                    : Math.Sqrt((allInward * allInward + drift1 * drift1 + drift2 * drift2) / 3.0);
             } else {
-                // 4-step run: the only available noise probe is the single re-baseline drift. A one-sample noise
-                // estimate makes the IsReliable gate looser than the 6-step RMS-of-3 — an accepted tradeoff of the
+                // 4-step run: the base noise probe is the single re-baseline drift; with the optional measured
+                // final re-baseline, both re-baseline drifts (RMS-of-2). A one- or two-sample noise estimate
+                // makes the IsReliable gate looser than the 6-step RMS-of-3/4 — an accepted tradeoff of the
                 // shorter flow.
-                noise = drift2;
+                noise = inputs.HasFinalRebaseline
+                    ? Math.Sqrt((drift2 * drift2 + drift3 * drift3) / 2.0)
+                    : drift2;
             }
 
-            double snr = noise > 0 ? signal / noise : double.PositiveInfinity;
+            // NaN/Inf-safe: PhysicalDelta has no fallback for invalid geometry (see its doc comment) — a caller
+            // that left ImageWidthPixels/PixelSizeMicrons/FocuserStepMicrons at 0 (or otherwise violated the
+            // geometry precondition) gets non-finite gx/gy (NaN from 0/0, +/-Infinity from a nonzero delta over
+            // a zero sensor size), which propagates into a non-finite signal and/or noise here. This guard is
+            // now the ONLY thing standing between bad geometry and a falsely "reliable" result, so it must catch
+            // BOTH: "noise > 0" is false for NaN, so an unguarded NaN noise would fall into the zero-noise
+            // branch and be misreported as infinite SNR; and an Infinite noise with an exactly-zero (or
+            // Infinite) signal could otherwise divide out to a deceptively finite or infinite ratio. Only when
+            // BOTH signal and noise are finite do we fall through to the normal ratio / exactly-zero-noise
+            // logic. This is a CRITICAL GATE (see TiltAdapterWizardVM.RunCalibrationMath).
+            double snr = !double.IsFinite(signal) || !double.IsFinite(noise)
+                ? double.NaN
+                : (noise > 0 ? signal / noise : double.PositiveInfinity);
             // A screw direction is atan2 of its move vector; transverse noise of ~noise on a signal of ~signal
             // perturbs that direction by ~atan(noise/signal). Degenerate (no signal) => maximally uncertain.
             double angleUncertainty = signal > 0 ? Math.Atan2(noise, signal) * 180.0 / Math.PI : 90.0;
@@ -175,6 +294,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 AllInwardTiltResidual = allInward,
                 Rebaseline1Drift = drift1,
                 Rebaseline2Drift = drift2,
+                Rebaseline3Drift = drift3,
                 IsReliable = snr >= MinReliableSignalToNoise
             };
         }
@@ -212,31 +332,78 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         /// <summary>
-        /// Ratio (&gt;= 1) of the larger to the smaller single-screw gradient-change magnitude. Two clean, equal
-        /// single-screw calibration turns produce ~equal magnitudes (ratio ~1); a large ratio means the two turns
-        /// were unequal, so the recovered hardware (pitch/step size) is unreliable. Returns NaN if either magnitude
-        /// is 0.
+        /// Ratio (&gt;= 1) of the larger to the smaller single-screw gradient-change magnitude, in physical
+        /// gradient space (gx, gy) — see <see cref="PhysicalDelta"/>. Two clean, equal single-screw calibration
+        /// turns produce ~equal magnitudes (ratio ~1); a large ratio means the two turns were unequal, so the
+        /// recovered hardware (pitch/step size) is unreliable. Returns NaN if either magnitude is 0.
         /// </summary>
-        public static double MoveMagnitudeRatio(double d1A, double d1B, double d2A, double d2B) {
-            double m1 = Math.Sqrt(d1A * d1A + d1B * d1B);
-            double m2 = Math.Sqrt(d2A * d2A + d2B * d2B);
+        public static double MoveMagnitudeRatio(double g1x, double g1y, double g2x, double g2y) {
+            double m1 = Math.Sqrt(g1x * g1x + g1y * g1y);
+            double m2 = Math.Sqrt(g2x * g2x + g2y * g2y);
             if (m1 <= 0 || m2 <= 0) {
                 return double.NaN;
             }
             return m1 >= m2 ? m1 / m2 : m2 / m1;
         }
 
+        /// <summary>Physical-gradient-space move magnitude of a single screw's move (see <see cref="PhysicalDelta"/>),
+        /// referenced the same drift-cancelling way <see cref="Calibrate"/> itself does
+        /// (<see cref="Screw1Delta"/> / <see cref="Screw2Delta"/>). <paramref name="screwNumber"/> must be 1 or 2.
+        /// Exposed so callers that need to diagnose a specific screw (e.g. the wizard's corner-cross-check
+        /// degenerate-estimator log, see <see cref="EstimatorRelativeDifference"/>'s doc comment) can compare two
+        /// estimators' per-screw magnitudes without re-deriving the delta math themselves.</summary>
+        internal static double ScrewMoveMagnitude(int screwNumber, TiltCalibrationInputs inputs) {
+            var delta = screwNumber == 1 ? Screw1Delta(inputs) : Screw2Delta(inputs);
+            var (gx, gy) = PhysicalDelta(delta, inputs);
+            return Magnitude(gx, gy);
+        }
+
         /// <summary>
-        /// Per-screw position angles from the two single-screw gradient changes (screw move minus baseline).
-        /// Determines the winding direction from the measured data (image mirroring can flip clockwise/CCW), then
-        /// performs a constrained least-squares fit to equal angular spacing (120° for 3 screws; 90° with opposite
-        /// screws 180° apart for 4 screws). Returns the four screw angles (s4 = NaN for 3 screws) and the raw
-        /// measured screw1->screw2 gap (before the fit) for separation diagnostics.
+        /// Relative disagreement between two independent estimators of the same screw moves — e.g. the wizard's
+        /// corner-region-AF cross-check of the per-star paraboloid (see
+        /// <c>TiltAdapterWizardVM.RunCalibrationMath</c>) — as the LARGER of the two screws' relative differences
+        /// in physical-gradient-space move magnitude (see <see cref="ScrewMoveMagnitude"/>). Centralized here
+        /// (not hand-duplicated in the wizard VM and TestApp's headless validator) for the same reason every
+        /// other calibration formula lives in this class: the validator and the wizard must never drift.
+        /// <paramref name="alternate"/> is the reference each ratio is measured against — its magnitude is each
+        /// relative difference's denominator — so for the wizard's cross-check this is the corner-region AF
+        /// estimator (the one <paramref name="primary"/>, the paraboloid, is being sanity-checked against).
+        ///
+        /// Guarded against a ~0 <paramref name="alternate"/> magnitude for EITHER screw: a relative difference
+        /// against a near-zero reference is meaningless (Infinity for any nonzero <paramref name="primary"/>
+        /// move, NaN for a coincidentally-zero one), not a genuine, supportable disagreement — so the WHOLE pair
+        /// returns NaN rather than a one-screw-only evaluation, which would silently mix "no basis for
+        /// comparison" with "measured and found to agree." This guard can itself hide the most diagnostic
+        /// disagreement possible — the alternate estimator seeing ~no move for a screw the primary estimator
+        /// says was clearly turned — so a caller that wants to log/report that case specifically should compare
+        /// <see cref="ScrewMoveMagnitude"/>(1/2, primary) against ScrewMoveMagnitude(1/2, alternate) directly
+        /// rather than trying to recover it from this method's NaN.
+        /// </summary>
+        internal static double EstimatorRelativeDifference(TiltCalibrationInputs primary, TiltCalibrationInputs alternate) {
+            double p1Mag = ScrewMoveMagnitude(1, primary);
+            double p2Mag = ScrewMoveMagnitude(2, primary);
+            double a1Mag = ScrewMoveMagnitude(1, alternate);
+            double a2Mag = ScrewMoveMagnitude(2, alternate);
+            if (a1Mag <= 0 || a2Mag <= 0) {
+                return double.NaN;
+            }
+            double rel1 = Math.Abs(p1Mag - a1Mag) / a1Mag;
+            double rel2 = Math.Abs(p2Mag - a2Mag) / a2Mag;
+            return Math.Max(rel1, rel2);
+        }
+
+        /// <summary>
+        /// Per-screw position angles from the two single-screw gradient changes (screw move minus baseline), in
+        /// physical gradient space (gx, gy) — see <see cref="PhysicalDelta"/>. Determines the winding direction
+        /// from the measured data (image mirroring can flip clockwise/CCW), then performs a constrained
+        /// least-squares fit to equal angular spacing (120° for 3 screws; 90° with opposite screws 180° apart for
+        /// 4 screws). Returns the four screw angles (s4 = NaN for 3 screws) and the raw measured screw1->screw2
+        /// gap (before the fit) for separation diagnostics.
         /// </summary>
         public static (double s1, double s2, double s3, double s4, double rawDiff) ComputeScrewAngles(
-            double d1A, double d1B, double d2A, double d2B, int screwCount) {
-            double angle1 = NormalizeAngle(Math.Atan2(d1A, -d1B) * 180.0 / Math.PI);
-            double angle2 = NormalizeAngle(Math.Atan2(d2A, -d2B) * 180.0 / Math.PI);
+            double g1x, double g1y, double g2x, double g2y, int screwCount) {
+            double angle1 = NormalizeAngle(Math.Atan2(g1x, -g1y) * 180.0 / Math.PI);
+            double angle2 = NormalizeAngle(Math.Atan2(g2x, -g2y) * 180.0 / Math.PI);
 
             double rawDiff = NormalizeAngle(angle2 - angle1);
             bool clockwise = rawDiff < 180.0;
@@ -288,12 +455,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             double radiusMicrons = radiusMm * 1000.0;
             int n = inputs.ScrewCount;
 
-            // Each screw move is measured relative to the re-baseline that immediately precedes it (c→d, e→f),
-            // isolating a single physical move per pair.
-            double d1A = inputs.Screw1.A - inputs.ReBaseline1.A;
-            double d1B = inputs.Screw1.B - inputs.ReBaseline1.B;
-            double d2A = inputs.Screw2.A - inputs.ReBaseline2.A;
-            double d2B = inputs.Screw2.B - inputs.ReBaseline2.B;
+            // Screw 1's move is measured relative to mid(ReBaseline1, ReBaseline2) — drift-cancelling (see
+            // Screw1Delta). Screw 2's move is relative to ReBaseline2 alone unless a measured final re-baseline
+            // (ReBaseline3) is present (see Screw2Delta), isolating a single physical move per screw either way.
+            var (d1A, d1B) = Screw1Delta(inputs);
+            var (d2A, d2B) = Screw2Delta(inputs);
 
             var (g1x, g1y) = TiltScrewGeometry.PlaneGradientToPhysical(d1A, d1B, fStep, sensorW, sensorH);
             var (g2x, g2y) = TiltScrewGeometry.PlaneGradientToPhysical(d2A, d2B, fStep, sensorW, sensorH);
@@ -318,6 +484,32 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public static double RecoverHardwareMicrons(TiltCalibrationInputs inputs) => RecoverHardwareDetailed(inputs).measured;
 
         /// <summary>
+        /// Focuser-frame µm-per-applied-unit implied by the AllInward piston: all screws moved by the applied
+        /// amount, so mean best-focus shifts by (applied × unit) / frame-factor. "PerStep" names the applied
+        /// unit generically, same convention as <see cref="RecoverHardwareMicrons"/>'s result: a turn on
+        /// thread-pitch (screw) adapters, a step on stepper adapters. Drift-corrected by interpolating the
+        /// baseline mean to AllInward's time as mid(Baseline, ReBaseline1) — the two nominally-identical
+        /// states that bracket it. This is measured in the SAME (focuser) frame as the tilt-derived hardware,
+        /// so honest values agree; a large gap means the tilt estimator (or the mechanics on pull-side moves)
+        /// is off. NaN for 4-step runs (no piston measured). Unlike <see cref="RecoverHardwareMicrons"/>, this
+        /// needs no sensor geometry at all (no PixelSizeMicrons, ImageWidthPixels/Height, or
+        /// ScrewRadiusMillimeters) — only mean focuser positions, the focuser step size, and the applied
+        /// amount — so it is a genuinely independent probe of the same quantity. The result is unsigned
+        /// (<see cref="Math.Abs"/> discards direction) because the piston's sign is derived separately by
+        /// <see cref="ComputeCurvatureSign"/>, which reads the raw <c>Baseline</c> mean directly rather than
+        /// this method's drift-corrected mid(Baseline, ReBaseline1) — a related but not identical reference
+        /// point.
+        /// </summary>
+        public static double PistonImpliedMicronsPerStep(TiltCalibrationInputs inputs) {
+            if (!inputs.HasCurvatureMeasurement || inputs.CalibrationAppliedAmount <= 0 || inputs.FocuserStepMicrons <= 0) {
+                return double.NaN;
+            }
+            double baselineAtAllInward = (inputs.Baseline.MeanFocuserPosition + inputs.ReBaseline1.MeanFocuserPosition) / 2.0;
+            double deltaSteps = inputs.AllInward.MeanFocuserPosition - baselineAtAllInward;
+            return Math.Abs(deltaSteps) * inputs.FocuserStepMicrons / inputs.CalibrationAppliedAmount;
+        }
+
+        /// <summary>
         /// Drift of a re-baseline relative to its reference, as a fraction of the subsequent screw-move magnitude.
         /// A good re-baseline returns close to the prior state, so this ratio is near 0; a large value means the
         /// undo/redo left residual tilt (backlash or an uneven turn) comparable to the screw-move signal, so the
@@ -332,14 +524,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             return driftMag / moveMag;
         }
 
-        /// <summary>Runs the full calibration: screw angles, curvature sign, and recovered hardware.</summary>
+        /// <summary>Runs the full calibration: screw angles, curvature sign, and recovered hardware. Angles,
+        /// the raw gap, and the magnitude ratio are all computed in physical gradient space (see
+        /// <see cref="PhysicalDelta"/>), not raw (A,B) — see the F2 fix. Screw 1's move is referenced to
+        /// mid(ReBaseline1, ReBaseline2) (see <see cref="Screw1Delta"/>), which cancels a linear tilt drift
+        /// across the measurement sequence exactly; screw 2 gets the same symmetry only once a measured final
+        /// re-baseline is present (see <see cref="Screw2Delta"/>).</summary>
         public static TiltCalibrationResult Calibrate(TiltCalibrationInputs inputs) {
-            double d1A = inputs.Screw1.A - inputs.ReBaseline1.A;
-            double d1B = inputs.Screw1.B - inputs.ReBaseline1.B;
-            double d2A = inputs.Screw2.A - inputs.ReBaseline2.A;
-            double d2B = inputs.Screw2.B - inputs.ReBaseline2.B;
+            var (d1x, d1y) = PhysicalDelta(Screw1Delta(inputs), inputs);
+            var (d2x, d2y) = PhysicalDelta(Screw2Delta(inputs), inputs);
 
-            var (s1, s2, s3, s4, rawDiff) = ComputeScrewAngles(d1A, d1B, d2A, d2B, inputs.ScrewCount);
+            var (s1, s2, s3, s4, rawDiff) = ComputeScrewAngles(d1x, d1y, d2x, d2y, inputs.ScrewCount);
             var (measuredHardware, delta1PerApplied, delta2PerApplied) = RecoverHardwareDetailed(inputs);
 
             return new TiltCalibrationResult {
@@ -357,9 +552,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 PitchUncertaintyMicrons = double.IsNaN(delta1PerApplied)
                     ? double.NaN
                     : Math.Abs(delta1PerApplied - delta2PerApplied) / 2.0,
-                Screw1DirectionDegrees = NormalizeAngle(Math.Atan2(d1A, -d1B) * 180.0 / Math.PI),
-                Screw2DirectionDegrees = NormalizeAngle(Math.Atan2(d2A, -d2B) * 180.0 / Math.PI),
-                MoveMagnitudeRatio = MoveMagnitudeRatio(d1A, d1B, d2A, d2B),
+                PistonImpliedMicronsPerStep = PistonImpliedMicronsPerStep(inputs),
+                Screw1DirectionDegrees = NormalizeAngle(Math.Atan2(d1x, -d1y) * 180.0 / Math.PI),
+                Screw2DirectionDegrees = NormalizeAngle(Math.Atan2(d2x, -d2y) * 180.0 / Math.PI),
+                MoveMagnitudeRatio = MoveMagnitudeRatio(d1x, d1y, d2x, d2y),
                 Confidence = ComputeConfidence(inputs)
             };
         }

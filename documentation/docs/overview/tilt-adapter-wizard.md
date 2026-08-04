@@ -45,16 +45,22 @@ The adapter type is set by the **Screws** field (default `3`).
 
 ## The calibration loop
 
-The wizard establishes the screw-to-tilt mapping empirically. The default run is **four steps**: a
-**baseline** measurement, a screw 1 move, a re-baseline, and a screw 2 move. The move steps prompt
-a known amount of motion, worded as clockwise/counter-clockwise (tighten/loosen) turns for screws
-(e.g., "Turn screw 1 CLOCKWISE exactly 1 full turn") and as signed +/− steps for stepper adapters;
-every step ends with a measurement. From the change in the tilt vector \((\Delta A, \Delta B)\) it
-computes each screw's angle. With a connected [motorized
+The wizard establishes the screw-to-tilt mapping empirically. The core run is **four steps**: a
+**baseline** measurement, a screw 1 move, a re-baseline, and a screw 2 move. By default the wizard adds
+a fifth: **Measure final re-baseline** (on by default, in the **Measurement** section) restores the
+screw 2 move and measures it once more. That gives screw 2's move the same bracketed reference screw
+1's already has, referenced to the midpoint of the re-baselines on either side of it, which cancels
+steady drift between steps instead of leaving it in the reading. Turn the setting off to skip the extra
+autofocus run if your setup is thermally stable and drift is not a concern.
+
+The move steps prompt a known amount of motion, worded as clockwise/counter-clockwise (tighten/loosen)
+turns for screws (e.g., "Turn screw 1 CLOCKWISE exactly 1 full turn") and as signed +/− steps for
+stepper adapters; every step ends with a measurement. From the change in the tilt vector \((\Delta A,
+\Delta B)\) it computes each screw's angle. With a connected [motorized
 adapter](motorized-tilt-adapter.md#hands-off-calibration), the wizard sends these moves itself
 instead of prompting for them.
 
-The four-step run does not measure which way a clockwise turn moves the adapter. That direction
+None of those steps measure which way a clockwise turn moves the adapter. That direction
 comes from the adapter direction setting in the wizard's **Measurement** section, labeled **Screw ⟳
 moves adapter** (or **+ steps move adapter** for steppers):
 either **Toward the camera** (outward, the default) or **Toward the objective** (inward). Until it
@@ -63,8 +69,9 @@ this adds two steps (an all-screws-clockwise move plus a return to baseline) and
 off the **change in mean best-focus position** between them. Turning every screw clockwise is a pure
 piston, so if the mean best-focus position *drops*, the plate moved toward the camera — on a standard
 focuser, that means clockwise moves the adapter toward the camera. The saved calibration then reports
-the direction as measured. To average out seeing, set **Measurements to average** above 1; the wizard
-flags inconsistent repeats so you can re-run.
+the direction as measured. That same all-screws step also feeds the **Piston-implied** pitch estimate
+described below. To average out seeing, set **Measurements to average** above 1; the wizard flags
+inconsistent repeats so you can re-run.
 
 The measurement itself needs no knowledge of which way your focuser travels — the focuser convention
 cancels out of it. Only the *wording* of the direction selector depends on it, so the selector reflects
@@ -138,8 +145,8 @@ adapter's **physical hardware model**:
 | Hardware field | Meaning |
 |---|---|
 | **Adjustment type** | Whether the adapter is adjusted by **Screws** (reported in turns) or **Stepper Motors** (reported in steps). |
-| **Thread pitch (µm/turn)** | Axial microns the sensor moves per full screw turn; used when Adjustment type is Screws. |
-| **Step size (µm/step)** | Axial microns per stepper step; used when Adjustment type is Stepper Motors. |
+| **Thread pitch (µm/turn)** | Axial microns the sensor moves per full screw turn, per the adapter's mechanical spec; used when Adjustment type is Screws. |
+| **Step size (µm/step)** | Axial microns per stepper step, per the adapter's mechanical spec; used when Adjustment type is Stepper Motors. |
 | **Screw radius (mm)** | Distance of each adjuster from the sensor center, in millimeters; converts a tilt *angle* into an axial movement at the screw. |
 
 **Device presets.** Rather than entering those numbers by hand, pick your adapter from the **Device**
@@ -170,12 +177,37 @@ corrections automatically. See [Motorized Tilt Adapter](motorized-tilt-adapter.m
 enter your adapter's adjustment type, screw count, thread pitch (or stepper step size), and screw
 radius yourself.
 
-!!! note "The wizard cross-checks the hardware values it measures"
-    A calibration run also *measures* an effective thread pitch / stepper step size from how far the
-    sensor actually moved. The wizard remembers the last measured value and **warns you if it diverges
-    from the configured value**, which usually means the wrong preset is selected or a number was
-    mistyped. Without a valid hardware model, adjustments are still reported in focuser steps (and, if
-    *Focuser Step Size* is set, in microns); you just do not get the turn/step figure.
+!!! note "Measured pitch is an effective value, and it can legitimately differ from the mechanical spec"
+    A calibration run also *measures* a thread pitch or stepper step size, from how far best focus
+    actually moved for a known screw or motor move. That measurement runs through the optics and the
+    focuser, not a ruler on the adapter: it is an **effective** µm/step in focus-shift terms, not
+    necessarily the mechanical spec entered in the Hardware table above. On a rig where focuser travel
+    and sensor travel are not exactly 1:1 (moving optics that re-image as the focuser travels, or a
+    reducer or flattener riding the drawtube), the measured value can sit well above or below the
+    mechanical spec. That is expected, not an error: moving-optics re-imaging, an overstated configured
+    *Focuser Step Size*, and an understated adapter spec all produce the same symptom, and a single
+    calibration run cannot tell them apart.
+
+    Corrections are computed in the same effective frame the wizard measured, so clicking **Use
+    measured value** keeps them self-consistent. Leaving the mechanical spec in place on a rig where
+    the two disagree over-corrects or under-corrects every tilt and backfocus adjustment by that same
+    ratio. The wizard remembers the last measured value and shows it next to the saved one, in the
+    **Measured Adapter Hardware** panel, so you can compare before deciding.
+
+    Two more readouts can appear in that panel, each hidden when the run did not produce it:
+
+    - **Piston-implied** is a second, independent estimate of the same effective pitch, from how far
+      best focus moved when all screws were driven the same amount (a pure piston, no tilt). It only
+      appears when **Measure direction** (above) was on for that run, since that setting is what adds
+      the all-screws step. Measure direction is **off by default**, so a default run shows neither
+      this line nor its warning. When it does appear, the wizard warns if it disagrees with the
+      tilt-derived measurement by more than 20%.
+    - **Corner-AF cross-check** is the same measurement re-derived from the four corner regions' own
+      autofocus results instead of the per-star sensor model: a second estimator of the screw moves.
+      The wizard warns when it disagrees with the main reading by more than 15%.
+
+    Without a valid hardware model, adjustments are still reported in focuser steps (and, if *Focuser
+    Step Size* is set, in microns); you just do not get the turn/step figure.
 
 ## Saving and replaying a calibration run
 

@@ -241,25 +241,53 @@ public class TiltCalibrationCalculatorTests {
         Assert.That(TiltCalibrationCalculator.Calibrate(inputs).MoveMagnitudeRatio, Is.EqualTo(2.0).Within(1e-6));
     }
 
+    [Test]
+    public void Calibrate_AnisotropicSensor_ReadsPhysicalGapAndEqualMagnitudes() {
+        // On a 3:2 sensor, equal-magnitude physical moves at 200° and 290° produce these (A,B) deltas.
+        // In raw (A,B) space they would read: gap 75.01°, magnitude ratio 1.354 — the F2 bug.
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 4,
+            ReBaseline1 = new TiltGradient(0, 0, 0),
+            Screw1 = new TiltGradient(-77.1597, 141.3298, 0),
+            ReBaseline2 = new TiltGradient(0, 0, 0),
+            Screw2 = new TiltGradient(-211.9947, -51.4398, 0),
+            ImageWidthPixels = 6000, ImageHeightPixels = 4000,
+            PixelSizeMicrons = 3.76, FocuserStepMicrons = 0.5,
+            ScrewRadiusMillimeters = 44.0, CalibrationAppliedAmount = 1.0,
+            IsStepperAdjustment = false, HasCurvatureMeasurement = false, FallbackCurvatureSign = 1,
+        };
+        var result = TiltCalibrationCalculator.Calibrate(inputs);
+        Assert.Multiple(() => {
+            Assert.That(result.RawAngleDiffDegrees, Is.EqualTo(90.0).Within(0.01));
+            Assert.That(result.MoveMagnitudeRatio, Is.EqualTo(1.0).Within(0.001));
+            Assert.That(result.Screw1DirectionDegrees, Is.EqualTo(200.0).Within(0.01));
+            Assert.That(result.Screw2DirectionDegrees, Is.EqualTo(290.0).Within(0.01));
+            Assert.That(result.Screw1AngleDegrees, Is.EqualTo(200.0).Within(0.01));
+        });
+    }
+
     private static TiltGradient Plus(TiltGradient a, TiltGradient b) =>
         new TiltGradient(a.A + b.A, a.B + b.B, a.MeanFocuserPosition + b.MeanFocuserPosition);
 
     [Test]
     public void Calibrate_DerivesScrewDeltasFromReBaselineNotBaseline() {
-        // The screw moves are measured against the re-baseline that precedes them (c→d, e→f), so a drifted
+        // The screw moves are measured against the re-baseline(s), not the original baseline, so a drifted
         // re-baseline (offset from the original baseline) must NOT contaminate the recovered angles: the single
-        // screw move is added on top of the re-baseline reading and the delta isolates it.
+        // screw move is added on top of the re-baseline reading and the delta isolates it. Screw 1's reference is
+        // now mid(ReBaseline1, ReBaseline2) (drift-cancelling); constructing ReBaseline1 == ReBaseline2 here keeps
+        // that midpoint exactly equal to the drifted re-baseline, so the expectations stay exact and obviously
+        // correct (this is not testing drift-cancellation itself -- see Calibrate_LinearTiltDrift_CancelsExactlyForScrew1
+        // for that).
         const double pitch = 400.0;
-        var reBaseline1 = new TiltGradient(12.0, -7.0, 1000);  // c drifted from baseline a
-        var reBaseline2 = new TiltGradient(-4.0, 9.0, 1000);   // e drifted from c
+        var reBaseline = new TiltGradient(12.0, -7.0, 1000);  // c and e both drifted identically from baseline a
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
             Baseline = new TiltGradient(0, 0, 1000),
             AllInward = new TiltGradient(0, 0, 1075),
-            ReBaseline1 = reBaseline1,
-            Screw1 = Plus(reBaseline1, SingleScrewReading(0, pitch, 3)),
-            ReBaseline2 = reBaseline2,
-            Screw2 = Plus(reBaseline2, SingleScrewReading(120, pitch, 3)),
+            ReBaseline1 = reBaseline,
+            Screw1 = Plus(reBaseline, SingleScrewReading(0, pitch, 3)),
+            ReBaseline2 = reBaseline,
+            Screw2 = Plus(reBaseline, SingleScrewReading(120, pitch, 3)),
             ImageWidthPixels = ImgW,
             ImageHeightPixels = ImgH,
             PixelSizeMicrons = PixelSize,
@@ -276,6 +304,111 @@ public class TiltCalibrationCalculatorTests {
             Assert.That(r.MeasuredHardwareMicrons, Is.EqualTo(pitch).Within(1e-3));
             // AllInward mean (1075) above baseline (1000) ⇒ σ = −1.
             Assert.That(r.CurvatureSign, Is.EqualTo(-1));
+        });
+    }
+
+    [Test]
+    public void Calibrate_LinearTiltDrift_CancelsExactlyForScrew1() {
+        // A constant drift vector v is added per measurement interval. The screw-1 move D is bracketed
+        // by ReBaseline1 (2 intervals in) and ReBaseline2 (4 intervals in), with Screw1 at 3 intervals:
+        // Screw1 − mid(RB1, RB2) recovers D exactly. The old delta (Screw1 − RB1) is off by |v|.
+        var (vA, vB) = (9.0, -5.0);
+        var move1 = SingleScrewReading(0, 400.0, 4);      // D
+        var move2 = SingleScrewReading(90, 400.0, 4);     // E
+        TiltGradient Drift(TiltGradient g, int k) => new TiltGradient(g.A + k * vA, g.B + k * vB, g.MeanFocuserPosition);
+
+        var drifted = new TiltCalibrationInputs {
+            ScrewCount = 4,
+            Baseline = Drift(new TiltGradient(0, 0, 0), 0),
+            AllInward = Drift(new TiltGradient(0, 0, 100), 1),
+            ReBaseline1 = Drift(new TiltGradient(0, 0, 0), 2),
+            Screw1 = Drift(move1, 3),
+            ReBaseline2 = Drift(new TiltGradient(0, 0, 0), 4),
+            Screw2 = Drift(move2, 5),
+            ImageWidthPixels = ImgW, ImageHeightPixels = ImgH,
+            PixelSizeMicrons = PixelSize, FocuserStepMicrons = FStep,
+            ScrewRadiusMillimeters = RadiusMm, CalibrationAppliedAmount = 1.0,
+            IsStepperAdjustment = false,
+        };
+        // Same shape, but with zero drift applied at every step (k=0 everywhere) -- the drift-free reference.
+        var cleanInputs = new TiltCalibrationInputs {
+            ScrewCount = 4,
+            Baseline = Drift(new TiltGradient(0, 0, 0), 0),
+            AllInward = Drift(new TiltGradient(0, 0, 100), 0),
+            ReBaseline1 = Drift(new TiltGradient(0, 0, 0), 0),
+            Screw1 = Drift(move1, 0),
+            ReBaseline2 = Drift(new TiltGradient(0, 0, 0), 0),
+            Screw2 = Drift(move2, 0),
+            ImageWidthPixels = ImgW, ImageHeightPixels = ImgH,
+            PixelSizeMicrons = PixelSize, FocuserStepMicrons = FStep,
+            ScrewRadiusMillimeters = RadiusMm, CalibrationAppliedAmount = 1.0,
+            IsStepperAdjustment = false,
+        };
+        var clean = TiltCalibrationCalculator.Calibrate(cleanInputs);
+        var driftedResult = TiltCalibrationCalculator.Calibrate(drifted);
+        Assert.Multiple(() => {
+            // Screw 1's move is bracketed by ReBaseline1/ReBaseline2, so its recovered direction is drift-immune.
+            Assert.That(driftedResult.Screw1DirectionDegrees, Is.EqualTo(clean.Screw1DirectionDegrees).Within(1e-9));
+            // Screw 2 has no measured final re-baseline (HasFinalRebaseline defaults false), so it keeps the old
+            // ReBaseline2-only reference and is NOT drift-immune -- this is an intentional lock on that asymmetry,
+            // not a caveat: it fails if a future change accidentally gives Screw2Delta symmetric behavior before
+            // Task 6 wires HasFinalRebaseline. The measured direction shift here is ~7.57 degrees (82.43 vs
+            // 90.00), comfortably beyond any floating-point tolerance.
+            Assert.That(driftedResult.Screw2DirectionDegrees, Is.Not.EqualTo(clean.Screw2DirectionDegrees).Within(1e-6));
+        });
+    }
+
+    [Test]
+    public void Calibrate_WithFinalRebaseline_Screw2DeltaIsDriftImmune() {
+        // Mirror of Calibrate_LinearTiltDrift_CancelsExactlyForScrew1 above, but with the optional measured
+        // final re-baseline (g) present: Screw2's move E is now bracketed by ReBaseline2 (4 intervals in) and
+        // ReBaseline3 (6 intervals in), with Screw2 at 5 intervals -- Screw2 - mid(RB2, RB3) recovers E
+        // exactly, drift-immune, the same way Screw1Delta already made screw 1's move drift-immune.
+        var (vA, vB) = (9.0, -5.0);
+        var move1 = SingleScrewReading(0, 400.0, 4);      // D
+        var move2 = SingleScrewReading(90, 400.0, 4);     // E
+        TiltGradient Drift(TiltGradient g, int k) => new TiltGradient(g.A + k * vA, g.B + k * vB, g.MeanFocuserPosition);
+
+        var drifted = new TiltCalibrationInputs {
+            ScrewCount = 4,
+            Baseline = Drift(new TiltGradient(0, 0, 0), 0),
+            AllInward = Drift(new TiltGradient(0, 0, 100), 1),
+            ReBaseline1 = Drift(new TiltGradient(0, 0, 0), 2),
+            Screw1 = Drift(move1, 3),
+            ReBaseline2 = Drift(new TiltGradient(0, 0, 0), 4),
+            Screw2 = Drift(move2, 5),
+            ReBaseline3 = Drift(new TiltGradient(0, 0, 0), 6),
+            HasFinalRebaseline = true,
+            ImageWidthPixels = ImgW, ImageHeightPixels = ImgH,
+            PixelSizeMicrons = PixelSize, FocuserStepMicrons = FStep,
+            ScrewRadiusMillimeters = RadiusMm, CalibrationAppliedAmount = 1.0,
+            IsStepperAdjustment = false,
+        };
+        // Same shape, but with zero drift applied at every step (k=0 everywhere) -- the drift-free reference.
+        var cleanInputs = new TiltCalibrationInputs {
+            ScrewCount = 4,
+            Baseline = Drift(new TiltGradient(0, 0, 0), 0),
+            AllInward = Drift(new TiltGradient(0, 0, 100), 0),
+            ReBaseline1 = Drift(new TiltGradient(0, 0, 0), 0),
+            Screw1 = Drift(move1, 0),
+            ReBaseline2 = Drift(new TiltGradient(0, 0, 0), 0),
+            Screw2 = Drift(move2, 0),
+            ReBaseline3 = Drift(new TiltGradient(0, 0, 0), 0),
+            HasFinalRebaseline = true,
+            ImageWidthPixels = ImgW, ImageHeightPixels = ImgH,
+            PixelSizeMicrons = PixelSize, FocuserStepMicrons = FStep,
+            ScrewRadiusMillimeters = RadiusMm, CalibrationAppliedAmount = 1.0,
+            IsStepperAdjustment = false,
+        };
+        var clean = TiltCalibrationCalculator.Calibrate(cleanInputs);
+        var driftedResult = TiltCalibrationCalculator.Calibrate(drifted);
+        Assert.Multiple(() => {
+            // Screw 1's move is unaffected by this change -- still bracketed by ReBaseline1/ReBaseline2, still drift-immune.
+            Assert.That(driftedResult.Screw1DirectionDegrees, Is.EqualTo(clean.Screw1DirectionDegrees).Within(1e-9));
+            // Screw 2 NOW has a measured final re-baseline (HasFinalRebaseline = true), so it gets the same
+            // symmetric bracketing as screw 1 and is drift-immune too -- this is the opposite assertion from
+            // the un-bracketed test above, and fails if HasFinalRebaseline stops being wired through.
+            Assert.That(driftedResult.Screw2DirectionDegrees, Is.EqualTo(clean.Screw2DirectionDegrees).Within(1e-9));
         });
     }
 
@@ -329,8 +462,14 @@ public class TiltCalibrationCalculatorTests {
     [Test]
     public void ComputeConfidence_CleanMeasurement_HighSnrAndReliable() {
         // Baselines all identical (zero noise probes) and two clean equal screw moves -> infinite SNR, reliable.
+        // Deliberately isotropic unit geometry (1x1 sensor, 1 µm pixel, 1 µm focuser step): PhysicalDelta's
+        // gx = A*fStep/(W*pixelSize) = A*1/(1*1) = A (and same for B/gy), so this is byte-identical to raw
+        // (A,B) units — this pure noise-model algebra test is unaffected by the physical-gradient-space
+        // conversion (F2 fix). PhysicalDelta itself has no geometry fallback (see its doc comment): real
+        // geometry is a precondition everywhere, including here.
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
+            ImageWidthPixels = 1, ImageHeightPixels = 1, PixelSizeMicrons = 1, FocuserStepMicrons = 1,
             Baseline = new TiltGradient(0, 0, 1000),
             AllInward = new TiltGradient(0, 0, 1075),   // piston only: no tilt change vs baseline
             ReBaseline1 = new TiltGradient(0, 0, 1000),
@@ -351,8 +490,11 @@ public class TiltCalibrationCalculatorTests {
     [Test]
     public void ComputeConfidence_NoiseRivalsSignal_FlaggedUnreliable() {
         // A large all-inward tilt residual (a pure piston should give ~0) drives the noise floor near the signal.
+        // Deliberately isotropic unit geometry (see ComputeConfidence_CleanMeasurement_HighSnrAndReliable) so
+        // PhysicalDelta is byte-identical to the raw (A,B) delta.
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
+            ImageWidthPixels = 1, ImageHeightPixels = 1, PixelSizeMicrons = 1, FocuserStepMicrons = 1,
             Baseline = new TiltGradient(0, 0, 1000),
             AllInward = new TiltGradient(20, 0, 1075),  // 20-unit spurious tilt change on a piston move
             ReBaseline1 = new TiltGradient(0, 0, 1000),
@@ -373,8 +515,12 @@ public class TiltCalibrationCalculatorTests {
     public void ComputeConfidence_RealAstrodet6Run_IsNoiseDominated() {
         // Regression lock on the real astrodet_6 calibration (D:\Tilt Calibration Bank\astrodet_6\...115023):
         // the per-step tilt vectors give SNR ~0.81 and ~51° predicted screw-direction error -> not reliable.
+        // Geometry: the astrodet rig's real camera/focuser (ASI2600 6248x4176 @ 3.76 µm, 3.6 µm focuser step —
+        // see docs/tilt-calibration-error-bounds-design.md's astrodet_6_2 companion run and the same values used
+        // elsewhere in this fixture for this rig family).
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
+            ImageWidthPixels = 6248, ImageHeightPixels = 4176, PixelSizeMicrons = 3.76, FocuserStepMicrons = 3.6,
             Baseline = new TiltGradient(-2.1105835080420547, 24.121199286798387, 591.0128980765176),
             AllInward = new TiltGradient(8.482652443992663, 6.478563541214388, 498.59261745105937),
             ReBaseline1 = new TiltGradient(3.575182052031437, 6.397250940705116, 599.5753346049264),
@@ -384,10 +530,19 @@ public class TiltCalibrationCalculatorTests {
         };
         var c = TiltCalibrationCalculator.ComputeConfidence(inputs);
         Assert.Multiple(() => {
-            Assert.That(c.ScrewMoveSignal, Is.EqualTo(13.91).Within(0.05));
-            Assert.That(c.NoiseEstimate, Is.EqualTo(17.10).Within(0.05));
-            Assert.That(c.SignalToNoise, Is.EqualTo(0.81).Within(0.02));
-            Assert.That(c.PredictedAngleUncertaintyDeg, Is.EqualTo(50.9).Within(0.5));
+            // physical-space values (F2 fix): the old (A,B)-space pins (13.91 / 17.10 / 0.81 / 50.9°) were
+            // computed on an implicitly-unit sensor; the real 6248x4176 anisotropy shifts SNR from 0.81 to
+            // ~0.71 and the angle uncertainty from 50.9° to ~54.5° — still solidly noise-dominated/unreliable.
+            // Drift-cancelling screw-1 reference (F3, this test): ScrewMoveSignal is the mean of the two
+            // single-screw move magnitudes, and screw 1's move is now referenced to mid(ReBaseline1,
+            // ReBaseline2) instead of ReBaseline1 alone; since RB1 != RB2 in this real run, the signal (and
+            // everything derived from it) shifts from 0.0026615 -> ~0.0032226. NoiseEstimate is untouched (the
+            // noise probes -- all-inward residual and both re-baseline drifts -- don't involve the screw-move
+            // reference). Still solidly noise-dominated/unreliable either way.
+            Assert.That(c.ScrewMoveSignal, Is.EqualTo(0.0032226).Within(0.00005));
+            Assert.That(c.NoiseEstimate, Is.EqualTo(0.0037296).Within(0.00005));
+            Assert.That(c.SignalToNoise, Is.EqualTo(0.8641).Within(0.01));
+            Assert.That(c.PredictedAngleUncertaintyDeg, Is.EqualTo(49.17).Within(0.5));
             Assert.That(c.IsReliable, Is.False);
         });
     }
@@ -450,6 +605,9 @@ public class TiltCalibrationCalculatorTests {
         var drifted = new TiltGradient(0.01, 0, 1000); // ReBaseline2 drifts by 0.01 from ReBaseline1
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
+            // Deliberately isotropic unit geometry (see ComputeConfidence_CleanMeasurement_HighSnrAndReliable)
+            // so PhysicalDelta is byte-identical to the raw (A,B) delta.
+            ImageWidthPixels = 1, ImageHeightPixels = 1, PixelSizeMicrons = 1, FocuserStepMicrons = 1,
             HasCurvatureMeasurement = false,
             ReBaseline1 = baseline,
             Screw1 = new TiltGradient(0.10, 0, 1000),
@@ -458,14 +616,347 @@ public class TiltCalibrationCalculatorTests {
         };
         var confidence = TiltCalibrationCalculator.ComputeConfidence(inputs);
         Assert.Multiple(() => {
-            // signal = mean(|0.10|, |0.10|) = 0.10; noise = |ReBaseline2 - ReBaseline1| = 0.01
-            Assert.That(confidence.ScrewMoveSignal, Is.EqualTo(0.10).Within(1e-9));
+            // Screw 1's move is referenced to mid(ReBaseline1, ReBaseline2) = mid((0,0), (0.01,0)) = (0.005,0):
+            // |Screw1 - mid| = |(0.095,0)| = 0.095. Screw 2 has no HasFinalRebaseline, so it's still referenced
+            // to ReBaseline2 alone: |Screw2 - ReBaseline2| = |(0,0.10)| = 0.10. signal = mean(0.095, 0.10) =
+            // 0.0975; noise = |ReBaseline2 - ReBaseline1| = 0.01 (unaffected -- it's a noise probe, not a
+            // screw-move delta).
+            Assert.That(confidence.ScrewMoveSignal, Is.EqualTo(0.0975).Within(1e-9));
             Assert.That(confidence.NoiseEstimate, Is.EqualTo(0.01).Within(1e-9));
-            Assert.That(confidence.SignalToNoise, Is.EqualTo(10.0).Within(1e-9));
+            Assert.That(confidence.SignalToNoise, Is.EqualTo(9.75).Within(1e-9));
             Assert.That(confidence.AllInwardTiltResidual, Is.NaN);
             Assert.That(confidence.Rebaseline1Drift, Is.NaN);
             Assert.That(confidence.Rebaseline2Drift, Is.EqualTo(0.01).Within(1e-9));
+            // No measured final re-baseline (HasFinalRebaseline defaults false): the new Task-6 probe stays
+            // at its NaN default rather than silently contributing a spurious 0 to the RMS above.
+            Assert.That(confidence.Rebaseline3Drift, Is.NaN);
             Assert.That(confidence.IsReliable, Is.True);
+        });
+    }
+
+    [Test]
+    public void ComputeConfidence_WithFinalRebaseline_AddsFourthProbeToRms() {
+        // Mirror of ComputeConfidence_NoiseRivalsSignal_FlaggedUnreliable above, but with the optional
+        // measured final re-baseline present too: NoiseEstimate becomes RMS-of-4 (allInward, drift1=0,
+        // drift2=0, drift3) instead of RMS-of-3, and Rebaseline3Drift is populated instead of NaN.
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 3,
+            ImageWidthPixels = 1, ImageHeightPixels = 1, PixelSizeMicrons = 1, FocuserStepMicrons = 1,
+            Baseline = new TiltGradient(0, 0, 1000),
+            AllInward = new TiltGradient(20, 0, 1075),  // 20-unit spurious tilt change on a piston move
+            ReBaseline1 = new TiltGradient(0, 0, 1000),
+            Screw1 = new TiltGradient(10, 0, 1000),
+            ReBaseline2 = new TiltGradient(0, 0, 1000),
+            Screw2 = new TiltGradient(0, 10, 1000),
+            ReBaseline3 = new TiltGradient(0, 20, 1000), // 20-unit drift from ReBaseline2
+            HasFinalRebaseline = true,
+        };
+        var c = TiltCalibrationCalculator.ComputeConfidence(inputs);
+        Assert.Multiple(() => {
+            Assert.That(c.AllInwardTiltResidual, Is.EqualTo(20).Within(1e-9));
+            Assert.That(c.Rebaseline1Drift, Is.EqualTo(0).Within(1e-9));
+            Assert.That(c.Rebaseline2Drift, Is.EqualTo(0).Within(1e-9));
+            Assert.That(c.Rebaseline3Drift, Is.EqualTo(20).Within(1e-9));
+            Assert.That(c.NoiseEstimate, Is.EqualTo(Math.Sqrt((400.0 + 0.0 + 0.0 + 400.0) / 4.0)).Within(1e-9));
+        });
+    }
+
+    [Test]
+    public void ComputeConfidence_WithoutCurvatureButWithFinalRebaseline_AveragesBothRebaselineDrifts() {
+        // Mirror of ComputeConfidence_WithoutCurvatureMeasurement_UsesOnlyRebaseline2Drift above, but with
+        // the optional measured final re-baseline present too: the 4-step flow's single-probe noise estimate
+        // (drift2 alone) becomes an RMS-of-2 (drift2, drift3).
+        var baseline = new TiltGradient(0, 0, 1000);
+        var drifted = new TiltGradient(0.01, 0, 1000);           // ReBaseline2 drifts by 0.01 from ReBaseline1
+        var driftedAgain = new TiltGradient(0.01, 0.02, 1000);   // ReBaseline3 drifts a further 0.02 from ReBaseline2
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 3,
+            ImageWidthPixels = 1, ImageHeightPixels = 1, PixelSizeMicrons = 1, FocuserStepMicrons = 1,
+            HasCurvatureMeasurement = false,
+            ReBaseline1 = baseline,
+            Screw1 = new TiltGradient(0.10, 0, 1000),
+            ReBaseline2 = drifted,
+            Screw2 = new TiltGradient(0.01, 0.10, 1000),
+            ReBaseline3 = driftedAgain,
+            HasFinalRebaseline = true,
+        };
+        var confidence = TiltCalibrationCalculator.ComputeConfidence(inputs);
+        Assert.Multiple(() => {
+            Assert.That(confidence.Rebaseline2Drift, Is.EqualTo(0.01).Within(1e-9));
+            Assert.That(confidence.Rebaseline3Drift, Is.EqualTo(0.02).Within(1e-9));
+            Assert.That(confidence.NoiseEstimate, Is.EqualTo(Math.Sqrt((0.01 * 0.01 + 0.02 * 0.02) / 2.0)).Within(1e-9));
+            Assert.That(confidence.AllInwardTiltResidual, Is.NaN);
+            Assert.That(confidence.Rebaseline1Drift, Is.NaN);
+        });
+    }
+
+    [Test]
+    public void PistonImpliedMicronsPerStep_DriftCorrectedFromBracketingBaselines() {
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 4, HasCurvatureMeasurement = true,
+            Baseline = new TiltGradient(0, 0, 11283.868653107538),
+            AllInward = new TiltGradient(0, 0, 9995.476157148303),
+            ReBaseline1 = new TiltGradient(0, 0, 11197.706101225354),
+            FocuserStepMicrons = 0.269, CalibrationAppliedAmount = 150.0,
+            ImageWidthPixels = 9576, ImageHeightPixels = 6388, PixelSizeMicrons = 3.76,
+            ScrewRadiusMillimeters = 55.0,
+        };
+        Assert.That(TiltCalibrationCalculator.PistonImpliedMicronsPerStep(inputs),
+            Is.EqualTo(2.233258).Within(1e-5));
+    }
+
+    [Test]
+    public void PistonImpliedMicronsPerStep_NaNWithoutCurvatureSteps() {
+        var inputs = new TiltCalibrationInputs { HasCurvatureMeasurement = false,
+            FocuserStepMicrons = 0.269, CalibrationAppliedAmount = 150.0 };
+        Assert.That(TiltCalibrationCalculator.PistonImpliedMicronsPerStep(inputs), Is.NaN);
+    }
+
+    // Mirrors RecoverHardwareMicrons_ReturnsNaN_OnNonPositiveInputs' TestCase shape for this method's other
+    // two guard branches (CalibrationAppliedAmount and FocuserStepMicrons); HasCurvatureMeasurement's guard
+    // is already covered above.
+    [TestCase(0.0, 0.269)]     // CalibrationAppliedAmount <= 0
+    [TestCase(-150.0, 0.269)]
+    [TestCase(150.0, 0.0)]     // FocuserStepMicrons <= 0
+    [TestCase(150.0, -0.269)]
+    public void PistonImpliedMicronsPerStep_NaN_OnNonPositiveApplicationOrStepSize(
+        double calibrationAppliedAmount, double focuserStepMicrons) {
+        var inputs = new TiltCalibrationInputs {
+            HasCurvatureMeasurement = true,
+            Baseline = new TiltGradient(0, 0, 11283.868653107538),
+            AllInward = new TiltGradient(0, 0, 9995.476157148303),
+            ReBaseline1 = new TiltGradient(0, 0, 11197.706101225354),
+            FocuserStepMicrons = focuserStepMicrons, CalibrationAppliedAmount = calibrationAppliedAmount,
+        };
+        Assert.That(TiltCalibrationCalculator.PistonImpliedMicronsPerStep(inputs), Is.NaN);
+    }
+
+    // --- Synthetic full-wizard round trip: a known adapter (explicit pitch + radius) is pushed through the
+    // wizard's ACTUAL move sequence and Calibrate must recover the pitch exactly, and the tilt-derived and
+    // piston-implied pitches must agree exactly. The forward model here is deliberately NOT the calculator's
+    // lever-arm shortcut: each state is synthesized from per-corner plate heights (what the hardware
+    // physically does) and the definitional least-squares plane over the screw contact points,
+    // G = (2/(n·R²))·Σ hᵢ·pᵢ. For the 4-screw wizard move that plane is exact (it interpolates all four
+    // corners), so any constant-factor error in the recovery chain — e.g. treating the coupled ±d diagonal
+    // rock as a single-screw move (lever 2R instead of R), or vice versa for the 3-screw single-screw move
+    // (1.5R) — fails these tests by exactly that factor. Geometry is the real ghilios_corrected rig
+    // (9576x6388 @ 3.76 µm, 0.269 µm focuser step, R = 55 mm, 150 steps of a 1.8 µm/step stepper), so the
+    // numbers are directly comparable to that run's 1.84 (tilt) vs 2.23 (piston) discrepancy: the round
+    // trip proves the math introduces no such gap on its own.
+    private const double RunPixelSize = 3.76;
+    private const int RunImgW = 9576;
+    private const int RunImgH = 6388;
+    private const double RunFStep = 0.269;
+    private const double RunRadiusMm = 55.0;
+    private const double RunRadiusMicrons = RunRadiusMm * 1000.0;
+    private const double RunPitch = 1.8;      // µm per stepper step (the adapter spec)
+    private const double RunApplied = 150.0;  // steps per wizard calibration move
+
+    // Least-squares plane over the n screw contact points for the given per-corner axial plate heights
+    // (microns), returned as a TiltGradient (A, B in focuser steps per normalized coordinate) on top of a
+    // baseline gradient. The mean focuser position shifts by the piston component -h̄/fStep (all-screws-in
+    // lowers the mean on this rig, matching the real run's sign; PistonImplied takes |Δ| so only the
+    // magnitude matters).
+    private static TiltGradient StateFromCornerHeights(
+        TiltGradient baseline, double[] cornerHeightsMicrons, double[] cornerAnglesDeg, double baselineMeanSteps) {
+        int n = cornerAnglesDeg.Length;
+        double gx = 0, gy = 0, hBar = 0;
+        for (int i = 0; i < n; i++) {
+            var (px, py) = TiltScrewGeometry.ScrewPositionMicrons(cornerAnglesDeg[i], RunRadiusMicrons);
+            gx += 2.0 / (n * RunRadiusMicrons * RunRadiusMicrons) * cornerHeightsMicrons[i] * px;
+            gy += 2.0 / (n * RunRadiusMicrons * RunRadiusMicrons) * cornerHeightsMicrons[i] * py;
+            hBar += cornerHeightsMicrons[i] / n;
+        }
+        double a = gx * (RunImgW * RunPixelSize) / RunFStep;
+        double b = gy * (RunImgH * RunPixelSize) / RunFStep;
+        return new TiltGradient(baseline.A + a, baseline.B + b, baselineMeanSteps - hBar / RunFStep);
+    }
+
+    [TestCase(4)]
+    [TestCase(3)]
+    public void Calibrate_SyntheticWizardSequence_RoundTripsPitchExactly_TiltAgreesWithPiston(int screwCount) {
+        double d = RunApplied * RunPitch; // physical plate travel per moved corner, µm
+        double theta1 = 210.0;
+        double thetaStep = screwCount == 4 ? -90.0 : -120.0; // CCW winding, like the real run
+        var angles = new double[screwCount];
+        for (int i = 0; i < screwCount; i++) {
+            angles[i] = TiltCalibrationCalculator.NormalizeAngle(theta1 + i * thetaStep);
+        }
+        double theta2 = angles[1];
+
+        // The wizard's actual per-corner move pattern (EatWizardMapping for 4 screws): Screw1 is the coupled
+        // DiagonalA rock (+d at screw 1, -d at the opposite screw 3), Screw2 the DiagonalB rock. The 3-screw
+        // wizard turns a single screw with the others untouched.
+        double[] Heights(int movedIndex) {
+            var h = new double[screwCount];
+            h[movedIndex] = d;
+            if (screwCount == 4) {
+                h[(movedIndex + 2) % 4] = -d;
+            }
+            return h;
+        }
+        double[] allIn = new double[screwCount];
+        for (int i = 0; i < screwCount; i++) { allIn[i] = d; }
+
+        var baselineG = new TiltGradient(-30.0, -50.0, 0); // arbitrary non-zero starting tilt
+        const double baselineMean = 11280.0;
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = screwCount,
+            Baseline = new TiltGradient(baselineG.A, baselineG.B, baselineMean),
+            AllInward = StateFromCornerHeights(baselineG, allIn, angles, baselineMean),
+            ReBaseline1 = new TiltGradient(baselineG.A, baselineG.B, baselineMean),
+            Screw1 = StateFromCornerHeights(baselineG, Heights(0), angles, baselineMean),
+            ReBaseline2 = new TiltGradient(baselineG.A, baselineG.B, baselineMean),
+            Screw2 = StateFromCornerHeights(baselineG, Heights(1), angles, baselineMean),
+            ImageWidthPixels = RunImgW,
+            ImageHeightPixels = RunImgH,
+            PixelSizeMicrons = RunPixelSize,
+            FocuserStepMicrons = RunFStep,
+            ScrewRadiusMillimeters = RunRadiusMm,
+            CalibrationAppliedAmount = RunApplied,
+            IsStepperAdjustment = true
+        };
+
+        var r = TiltCalibrationCalculator.Calibrate(inputs);
+        var (_, screw1Pitch, screw2Pitch) = TiltCalibrationCalculator.RecoverHardwareDetailed(inputs);
+        Assert.Multiple(() => {
+            // The decisive assertions: the tilt path must return the pitch that produced the planes — no
+            // hidden constant factor from the gradient -> per-screw-displacement conversion — and it must
+            // equal the radius-free piston-implied pitch exactly. EACH screw's own recovered pitch is
+            // asserted, not just the mean: averaging is exactly what hid the ghilios_corrected run's bad
+            // screw-2 measurement behind a plausible-looking 1.84 (see PitchUncertaintyMicrons's doc).
+            Assert.That(screw1Pitch, Is.EqualTo(RunPitch).Within(1e-9));
+            Assert.That(screw2Pitch, Is.EqualTo(RunPitch).Within(1e-9));
+            Assert.That(r.MeasuredHardwareMicrons, Is.EqualTo(RunPitch).Within(1e-9));
+            Assert.That(r.PistonImpliedMicronsPerStep, Is.EqualTo(RunPitch).Within(1e-9));
+            Assert.That(r.PistonImpliedMicronsPerStep / r.MeasuredHardwareMicrons, Is.EqualTo(1.0).Within(1e-9));
+            Assert.That(r.PitchUncertaintyMicrons, Is.EqualTo(0).Within(1e-9));
+            Assert.That(r.MoveMagnitudeRatio, Is.EqualTo(1.0).Within(1e-9));
+            // Geometry sanity: the same synthetic run recovers the screw layout it was built from.
+            Assert.That(r.Screw1AngleDegrees, Is.EqualTo(theta1).Within(1e-6));
+            Assert.That(r.Screw2AngleDegrees, Is.EqualTo(theta2).Within(1e-6));
+            Assert.That(r.Screw1DirectionDegrees, Is.EqualTo(theta1).Within(1e-6));
+            // All-screws-inward lowered the mean best-focus position -> σ = +1.
+            Assert.That(r.CurvatureSign, Is.EqualTo(1));
+        });
+    }
+
+    // --- ghilios_corrected (2026-08-04): the run behind docs/tilt-calibration-pitch-nonlinearity-design.md.
+    // Same six measurement states fed through both estimators the wizard computes; every literal is taken
+    // from the run's own stored data (per-star paraboloid replay diagnostics; the wizard's live per-region
+    // AF reports for the corner planes; corner-plane A,B regressed against the true region centers at
+    // normalized ±1/3, mean = the 4-corner vertex average).
+    private static TiltCalibrationInputs GhiliosCorrectedInputs(
+        (double a, double b, double mean) baseline, (double a, double b, double mean) allInward,
+        (double a, double b, double mean) reBaseline1, (double a, double b, double mean) screw1,
+        (double a, double b, double mean) reBaseline2, (double a, double b, double mean) screw2) {
+        return new TiltCalibrationInputs {
+            ScrewCount = 4, HasCurvatureMeasurement = true, IsStepperAdjustment = true,
+            Baseline = new TiltGradient(baseline.a, baseline.b, baseline.mean),
+            AllInward = new TiltGradient(allInward.a, allInward.b, allInward.mean),
+            ReBaseline1 = new TiltGradient(reBaseline1.a, reBaseline1.b, reBaseline1.mean),
+            Screw1 = new TiltGradient(screw1.a, screw1.b, screw1.mean),
+            ReBaseline2 = new TiltGradient(reBaseline2.a, reBaseline2.b, reBaseline2.mean),
+            Screw2 = new TiltGradient(screw2.a, screw2.b, screw2.mean),
+            ImageWidthPixels = 9576, ImageHeightPixels = 6388, PixelSizeMicrons = 3.76,
+            FocuserStepMicrons = 0.269, ScrewRadiusMillimeters = 55.0,
+            CalibrationAppliedAmount = 150.0,
+        };
+    }
+
+    [Test]
+    public void Calibrate_GhiliosCorrectedRun_PistonCheckFiresOnParaboloidPairNotOnSameRadiusCornerPair() {
+        // The run's 21% piston-vs-tilt disagreement is NOT a field-radius systematic. Evaluating BOTH
+        // sides of the check from the same estimator family shows it: the corner-region pairing puts the
+        // piston (mean of the 4 corner vertices, field radius 14.43 mm) at exactly the same field radius
+        // as the corner tilt gradient, and that honestly field-matched pairing disagrees by only ~13.7%
+        // — under the 20% warning threshold. The paraboloid pairing disagrees by ~21.3% because the
+        // per-star tilt estimate is shrunk (the §8 vertex compression, Screw2 move ratio 1.53), which is
+        // exactly the failure the piston check exists to catch. Field-dependence of the focuser-to-plate
+        // frame factor moves the piston by only ~3.5% across the whole sensor (region AF: 2.343 at the
+        // centre vs 2.265 at the corner radius), so it cannot produce a 20%+ firing on its own.
+        var paraboloid = GhiliosCorrectedInputs(
+            baseline: (-32.7502, -53.2693, 11283.5669), allInward: (-105.6764, -61.0356, 9995.4060),
+            reBaseline1: (71.8955, -27.7348, 11197.8029), screw1: (-514.0233, 364.2764, 11157.2839),
+            reBaseline2: (-11.6299, -49.3158, 11137.9751), screw2: (391.7824, 181.4274, 11073.4907));
+        var corner = GhiliosCorrectedInputs(
+            baseline: (-12.3755, -55.6319, 11213.4757), allInward: (-63.3028, 4.7892, 9931.0006),
+            reBaseline1: (27.8136, -38.8674, 11174.7386), screw1: (-516.8488, 344.1753, 11089.9786),
+            reBaseline2: (-51.2544, -82.8465, 11072.6428), screw2: (454.2507, 205.6455, 11031.1524));
+
+        var parabolidResult = TiltCalibrationCalculator.Calibrate(paraboloid);
+        var cornerResult = TiltCalibrationCalculator.Calibrate(corner);
+        Assert.Multiple(() => {
+            // Paraboloid pairing: tilt-derived 1.841 vs piston-implied 2.233 -> 21.3% > 20% (fires).
+            Assert.That(parabolidResult.MeasuredHardwareMicrons, Is.EqualTo(1.8412).Within(1e-3));
+            Assert.That(parabolidResult.PistonImpliedMicronsPerStep, Is.EqualTo(2.2332).Within(1e-3));
+            double parabolidRelDiff = Math.Abs(parabolidResult.PistonImpliedMicronsPerStep - parabolidResult.MeasuredHardwareMicrons)
+                / parabolidResult.MeasuredHardwareMicrons;
+            Assert.That(parabolidRelDiff, Is.EqualTo(0.2129).Within(1e-3));
+            Assert.That(parabolidRelDiff, Is.GreaterThan(0.20));
+            // Same-radius corner pairing: tilt-derived 1.993 vs piston-implied 2.265 -> 13.7% < 20%.
+            Assert.That(cornerResult.MeasuredHardwareMicrons, Is.EqualTo(1.9930).Within(1e-3));
+            Assert.That(cornerResult.PistonImpliedMicronsPerStep, Is.EqualTo(2.2652).Within(1e-3));
+            double cornerRelDiff = Math.Abs(cornerResult.PistonImpliedMicronsPerStep - cornerResult.MeasuredHardwareMicrons)
+                / cornerResult.MeasuredHardwareMicrons;
+            Assert.That(cornerRelDiff, Is.EqualTo(0.1366).Within(1e-3));
+            Assert.That(cornerRelDiff, Is.LessThan(0.20));
+            // The paraboloid's Screw2 shrinkage is what separates the two pairings: its move ratio is 1.53
+            // (would fire the 1.5x unequal-turns warning) while the corner estimator reads 1.19.
+            Assert.That(parabolidResult.MoveMagnitudeRatio, Is.EqualTo(1.5296).Within(1e-3));
+            Assert.That(cornerResult.MoveMagnitudeRatio, Is.EqualTo(1.1872).Within(1e-3));
+        });
+    }
+
+    [Test]
+    public void RecoverHardware_LinearTiltDrift_ShortensScrew2PitchUntilFinalRebaseline() {
+        // Magnitude-space complement of Calibrate_LinearTiltDrift_CancelsExactlyForScrew1 (which pins the
+        // recovered DIRECTIONS): under a constant per-interval tilt drift v, screw 1's bracketed reference
+        // cancels the drift in its recovered per-screw pitch exactly, while screw 2's one-sided ReBaseline2
+        // reference leaves exactly one interval of drift (+v) inside its delta. With v anti-parallel to
+        // screw 2's move, its recovered pitch is short by exactly |v|'s share; a measured final re-baseline
+        // (ReBaseline3) restores the symmetric bracket and the exact pitch. This is the mechanism that made
+        // the ghilios_corrected run's screw-2 move read ~8% small on BOTH estimators (drift RB1->RB2 was
+        // ~16% of the screw-2 move, roughly anti-parallel to it), on top of the paraboloid-only shrinkage.
+        const double axial = 270.0;   // 150 steps x 1.8 um/step, per screw of the push-pull pair
+        const double applied = 150.0;
+        const double driftFraction = 0.08;
+
+        // Four-screw push-pull calibration move = single-screw reading doubled (opposite screw moves -d at
+        // p(theta+180) = -p, contributing the same gradient change).
+        TiltGradient FourScrewMove(double angleDeg, double mean = 0.0) {
+            var single = SingleScrewReading(angleDeg, axial, 4, mean);
+            return new TiltGradient(2 * single.A, 2 * single.B, mean);
+        }
+        var move2 = FourScrewMove(90);
+        double vA = -driftFraction * move2.A, vB = -driftFraction * move2.B;
+        TiltGradient Drift(TiltGradient g, int k) => new TiltGradient(g.A + k * vA, g.B + k * vB, g.MeanFocuserPosition);
+
+        TiltCalibrationInputs Build(bool withFinalRebaseline) => new TiltCalibrationInputs {
+            ScrewCount = 4,
+            Baseline = Drift(new TiltGradient(0, 0, 0), 0),
+            AllInward = Drift(new TiltGradient(0, 0, 100), 1),
+            ReBaseline1 = Drift(new TiltGradient(0, 0, 0), 2),
+            Screw1 = Drift(FourScrewMove(0), 3),
+            ReBaseline2 = Drift(new TiltGradient(0, 0, 0), 4),
+            Screw2 = Drift(move2, 5),
+            ReBaseline3 = withFinalRebaseline ? Drift(new TiltGradient(0, 0, 0), 6) : default,
+            HasFinalRebaseline = withFinalRebaseline,
+            ImageWidthPixels = ImgW, ImageHeightPixels = ImgH, PixelSizeMicrons = PixelSize,
+            FocuserStepMicrons = FStep, ScrewRadiusMillimeters = RadiusMm,
+            CalibrationAppliedAmount = applied, IsStepperAdjustment = true,
+        };
+
+        var (_, oneSided1, oneSided2) = TiltCalibrationCalculator.RecoverHardwareDetailed(Build(withFinalRebaseline: false));
+        var (_, bracketed1, bracketed2) = TiltCalibrationCalculator.RecoverHardwareDetailed(Build(withFinalRebaseline: true));
+        Assert.Multiple(() => {
+            // Screw 1 is drift-immune either way (mid(RB1, RB2) bracket).
+            Assert.That(oneSided1, Is.EqualTo(axial / applied).Within(1e-9));
+            Assert.That(bracketed1, Is.EqualTo(axial / applied).Within(1e-9));
+            // Screw 2 without RB3: exactly one drift interval anti-parallel to the move -> pitch short by 8%.
+            Assert.That(oneSided2, Is.EqualTo((1 - driftFraction) * axial / applied).Within(1e-9));
+            // Screw 2 with RB3: mid(RB2, RB3) bracket cancels the drift exactly, like screw 1.
+            Assert.That(bracketed2, Is.EqualTo(axial / applied).Within(1e-9));
         });
     }
 
