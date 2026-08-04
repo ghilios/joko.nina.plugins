@@ -116,10 +116,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             var topRightFocuser = result.RegionResults[3].EstimatedFinalFocuserPosition;
             var bottomLeftFocuser = result.RegionResults[4].EstimatedFinalFocuserPosition;
             var bottomRightFocuser = result.RegionResults[5].EstimatedFinalFocuserPosition;
+            // The corner-region samples sit at the REGION CENTERS (±1/3 normalized with default ROI), not at the
+            // frame corners. Regress against where the samples actually are, or A/B are attenuated by 2·|center|.
+            var tlBoundary = result.RegionResults[2].Region.OuterBoundary;
+            double cornerXNorm = Math.Abs(tlBoundary.StartX + tlBoundary.Width / 2.0 - 0.5);
+            double cornerYNorm = Math.Abs(tlBoundary.StartY + tlBoundary.Height / 2.0 - 0.5);
             var tiltPlaneModel = Create(
                 imageSize: result.ImageSize, fRatio: fRatio,
                 focuserStepSizeMicrons: focuserStepSizeMicrons, centerFocuser: centerFocuser, topLeftFocuser: topLeftFocuser,
-                topRightFocuser: topRightFocuser, bottomLeftFocuser: bottomLeftFocuser, bottomRightFocuser: bottomRightFocuser);
+                topRightFocuser: topRightFocuser, bottomLeftFocuser: bottomLeftFocuser, bottomRightFocuser: bottomRightFocuser,
+                cornerXNorm: cornerXNorm, cornerYNorm: cornerYNorm);
 
             tiltPlaneModel.Center.RSquared = result.RegionResults[1].Fittings.GetRSquared();
             tiltPlaneModel.TopLeft.RSquared = result.RegionResults[2].Fittings.GetRSquared();
@@ -137,17 +143,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             double topLeftFocuser,
             double topRightFocuser,
             double bottomLeftFocuser,
-            double bottomRightFocuser) {
+            double bottomRightFocuser,
+            double cornerXNorm = 0.5,
+            double cornerYNorm = 0.5) {
             var ols = new OrdinaryLeastSquares() {
                 UseIntercept = true
             };
 
             double[][] inputs =
             {
-                new double[] { -0.5, -0.5 },
-                new double[] { 0.5, -0.5 },
-                new double[] { -0.5, 0.5 },
-                new double[] { 0.5, 0.5 },
+                new double[] { -cornerXNorm, -cornerYNorm },
+                new double[] { cornerXNorm, -cornerYNorm },
+                new double[] { -cornerXNorm, cornerYNorm },
+                new double[] { cornerXNorm, cornerYNorm },
             };
             double[] outputs = { topLeftFocuser, topRightFocuser, bottomLeftFocuser, bottomRightFocuser };
 

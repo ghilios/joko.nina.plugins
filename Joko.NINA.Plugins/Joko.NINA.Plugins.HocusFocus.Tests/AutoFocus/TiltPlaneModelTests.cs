@@ -1,4 +1,5 @@
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NUnit.Framework;
 using System;
 using System.Drawing;
@@ -207,6 +208,45 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                 a: 0, b: 0, c: 1000, mean: 1000, focuserStepSizeMicrons: 5.0,
                 centerPosition: 1000, topLeftPosition: 1000, topRightPosition: 1000,
                 bottomLeftPosition: 1000, bottomRightPosition: 1000));
+        }
+
+        [Test]
+        public void Create_FromAutoFocusResult_UsesActualCornerRegionCenters() {
+            // Plane z = C + A*xn + B*yn over normalized [-0.5, 0.5]; corner regions centered at ±1/3.
+            const double A = 300.0, B = -120.0, C = 11200.0;
+            double At(double xn, double yn) => C + A * xn + B * yn;
+
+            var imageSize = new System.Drawing.Size(9576, 6388);
+            var result = new AutoFocusResult() {
+                Succeeded = true,
+                ImageSize = imageSize,
+                RegionResults = new[] {
+                    RegionResult(0, new RatioRect(0.0, 0.0, 1.0, 1.0), At(0, 0)),
+                    RegionResult(1, new RatioRect(1/3d, 1/3d, 1/3d, 1/3d), At(0, 0)),
+                    RegionResult(2, new RatioRect(0.0, 0.0, 1/3d, 1/3d), At(-1/3d, -1/3d)),   // TL
+                    RegionResult(3, new RatioRect(2/3d, 0.0, 1/3d, 1/3d), At(+1/3d, -1/3d)),  // TR
+                    RegionResult(4, new RatioRect(0.0, 2/3d, 1/3d, 1/3d), At(-1/3d, +1/3d)),  // BL
+                    RegionResult(5, new RatioRect(2/3d, 2/3d, 1/3d, 1/3d), At(+1/3d, +1/3d)), // BR
+                }
+            };
+
+            var model = TiltPlaneModel.Create(result, fRatio: 6.3, focuserStepSizeMicrons: 0.269);
+
+            Assert.Multiple(() => {
+                Assert.That(model.A, Is.EqualTo(A).Within(1e-9));  // old code returns 200.0 (A * 2/3)
+                Assert.That(model.B, Is.EqualTo(B).Within(1e-9));
+                Assert.That(model.C, Is.EqualTo(C).Within(1e-9));
+            });
+        }
+
+        private static AutoFocusRegionResult RegionResult(int index, RatioRect boundary, double focusPosition) {
+            return new AutoFocusRegionResult() {
+                RegionIndex = index,
+                Region = new StarDetectionRegion(boundary),
+                EstimatedFinalFocuserPosition = focusPosition,
+                EstimatedFinalHFR = 2.0,
+                Fittings = new AutoFocusFitting()
+            };
         }
     }
 }
