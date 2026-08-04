@@ -2728,6 +2728,88 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             });
         }
 
+        // --- Corner-region AF cross-check wiring (Task 5) -------------------------------------------------
+
+        // All three tests below share the same clean paraboloid geometry as the piston tests above (Screw1
+        // delta (0,-5e-5), Screw2 delta (5e-5,0) — equal magnitudes, a clean 90° gap, no AllInward/ReBaseline1
+        // step so no piston check contributes either) and the same isotropic 1x1 pseudo-sensor, so the ONLY
+        // thing that varies between them is the corner-region reading — isolating the cross-check from every
+        // other warning the same way the piston tests isolate PistonAgreement.
+        private static void SeedCleanParaboloidReadings(TiltAdapterWizardVM vm,
+            double screw1CornerA, double screw1CornerB, double screw2CornerA, double screw2CornerB) {
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, cornerA: 0.0, cornerB: 0.0, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0, cornerA: screw1CornerA, cornerB: screw1CornerB, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0, cornerA: 0.0, cornerB: 0.0, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, 0.00005, 0.0, 1000.0, cornerA: screw2CornerA, cornerB: screw2CornerB, cornerMean: 1000.0);
+        }
+
+        [Test]
+        public void RunCalibrationForTest_CornerCrossCheckAgreesWithin15Percent_NoNewWarningPart() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+            // Corner deltas are a uniform 10% higher magnitude than the paraboloid's (0,-5.5e-5) / (5.5e-5,0)
+            // vs (0,-5e-5) / (5e-5,0): relative difference |5e-5 - 5.5e-5| / 5.5e-5 = 9.09% -- comfortably
+            // under the 15% threshold without being the trivial (identical-values) case.
+            SeedCleanParaboloidReadings(vm, screw1CornerA: 0.0, screw1CornerB: -0.000055, screw2CornerA: 0.000055, screw2CornerB: 0.0);
+
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasWarning, Is.False);
+                Assert.That(vm.WarningText, Is.Empty);
+                // The cross-check estimate itself is still computed and displayed regardless of whether it
+                // disagrees enough to warn -- the display and the warning are separate signals (locked
+                // decision: flag/display, never silently blend).
+                Assert.That(vm.HasCornerCrossCheck, Is.True);
+                Assert.That(vm.CornerCrossCheckDisplay, Is.EqualTo("Corner-AF cross-check: 2.42 µm/turn"));
+            });
+        }
+
+        [Test]
+        public void RunCalibrationForTest_CornerMagnitudes25PercentHigherThanParaboloid_WarnsAndDisplaysCornerEstimate() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+            // Corner deltas are a uniform 25% higher magnitude than the paraboloid's: (0,-6.25e-5) /
+            // (6.25e-5,0) vs (0,-5e-5) / (5e-5,0) -- relative difference |5e-5 - 6.25e-5| / 6.25e-5 = 20%,
+            // comfortably over the 15% threshold.
+            SeedCleanParaboloidReadings(vm, screw1CornerA: 0.0, screw1CornerB: -0.0000625, screw2CornerA: 0.0000625, screw2CornerB: 0.0);
+
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasWarning, Is.True);
+                Assert.That(vm.WarningText, Does.Contain("the per-star model and the corner-region AF disagree on the screw moves by"));
+                Assert.That(vm.WarningText, Does.Contain("corner-AF estimate: 2.75 µm"));
+                Assert.That(vm.HasCornerCrossCheck, Is.True);
+                Assert.That(vm.CornerCrossCheckDisplay, Is.EqualTo("Corner-AF cross-check: 2.75 µm/turn"));
+            });
+        }
+
+        [Test]
+        public void RunCalibrationForTest_PartialCornerData_SkipsCrossCheckCleanly() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+            // Same 25%-higher corner geometry as the disagreement test above -- WOULD warn if the cross-check
+            // ran -- but Screw1's corner reading is left at its NaN default (never seeded), simulating a step
+            // whose corner regions failed to fit / an older saved run captured before this feature shipped.
+            // A partially-available run must degrade to "no cross-check" cleanly: no NaN-contaminated warning
+            // text, no display, and — critically — no OTHER warning either (proving the missing corner data
+            // doesn't leak NaN into the rest of ValidateCalibrationQuality).
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, cornerA: 0.0, cornerB: 0.0, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0); // corner NaN -- not seeded
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0, cornerA: 0.0, cornerB: 0.0, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, 0.00005, 0.0, 1000.0, cornerA: 0.0000625, cornerB: 0.0, cornerMean: 1000.0);
+
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasWarning, Is.False);
+                Assert.That(vm.WarningText, Is.Empty);
+                Assert.That(vm.HasCornerCrossCheck, Is.False);
+                Assert.That(vm.CornerCrossCheckDisplay, Is.Empty);
+            });
+        }
+
         [Test]
         public void ApplyManualCalibrationCommand_SetsCalibrationIsReliableFalse() {
             // A manual entry has no confidence computation to reuse (no per-step tilt vectors) -- conservative

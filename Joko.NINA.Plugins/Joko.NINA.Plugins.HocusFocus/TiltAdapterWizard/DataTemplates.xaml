@@ -1603,6 +1603,22 @@
                             </TextBlock.Style>
                         </TextBlock>
 
+                        <!--  Self-labeling ("Corner-AF cross-check: ...") row, mirrors the piston row above
+                              (Task 5): the corner-region AF plane's independent estimate of the same
+                              hardware, not a label/value pair.  -->
+                        <TextBlock Margin="0,4,0,0" Text="{Binding CornerCrossCheckDisplay}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasCornerCrossCheck}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+
                         <Button
                             Margin="0,8,0,2"
                             HorizontalAlignment="Left"

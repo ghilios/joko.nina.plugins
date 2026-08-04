@@ -209,6 +209,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private double calibrationScrewRadiusMm;
         private double lastRawAngleDiff = double.NaN;
         private double lastMoveMagnitudeRatio = double.NaN;
+        // Task 5: corner-region AF cross-check of the paraboloid calibration. See RunCalibrationMath.
+        private double cornerMeasuredHardwareMicrons = double.NaN;
+        private double estimatorRelativeDifference = double.NaN;
 
         // Per-run save state (transient; only populated while saving AF runs for the current calibration run).
         private bool saveAFRuns;
@@ -256,6 +259,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             public double CurvatureRadiusMm;
             public double CurvatureEffectAtScrewRadiusMicrons;
             public string SaveFolder;
+
+            // Task 5: the inspector's 4-corner region plane for this same step (honest per-corner estimator
+            // since Task 1), captured alongside the paraboloid reading above for the corner-region AF
+            // cross-check (see RunCalibrationMath). NaN when the corner plane could not be fit for this step
+            // (or any of the averaged sub-measurements that make it up) -- a struct default of 0.0 would look
+            // like a valid zero-tilt corner reading and silently corrupt the cross-check, so every writer of
+            // this struct must set these explicitly rather than relying on the field default.
+            public double CornerA;
+            public double CornerB;
+            public double CornerMean;
         }
 
         [ImportingConstructor]
@@ -1265,6 +1278,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             pistonImpliedMicronsPerStep = double.NaN;
             lastRawAngleDiff = double.NaN;
             lastMoveMagnitudeRatio = double.NaN;
+            cornerMeasuredHardwareMicrons = double.NaN;
+            estimatorRelativeDifference = double.NaN;
         }
 
         public string WizardSweepSummary {
@@ -1338,6 +1353,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // Gates the piston-pitch row's visibility in DataTemplates.xaml (this file uses DataTrigger-driven
         // Visibility throughout, never converters) — true once a 6-step run has measured a piston.
         public bool HasPistonPitch => !double.IsNaN(pistonImpliedMicronsPerStep);
+
+        // Corner-region AF cross-check (Task 5): the adapter hardware recovered from the inspector's 4-corner
+        // region plane instead of the per-star paraboloid, a second independent estimator of the same screw
+        // moves (see RunCalibrationMath). Displayed unconditionally whenever it was computable, regardless of
+        // whether it agrees with the paraboloid reading — the disagreement warning (ValidateCalibrationQuality)
+        // is a separate, additional signal; this row never replaces MeasuredHardwareDisplay above. NaN when
+        // the run didn't capture a corner reading for every active step (see StepReading.CornerA).
+        public string CornerCrossCheckDisplay =>
+            double.IsNaN(cornerMeasuredHardwareMicrons) ? string.Empty
+            : $"Corner-AF cross-check: {cornerMeasuredHardwareMicrons:0.###} µm/{(IsStepperAdjustment ? "step" : "turn")}";
+
+        // Gates the corner-cross-check row's visibility in DataTemplates.xaml, same pattern as HasPistonPitch.
+        public bool HasCornerCrossCheck => !double.IsNaN(cornerMeasuredHardwareMicrons);
 
         // Config-panel bindings. They wrap the persisted options, presenting thread pitch in mm and
         // showing 0 for the unset (-1) sentinel so the textboxes read cleanly.
@@ -2366,6 +2394,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private TiltPlaneModel CalibrationTiltPlane =>
             calibrationTiltPlaneOverrideForTest ?? inspector.SensorModel?.SensorModelResult?.TiltPlaneModel;
 
+        // Task 5: same override pattern as calibrationTiltPlaneOverrideForTest above, but for the inspector's
+        // 4-corner region plane (inspector.TiltModel.TiltPlaneModel) — captured alongside the paraboloid
+        // reading purely as a second, independent cross-check estimator (see RunCalibrationMath); it never
+        // feeds the production calibration itself. Always null in production.
+        private TiltPlaneModel cornerTiltPlaneOverrideForTest;
+        internal TiltPlaneModel CornerTiltPlaneOverrideForTest {
+            get => cornerTiltPlaneOverrideForTest;
+            set => cornerTiltPlaneOverrideForTest = value;
+        }
+
         // Runs the aberration inspector MeasurementAverageCount times, averages the tilt plane, appends summary
         // rows + the consistency warning, and captures the per-step field-curvature characterization. When saving
         // (live only), each step's run is redirected into its own folder and the saved location is recorded.
@@ -2374,6 +2412,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // dialog once per run), so the saved path runs a single pass regardless of the averaging count.
             int count = fromSaved ? 1 : Math.Max(1, tiltAdapterOptions.MeasurementAverageCount);
             var readings = new List<(double A, double B, double Mean)>(count);
+            // Task 5: parallel corner-region-plane readings, averaged the same way as the paraboloid readings
+            // above. NaN entries (the corner plane could not be fit for that sub-measurement) propagate through
+            // Average() into a NaN step average — deliberately: a partially-available corner reading for this
+            // step is not a valid basis for the cross-check, so the whole step degrades to "unavailable"
+            // rather than averaging over a biased subset of the sub-measurements.
+            var cornerReadings = new List<(double A, double B, double Mean)>(count);
 
             // Redirect this step's run into its own folder when saving — for both live capture and the
             // "Use Saved AF" path (re-analyzing a previously captured run still writes a replayable per-step run).
@@ -2423,11 +2467,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     return null;
                 }
                 readings.Add((m.A, m.B, m.MeanFocuserPosition));
+                var corner = cornerTiltPlaneOverrideForTest ?? inspector.TiltModel?.TiltPlaneModel;
+                cornerReadings.Add((corner?.A ?? double.NaN, corner?.B ?? double.NaN, corner?.MeanFocuserPosition ?? double.NaN));
             }
 
             double avgA = readings.Average(r => r.A);
             double avgB = readings.Average(r => r.B);
             double avgMean = readings.Average(r => r.Mean);
+            double avgCornerA = cornerReadings.Average(r => r.A);
+            double avgCornerB = cornerReadings.Average(r => r.B);
+            double avgCornerMean = cornerReadings.Average(r => r.Mean);
 
             var latestModel = CalibrationTiltPlane;
             AppendSummaryRows(readings, stepDescription, latestModel, count, avgA, avgB);
@@ -2439,7 +2488,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 Mean = avgMean,
                 TiltAngleDeg = ComputeTiltAngleDeg(avgA, avgB, latestModel),
                 DirectionDeg = NormalizeAngle(Math.Atan2(avgGx, -avgGy) * 180.0 / Math.PI),
-                SaveFolder = saveOverride != null ? inspector.LastSaveFolder : null
+                SaveFolder = saveOverride != null ? inspector.LastSaveFolder : null,
+                CornerA = avgCornerA,
+                CornerB = avgCornerB,
+                CornerMean = avgCornerMean
             };
             PopulateCurvature(ref reading);
 
@@ -2703,6 +2755,42 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // every step's move itself, so the wizard-screw <-> device-corner correspondence (EatWizardMapping) is
         // known to be correct. False for a disconnected/manual-clicking run, a replay, or the RunCalibrationForTest
         // seed path (its default) — see the [CRITICAL GATE] note on ITiltAdapterOptions.DeviceLinkedCalibrationDeviceName.
+        // Shared by RunCalibrationMath's paraboloid `inputs` and its Task-5 corner-AF cross-check `cornerInputs`:
+        // every geometry/flag field is identical between the two estimators -- only the six gradient readings
+        // (baseline/all-inward/re-baselines/screw moves) differ. Factored so the two TiltCalibrationInputs
+        // objects cannot drift apart (a field added to one and forgotten on the other would silently bias the
+        // cross-check).
+        private static TiltCalibrationInputs BuildCalibrationInputs(
+            int screwCount, bool hasCurvatureMeasurement, int fallbackCurvatureSign,
+            double imageWidthPixels, double imageHeightPixels, double pixelSize, double fStep,
+            double radiusMm, double appliedAmount, bool isStepper,
+            TiltGradient baseline, TiltGradient allInward, TiltGradient reBaseline1,
+            TiltGradient screw1, TiltGradient reBaseline2, TiltGradient screw2) {
+            return new TiltCalibrationInputs {
+                ScrewCount = screwCount,
+                // 4-step runs never measured Baseline/AllInward as curvature probes: leave them default —
+                // the calculator ignores them when HasCurvatureMeasurement is false (reBaseline1 carries the
+                // baseline reading instead).
+                Baseline = hasCurvatureMeasurement ? baseline : default,
+                AllInward = hasCurvatureMeasurement ? allInward : default,
+                ReBaseline1 = reBaseline1,
+                Screw1 = screw1,
+                ReBaseline2 = reBaseline2,
+                Screw2 = screw2,
+                HasCurvatureMeasurement = hasCurvatureMeasurement,
+                FallbackCurvatureSign = fallbackCurvatureSign,
+                ImageWidthPixels = imageWidthPixels,
+                ImageHeightPixels = imageHeightPixels,
+                PixelSizeMicrons = pixelSize,
+                FocuserStepMicrons = fStep,
+                ScrewRadiusMillimeters = radiusMm,
+                CalibrationAppliedAmount = appliedAmount,
+                IsStepperAdjustment = isStepper
+            };
+        }
+
+        private static double Mag(double x, double y) => Math.Sqrt(x * x + y * y);
+
         private void RunCalibrationMath(int screwCount, double radiusMm, double pixelSize, double fStep,
             double appliedAmount, bool isStepper, bool deviceDriven) {
             bool measuredCurvature = stepReadings.ContainsKey(WizardStep.AllInward);
@@ -2762,26 +2850,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // would be non-NaN but physically meaningless.
             double imageWidthPixels = model?.ImageSize.Width ?? 1;
             double imageHeightPixels = model?.ImageSize.Height ?? 1;
-            var inputs = new TiltCalibrationInputs {
-                ScrewCount = screwCount,
-                // 4-step runs never measured Baseline/AllInward as curvature probes: leave them default —
-                // the calculator ignores them when HasCurvatureMeasurement is false (c carries the baseline).
-                Baseline = measuredCurvature ? new TiltGradient(a.A, a.B, a.Mean) : default,
-                AllInward = measuredCurvature ? new TiltGradient(b.A, b.B, b.Mean) : default,
-                ReBaseline1 = new TiltGradient(c.A, c.B, c.Mean),
-                Screw1 = new TiltGradient(d.A, d.B, d.Mean),
-                ReBaseline2 = new TiltGradient(e.A, e.B, e.Mean),
-                Screw2 = new TiltGradient(f.A, f.B, f.Mean),
-                HasCurvatureMeasurement = measuredCurvature,
-                FallbackCurvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign,
-                ImageWidthPixels = imageWidthPixels,
-                ImageHeightPixels = imageHeightPixels,
-                PixelSizeMicrons = pixelSize,
-                FocuserStepMicrons = fStep,
-                ScrewRadiusMillimeters = radiusMm,
-                CalibrationAppliedAmount = appliedAmount,
-                IsStepperAdjustment = isStepper
-            };
+            var inputs = BuildCalibrationInputs(
+                screwCount, measuredCurvature, tiltAdapterOptions.ScrewInwardCurvatureSign,
+                imageWidthPixels, imageHeightPixels, pixelSize, fStep, radiusMm, appliedAmount, isStepper,
+                new TiltGradient(a.A, a.B, a.Mean), new TiltGradient(b.A, b.B, b.Mean),
+                new TiltGradient(c.A, c.B, c.Mean), new TiltGradient(d.A, d.B, d.Mean),
+                new TiltGradient(e.A, e.B, e.Mean), new TiltGradient(f.A, f.B, f.Mean));
             var result = TiltCalibrationCalculator.Calibrate(inputs);
 
             tiltAdapterOptions.Screw1AngleDegrees = result.Screw1AngleDegrees;
@@ -2841,8 +2915,63 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // geometry-dependent fields.
             pistonImpliedMicronsPerStep = result.PistonImpliedMicronsPerStep;
 
+            // ---- Task 5: corner-region AF cross-check ---------------------------------------------------
+            // The inspector's 4-corner region plane (an honest per-corner estimator since Task 1) is a second,
+            // independent measurement of the same screw moves. Only cross-check when EVERY active step
+            // captured a real corner reading -- a partially-available run (an older saved run captured before
+            // this feature, or a step whose corner regions failed to fit) degrades cleanly to "no cross-check"
+            // rather than NaN-contaminated arithmetic or (worse) a spurious warning built from a biased subset.
+            cornerMeasuredHardwareMicrons = double.NaN;
+            estimatorRelativeDifference = double.NaN;
+            bool cornerDataComplete = activeMeasurementSteps.All(step => {
+                var r = Reading(step);
+                return !double.IsNaN(r.CornerA) && !double.IsNaN(r.CornerB) && !double.IsNaN(r.CornerMean);
+            });
+            if (cornerDataComplete) {
+                var cornerInputs = BuildCalibrationInputs(
+                    screwCount, measuredCurvature, tiltAdapterOptions.ScrewInwardCurvatureSign,
+                    imageWidthPixels, imageHeightPixels, pixelSize, fStep, radiusMm, appliedAmount, isStepper,
+                    new TiltGradient(a.CornerA, a.CornerB, a.CornerMean), new TiltGradient(b.CornerA, b.CornerB, b.CornerMean),
+                    new TiltGradient(c.CornerA, c.CornerB, c.CornerMean), new TiltGradient(d.CornerA, d.CornerB, d.CornerMean),
+                    new TiltGradient(e.CornerA, e.CornerB, e.CornerMean), new TiltGradient(f.CornerA, f.CornerB, f.CornerMean));
+                var cornerResult = TiltCalibrationCalculator.Calibrate(cornerInputs);
+
+                // Per-screw move-magnitude comparison between the two estimators, in physical gradient space
+                // (mirrors Calibrate()'s own MoveMagnitudeRatio math via the same Screw1Delta/Screw2Delta/
+                // PhysicalDelta helpers, but compares the paraboloid's delta against the corner estimator's
+                // instead of screw1 against screw2 within one estimator). This is dimensionless (a ratio-like
+                // relative difference), so — like MoveMagnitudeRatio/angles/SNR above — it is safe under the
+                // 1x1 pseudo-sensor fallback (a uniform scale of both estimators' deltas) and is deliberately
+                // NOT gated on model != null; only the µm hardware number below needs a real lever arm.
+                var (p1x, p1y) = TiltCalibrationCalculator.PhysicalDelta(TiltCalibrationCalculator.Screw1Delta(inputs), inputs);
+                var (p2x, p2y) = TiltCalibrationCalculator.PhysicalDelta(TiltCalibrationCalculator.Screw2Delta(inputs), inputs);
+                var (c1x, c1y) = TiltCalibrationCalculator.PhysicalDelta(TiltCalibrationCalculator.Screw1Delta(cornerInputs), cornerInputs);
+                var (c2x, c2y) = TiltCalibrationCalculator.PhysicalDelta(TiltCalibrationCalculator.Screw2Delta(cornerInputs), cornerInputs);
+                double c1Mag = Mag(c1x, c1y);
+                double c2Mag = Mag(c2x, c2y);
+                // Guard the denominator: a ~0 corner magnitude means the corner estimator saw essentially no
+                // screw move at all, so a relative difference against it is meaningless (Infinity for any
+                // nonzero paraboloid move, NaN for a coincidentally-zero one) rather than a genuine
+                // disagreement either estimator can actually support -- leave the cross-check uncomputed (NaN,
+                // no warning) instead of asserting one from a degenerate reference. Same philosophy as
+                // MoveMagnitudeRatio's own zero-magnitude guard (TiltCalibrationCalculator.MoveMagnitudeRatio).
+                if (c1Mag > 0 && c2Mag > 0) {
+                    double rel1 = Math.Abs(Mag(p1x, p1y) - c1Mag) / c1Mag;
+                    double rel2 = Math.Abs(Mag(p2x, p2y) - c2Mag) / c2Mag;
+                    estimatorRelativeDifference = Math.Max(rel1, rel2);
+                }
+
+                // The recovered corner-AF hardware number needs the SAME model != null gate as the
+                // paraboloid's measuredHardwareMicrons above: a model-less run's 1x1 pseudo-sensor carries no
+                // real lever arm, so a µm/turn recovered against it (paraboloid OR corner) would be non-NaN
+                // but physically meaningless.
+                if (model != null && !double.IsNaN(cornerResult.MeasuredHardwareMicrons)) {
+                    cornerMeasuredHardwareMicrons = cornerResult.MeasuredHardwareMicrons;
+                }
+            }
+
             ValidateCalibrationQuality(lastRawAngleDiff, lastMoveMagnitudeRatio, screwCount,
-                measuredHardwareMicrons, pistonImpliedMicronsPerStep);
+                measuredHardwareMicrons, pistonImpliedMicronsPerStep, estimatorRelativeDifference, cornerMeasuredHardwareMicrons);
 
             EvaluateRebaselineDrift();
             lastConfidence = result.Confidence;
@@ -2873,6 +3002,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RaisePropertyChanged(nameof(PitchUncertaintyDisplay));
             RaisePropertyChanged(nameof(PistonPitchDisplay));
             RaisePropertyChanged(nameof(HasPistonPitch));
+            RaisePropertyChanged(nameof(CornerCrossCheckDisplay));
+            RaisePropertyChanged(nameof(HasCornerCrossCheck));
             OnUIThread(() => ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged());
         }
 
@@ -2921,12 +3052,29 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 : null;
         }
 
+        // The corner-region AF plane is a second, independent estimator of the same screw moves (see the
+        // design doc's §2 investigation): on a real run the per-star paraboloid model was found to shrink one
+        // screw's gradient by a uniform factor relative to the corner estimator, producing a spurious "unequal
+        // screw turns" warning the corner estimator did not share. A large disagreement between the two
+        // doesn't say which estimator is right, but it does say the paraboloid-derived pitch reading may not
+        // be trustworthy — flag it for the user rather than silently trusting (or blending) either one.
+        private const double EstimatorDisagreementWarnThreshold = 0.15;
+
+        private static string CheckCornerCrossCheck(double estimatorRelDiff, double cornerMeasuredHardwareMicrons) {
+            if (double.IsNaN(estimatorRelDiff) || estimatorRelDiff <= EstimatorDisagreementWarnThreshold) {
+                return null;
+            }
+            return $"the per-star model and the corner-region AF disagree on the screw moves by {estimatorRelDiff:P0} " +
+                $"— the measured hardware may be unreliable (corner-AF estimate: {cornerMeasuredHardwareMicrons:0.###} µm)";
+        }
+
         private void ValidateCalibrationQuality(double rawDiff, double magnitudeRatio, int screwCount,
-            double measuredHardware, double pistonImplied) {
+            double measuredHardware, double pistonImplied, double estimatorRelDiff, double cornerMeasuredHardwareMicrons) {
             var parts = new[] {
                 CheckScrewAngleGap(rawDiff, screwCount),
                 CheckMagnitudeRatio(magnitudeRatio),
                 CheckPistonAgreement(measuredHardware, pistonImplied),
+                CheckCornerCrossCheck(estimatorRelDiff, cornerMeasuredHardwareMicrons),
             }.Where(p => p != null).ToList();
 
             HasWarning = parts.Count > 0;
@@ -3055,14 +3203,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         // Test seam: seeds a step reading with the fields the calibration math consumes, so unit tests can
         // exercise NextStep/RunCalibrationMath without running the inspector. StepReading and stepReadings
-        // stay private — this is the only external write path.
+        // stay private — this is the only external write path. The corner fields default to NaN (unavailable),
+        // matching production: a step whose corner plane wasn't captured never contributes a real reading.
         internal void SeedStepReading(WizardStep step, double a, double b, double mean,
-                double curvatureEffectAtScrewRadiusMicrons = 0.0) {
+                double curvatureEffectAtScrewRadiusMicrons = 0.0,
+                double cornerA = double.NaN, double cornerB = double.NaN, double cornerMean = double.NaN) {
             stepReadings[step] = new StepReading {
                 A = a,
                 B = b,
                 Mean = mean,
-                CurvatureEffectAtScrewRadiusMicrons = curvatureEffectAtScrewRadiusMicrons
+                CurvatureEffectAtScrewRadiusMicrons = curvatureEffectAtScrewRadiusMicrons,
+                CornerA = cornerA,
+                CornerB = cornerB,
+                CornerMean = cornerMean
             };
         }
 
@@ -3289,12 +3442,20 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         return;
                     }
                     var (mGx, mGy) = StateGradient(m.A, m.B, m);
+                    // Task 5: a replay re-analyzes saved frames through the same inspector chain as a live run,
+                    // so the corner-region plane is captured the same way (single reading — replay has no
+                    // measurement-averaging loop to accumulate across). NaN when unavailable, same as the live
+                    // capture path in RunAveragedMeasurement.
+                    var corner = cornerTiltPlaneOverrideForTest ?? inspector.TiltModel?.TiltPlaneModel;
                     var reading = new StepReading {
                         A = m.A,
                         B = m.B,
                         Mean = m.MeanFocuserPosition,
                         TiltAngleDeg = ComputeTiltAngleDeg(m.A, m.B, m),
-                        DirectionDeg = NormalizeAngle(Math.Atan2(mGx, -mGy) * 180.0 / Math.PI)
+                        DirectionDeg = NormalizeAngle(Math.Atan2(mGx, -mGy) * 180.0 / Math.PI),
+                        CornerA = corner?.A ?? double.NaN,
+                        CornerB = corner?.B ?? double.NaN,
+                        CornerMean = corner?.MeanFocuserPosition ?? double.NaN
                     };
                     PopulateCurvature(ref reading);
                     stepReadings[step] = reading;
@@ -3451,7 +3612,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 TiltAngleDeg = reading.TiltAngleDeg,
                 DirectionDeg = reading.DirectionDeg,
                 CurvatureRadiusMillimeters = reading.CurvatureRadiusMm,
-                CurvatureEffectMicronsAtScrewRadius = reading.CurvatureEffectAtScrewRadiusMicrons
+                CurvatureEffectMicronsAtScrewRadius = reading.CurvatureEffectAtScrewRadiusMicrons,
+                CornerTiltPlaneA = reading.CornerA,
+                CornerTiltPlaneB = reading.CornerB,
+                CornerMeanFocuserPosition = reading.CornerMean
             });
             WriteMetadata();
         }
@@ -3472,6 +3636,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 PitchUncertaintyMicrons = pitchUncertaintyMicrons,
                 ConfidenceIsReliable = lastConfidence?.IsReliable ?? false,
                 PistonImpliedMicronsPerStep = pistonImpliedMicronsPerStep,
+                CornerMeasuredHardwareMicrons = cornerMeasuredHardwareMicrons,
+                EstimatorRelativeDifference = estimatorRelativeDifference,
             };
             WriteMetadata();
         }
