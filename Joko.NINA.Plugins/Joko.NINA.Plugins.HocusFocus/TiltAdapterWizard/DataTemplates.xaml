@@ -597,6 +597,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -761,6 +762,29 @@
                             FontStyle="Italic"
                             Opacity="0.7"
                             Text="Adds 2 extra measurement steps (6 instead of 4 — about 50% longer) to determine the direction automatically. Turn on if you don't know how your adapter behaves, or to verify the setting above."
+                            TextWrapping="Wrap" />
+
+                        <TextBlock
+                            Grid.Row="4"
+                            Grid.Column="0"
+                            Margin="0,2,5,2"
+                            VerticalAlignment="Center"
+                            Text="Measure final re-baseline (recommended)"
+                            ToolTip="Adds one extra measurement step after the final restore move so screw 2's move is referenced symmetrically, cancelling drift between steps the same way screw 1's move already is." />
+                        <CheckBox
+                            Grid.Row="4"
+                            Grid.Column="1"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                            IsChecked="{Binding TiltAdapterOptions.MeasureFinalRebaseline}" />
+                        <TextBlock
+                            Grid.Row="4"
+                            Grid.Column="2"
+                            Margin="8,2,0,2"
+                            VerticalAlignment="Center"
+                            FontStyle="Italic"
+                            Opacity="0.7"
+                            Text="Adds 1 extra measurement step (~4 more minutes) so screw 2's move cancels drift between steps like screw 1's already does. Turn off to skip this extra measurement."
                             TextWrapping="Wrap" />
                     </Grid>
 

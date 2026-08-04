@@ -39,6 +39,9 @@ public class TiltAdapterOptionsTests {
             Assert.That(options.DeviceName, Is.EqualTo("Manual"));
             Assert.That(options.ScrewInwardCurvatureSignIsMeasured, Is.False);
             Assert.That(options.MeasureCurvatureDuringCalibration, Is.False);
+            // Default ON (Task 6) -- unlike MeasureCurvatureDuringCalibration above, drift-symmetric
+            // referencing of screw 2 is recommended for every calibration, not an opt-in extra.
+            Assert.That(options.MeasureFinalRebaseline, Is.True);
             Assert.That(options.CalibrationIsManual, Is.False);
             Assert.That(options.TiltDeviceSerialPortName, Is.EqualTo(""));
             Assert.That(options.TiltDeviceMaxStepsPerCommand, Is.EqualTo(200));
@@ -56,10 +59,12 @@ public class TiltAdapterOptionsTests {
         var (options, store, _) = Build();
         options.ScrewInwardCurvatureSignIsMeasured = true;
         options.MeasureCurvatureDuringCalibration = true;
+        options.MeasureFinalRebaseline = false; // default is true, so false is the value that actually persists
         options.CalibrationIsManual = true;
         Assert.Multiple(() => {
             Assert.That(store.GetValueBoolean(nameof(TiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured), false), Is.True);
             Assert.That(store.GetValueBoolean(nameof(TiltAdapterOptions.MeasureCurvatureDuringCalibration), false), Is.True);
+            Assert.That(store.GetValueBoolean(nameof(TiltAdapterOptions.MeasureFinalRebaseline), true), Is.False);
             Assert.That(store.GetValueBoolean(nameof(TiltAdapterOptions.CalibrationIsManual), false), Is.True);
         });
     }
@@ -156,6 +161,7 @@ public class TiltAdapterOptionsTests {
     [TestCase(nameof(TiltAdapterOptions.ScrewInwardCurvatureSign), -1)]
     [TestCase(nameof(TiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured), true)]
     [TestCase(nameof(TiltAdapterOptions.MeasureCurvatureDuringCalibration), true)]
+    [TestCase(nameof(TiltAdapterOptions.MeasureFinalRebaseline), false)] // default is true, so false is the value that actually changes it
     [TestCase(nameof(TiltAdapterOptions.CalibrationIsManual), true)]
     [TestCase(nameof(TiltAdapterOptions.AdjustmentType), TiltAdjustmentType.StepperMotors)]
     [TestCase(nameof(TiltAdapterOptions.AngleDisplayUnit), TiltGuidanceAngleUnit.Degrees)]

@@ -55,6 +55,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // 6 steps instead of 4. Off by default — the assumed/manual direction is used instead.
         bool MeasureCurvatureDuringCalibration { get; set; }
 
+        /// <summary>Measure one extra re-baseline after the final restore move so screw 2's move is referenced
+        /// symmetrically (drift-cancelling), at the cost of one more AF run. Default true.</summary>
+        bool MeasureFinalRebaseline { get; set; }
+
         // True when the current calibration came from Manual Calibration Entry, not a wizard run.
         bool CalibrationIsManual { get; set; }
 

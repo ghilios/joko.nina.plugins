@@ -50,16 +50,21 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
 
         /// <summary>
         /// The device move that realizes a calibration wizard step's instruction, or null for
-        /// <see cref="WizardStep.Baseline"/> (a measurement-only step -- no move). <paramref
-        /// name="appliedSteps"/> is N, the already-rounded integer step count (the wizard's persisted
-        /// per-calibration-step applied amount for a stepper device).
+        /// <see cref="WizardStep.Baseline"/> (a measurement-only step -- no move) and, when <paramref
+        /// name="measuredFinalRebaseline"/> is true, for <see cref="WizardStep.Complete"/> (the optional
+        /// measured <see cref="WizardStep.ReBaseline3"/> step already restored the device, so Complete has
+        /// nothing left to undo). <paramref name="appliedSteps"/> is N, the already-rounded integer step
+        /// count (the wizard's persisted per-calibration-step applied amount for a stepper device).
         ///
         /// Each case is annotated with the exact <c>StepInstructionsText</c> wording (four-screw,
-        /// isStepper) it realizes. The six executed moves (AllInward, ReBaseline1, Screw1, ReBaseline2,
-        /// Screw2, Complete) sum to (0,0,0,0) per corner -- the device returns to baseline at Complete; see
-        /// EatWizardMappingTests for the full-sequence regression that pins this.
+        /// isStepper) it realizes. Two variants of the executed sequence both sum to (0,0,0,0) per corner --
+        /// the device returns to baseline by the end either way; see EatWizardMappingTests for both
+        /// full-sequence regressions that pin this: the standard six-move sequence (AllInward, ReBaseline1,
+        /// Screw1, ReBaseline2, Screw2, Complete, <paramref name="measuredFinalRebaseline"/> false) and the
+        /// optional seven-move sequence that substitutes a measured ReBaseline3 restore for Complete's move
+        /// (<paramref name="measuredFinalRebaseline"/> true, Complete becomes a no-move).
         /// </summary>
-        public static TiltAdapterMove MoveForStep(WizardStep step, int appliedSteps) {
+        public static TiltAdapterMove MoveForStep(WizardStep step, int appliedSteps, bool measuredFinalRebaseline = false) {
             switch (step) {
                 case WizardStep.Baseline:
                     // "Ensure all screws are at their starting position, then click Run Measurement." --
@@ -102,13 +107,29 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
                         TiltMoveAxis.DiagonalB, appliedSteps, TiltMoveGroup.Tilt,
                         $"Wizard Screw 2: {FormatSigned(appliedSteps)} diagonal-B");
 
+                case WizardStep.ReBaseline3:
+                    // "Apply -N steps to motor 2 and +N steps to motor 4, returning to the baseline
+                    // position, then click Run Measurement." -- the optional MEASURED restore after Screw2
+                    // (gives screw 2 the same drift-cancelling re-baseline symmetry Screw1 already has) ->
+                    // undoes Screw2 -> (0,-N,0,+N) = DiagonalB(-N). Identical move to the un-measured
+                    // Complete restore below; the two are mutually exclusive per run (see
+                    // measuredFinalRebaseline).
+                    return new TiltAdapterMove(
+                        TiltMoveAxis.DiagonalB, -appliedSteps, TiltMoveGroup.Tilt,
+                        $"Wizard Re-Baseline 3: {FormatSigned(-appliedSteps)} diagonal-B (restore, measured)");
+
                 case WizardStep.Complete:
                     // "Return all motors to their original position." -- the restore move after Screw2 ->
                     // undoes Screw2 -> (0,-N,0,+N) = DiagonalB(-N). Confirmed by the full-sequence trace:
                     // this is exactly what returns the device to baseline (0,0,0,0) after the 6-step run.
-                    return new TiltAdapterMove(
-                        TiltMoveAxis.DiagonalB, -appliedSteps, TiltMoveGroup.Tilt,
-                        $"Wizard Complete: {FormatSigned(-appliedSteps)} diagonal-B (restore)");
+                    // When measuredFinalRebaseline is true, ReBaseline3 (above) already sent this exact
+                    // move and was itself measured (unlike this un-measured restore) -- Complete becomes a
+                    // no-move to avoid sending the restore twice.
+                    return measuredFinalRebaseline
+                        ? null
+                        : new TiltAdapterMove(
+                            TiltMoveAxis.DiagonalB, -appliedSteps, TiltMoveGroup.Tilt,
+                            $"Wizard Complete: {FormatSigned(-appliedSteps)} diagonal-B (restore)");
 
                 default:
                     throw new ArgumentOutOfRangeException(nameof(step), step, "Unknown wizard step.");

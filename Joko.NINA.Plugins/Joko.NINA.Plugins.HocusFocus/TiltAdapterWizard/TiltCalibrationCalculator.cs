@@ -124,10 +124,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     /// needed. The screw-move magnitudes are the <i>signal</i>; quantities that must be ~0 in a noise-free,
     /// stationary measurement are <i>noise probes</i>: turning all screws inward equally is a pure piston (no net
     /// tilt change vs baseline), and each re-baseline should return to its predecessor (zero drift). A 6-step run
-    /// has all three noise probes; a 4-step run (no curvature steps) has only the single re-baseline drift, and
-    /// <see cref="AllInwardTiltResidual"/> / <see cref="Rebaseline1Drift"/> are NaN there. When the noise probes
-    /// rival the screw-move signal the recovered geometry is dominated by measurement noise / between step drift,
-    /// no matter how cleanly the screws were turned.
+    /// has all three base noise probes; a 4-step run (no curvature steps) has only the single re-baseline drift, and
+    /// <see cref="AllInwardTiltResidual"/> / <see cref="Rebaseline1Drift"/> are NaN there. Either base flow gains a
+    /// fourth (6-step) or second (4-step) probe, <see cref="Rebaseline3Drift"/>, when the optional measured final
+    /// re-baseline (Task 6) is present; NaN when it is not. When the noise probes rival the screw-move signal the
+    /// recovered geometry is dominated by measurement noise / between step drift, no matter how cleanly the screws
+    /// were turned.
     /// </summary>
     public sealed class TiltCalibrationConfidence {
         public double ScrewMoveSignal { get; set; }               // mean |single-screw move| magnitude in physical gradient units (µm/µm) (the signal)
@@ -137,6 +139,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public double AllInwardTiltResidual { get; set; }         // |AllInward − Baseline|, should be ~0 (pure piston); NaN for 4-step runs
         public double Rebaseline1Drift { get; set; }              // |ReBaseline1 − Baseline|, should be ~0; NaN for 4-step runs
         public double Rebaseline2Drift { get; set; }              // |ReBaseline2 − ReBaseline1|, should be ~0
+        public double Rebaseline3Drift { get; set; } = double.NaN; // |ReBaseline3 − ReBaseline2|, should be ~0; NaN unless HasFinalRebaseline
         public bool IsReliable { get; set; }                      // SignalToNoise >= MinReliableSignalToNoise
     }
 
@@ -221,13 +224,15 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         /// Estimates how trustworthy the calibration is from the per-step tilt vectors. See
         /// <see cref="TiltCalibrationConfidence"/> for the model: screw moves are the signal; the noise probes are
         /// independent quantities that are each ~0 in an ideal measurement — the all-inward piston residual and both
-        /// re-baseline drifts in a 6-step run, only the single re-baseline drift in a 4-step run. All magnitudes are
-        /// computed in physical gradient space (<see cref="PhysicalDelta"/>), not raw (A,B) — see the F2 fix. Screw
-        /// moves use the same drift-cancelling reference as <see cref="Calibrate"/> (<see cref="Screw1Delta"/> /
-        /// <see cref="Screw2Delta"/>), so the signal is unaffected by linear tilt drift too. The noise probes
-        /// (all-inward residual, both re-baseline drifts) are deliberately left on their raw, non-midpoint
-        /// readings: they exist specifically to measure the drift/backlash the signal is now immune to, so
-        /// midpoint-referencing them would erase the very quantity they are there to detect.
+        /// re-baseline drifts in a 6-step run, only the single re-baseline drift in a 4-step run, plus (either flow)
+        /// the optional measured final re-baseline's drift (<see cref="TiltCalibrationInputs.HasFinalRebaseline"/>,
+        /// Task 6) when present. All magnitudes are computed in physical gradient space (<see cref="PhysicalDelta"/>),
+        /// not raw (A,B) — see the F2 fix. Screw moves use the same drift-cancelling reference as
+        /// <see cref="Calibrate"/> (<see cref="Screw1Delta"/> / <see cref="Screw2Delta"/>), so the signal is
+        /// unaffected by linear tilt drift too. The noise probes (all-inward residual, every re-baseline drift) are
+        /// deliberately left on their raw, non-midpoint readings: they exist specifically to measure the
+        /// drift/backlash the signal is now immune to, so midpoint-referencing them would erase the very quantity
+        /// they are there to detect.
         /// </summary>
         public static TiltCalibrationConfidence ComputeConfidence(TiltCalibrationInputs inputs) {
             var (s1x, s1y) = PhysicalDelta(Screw1Delta(inputs), inputs);
@@ -238,6 +243,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
             var (drift2x, drift2y) = PhysicalDelta(inputs.ReBaseline2, inputs.ReBaseline1, inputs);
             double drift2 = Magnitude(drift2x, drift2y);
+            double drift3 = double.NaN;
+            if (inputs.HasFinalRebaseline) {
+                var (drift3x, drift3y) = PhysicalDelta(inputs.ReBaseline3, inputs.ReBaseline2, inputs);
+                drift3 = Magnitude(drift3x, drift3y);
+            }
             double allInward = double.NaN;
             double drift1 = double.NaN;
             double noise;
@@ -246,12 +256,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 allInward = Magnitude(aiX, aiY);
                 var (d1x, d1y) = PhysicalDelta(inputs.ReBaseline1, inputs.Baseline, inputs);
                 drift1 = Magnitude(d1x, d1y);
-                noise = Math.Sqrt((allInward * allInward + drift1 * drift1 + drift2 * drift2) / 3.0);
+                noise = inputs.HasFinalRebaseline
+                    ? Math.Sqrt((allInward * allInward + drift1 * drift1 + drift2 * drift2 + drift3 * drift3) / 4.0)
+                    : Math.Sqrt((allInward * allInward + drift1 * drift1 + drift2 * drift2) / 3.0);
             } else {
-                // 4-step run: the only available noise probe is the single re-baseline drift. A one-sample noise
-                // estimate makes the IsReliable gate looser than the 6-step RMS-of-3 — an accepted tradeoff of the
+                // 4-step run: the base noise probe is the single re-baseline drift; with the optional measured
+                // final re-baseline, both re-baseline drifts (RMS-of-2). A one- or two-sample noise estimate
+                // makes the IsReliable gate looser than the 6-step RMS-of-3/4 — an accepted tradeoff of the
                 // shorter flow.
-                noise = drift2;
+                noise = inputs.HasFinalRebaseline
+                    ? Math.Sqrt((drift2 * drift2 + drift3 * drift3) / 2.0)
+                    : drift2;
             }
 
             // NaN/Inf-safe: PhysicalDelta has no fallback for invalid geometry (see its doc comment) — a caller
@@ -279,6 +294,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 AllInwardTiltResidual = allInward,
                 Rebaseline1Drift = drift1,
                 Rebaseline2Drift = drift2,
+                Rebaseline3Drift = drift3,
                 IsReliable = snr >= MinReliableSignalToNoise
             };
         }

@@ -359,6 +359,60 @@ public class TiltCalibrationCalculatorTests {
     }
 
     [Test]
+    public void Calibrate_WithFinalRebaseline_Screw2DeltaIsDriftImmune() {
+        // Mirror of Calibrate_LinearTiltDrift_CancelsExactlyForScrew1 above, but with the optional measured
+        // final re-baseline (g) present: Screw2's move E is now bracketed by ReBaseline2 (4 intervals in) and
+        // ReBaseline3 (6 intervals in), with Screw2 at 5 intervals -- Screw2 - mid(RB2, RB3) recovers E
+        // exactly, drift-immune, the same way Screw1Delta already made screw 1's move drift-immune.
+        var (vA, vB) = (9.0, -5.0);
+        var move1 = SingleScrewReading(0, 400.0, 4);      // D
+        var move2 = SingleScrewReading(90, 400.0, 4);     // E
+        TiltGradient Drift(TiltGradient g, int k) => new TiltGradient(g.A + k * vA, g.B + k * vB, g.MeanFocuserPosition);
+
+        var drifted = new TiltCalibrationInputs {
+            ScrewCount = 4,
+            Baseline = Drift(new TiltGradient(0, 0, 0), 0),
+            AllInward = Drift(new TiltGradient(0, 0, 100), 1),
+            ReBaseline1 = Drift(new TiltGradient(0, 0, 0), 2),
+            Screw1 = Drift(move1, 3),
+            ReBaseline2 = Drift(new TiltGradient(0, 0, 0), 4),
+            Screw2 = Drift(move2, 5),
+            ReBaseline3 = Drift(new TiltGradient(0, 0, 0), 6),
+            HasFinalRebaseline = true,
+            ImageWidthPixels = ImgW, ImageHeightPixels = ImgH,
+            PixelSizeMicrons = PixelSize, FocuserStepMicrons = FStep,
+            ScrewRadiusMillimeters = RadiusMm, CalibrationAppliedAmount = 1.0,
+            IsStepperAdjustment = false,
+        };
+        // Same shape, but with zero drift applied at every step (k=0 everywhere) -- the drift-free reference.
+        var cleanInputs = new TiltCalibrationInputs {
+            ScrewCount = 4,
+            Baseline = Drift(new TiltGradient(0, 0, 0), 0),
+            AllInward = Drift(new TiltGradient(0, 0, 100), 0),
+            ReBaseline1 = Drift(new TiltGradient(0, 0, 0), 0),
+            Screw1 = Drift(move1, 0),
+            ReBaseline2 = Drift(new TiltGradient(0, 0, 0), 0),
+            Screw2 = Drift(move2, 0),
+            ReBaseline3 = Drift(new TiltGradient(0, 0, 0), 0),
+            HasFinalRebaseline = true,
+            ImageWidthPixels = ImgW, ImageHeightPixels = ImgH,
+            PixelSizeMicrons = PixelSize, FocuserStepMicrons = FStep,
+            ScrewRadiusMillimeters = RadiusMm, CalibrationAppliedAmount = 1.0,
+            IsStepperAdjustment = false,
+        };
+        var clean = TiltCalibrationCalculator.Calibrate(cleanInputs);
+        var driftedResult = TiltCalibrationCalculator.Calibrate(drifted);
+        Assert.Multiple(() => {
+            // Screw 1's move is unaffected by this change -- still bracketed by ReBaseline1/ReBaseline2, still drift-immune.
+            Assert.That(driftedResult.Screw1DirectionDegrees, Is.EqualTo(clean.Screw1DirectionDegrees).Within(1e-9));
+            // Screw 2 NOW has a measured final re-baseline (HasFinalRebaseline = true), so it gets the same
+            // symmetric bracketing as screw 1 and is drift-immune too -- this is the opposite assertion from
+            // the un-bracketed test above, and fails if HasFinalRebaseline stops being wired through.
+            Assert.That(driftedResult.Screw2DirectionDegrees, Is.EqualTo(clean.Screw2DirectionDegrees).Within(1e-9));
+        });
+    }
+
+    [Test]
     public void RebaselineDriftRatio_ZeroWhenNoDrift_GrowsWithDrift() {
         Assert.Multiple(() => {
             // No drift relative to a move of magnitude 10 -> 0.
@@ -573,7 +627,66 @@ public class TiltCalibrationCalculatorTests {
             Assert.That(confidence.AllInwardTiltResidual, Is.NaN);
             Assert.That(confidence.Rebaseline1Drift, Is.NaN);
             Assert.That(confidence.Rebaseline2Drift, Is.EqualTo(0.01).Within(1e-9));
+            // No measured final re-baseline (HasFinalRebaseline defaults false): the new Task-6 probe stays
+            // at its NaN default rather than silently contributing a spurious 0 to the RMS above.
+            Assert.That(confidence.Rebaseline3Drift, Is.NaN);
             Assert.That(confidence.IsReliable, Is.True);
+        });
+    }
+
+    [Test]
+    public void ComputeConfidence_WithFinalRebaseline_AddsFourthProbeToRms() {
+        // Mirror of ComputeConfidence_NoiseRivalsSignal_FlaggedUnreliable above, but with the optional
+        // measured final re-baseline present too: NoiseEstimate becomes RMS-of-4 (allInward, drift1=0,
+        // drift2=0, drift3) instead of RMS-of-3, and Rebaseline3Drift is populated instead of NaN.
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 3,
+            ImageWidthPixels = 1, ImageHeightPixels = 1, PixelSizeMicrons = 1, FocuserStepMicrons = 1,
+            Baseline = new TiltGradient(0, 0, 1000),
+            AllInward = new TiltGradient(20, 0, 1075),  // 20-unit spurious tilt change on a piston move
+            ReBaseline1 = new TiltGradient(0, 0, 1000),
+            Screw1 = new TiltGradient(10, 0, 1000),
+            ReBaseline2 = new TiltGradient(0, 0, 1000),
+            Screw2 = new TiltGradient(0, 10, 1000),
+            ReBaseline3 = new TiltGradient(0, 20, 1000), // 20-unit drift from ReBaseline2
+            HasFinalRebaseline = true,
+        };
+        var c = TiltCalibrationCalculator.ComputeConfidence(inputs);
+        Assert.Multiple(() => {
+            Assert.That(c.AllInwardTiltResidual, Is.EqualTo(20).Within(1e-9));
+            Assert.That(c.Rebaseline1Drift, Is.EqualTo(0).Within(1e-9));
+            Assert.That(c.Rebaseline2Drift, Is.EqualTo(0).Within(1e-9));
+            Assert.That(c.Rebaseline3Drift, Is.EqualTo(20).Within(1e-9));
+            Assert.That(c.NoiseEstimate, Is.EqualTo(Math.Sqrt((400.0 + 0.0 + 0.0 + 400.0) / 4.0)).Within(1e-9));
+        });
+    }
+
+    [Test]
+    public void ComputeConfidence_WithoutCurvatureButWithFinalRebaseline_AveragesBothRebaselineDrifts() {
+        // Mirror of ComputeConfidence_WithoutCurvatureMeasurement_UsesOnlyRebaseline2Drift above, but with
+        // the optional measured final re-baseline present too: the 4-step flow's single-probe noise estimate
+        // (drift2 alone) becomes an RMS-of-2 (drift2, drift3).
+        var baseline = new TiltGradient(0, 0, 1000);
+        var drifted = new TiltGradient(0.01, 0, 1000);           // ReBaseline2 drifts by 0.01 from ReBaseline1
+        var driftedAgain = new TiltGradient(0.01, 0.02, 1000);   // ReBaseline3 drifts a further 0.02 from ReBaseline2
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 3,
+            ImageWidthPixels = 1, ImageHeightPixels = 1, PixelSizeMicrons = 1, FocuserStepMicrons = 1,
+            HasCurvatureMeasurement = false,
+            ReBaseline1 = baseline,
+            Screw1 = new TiltGradient(0.10, 0, 1000),
+            ReBaseline2 = drifted,
+            Screw2 = new TiltGradient(0.01, 0.10, 1000),
+            ReBaseline3 = driftedAgain,
+            HasFinalRebaseline = true,
+        };
+        var confidence = TiltCalibrationCalculator.ComputeConfidence(inputs);
+        Assert.Multiple(() => {
+            Assert.That(confidence.Rebaseline2Drift, Is.EqualTo(0.01).Within(1e-9));
+            Assert.That(confidence.Rebaseline3Drift, Is.EqualTo(0.02).Within(1e-9));
+            Assert.That(confidence.NoiseEstimate, Is.EqualTo(Math.Sqrt((0.01 * 0.01 + 0.02 * 0.02) / 2.0)).Within(1e-9));
+            Assert.That(confidence.AllInwardTiltResidual, Is.NaN);
+            Assert.That(confidence.Rebaseline1Drift, Is.NaN);
         });
     }
 
