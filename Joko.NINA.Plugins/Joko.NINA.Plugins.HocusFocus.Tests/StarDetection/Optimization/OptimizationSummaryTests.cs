@@ -10,6 +10,9 @@
 
 #endregion "copyright"
 
+using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
+using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
@@ -360,6 +363,98 @@ public class OptimizationSummaryTests {
         Assert.Multiple(() => {
             Assert.That(optimizedClears.HasUndersampledStars, Is.False);
             Assert.That(currentDoesNot.HasUndersampledStars, Is.True);
+        });
+    }
+}
+
+/// <summary>
+/// The bank's NINA-loadable settings handoff (<c>hocusfocus_star_detection.json</c>): a run folder must be able to
+/// carry its optimizer landing in a form the app's Import and the AF-replay override can both apply correctly.
+/// </summary>
+[TestFixture]
+public class OptimizedLandingExportTests {
+
+    private static OptimizedStarDetectionSettings Landing() => new OptimizedStarDetectionSettings {
+        BrightnessSensitivity = 17.67,
+        MinHFR = 0.7,
+        StarClippingMultiplier = 2.0,
+        StructureLayers = 6,
+        StarPeakResponse = 0.68
+    };
+
+    /// <summary>
+    /// THE defect this guards. If the landing is written only into the nested optimizedSettings block, both
+    /// consumers silently apply the BASELINE instead: StarDetectionOptions' import copies the flat knobs last (so
+    /// flat wins), and the AF-replay in-memory override reads the flat knobs only and never looks at the nested DTO.
+    /// Neither errors. So the flat layer must carry the landing too.
+    /// </summary>
+    [Test]
+    public void FromOptimizedLanding_WritesTheLandingIntoTheFLATKnobs_NotOnlyTheNestedBlock() {
+        var baseOptions = new StarDetectionSettingsSnapshot {
+            BrightnessSensitivity = 10.0, MinHFR = 1.2, StarClippingMultiplier = 5.0, StructureLayers = 4
+        };
+
+        var export = StarDetectionSettingsExport.FromOptimizedLanding(baseOptions, Landing());
+
+        Assert.Multiple(() => {
+            Assert.That(export.StarDetection.BrightnessSensitivity, Is.EqualTo(17.67), "flat Sensitivity must be the landing");
+            Assert.That(export.StarDetection.MinHFR, Is.EqualTo(0.7), "flat MinHFR must be the landing");
+            Assert.That(export.StarDetection.StarClippingMultiplier, Is.EqualTo(2.0));
+            Assert.That(export.StarDetection.StructureLayers, Is.EqualTo(6));
+            Assert.That(export.StarDetection.OptimizedSettings?.BrightnessSensitivity, Is.EqualTo(17.67), "and the nested block too");
+        });
+    }
+
+    /// <summary>Importing it must land the user where a wizard Accept would.</summary>
+    [Test]
+    public void FromOptimizedLanding_LandsInTheOptimizedMode() {
+        var export = StarDetectionSettingsExport.FromOptimizedLanding(
+            new StarDetectionSettingsSnapshot(), Landing());
+        Assert.Multiple(() => {
+            Assert.That(export.StarDetection.UseOptimizedSettings, Is.True);
+            Assert.That(export.StarDetection.UseAdvanced, Is.False);
+            Assert.That(export.FileType, Is.EqualTo(StarDetectionSettingsExport.ExpectedFileType));
+        });
+    }
+
+    /// <summary>
+    /// Knobs the curated axes do NOT cover must come from the options the optimize actually ran with — a landing
+    /// replayed against a different detection binning or PSF model is not the configuration that was measured.
+    /// </summary>
+    [Test]
+    public void FromOptimizedLanding_KeepsTheNonAxisKnobsFromTheRun() {
+        var baseOptions = new StarDetectionSettingsSnapshot {
+            DetectionBinning = DetectionBinningEnum.Bin2, ContaminationSensitivity = 7.5
+        };
+        var export = StarDetectionSettingsExport.FromOptimizedLanding(baseOptions, Landing());
+        Assert.Multiple(() => {
+            Assert.That(export.StarDetection.DetectionBinning, Is.EqualTo(DetectionBinningEnum.Bin2));
+            Assert.That(export.StarDetection.ContaminationSensitivity, Is.EqualTo(7.5));
+        });
+    }
+
+    /// <summary>
+    /// THE INVARIANT. Every curated axis must have a same-named, same-typed, settable property on the flat snapshot,
+    /// so adding an axis to the optimizer cannot silently produce a handoff file that drops it. If this fails, the
+    /// new axis needs a matching option property (or an entry in the DTO's NonKnobFields if it describes the run
+    /// rather than the detector).
+    /// </summary>
+    [Test]
+    public void EveryCuratedAxisRoundTripsIntoASettingsSnapshot() {
+        var unmapped = OptimizedStarDetectionSettings.UnmappedKnobs(typeof(StarDetectionSettingsSnapshot));
+        Assert.That(unmapped, Is.Empty, "curated axes with no matching option property: " + string.Join(", ", unmapped));
+    }
+
+    /// <summary>The envelope must survive a round trip through disk, or the bank stores something unreadable.</summary>
+    [Test]
+    public void FromOptimizedLanding_RoundTripsThroughJson() {
+        var export = StarDetectionSettingsExport.FromOptimizedLanding(
+            new StarDetectionSettingsSnapshot(), Landing());
+        var reloaded = StarDetectionSettingsExport.Deserialize(export.Serialize());
+        Assert.Multiple(() => {
+            Assert.That(reloaded.StarDetection.BrightnessSensitivity, Is.EqualTo(17.67));
+            Assert.That(reloaded.StarDetection.MinHFR, Is.EqualTo(0.7));
+            Assert.That(reloaded.StarDetection.UseOptimizedSettings, Is.True);
         });
     }
 }
