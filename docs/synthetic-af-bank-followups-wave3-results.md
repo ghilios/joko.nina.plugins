@@ -297,6 +297,45 @@ star-shedding example now has its mechanism named — the clip escape route, not
 every rig that *does* have a gradient); any objective change (F32 shows the two banks disagree in sign, so
 nothing can be accepted on the synthetic bank alone); and any change to `SensitivityIsAtFloor` semantics.
 
+## Lessons
+
+Wave 1's was "reproducibility validates nothing". Wave 2's was "a metric can fail in two directions". Wave 3's
+are cheaper than both, which is the point — every one of them cost minutes and would have cost hours.
+
+**1. Read the thing before scheduling a run against it.** Three of this wave's stated inputs were wrong, and all
+three were settled by reading code or a landing file. The F35 trigger did not exist where the entry pointed; the
+`MinHFR` "grid" does not exist at all; F24's nine axes had never moved. A per-axis ablation would have burned an
+afternoon returning nine nulls.
+
+**2. The control dataset earns its place by being boring.** The first bank pass read 17/17 PASS, exit 0 where
+every prior pass exited 3 — and was wrong. Every headline number in it was defensible. The only row that
+revealed the defect was `D05`, whose entire job is *not to move*. **Design the control before the experiment,
+and read it first.**
+
+**3. A regression test that passes either way is worth nothing.** The first version of the `MinHfrSeed` unit test
+asserted `seed.MinHFR == SeedFloor` — it codified the bug and passed. Every regression test here was re-run with
+the fix reverted to confirm it fails.
+
+**4. `default` is not `neutral`.** `DonutMorphCloseSize` defaults to **5** and is neutral at **1**, so an arm
+that "leaves the axes alone" still runs a 5 px morphological close — 90% of the recall cost on D04. Any ablation
+must state which of the two it holds, per knob.
+
+**5. Mutating a caller's object is a cross-run bug, not a style issue.** One in-place write to `seed.MinHFR` was
+enough to re-gate sixteen datasets from one firing, because callers reuse a single params bundle across runs
+(`OptimizationDiagnosticRunner.cs:306` vs the loop at `:426`). It printed *one* log line while doing it, and the
+result depended on dataset order.
+
+**6. "It reproduces on the real bank" needs the CAUSE to reproduce, not the symptom.** F20's strongest claim was
+that `BaselineJ = 0` on real rigs proved the defect was not a render artifact. Measured: all four such runs have
+a vertex above the gate and the seed fires on none of them. Two different defects print the identical line.
+This is [F33](followups.md#f33--the-synthetic-bank-does-not-reproduce-the-real-banks-optimizer-failure-mode)'s
+rule applied to a *finding* rather than to a fix.
+
+**7. Check what your own validation run overwrote.** `optimize --per-run` writes landings back into the run
+folders ([F15](followups.md#f15--optimize---per-run-overwrites-each-runs-stored-settings)), so this wave's two
+validation passes silently re-baselined the stored settings of **both** banks. Harmless here only because the
+comparison read the `--out` copies — luck of workflow, not a property of the tool.
+
 ## Verification
 
 - Full suite **3371/3371, two consecutive clean runs**. One earlier run showed a single failure while two bank

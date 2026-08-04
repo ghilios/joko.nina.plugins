@@ -514,7 +514,22 @@ is not, the candidate is a faint-end statistic (e.g. the SNR at the star count t
 than a fixed rank.
 
 ### F20 — Below `MinHFR` the autofocus objective collapses to exactly zero, with no diagnostic
-**Status:** Open · found 2026-08-02 running `optimize --per-run` over the synthetic AF bank
+**Status:** Open — **part 2 done, part 1 outstanding** · found 2026-08-02 running `optimize --per-run` over the
+synthetic AF bank
+
+> **Where this stands after wave 3.** The two halves of this entry's fix have diverged and the entry should not
+> be read as half-closed by accident:
+>
+> - **Part 2, "seed out of the plateau": DONE** via [F35](#f35--minhfr-should-be-seeded-from-the-sweep-wings-and-neither-available-hfr-statistic-can-size-it).
+>   D01 and D02 go from `FinalJ` exactly 0 to real landings; 14/17 synthetic and 19/19 real landings are
+>   bit-identical to the control.
+> - **Part 1, "report it": NOT DONE — and it is this entry's actual title.** Nothing user-facing still says
+>   "your stars are smaller than the minimum HFR". TestApp prints a seeding line; the **wizard says nothing**.
+>   The blocker named below is unchanged: `TooLowHFR` is one of the four `RejectionGate` constants with **no
+>   `*Bounds` rect list**, so it is not reachable at the seam that already reads `LowSensitivity`/`TooFlat`.
+>   This is still reporting **plus** one new counter.
+> - **The real-bank claim below is disproven** (see the correction under Evidence). What reproduces on real rigs
+>   is the *symptom*, not the cause.
 
 When a sweep's in-focus HFR falls below the detector's `MinHFR` gate (default 1.2 px), the whole core of the
 V-curve is rejected, the run objective is `0`, and the optimizer terminates having explored the space for
@@ -1569,6 +1584,18 @@ is not repeatedly investigated.
 The prepass writes `optimized_settings.json` back into the run folder as well as `--out`. That destroyed
 `bobp_m101`'s historical "row (a)" settings (`sens 50 / clip 9.5`) mid-investigation, leaving only the two knobs
 quoted in the write-up, so the baseline had to be reconstructed rather than reproduced.
+
+**It happened again in wave 3, on both banks at once (2026-08-03).** The F35 validation ran
+`optimize --per-run` over `D:\SyntheticAutofocusBank` and `D:\Autofocus Bank`, so every run's in-place
+`optimized_settings.json` in **both** banks is now the wave-3 landing. Nothing comparative was lost this time —
+the wave-1 control arms live in their own `--out` directories (`hf_f23\H_A`, `hf_f23\H_real_A`) and are
+untouched — but that was luck of workflow, not a property of the tool. **Any validation pass silently
+re-baselines the banks' stored settings**, and the only reason this one was harmless is that the comparison
+never read them.
+
+Note the interaction that makes this sharper than it looks: `bank-verify --opt-a/--opt-b` and
+`golden eval --params optimized` both read the **run folder** copy by default. So a prepass and a later scoring
+run that were meant to be independent can silently share an arm.
 
 **Next step.** Consider writing only to `--out` unless a flag opts into updating the run folder, or snapshot the
 previous file alongside it.
