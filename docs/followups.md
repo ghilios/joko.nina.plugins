@@ -1115,6 +1115,26 @@ D20 sheds too, the faint-tail mechanism is refuted and density alone explains th
 at config A it reaches median trade rate **≤ −10** recall-points per unit `J` with **keep% < 80%**, at precision
 **≥ 0.99**. D20 must NOT meet it.
 
+**Measured — the class PASSES and the control separates cleanly:**
+
+| dataset | landed Sens | recall C0 → A | Δrecall | Δ`J` | trade rate | keep% | criterion |
+|---|---|---|---|---|---|---|---|
+| `D18_m24_deep_shed` | 32.83 | 0.736 → 0.607 | −0.129 | 0.00242 | **−53.4** | **48.8%** | **MEETS** |
+| `D19_cygnus_deep_shed` | 16.67 | 0.983 → 0.968 | −0.015 | 0.00037 | **−40.4** | 59.2% | **MEETS** |
+| **`D20_m24_bright_control`** | 15.67 | 0.946 → **0.960** | **+0.014** | 0.00031 | **+44.9** | **94.8%** | **does not meet** |
+
+Precision is 1.000 on all three. **D20's trade rate is positive** — the optimizer *gained* recall on the
+bright-dominated control while raising its gate. So the mechanism is decided rather than assumed: all three
+fields have the headroom to shed, and only the two with a faint near-threshold tail actually do. **Density
+supplies the headroom; the faint tail supplies the motive.**
+
+Note all three raised Sensitivity above the default, control included — a landing that moves the gate is not by
+itself evidence of shedding, and an arm read off landed parameters alone would have misclassified D20.
+
+**So [F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains)'s
+both-bank requirement is now satisfiable**: the synthetic bank finally contains the regime a candidate objective
+change has to be shown to move.
+
 **Why this is worth spending anything on:** only the synthetic bank knows the **true optimal focuser position**
 (`optimalFocuserPosition` is a spec input). So only it can answer whether shedding bought *real focus accuracy*
 or merely a smaller **self-reported** σ from a fit with fewer, better-behaved points — the crux of F32 and F4,

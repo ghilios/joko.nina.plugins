@@ -11,12 +11,13 @@ the objective is not mis-scoring at all.*
 
 | what | result |
 |---|---|
-| F33 part 2 — the gate | **Decided: grow it.** Three spec rows, no generator code. The blocker was headroom above the hard floor, not the render |
+| F33 part 2 — the gate | **Decided: grow it, and the class PASSES.** Two shedders at trade rate −53.4/−40.4; the control comes back **+44.9** |
 | …and the mechanism is not what F33 assumed | The detector sheds at **any** density; density decides whether the optimizer can **afford** to |
 | F20 part 1 — "report it" | **Done.** And the blocker the entry named was not the blocker |
 | F38 (new) — the seed trigger compares two pixel spaces | **Found and fixed.** Latent headless, **active in the wizard**. No F35 number affected |
 | F39 (new) — the harness records a binning the run never used | **Filed.** The derivation has never run on any dataset; 7 datasets have never run at their expected factor |
-| F32 — bound the trade | **Designed, not shipped.** It is blocked on the new datasets, which is why it was ordered after the gate |
+| F32 — bound the trade | **Designed, not shipped.** Now unblocked: the synthetic half of its both-bank score exists |
+| Bank settings handoff | **Shipped.** Every landing is now stored in a form the NINA UI can import and replay with |
 | The `Bin2` scare | **Killed by reading.** Inert on the headless path; every run used binning 1 |
 
 ## The premise that cost nothing to kill
@@ -95,11 +96,30 @@ question:
 **can** shed. The acceptance criterion is about whether the optimizer **chooses** to, which depends on whether
 shedding buys a tighter σ_focus, and only an `optimize` pass answers that.
 
-So the criterion is **not yet evaluated**: the rows are generated and carry the required headroom, and the
-verdict needs the optimizer arm. Run on the three new datasets **only**, deliberately — per
-[F15](followups.md#f15--optimize---per-run-overwrites-each-runs-stored-settings), `optimize --per-run` rewrites
+So the criterion needed the optimizer arm — run on the three new datasets **only**, deliberately, because per
+[F15](followups.md#f15--optimize---per-run-overwrites-each-runs-stored-settings) `optimize --per-run` rewrites
 settings back into the run folders, and re-baselining the existing 17 as a side effect of testing three new ones
 would be exactly the mistake wave 3 recorded.
+
+### The verdict: the class passes, and the control earns its keep
+
+| dataset | landed Sens | recall C0 → A | Δrecall | Δ`J` | **trade rate** | keep% | precision | criterion |
+|---|---|---|---|---|---|---|---|---|
+| `D18_m24_deep_shed` | 32.83 | 0.736 → 0.607 | **−0.129** | 0.00242 | **−53.4** | **48.8%** | 1.000 | **MEETS** |
+| `D19_cygnus_deep_shed` | 16.67 | 0.983 → 0.968 | −0.015 | 0.00037 | **−40.4** | 59.2% | 1.000 | **MEETS** |
+| **`D20_m24_bright_control`** | 15.67 | 0.946 → **0.960** | **+0.014** | 0.00031 | **+44.9** | **94.8%** | 1.000 | **does not meet** |
+
+Both shedders clear the pre-registered bar (≤ −10, keep% < 80, precision ≥ 0.99) and land inside the real bank's
+regime (real median −17.3). **D20's trade rate is POSITIVE** — on the bright-dominated control the optimizer
+*gained* recall while raising its gate, and kept 94.8% of detections against the shedders' 48.8% and 59.2%.
+
+That is the separation the control was built to produce, and it decides the mechanism question rather than
+assuming it: all three fields are dense enough to shed, and only the two with a faint near-threshold tail
+actually do. **Density supplies the headroom; the faint tail supplies the motive.** Had D20 shed too, the
+faint-tail account would have been refuted and the rows would have been measuring density alone.
+
+Note also that all three raised Sensitivity above the default — the control included. A landing that moves the
+gate is not by itself evidence of shedding; what separates them is what the move *cost*.
 
 ## F32 — what the recon changed, and why nothing shipped
 
@@ -164,6 +184,34 @@ same comment's next clause says outputs are rescaled "so callers never see binne
 **wizard** that stamps the user's real factor, i.e. the bug bit the product on exactly the undersampled
 population F20/F35 exist to rescue.
 
+## The bank now stores settings the app can actually replay with
+
+`optimize --per-run` already wrote `optimized_settings.json` beside every run's frames, but **nothing in the
+plugin can read it** — it is a bare diagnostic DTO, and the optimizer wizard's replay path reads *no* settings
+from the run folder at all (seed = hard-coded defaults, baseline = the live profile).
+
+So each landing is now also written as a `StarDetectionSettingsExport` envelope — `hocusfocus_star_detection.json`
+— which the app's existing **Options → Star Detection → Import** already loads and diffs. No new format, no new
+reader.
+
+Two naming constraints, both load-bearing:
+
+- **Not `optimized_settings.json`.** `golden eval --params optimized`, `bank-verify`, `review` and `inspect-align`
+  locate the landing by that exact filename and deserialize it as a bare `OptimizedStarDetectionSettings`. Handing
+  them an envelope would bind every curated knob to its CLR default — Sensitivity 0, MinHFR 0, StructureLayers 0 —
+  and score a completely different detector **with no error and no warning**. That is wave 3's seed-leak failure
+  mode one level out: a value read back from a run folder silently moving results.
+- **Not `metadata.json`.** That is the AF-replay capture-time record, resolved folder-before-run-root, and the real
+  bank already has genuine ones.
+
+And the landing goes into the **flat** snapshot knobs as well as the nested `optimizedSettings` block, because
+nested-only is silently wrong on both consumers: the import copies flat knobs last (flat wins), and the AF-replay
+in-memory override reads flat only. The DTO→options mapping is by reflected name with a test asserting no axis is
+left unmapped, so adding a curated axis cannot quietly drop it from the handoff.
+
+**Backfill is still outstanding:** existing bank folders keep whatever landing they already had; the envelope
+appears on the next `optimize` pass over a run.
+
 ## Lessons
 
 **1. Read the thing before scheduling a run against it — again, and it paid the most this wave.** The `Bin2`
@@ -179,15 +227,20 @@ it. Count the tests that discriminate, not the tests you wrote.
 expensive (`TooLowHFR` has no `*Bounds` list). The reason was real and the conclusion did not follow — the seam
 never used bounds lists. Two waves deferred part 1 partly on that sentence.
 
-**4. The cheap instrument answers the question it measures, not the question you asked.** The 40 s gate sweep
+**4. A landing that moves the gate is not evidence of shedding.** All three new datasets raised Sensitivity above
+the default, control included. What separates them is what the move cost — recall and keep%, not the knob. An
+arm read off the landed parameters alone would have called D20 a shedder.
+
+**5. The cheap instrument answers the question it measures, not the question you asked.** The 40 s gate sweep
 established that a dense field sheds. It cannot test the control, because forcing a gate is not the same
 experiment as letting the optimizer choose one. Noticing that before reading a verdict into −0.362 is the whole
 value of stating the acceptance criterion in advance.
 
 ## Verification
 
-- Full suite **3387/3387, exit 0** (baseline at branch point: 3371/3371). All 16 new tests are new coverage.
-- F38's fix was reverted and the suite re-run: **4 discriminating failures**, then restored.
+- Full suite **3392/3392, exit 0** (baseline at branch point: 3371/3371). All 21 new tests are new coverage.
+- F38's fix was reverted and the suite re-run: **4 discriminating failures**, then restored. The settings-handoff
+  flat-knob overlay was reverted the same way: **2 discriminating failures**, then restored.
 - `synth-bank --verify` passed on all three new datasets (`PixelSize`/`FocalLength`/`BinX`/`ExposureTime`).
 - Per [F37](followups.md), a red CI check is checked against the native test-host crash before being read as a
   regression, and nothing merges on red.
