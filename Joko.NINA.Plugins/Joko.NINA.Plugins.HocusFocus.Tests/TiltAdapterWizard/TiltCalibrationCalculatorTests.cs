@@ -271,20 +271,23 @@ public class TiltCalibrationCalculatorTests {
 
     [Test]
     public void Calibrate_DerivesScrewDeltasFromReBaselineNotBaseline() {
-        // The screw moves are measured against the re-baseline that precedes them (c→d, e→f), so a drifted
+        // The screw moves are measured against the re-baseline(s), not the original baseline, so a drifted
         // re-baseline (offset from the original baseline) must NOT contaminate the recovered angles: the single
-        // screw move is added on top of the re-baseline reading and the delta isolates it.
+        // screw move is added on top of the re-baseline reading and the delta isolates it. Screw 1's reference is
+        // now mid(ReBaseline1, ReBaseline2) (drift-cancelling); constructing ReBaseline1 == ReBaseline2 here keeps
+        // that midpoint exactly equal to the drifted re-baseline, so the expectations stay exact and obviously
+        // correct (this is not testing drift-cancellation itself -- see Calibrate_LinearTiltDrift_CancelsExactlyForScrew1
+        // for that).
         const double pitch = 400.0;
-        var reBaseline1 = new TiltGradient(12.0, -7.0, 1000);  // c drifted from baseline a
-        var reBaseline2 = new TiltGradient(-4.0, 9.0, 1000);   // e drifted from c
+        var reBaseline = new TiltGradient(12.0, -7.0, 1000);  // c and e both drifted identically from baseline a
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
             Baseline = new TiltGradient(0, 0, 1000),
             AllInward = new TiltGradient(0, 0, 1075),
-            ReBaseline1 = reBaseline1,
-            Screw1 = Plus(reBaseline1, SingleScrewReading(0, pitch, 3)),
-            ReBaseline2 = reBaseline2,
-            Screw2 = Plus(reBaseline2, SingleScrewReading(120, pitch, 3)),
+            ReBaseline1 = reBaseline,
+            Screw1 = Plus(reBaseline, SingleScrewReading(0, pitch, 3)),
+            ReBaseline2 = reBaseline,
+            Screw2 = Plus(reBaseline, SingleScrewReading(120, pitch, 3)),
             ImageWidthPixels = ImgW,
             ImageHeightPixels = ImgH,
             PixelSizeMicrons = PixelSize,
@@ -302,6 +305,49 @@ public class TiltCalibrationCalculatorTests {
             // AllInward mean (1075) above baseline (1000) ⇒ σ = −1.
             Assert.That(r.CurvatureSign, Is.EqualTo(-1));
         });
+    }
+
+    [Test]
+    public void Calibrate_LinearTiltDrift_CancelsExactlyForScrew1() {
+        // A constant drift vector v is added per measurement interval. The screw-1 move D is bracketed
+        // by ReBaseline1 (2 intervals in) and ReBaseline2 (4 intervals in), with Screw1 at 3 intervals:
+        // Screw1 − mid(RB1, RB2) recovers D exactly. The old delta (Screw1 − RB1) is off by |v|.
+        var (vA, vB) = (9.0, -5.0);
+        var move1 = SingleScrewReading(0, 400.0, 4);      // D
+        var move2 = SingleScrewReading(90, 400.0, 4);     // E
+        TiltGradient Drift(TiltGradient g, int k) => new TiltGradient(g.A + k * vA, g.B + k * vB, g.MeanFocuserPosition);
+
+        var drifted = new TiltCalibrationInputs {
+            ScrewCount = 4,
+            Baseline = Drift(new TiltGradient(0, 0, 0), 0),
+            AllInward = Drift(new TiltGradient(0, 0, 100), 1),
+            ReBaseline1 = Drift(new TiltGradient(0, 0, 0), 2),
+            Screw1 = Drift(move1, 3),
+            ReBaseline2 = Drift(new TiltGradient(0, 0, 0), 4),
+            Screw2 = Drift(move2, 5),
+            ImageWidthPixels = ImgW, ImageHeightPixels = ImgH,
+            PixelSizeMicrons = PixelSize, FocuserStepMicrons = FStep,
+            ScrewRadiusMillimeters = RadiusMm, CalibrationAppliedAmount = 1.0,
+            IsStepperAdjustment = false,
+        };
+        // Same shape, but with zero drift applied at every step (k=0 everywhere) -- the drift-free reference.
+        var cleanInputs = new TiltCalibrationInputs {
+            ScrewCount = 4,
+            Baseline = Drift(new TiltGradient(0, 0, 0), 0),
+            AllInward = Drift(new TiltGradient(0, 0, 100), 0),
+            ReBaseline1 = Drift(new TiltGradient(0, 0, 0), 0),
+            Screw1 = Drift(move1, 0),
+            ReBaseline2 = Drift(new TiltGradient(0, 0, 0), 0),
+            Screw2 = Drift(move2, 0),
+            ImageWidthPixels = ImgW, ImageHeightPixels = ImgH,
+            PixelSizeMicrons = PixelSize, FocuserStepMicrons = FStep,
+            ScrewRadiusMillimeters = RadiusMm, CalibrationAppliedAmount = 1.0,
+            IsStepperAdjustment = false,
+        };
+        var clean = TiltCalibrationCalculator.Calibrate(cleanInputs);
+        var driftedResult = TiltCalibrationCalculator.Calibrate(drifted);
+        // screw-1 recovery is drift-immune; screw-2 (no final re-baseline yet) is allowed to differ.
+        Assert.That(driftedResult.Screw1DirectionDegrees, Is.EqualTo(clean.Screw1DirectionDegrees).Within(1e-9));
     }
 
     [Test]
@@ -425,10 +471,16 @@ public class TiltCalibrationCalculatorTests {
             // physical-space values (F2 fix): the old (A,B)-space pins (13.91 / 17.10 / 0.81 / 50.9°) were
             // computed on an implicitly-unit sensor; the real 6248x4176 anisotropy shifts SNR from 0.81 to
             // ~0.71 and the angle uncertainty from 50.9° to ~54.5° — still solidly noise-dominated/unreliable.
-            Assert.That(c.ScrewMoveSignal, Is.EqualTo(0.0026615).Within(0.00005));
+            // Drift-cancelling screw-1 reference (F3, this test): ScrewMoveSignal is the mean of the two
+            // single-screw move magnitudes, and screw 1's move is now referenced to mid(ReBaseline1,
+            // ReBaseline2) instead of ReBaseline1 alone; since RB1 != RB2 in this real run, the signal (and
+            // everything derived from it) shifts from 0.0026615 -> ~0.0032226. NoiseEstimate is untouched (the
+            // noise probes -- all-inward residual and both re-baseline drifts -- don't involve the screw-move
+            // reference). Still solidly noise-dominated/unreliable either way.
+            Assert.That(c.ScrewMoveSignal, Is.EqualTo(0.0032226).Within(0.00005));
             Assert.That(c.NoiseEstimate, Is.EqualTo(0.0037296).Within(0.00005));
-            Assert.That(c.SignalToNoise, Is.EqualTo(0.7136).Within(0.01));
-            Assert.That(c.PredictedAngleUncertaintyDeg, Is.EqualTo(54.49).Within(0.5));
+            Assert.That(c.SignalToNoise, Is.EqualTo(0.8641).Within(0.01));
+            Assert.That(c.PredictedAngleUncertaintyDeg, Is.EqualTo(49.17).Within(0.5));
             Assert.That(c.IsReliable, Is.False);
         });
     }
@@ -502,10 +554,14 @@ public class TiltCalibrationCalculatorTests {
         };
         var confidence = TiltCalibrationCalculator.ComputeConfidence(inputs);
         Assert.Multiple(() => {
-            // signal = mean(|0.10|, |0.10|) = 0.10; noise = |ReBaseline2 - ReBaseline1| = 0.01
-            Assert.That(confidence.ScrewMoveSignal, Is.EqualTo(0.10).Within(1e-9));
+            // Screw 1's move is referenced to mid(ReBaseline1, ReBaseline2) = mid((0,0), (0.01,0)) = (0.005,0):
+            // |Screw1 - mid| = |(0.095,0)| = 0.095. Screw 2 has no HasFinalRebaseline, so it's still referenced
+            // to ReBaseline2 alone: |Screw2 - ReBaseline2| = |(0,0.10)| = 0.10. signal = mean(0.095, 0.10) =
+            // 0.0975; noise = |ReBaseline2 - ReBaseline1| = 0.01 (unaffected -- it's a noise probe, not a
+            // screw-move delta).
+            Assert.That(confidence.ScrewMoveSignal, Is.EqualTo(0.0975).Within(1e-9));
             Assert.That(confidence.NoiseEstimate, Is.EqualTo(0.01).Within(1e-9));
-            Assert.That(confidence.SignalToNoise, Is.EqualTo(10.0).Within(1e-9));
+            Assert.That(confidence.SignalToNoise, Is.EqualTo(9.75).Within(1e-9));
             Assert.That(confidence.AllInwardTiltResidual, Is.NaN);
             Assert.That(confidence.Rebaseline1Drift, Is.NaN);
             Assert.That(confidence.Rebaseline2Drift, Is.EqualTo(0.01).Within(1e-9));
