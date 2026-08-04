@@ -447,6 +447,45 @@ two datasets. Note also that the two survivors of the original entry are untouch
 broken on the synthetic donut datasets (unlike the real bank's `Panos`/`mufti`/`LinwoodFocus`), and there is
 still no signal that recommends the master.
 
+**Answered 2026-08-03 (wave 3): it is not any of the nine axes — it is what the MASTER TOGGLE turns on by
+default.** Reading the two landings before running anything settled the framing: **the search moved none of the
+nine.** D16 landed every one at its default; D04 moved only `DefocusDistortionSizeReference` 30 → 28.75, and
+that one is provably inert (bit-identical recall). A per-axis ablation would have returned nine nulls.
+
+Arms hold every parameter at defaults and vary only master-gated mechanisms. `golden eval`, ~40 s each,
+precision **1.000** / FP **0** throughout:
+
+| arm | D16 recall@high | D04 recall@high |
+|---|---|---|
+| master OFF | **0.821** (151/184) | **0.762** (16853/22109) |
+| master ON | 0.793 | 0.723 |
+| + structure boost 0 | **0.821** (all recovered) | 0.732 (23%) |
+| + morph-close 1 | 0.799 (21%) | 0.758 (90%) |
+| **+ both** | **0.821 (151/184)** | **0.762 (16853/22109)** |
+
+Neutralizing both recovers the master-OFF recall **exactly — the same star counts, not merely the same ratio**,
+on both datasets. The two mechanisms are:
+
+1. **A silent +2 structure boost.** Master ON with `DefocusAwareStructure` OFF still applies
+   `DonutDefaultStructureLayerBoost = 2` (`StarDetector.cs:610-615`), taking `StructureLayers` 4 → 6. More
+   wavelet layers subtracted erases more small-star structure. Dominant on D16.
+2. **A 5 px morph-close.** `DonutMorphCloseSize` **defaults to 5 and is neutral at 1**, so the master runs a
+   morphological close that merges compact stars. Dominant on D04.
+
+**Caveat:** these arms run at default shared params (NC 4.0), so −0.028 / −0.039 is the master's own cost, not
+the −0.147 / −0.113 above (NC 2, against B's full landing). The master residue is a fifth to a third of it; the
+rest is B's different landing on the *shared* axes.
+
+**And the mechanism is [F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains).**
+Both are reachable by the search — `DonutMorphCloseSize` is a curated axis and `StructureLayerBoost` becomes
+settable once `DefocusAwareStructure` flips on. The optimizer never neutralizes them because `J` does not pay
+for recall. **This is not a missing knob; it is a saturated objective, measured on two specific rigs.**
+
+**Remaining next step.** Consider defaulting the master's structure boost and morph-close to neutral on runs the
+donut heuristic did not flag, or making the objective pay for recall. Both are behaviour changes, so per
+[F33](#f33--the-synthetic-bank-does-not-reproduce-the-real-banks-optimizer-failure-mode) they must be scored on
+**both** banks. Reproduce: `D:\hf_w3\run_f24_arms.sh` and `run_f24_arms2.sh`.
+
 ### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
 **Status:** Open · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
 
@@ -510,12 +549,32 @@ This is a **cold-start plateau**, not a missing knob, and it is why the earlier 
 is defensible, only the silence is a problem") was too generous: the gate costs a whole class of rigs their
 autofocus, and the fix is within the existing search space.
 
-**It also reproduces on the REAL bank, twice (2026-08-03).** `BaselineJ` — the objective at shipped defaults — is
-exactly **0.0000** on `Panos` and `LinwoodFocus`, the only two runs in the 19-run bank where it is. Both are the
-same silent null result D01/D02 produce synthetically, on real frames from real rigs. They are also the only two
-runs whose recall@≥12 *improves* under the optimizer (+0.031 and +0.089), for the reason F32 gives: they are the
-only ones with any headroom to climb. So this is not a synthetic-bank artifact of the render, and the affected
-population is not hypothetical.
+**It also reproduces on the REAL bank (2026-08-03).** `BaselineJ` — the objective at shipped defaults — is
+exactly **0.0000** on `Panos` and `LinwoodFocus`. Both are the same silent null result D01/D02 produce
+synthetically, on real frames from real rigs, and both are runs whose recall@≥12 *improves* under the optimizer
+(+0.031 and +0.089), for the reason F32 gives: they have headroom to climb. So this is not a synthetic-bank
+artifact of the render, and the affected population is not hypothetical.
+
+> **Corrected 2026-08-03 (wave 3), twice over.**
+>
+> **(a) "The only two runs of nineteen" is wrong — it is four.** `SorenVance` and `lumos` also carry
+> `BaselineJ` exactly 0.0000. They split, too: `SorenVance` climbs 0 → **0.9701** while `lumos` stays 0 → 0, so
+> the cold-start plateau is **sometimes** escapable — which the two-run framing hid.
+>
+> **(b) NONE of the four is the defect this entry describes, and that is the bigger correction.** The claim
+> above — that they are "the same silent null result D01/D02 produce synthetically" — was tested directly by the
+> [F35](#f35--minhfr-should-be-seeded-from-the-sweep-wings-and-neither-available-hfr-statistic-can-size-it)
+> seeding run over all 19 real runs. **The seed fired on zero of them**, because all four have a fit vertex
+> *above* the 1.2 gate, and all 19 landings came back bit-identical to the control. Their `J = 0` comes from
+> having almost no stars at all — `lumos` and `SorenVance` detect **zero** at C0, `Panos` 33 and `LinwoodFocus`
+> 13 across nine frames — not from stars being rejected for measuring too small.
+>
+> **Two different defects present identically** as `currentJ=0 bestJ=0 hard-floor FAIL`: the `MinHFR` gate
+> emptying the curve's core (synthetic D01/D02) and a frame with no detectable signal (real `lumos`/`SorenVance`).
+> Only the first is a detector-configuration problem. So this entry's strongest claim — that the affected
+> population is not hypothetical because it reproduces on real rigs — **is not supported**; what reproduces on
+> the real bank is the *symptom*, not the cause. The synthetic bank is currently the only place the real defect
+> is known to exist.
 
 **Next step.** Two parts, and the second is the substantive one.
 1. *Report it.* When a large fraction of accepted candidates are rejected by `MinHFR` specifically, say so and
@@ -922,6 +981,33 @@ while the change in what gets detected is enormous.
 these numbers say, the fix is to rescale or re-anchor the objective (or gate acceptance on the *magnitude* of the
 improvement) rather than to add a term. Cheap to check: the numbers above come from files already on disk.
 
+**Measured 2026-08-03 (wave 3).** Done, from files already on disk, over all three arms. `BaselineJ` and
+`FinalJ` come from each run's stored landing; recall from the `/5` synthetic verify and the `/3` real one —
+valid because `recallHigh` derives only from `match.Pairs` (`BankVerifyRunner.cs:488`) and the `/5` repair
+touched only the false-positive list, so the real bank's *precision* is void but its *recall* is not.
+
+| arm | median `BaselineJ` | median Δ`J` | median Δrecall@≥12 | **median trade rate** (Δrecall per unit Δ`J`) |
+|---|---|---|---|---|
+| synthetic A | 0.952 | +0.0101 | **0.000** | **0.00** |
+| synthetic B | 0.992 | +0.0021 | −0.014 | **−1.01** |
+| **real A** | 0.977 | +0.0126 | **−0.243** | **−17.32** |
+
+Three things follow, and the third is the one that changes the plan:
+
+1. **The headline number reproduces exactly.** Median Δrecall on the real bank is −0.243, as recorded above.
+2. **The worst case is far worse than "0.0002 for 46 points".** Expressed as a rate, `toml999` gives up **3018
+   points of recall per unit of `J`**; `uneven` −134, `CWhiteFocus` −116, `muggsie` −94. The fourth decimal is
+   not a rounding error, it is the entire remaining scale.
+3. **The two banks disagree in SIGN, not just in magnitude** — the synthetic bank's median trade rate is
+   **0.00**, i.e. config A costs the synthetic bank no recall at all while costing the real bank a quarter of
+   it. So the synthetic bank cannot measure this defect, and
+   [F33](#f33--the-synthetic-bank-does-not-reproduce-the-real-banks-optimizer-failure-mode)'s rule applies to
+   any proposed rescaling as much as to a new term. **A candidate objective change must move the real-bank
+   trade rate, and the synthetic bank cannot tell you whether it did.**
+
+Reproduce: `D:\hf_w3\f32_dynrange.py` (reads `hf_w2/verify_v5`, `hf_f23/verify_real_H`, and the `H_A` / `B_A`
+/ `H_real_A` landings; no detector run).
+
 ### F33 — The synthetic bank does not reproduce the real bank's optimizer failure mode
 **Status:** Open · found 2026-08-03 re-reading the wave-1 arms side by side
 
@@ -941,9 +1027,23 @@ opposite behaviours, and the synthetic bank was built to study the first one.
 | real: `mccomiskey` | 0.0, but **StarClip 10.0** (the maximum) | 3606 → **43** |
 
 `mccomiskey` is the instructive one: Sensitivity reads 0.0, which looks like the synthetic pathology, but the
-effective gate is `PeakResponse × StarClip = 0.75 × 10 = 7.5` — the *same escape route* F23 wave 1 measured on
-D12 and D15, here operating as the shedding mechanism rather than the loosening one. Reading the Sensitivity axis
-alone misclassifies this run.
+effective gate is `PeakResponse × StarClip` — the *same escape route* F23 wave 1 measured on D12 and D15, here
+operating as the shedding mechanism rather than the loosening one. Reading the Sensitivity axis alone
+misclassifies this run.
+
+> **Corrected 2026-08-03 (wave 3), and it is more general than one run.** The `0.75 × 10 = 7.5` above used the
+> *default* `PeakResponse`; this landing's own `StarPeakResponse` is **0.98**, so its effective gate is
+> **9.81**. Both inputs are searched axes, so the gate must always be computed from the landing's own params —
+> the same trap the entry warns about, one level down. And `mccomiskey` is not alone: **`caboose`** also lands
+> Sensitivity 0.0 with an effective gate of **5.05**, and on the synthetic bank **2 of the 6** "Sensitivity 0.0"
+> landings F23 cites are not floor landings either (**D11 → 2.36**, **D12 → 2.10**; D09/D10/D15/D17 are genuine,
+> all below the 1.5 inert bound). So this is a systematic reading error, not one odd run.
+>
+> **Shipped:** `StarDetector.EffectiveSensitivityGate(p)` = `max(Sensitivity, InertSensitivityBound(p))`,
+> reported alongside every quoted landing Sensitivity — `optimized_settings.json` (derived, get-only, no schema
+> bump), `optimize`'s console + `optimize_summary.txt` + `aggregate_summary.*`, and `bank-verify`'s per-config
+> `effectiveSensitivity`. The `afbank-verify` schema is deliberately **not** bumped: the field is additive and
+> derived, no number changes, and the /4 and /5 bumps were for changes that made numbers non-comparable.
 
 **Why it matters.** [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)'s
 framing — "the optimizer drives `BrightnessSensitivity` to its 0.0 floor" — is a **synthetic-bank-only**
@@ -959,8 +1059,69 @@ deliberately whether the bank should grow a dataset class that reproduces the sh
 score every candidate objective change on **both** banks, never the synthetic one alone.
 
 ### F35 — `MinHFR` should be seeded from the sweep WINGS, and neither available HFR statistic can size it
-**Status:** Open · found 2026-08-03 answering "how far can `MinHFR` safely come down?" for
+**Status:** Done (wave 3) · found 2026-08-03 answering "how far can `MinHFR` safely come down?" for
 [F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic)
+
+**Shipped 2026-08-03** — `MinHfrSeed.Resolve` + `OptimizerSettings.MinHfrSeedFloor`, applied at the engine seam
+ahead of θ0. Two of this entry's own premises were wrong and are corrected below.
+
+Synthetic bank, 17/17, `EXIT=0` where the wave-1 arm exited 3. The seed fires on exactly **three** datasets —
+D01 (fit vertex 0.762 px), D02 (0.749) and D03 (1.015), i.e. precisely the undersampled rigs this entry and F20
+name:
+
+| dataset | seed? | `MinHFR` new / control | `FinalJ` new / control |
+|---|---|---|---|
+| `D01_ultrawide_40mm` | **YES** | 0.100 / 1.200 | **0.99018 / 0.00000** |
+| `D02_rich_135mm` | **YES** | 0.550 / 1.200 | **0.99656 / 0.00000** |
+| `D03_redcat_250mm` | **YES** | 0.300 / 0.450 | 0.99549 / 0.99486 |
+| the other 14 | no | **identical** | **identical to 5 dp** |
+
+**D01 and D02 go from `FinalJ` exactly 0 to a real landing — the whole of F20's defect — and 14 of 17 landings
+are bit-identical to the control**, including D05 at 1.450. On every rig the change was not designed for it is a
+no-op, not a small perturbation. Zero datasets that did not trigger landed at the seed constant.
+
+**Real bank: 19/19 landings bit-identical to the control, seed fired on ZERO runs** (per F33's "both banks"
+rule). Exactly inert, not "within noise". It also disproves F20's claim that its real-bank runs are the same
+defect — see the correction in [F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic).
+**The fix is real and measured, but its real-bank population on this bank is empty**, so the user-facing benefit
+is unproven on real frames until an undersampled short-focal-length rig enters the bank. Do not claim otherwise.
+
+Two things the run adds. **`BaselineJ = 0` is not by itself evidence of this defect**: D17 reads 0 like D01/D02,
+but its vertex is above the gate, the seed correctly declines, and its landing is unchanged — it was already
+escaping on its own. And **the censoring bias is visible but survivable**: D01's fit read 0.762 px against a
+0.238 truth vertex (3.2× high) and still cleared 1.2, which is exactly why a *trigger-only* use of the fit works
+where a *sizing* use cannot — `0.8 × predicted` would have given 0.61 and re-gated the rig completely.
+
+> **The validation run caught a bug in the fix, and the D05 control is what caught it.** The first bank pass
+> read 17/17 hard-floor PASS — and was wrong. D05 landed `MinHFR` **0.300** (the seed constant) despite a
+> 1.804 px truth vertex that must never trigger; 14 of 17 datasets landed at exactly 0.300 while the log printed
+> the seeding line exactly **once**. Cause: `OptimizeAsync` wrote `seed.MinHFR` **in place**, and callers reuse
+> one `StarDetectorParams` — TestApp builds its context once *outside* the per-dataset loop
+> (`OptimizationDiagnosticRunner.cs:306` vs `:426`), and the wizard passes a live reference to `runs[0].Seed`.
+> So D01's genuine firing permanently re-gated the other sixteen, each of which then saw a seed already at the
+> floor and correctly declined to trigger. **One real firing, sixteen silent ones, order-dependent results.**
+> Fixed by cloning the seed; the regression test was confirmed to FAIL without the fix. Note the first unit test
+> asserted `seed.MinHFR == SeedFloor` — it codified the bug and passed. **D05 exists purely to be boring, and a
+> boring reading was the only thing that separated a working fix from one that had re-gated the whole bank.**
+
+> **Correction 1 — the trigger statistic is not available where this entry says it is.** `BestFit.Minimum.Y` is
+> "already read by the wizard as `baselineInFocusHfr`" only **after** the search, in `BuildSummaryAsync`
+> (`StarDetectionOptimizerWizardVM.cs:3115`). The shared engine seam cannot see it at all:
+> `RunEvaluationMetrics` carries the vertex **X only** (`BestFocusPosition`, `RunEvaluationData.cs:817-818`) and
+> has no `Minimum.Y` field of any kind. Resolved by splitting the rule — the **caller** computes the trigger
+> (the wizard and TestApp `optimize` both already hold a pre-search `RunEvaluationResult`), the **engine**
+> applies the clamp. `synth-validate` and `tilt` fit no curve before optimizing, so they deliberately do not opt
+> in and stay bit-identical.
+>
+> **Correction 2 — step 3 rests on a grid that does not exist, so it is NOT a fix.** `Continuous` is not
+> quantized: `OptimizerVariable.Quantize` is *identity + clamp* for it (`:83-92`), and `InitialStep` is the
+> **initial pattern-search stride**, which Phase B halves on every non-improving sweep down to
+> `InitialStep × StepFloorFraction` = **0.03125**. So the axis already resolves to ~0.03 px — the "0.45 → 0.20
+> is a 2.25× jump" framing describes only the first descent stride. And on the motivating rigs it is moot in
+> both directions: `MinHFR` is absent from Phase A (`CoarseGrid` is `Sensitivity × StarClippingMultiplier` only,
+> `:299-303`), so it moves solely through strictly-improving Phase-B moves — which on D01/D02's flat `J` never
+> happen **at any stride**. Retuning `InitialStep` would perturb every rig that *does* have a gradient while
+> doing nothing for the ones this entry is about. **Not shipped, deliberately.**
 
 [F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic)'s proposed fix —
 "if the median in-focus HFR is at or below `MinHFR`, seed `MinHFR` beneath it" — **cannot be implemented as
@@ -1066,6 +1227,48 @@ tuned from the surviving sample is tuning against a distribution it truncated.**
 **The risk to design against, unchanged from F20:** the objective rewards star count, so nothing pulls a seeded
 `MinHFR` back up. It is a knob the search cannot climb out of, which is why the seed must come from geometry
 rather than from a measurement the gate itself shaped.
+
+### F36 — Which pre-wave-2 entries actually rested on the broken precision metric: audited, and it is none of them
+**Status:** Done (wave 3) · raised 2026-08-03 as "F1–F8, F18, F21, F25, F26 have not been re-verified"
+
+After [F31](#f31--synthetic-bank-precision-is-not-exact-the-golden-omits-real-stars) voided every `/3` precision
+number and [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)/[F24](#f24--donut-detection-costs-precision-even-where-donuts-exist-and-badly-where-it-does-not)
+were re-measured, the open question was whether the *other* entries measured on those same landings needed the
+same treatment. That was an inference from what changed, not a check. **It has now been checked, entry by entry.**
+
+**Result: no entry's conclusion depends on the repaired precision metric.** Every one of F1–F8, F18, F21, F25 and
+F26 rests on σ_focus, recall, R², or landed parameter values — and `recallHigh` derives only from `match.Pairs`
+(`BankVerifyRunner.cs:488`), which the `/5` repair never touched. One clause is the exception, below.
+
+| entry | rests on | verdict |
+|---|---|---|
+| F1, F2 | donut-flag thresholds (`frac`, HFR, bbox) | unaffected |
+| F3 | recall@≥12 on the real bank | unaffected — but see below |
+| F4 | σ_focus, `J`, sensor-model stars/R² | unaffected |
+| F5, F6, F18, F21, F25 | σ_focus, R², curve geometry | unaffected |
+| F7 | σ_focus, and recall "essentially unchanged" | unaffected |
+| F8 | landed Sensitivity/StarClip corners | unaffected — but see below |
+| F26 | binning/convergence, **plus one precision clause** | one clause unverified |
+
+**The one genuinely unverified clause.** F26 states that with the F23 marginal-SNR term enabled "D12 S6 converges
+… even though it **fails its own precision gates**." Those gates were the wave-1 `/3` ones, and F23's real
+precision effect turned out to be roughly one fifth of the artifact that hid it. The convergence result stands;
+the "fails its precision gates" half is not evidence until re-scored at `/5`.
+
+**Two entries are changed by [F33](#f33--the-synthetic-bank-does-not-reproduce-the-real-banks-optimizer-failure-mode)'s
+effective-gate correction instead — a different repair than the one being audited for.**
+
+- **F8** reads three landings as `sens 0 / clip 0.25`, `sens 0 / clip 6.875`, `sens 30.1 / clip 3.44` and calls
+  them non-reproducible. By **effective** gate they are further apart still — roughly **0.19**, **5.2** and
+  **30.1** — so the entry's conclusion is not merely intact but understated. Two landings that read as the same
+  "sens 0" corner are enforcing gates 27× apart.
+- **F3** cites `mccomiskey` A shedding to recall 0.079 as evidence `Wtie` does not prevent star-shedding. That
+  run's gate is now known to be **9.81**, not the floor its Sensitivity 0.0 suggests, which identifies the
+  shedding *mechanism* (the clip escape route) the entry left unnamed.
+
+**Why it matters.** The blanket assumption — "these were measured on suspect landings, so they are all suspect" —
+would have cost a full re-measurement pass and found nothing. The actual exposure was one clause in one entry.
+Recording the audit so it is not re-opened on the same inference next wave.
 
 ---
 
