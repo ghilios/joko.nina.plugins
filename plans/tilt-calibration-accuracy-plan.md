@@ -531,8 +531,8 @@ The replay already wrote per-state solver diagnostics to `<scratch>/tilt_replay/
 ### Task 10: Final gate
 
 - [x] **Step 10.1:** Full suite: `dotnet.exe test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo` (timeout 600000). All green — except `SendAsync_WritesOnABackgroundThread` may flake (known, unrelated; re-run it in isolation before dismissing, and do not pipe through `tail`, which masks the exit code).
-- [ ] **Step 10.2:** Re-run the Task 7 replay command once more from the final tree; eyeball the summary against the design doc's numbers (paraboloid ratio ~1.52 reported WITH the cross-check warning present; corner hardware ≈ 2.0; piston ≈ 2.23).
-- [ ] **Step 10.3:** Push branch, open PR to `develop` titled "Tilt calibration accuracy: physical-space metrics, drift-symmetric deltas, estimator cross-checks". PR body summarizes the four root causes from the design doc and maps each commit to a §7 item. End the body with the standard generated-with footer.
+- [x] **Step 10.2:** Re-run the Task 7 replay command once more from the final tree; eyeball the summary against the design doc's numbers (paraboloid ratio ~1.52 reported WITH the cross-check warning present; corner hardware ≈ 2.0; piston ≈ 2.23).
+- [x] **Step 10.3:** Push branch, open PR to `develop` titled "Tilt calibration accuracy: physical-space metrics, drift-symmetric deltas, estimator cross-checks". PR body summarizes the four root causes from the design doc and maps each commit to a §7 item. End the body with the standard generated-with footer.
 
 ---
 
