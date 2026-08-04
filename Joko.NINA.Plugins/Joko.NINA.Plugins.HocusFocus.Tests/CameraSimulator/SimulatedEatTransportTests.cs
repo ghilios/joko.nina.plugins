@@ -91,6 +91,20 @@ public class SimulatedEatTransportTests {
         Assert.That(EatResponses.ParseMoveAck(exchange), Is.True);
     }
 
+    // Real firmware embeds the post-move counters in the move's own response, which is what reconciles the
+    // shadow and drives the live position display without a follow-up query. The simulator emits the same
+    // block, in the device's WIRE order, so that path is exercised without hardware.
+    [Test]
+    public async Task SendAsync_Move_EmbedsThePostMovePositionBlockInDeviceOrder() {
+        var actuator = Actuator(new[] { 605, 600, 600, 595 }); // DEVICE order: TR, TL, BR, BL
+        var transport = new SimulatedEatTransport(actuator);
+
+        var exchange = await transport.SendAsync("tr,5", AnyTimeout, CancellationToken.None);
+
+        Assert.That(EatResponses.TryParseMovePositions(exchange, out var positions), Is.True);
+        Assert.That(positions.PerMotorSteps, Is.EqualTo(new[] { 605, 600, 600, 595 }));
+    }
+
     [Test]
     public void SendAsync_UnparseableCommand_Throws() {
         var transport = new SimulatedEatTransport(Actuator());

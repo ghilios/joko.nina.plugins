@@ -96,20 +96,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
     /// block for a long time and a write timeout must be a hard, visible failure. See the design doc's
     /// "Key reuse" note.
     ///
-    /// Read-loop design: after writing the command (+ line terminator), lines are collected by repeatedly
-    /// calling the underlying port's blocking <c>ReadLine()</c> (each call bounded by the port's configured
-    /// read timeout -- reused here as the "quiet window" -- see <see cref="QuietWindow"/>). Two races decide
-    /// when the exchange ends:
-    ///   1. QUIET PERIOD: once at least one line has been received, a subsequent poll that produces nothing
-    ///      within <see cref="QuietWindow"/> is treated as "the device has gone quiet, the response is
-    ///      complete" -- the exchange returns immediately with <c>TimedOut = false</c>, without waiting out
-    ///      the full budget. This lets fast commands (e.g. <c>cp</c>) return promptly.
-    ///   2. OVERALL TIMEOUT: before any line has arrived, a quiet poll does NOT end the exchange -- a move
-    ///      that produces no output at all for several seconds is normal, not an error, so the loop keeps
-    ///      polling until the caller's <c>timeout</c> budget (move commands pass >= 15 s, per plan task T7)
-    ///      is exhausted. Only then does the exchange end with <c>TimedOut = true</c>.
-    /// This is a design decision made under an unknown protocol, not a confirmed device behavior --
-    /// see the LIVE-CAPTURE markers below.
+    /// <para><b>Read-loop design: an exchange ends ONLY at a terminal sentinel.</b> After writing the command
+    /// (+ line terminator), lines are collected by repeatedly calling the underlying port's blocking
+    /// <c>ReadLine()</c> (each call bounded by the port's read timeout, <see cref="QuietWindow"/>) until the
+    /// device's own end-of-response marker arrives (<see cref="MoveCompleteSentinel"/> /
+    /// <see cref="QueryCompleteSentinel"/>, both confirmed against firmware 7.1.0), or the caller's overall
+    /// budget is exhausted -- which means the response is INCOMPLETE (<c>TimedOut = true</c>), never "finished
+    /// without a sentinel".</para>
+    ///
+    /// <para><b>A quiet gap is not end-of-response.</b> This transport used to treat "at least one line, then
+    /// <see cref="QuietWindow"/> of silence" as completion. On a loaded machine the device pauses mid-dump for
+    /// longer than that, and a real session shows the consequence: a <c>cp</c> response abandoned after 3 of
+    /// its ~22 lines, its unread remainder becoming the head of the next command's response, and every exchange
+    /// for the following hour running exactly one behind -- position queries returning a previous dump's
+    /// counters (so displays froze), and moves "acknowledged" by an earlier command's sentinel (so a move that
+    /// never completed was journaled as successful). It survived until the port was closed and reopened.
+    /// <see cref="DrainStaleInputAsync"/> is the second half of that fix: it clears (and reports) leftover input
+    /// before each command, so a link that does fall out of step resynchronizes itself.</para>
     /// </summary>
     public sealed class EatSerialTransport : IEatTransport, IDisposable {
 
@@ -144,6 +147,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
         // pauses mid-response (e.g. a slow multi-second move whose heartbeat gaps could otherwise look "quiet").
         internal const string MoveCompleteSentinel = "***finished movement***";
         internal const string QueryCompleteSentinel = "***Action Processed***";
+
+        // Emitted repeatedly while motors are running (hundreds per move). Carries no information beyond "still
+        // moving", so the read loop counts them and logs one summary line instead of one line each.
+        internal const string MotionHeartbeat = "***moving***";
+
+        // Cap on the resynchronizing drain that runs before a command when the input buffer is not empty (see
+        // DrainStaleInputAsync). Only ever spent on a link that is already out of step.
+        internal static readonly TimeSpan ResyncTimeout = TimeSpan.FromSeconds(3);
 
         // The "quiet window" -- the per-poll ReadLine() timeout (passed as `readTimeout` to GetSerialPort) and
         // the gap-since-last-line the read loop treats as "response complete" once at least one line has arrived
@@ -277,6 +288,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
                     throw new InvalidOperationException("The EAT transport is not open; call OpenAsync first.");
                 }
 
+                // Start every exchange from a known-empty input buffer -- see DrainStaleInputAsync.
+                await DrainStaleInputAsync(port, command, ct).ConfigureAwait(false);
                 await WriteCommandAsync(port, command, ct).ConfigureAwait(false);
                 var (lines, timedOut) = await ReadResponseAsync(port, timeout, ct).ConfigureAwait(false);
                 return new EatRawExchange(command, lines, timedOut);
@@ -346,46 +359,101 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
             }
         }
 
-        /// <summary>See the class remarks for the full quiet-period/overall-timeout read-loop contract.</summary>
+        /// <summary>See the class remarks for the full read-loop contract.</summary>
         private async Task<(List<string> Lines, bool TimedOut)> ReadResponseAsync(ISerialPort port, TimeSpan timeout, CancellationToken ct) {
             var lines = new List<string>();
             var deadline = DateTime.UtcNow + timeout;
+            int heartbeats = 0;
             while (true) {
                 ct.ThrowIfCancellationRequested();
                 if (DateTime.UtcNow >= deadline) {
-                    // Overall budget exhausted. LIVE-CAPTURE: a silent-but-successful move (no terminating
-                    // response at all) is indistinguishable, on the wire, from one that genuinely failed --
-                    // this transport cannot tell them apart. EatResponses.ParseMoveAck's tolerant policy is
-                    // the seam T15 tightens once the real ack behavior is known.
+                    // Overall budget exhausted with no terminal sentinel: the response is INCOMPLETE, not
+                    // "finished without a sentinel". Whatever the device still had to say stays in the port
+                    // buffer, which is precisely the desync the next command's DrainStaleInputAsync clears.
+                    LogHeartbeats(heartbeats);
                     return (lines, true);
                 }
 
                 try {
                     var line = await ReadLineOrThrowIfClosedAsync(port, ct).ConfigureAwait(false);
-                    Logger.Info($"EAT RX: {line}");
+                    if (IsHeartbeatLine(line)) {
+                        // A single move emits hundreds of these; logging each one buries the rest of the
+                        // transcript (one observed session logged 43k of them). Counted and logged once.
+                        heartbeats++;
+                    } else {
+                        LogHeartbeats(heartbeats);
+                        heartbeats = 0;
+                        Logger.Info($"EAT RX: {line}");
+                    }
                     lines.Add(line);
                     if (IsTerminalResponseLine(line)) {
-                        // The device signalled end-of-response -- return immediately instead of waiting out a
-                        // quiet window. Robust even if a slow move's "***moving***" heartbeats pause longer than
-                        // QuietWindow before the terminating sentinel arrives.
+                        LogHeartbeats(heartbeats);
                         return (lines, false);
                     }
                 } catch (TimeoutException) {
-                    if (lines.Count > 0) {
-                        // FALLBACK completion path: at least one line arrived, no terminal sentinel appeared, and
-                        // the device has now gone quiet for a full window. The normal path is the sentinel check
-                        // above; this only fires for a response that ends without a recognized sentinel.
-                        return (lines, false);
-                    }
-                    // Nothing received yet -- a still-executing multi-second move with no output so far is
-                    // expected, not an error. Keep polling until the overall timeout elapses.
+                    // A quiet window is NOT end-of-response. It only means nothing has arrived yet -- normal for
+                    // a still-executing multi-second move, and (as a real session proved) also for a device that
+                    // simply pauses mid-dump while the machine is busy. Treating quiet as "complete" abandoned a
+                    // response after 3 of its ~22 lines; the unread remainder then became the head of the NEXT
+                    // command's response, and every exchange for the rest of the session was one behind -- moves
+                    // "acked" by a previous command's sentinel, positions read from a stale dump. Only a
+                    // terminal sentinel (or the overall budget) ends an exchange.
                 }
             }
+        }
+
+        private static void LogHeartbeats(int count) {
+            if (count > 0) {
+                Logger.Info($"EAT RX: {MotionHeartbeat} x{count}");
+            }
+        }
+
+        /// <summary>
+        /// Discards anything still sitting in the input buffer before a command is written. Non-empty here can
+        /// only mean output from an earlier exchange this transport gave up on (it never reads unsolicited), so
+        /// keeping it would make this command read the previous command's response — the permanent one-behind
+        /// desync that, in a real session, made every position query return stale counters and every move ack a
+        /// previous command's sentinel, recoverable only by disconnecting and reconnecting the port.
+        ///
+        /// <para>Costs nothing on a healthy link (the buffer is empty and this returns immediately). When there
+        /// IS leftover data the device may still be mid-transmission, so the drain confirms the line has gone
+        /// quiet for a full <see cref="QuietWindow"/> before returning, bounded by <see cref="ResyncTimeout"/>.</para>
+        /// </summary>
+        private async Task<int> DrainStaleInputAsync(ISerialPort port, string command, CancellationToken ct) {
+            int buffered;
+            try {
+                buffered = port.BytesToRead;
+            } catch (InvalidOperationException ex) {
+                throw new SerialPortClosedException(
+                    $"Serial port '{port.PortName ?? "unknown"}' was closed while checking for stale input.", ex);
+            }
+            if (buffered <= 0) {
+                return 0;
+            }
+
+            port.DiscardInBuffer();
+            int discardedLines = 0;
+            var deadline = DateTime.UtcNow + ResyncTimeout;
+            while (DateTime.UtcNow < deadline) {
+                try {
+                    await ReadLineOrThrowIfClosedAsync(port, ct).ConfigureAwait(false);
+                    ++discardedLines; // Still arriving: the device was mid-transmission. Keep draining.
+                } catch (TimeoutException) {
+                    break; // Quiet for a full window -- the stream is back in step.
+                }
+            }
+            Logger.Warning(
+                $"EAT transport: discarded {buffered} stale byte(s){(discardedLines > 0 ? $" plus {discardedLines} trailing line(s)" : string.Empty)} " +
+                $"left over from a previous exchange before sending '{command}'. The link had fallen out of step (a response was abandoned before its terminal sentinel); it has been resynchronized.");
+            return discardedLines;
         }
 
         /// <summary>True if <paramref name="line"/> is one of the device's end-of-response sentinels (see <see cref="MoveCompleteSentinel"/> / <see cref="QueryCompleteSentinel"/>).</summary>
         private static bool IsTerminalResponseLine(string line) =>
             line != null && (line.Contains(MoveCompleteSentinel) || line.Contains(QueryCompleteSentinel));
+
+        /// <summary>True for the repeated in-motion heartbeat, which is summarized rather than logged per line.</summary>
+        private static bool IsHeartbeatLine(string line) => line != null && line.Contains(MotionHeartbeat);
 
         /// <summary>
         /// Wraps the underlying (synchronous, blocking) <see cref="ISerialPort.ReadLine"/> in a background

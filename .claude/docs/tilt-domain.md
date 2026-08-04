@@ -25,6 +25,25 @@ Example: a screw at 0° (straight up from center) — turning it inward tilts th
 
 The inspector's Tilt Adapter Guidance table uses two glyph vocabularies that answer different questions. The ⬆/⬇ arrows describe adapter-plate **motion** (⬆ = that corner moves toward the objective) — pure physics, identical on every rig. The ⟳/⟲ glyphs (screws) and +/− step signs (steppers) on the numeric rows carry the rig-specific **rotation** that produces that motion, which depends on the adapter's direction setting (`ScrewInwardCurvatureSign`). Never present ⬆/⬇ as a rotation. The full contract and sign derivations are in `docs/tilt-guidance-motion-arrows-design.md`.
 
+## Live motor positions while a motorized device is being driven
+
+`TiltDeviceConnectionService` polls the device's per-motor counters (`cp`) every 5 s, but that poll is
+**suspended for the entire lifetime of a `TryBeginOperation` lease** — a wizard calibration run, or an
+Automatic Adjustment plan including its confirming inspector run and any revert. Anything that displays
+`CurrentPositions` therefore freezes for the whole operation unless the operation itself republishes.
+
+- **The lease holder must call `TiltDeviceConnectionService.PublishControllerPositions()` after every move it
+  sends** — forward moves, revert moves, and recovery sweeps alike. It publishes to `CurrentPositions` /
+  `PositionsKnown`, so *every* panel bound to them (inspector and wizard) updates from one call.
+- **Never issue a follow-up `cp` per move to get those numbers.** Every EAT move response already embeds a
+  fresh `***Get Current Positions***` block (`docs/asg-eat-serial-protocol-design.md` §4.2), which
+  `EatTiltMotionController.ExecuteMoveAsync` reconciles into the shadow and exposes as
+  `ITiltMotionController.LastKnownPositions`. `PublishControllerPositions` reads that — no I/O, no extra ~1 s
+  round trip, and no second chance for a read to come back unparseable and silently freeze the display.
+- Positions that were never confirmed read **"unknown"**; a publish that finds none deliberately leaves the
+  last published values alone (a mid-plan gap must not blank a display that was right a moment ago) and logs
+  a warning, so a stale panel is diagnosable rather than silent.
+
 ## Image mirroring
 
 Camera images may be mirrored horizontally and/or vertically depending on the optical train (e.g., a star diagonal introduces a mirror). **Do not assume that screws numbered clockwise around the physical adapter will appear clockwise around the sensor image.** The screw orientations must be determined from the actual image coordinates after accounting for any mirroring. Plans and features that involve tilt correction must track orientation in image-space, not physical-space.

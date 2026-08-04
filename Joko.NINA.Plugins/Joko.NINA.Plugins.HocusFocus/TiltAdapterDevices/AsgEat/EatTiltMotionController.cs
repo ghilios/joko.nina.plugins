@@ -172,6 +172,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
         /// </summary>
         public bool AbsolutePositionsKnown => shadowValid;
 
+        /// <inheritdoc/>
+        /// <remarks>
+        /// Backed by the shadow, which <see cref="ExecuteMoveAsync"/> reconciles from the position block every
+        /// move response embeds — so this is the device's own report after a move, not dead reckoning, and it
+        /// costs no I/O. <see cref="TiltDevicePositions.Unknown"/> while <see cref="AbsolutePositionsKnown"/>
+        /// is false: an unconfirmed estimate is good enough to enforce a travel limit against, but must never
+        /// be displayed as if it were a known position.
+        /// </remarks>
+        public TiltDevicePositions LastKnownPositions =>
+            shadowValid ? new TiltDevicePositions(shadowPositions, known: true) : TiltDevicePositions.Unknown;
+
         public async Task ConnectAsync(string portName, CancellationToken ct) {
             if (string.IsNullOrWhiteSpace(portName)) {
                 throw new ArgumentException("Port name must not be null or empty.", nameof(portName));
@@ -309,7 +320,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
 
             // Success: advance + persist shadow ONLY here -- the throw above (ack failure/timeout) never
             // reaches this line, so a failed/timed-out move never advances the shadow.
-            ApplyMoveDeltaToShadow(deviceDelta);
+            //
+            // Ground truth beats dead reckoning: every real move response embeds a fresh
+            // "***Get Current Positions***" block (confirmed, firmware 7.1.0), so reconcile the shadow from
+            // what the device just reported. That both self-corrects any accumulated drift for excursion
+            // enforcement AND gives callers live counters via LastKnownPositions with no follow-up 'cp'.
+            // Responses without the block (the simulator, pre-capture fixtures) fall back to advancing by
+            // the commanded delta, exactly as before.
+            if (EatResponses.TryParseMovePositions(exchange, out var reportedPositions)) {
+                ApplyKnownPositions(reportedPositions);
+            } else {
+                ApplyMoveDeltaToShadow(deviceDelta);
+            }
             progress?.Report($"{wire} acknowledged");
 
             double settleSeconds = options.TiltDeviceSettleSeconds;

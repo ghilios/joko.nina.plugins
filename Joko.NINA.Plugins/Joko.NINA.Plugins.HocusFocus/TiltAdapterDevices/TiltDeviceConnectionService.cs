@@ -249,7 +249,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
                 // a fresh connect.
                 RecordUserActivity();
                 SetConnected(true);
-                SetPositionsUnknown(); // Nothing polled yet under the new connection; the next timer tick populates it.
+                SetPositionsUnknown(); // Drop the previous connection's counters before republishing below.
+                // A controller's own ConnectAsync queries positions as part of connecting, so publish what it
+                // already knows instead of showing "unknown" until the first poll tick. No-op (leaving
+                // "unknown") when that query could not confirm them.
+                PublishControllerPositions();
                 RaisePropertyChanged(nameof(Controller));
             } finally {
                 hardwareLock.Release();
@@ -288,6 +292,38 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
                 Interlocked.Exchange(ref idlePromptOutstandingFlag, 0);
                 RaisePropertyChanged(nameof(Controller));
             }
+        }
+
+        /// <summary>
+        /// Publishes the connected controller's latest known per-motor counters (see
+        /// <see cref="ITiltMotionController.LastKnownPositions"/>) to <see cref="CurrentPositions"/> /
+        /// <see cref="PositionsKnown"/> immediately, with NO device I/O.
+        ///
+        /// <para>Position polling is suspended for the entire lifetime of a <see cref="TryBeginOperation"/>
+        /// lease — which spans a whole calibration run or adjustment plan, including its confirming analysis
+        /// and any revert. Without this, every panel's counters would sit frozen at their pre-operation values
+        /// for minutes, and then silently jump once the lease was released. The lease holder therefore calls
+        /// this after each executed move: because a move response already carries the device's fresh counters,
+        /// the controller has them in hand and no extra round trip (nor its failure modes) is involved.</para>
+        ///
+        /// <para>Returns the published positions, or null when the controller has no confirmed positions — in
+        /// which case the previously published values are deliberately LEFT in place rather than flipped to
+        /// "unknown", so a mid-plan gap does not blank a display that was correct a moment ago.</para>
+        /// </summary>
+        public IReadOnlyList<int> PublishControllerPositions() {
+            var controller = Controller;
+            if (controller == null) {
+                return null;
+            }
+            var positions = controller.LastKnownPositions;
+            if (positions == null || !positions.Known || positions.PerMotorSteps.Count < 4) {
+                // Worth a warning, not silence: this is exactly the state in which a panel keeps showing
+                // counters that no longer match the hardware, which is indistinguishable from "nothing moved".
+                Logger.Warning("Tilt device positions could not be refreshed from the controller (none confirmed yet); displayed counters may be stale.");
+                return null;
+            }
+            ApplyPositions(positions);
+            return currentPositions;
         }
 
         /// <summary>

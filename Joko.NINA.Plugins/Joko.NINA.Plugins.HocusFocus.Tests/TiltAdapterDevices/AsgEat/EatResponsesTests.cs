@@ -25,24 +25,34 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterDevices.AsgEat;
 [TestFixture]
 public class EatResponsesTests {
 
-    // --- ParseMoveAck: tolerant on TimedOut only (no ack/error text recognized yet). ---
+    // --- ParseMoveAck: the device's move-completion sentinel is the ONLY evidence of success. ---
 
     [Test]
-    public void ParseMoveAck_NotTimedOut_ReturnsTrue() {
-        // LIVE-CAPTURE: "OK" is an assumed placeholder ack line -- the real ack text (if any) is unknown
-        // until T15. ParseMoveAck does not currently inspect line content at all; this fixture exists only
-        // to show a plausible non-timed-out exchange.
-        var exchange = new EatRawExchange("tr,50", new[] { "OK" }, timedOut: false);
+    public void ParseMoveAck_ResponseCarriesTheMoveSentinel_ReturnsTrue() {
+        var exchange = new EatRawExchange("tr,50",
+            new[] { "start_cmd: tr", "moving TR + 50.00", "***Save EEPROM***", "***finished movement***" }, timedOut: false);
         Assert.That(EatResponses.ParseMoveAck(exchange), Is.True);
     }
 
     [Test]
-    public void ParseMoveAck_NotTimedOut_NoLinesAtAll_StillReturnsTrue() {
-        // A quiet-period completion with zero lines (the device produced no output at all before going
-        // quiet) is still tolerated as success -- this is exactly the "move produces no terminating
-        // response" case the plan calls out; EatResponses treats it as success by default pre-T15.
+    public void ParseMoveAck_NotTimedOut_NoLinesAtAll_ReturnsFalse() {
+        // A move that produced no output at all is NOT evidence of success. It used to be treated as one
+        // ("did not time out" == acked), which is how a move that never ran got journaled as applied.
         var exchange = new EatRawExchange("bf,10", Array.Empty<string>(), timedOut: false);
-        Assert.That(EatResponses.ParseMoveAck(exchange), Is.True);
+        Assert.That(EatResponses.ParseMoveAck(exchange), Is.False);
+    }
+
+    // The desync case that made this check necessary: with the link running one response behind, a move read
+    // back the PREVIOUS 'cp' response, whose "***Action Processed***" is a terminal sentinel too. Accepting any
+    // terminal sentinel meant a move whose motors never confirmed anything was recorded as successfully
+    // applied -- on a device that persists every move to EEPROM.
+    [Test]
+    public void ParseMoveAck_ResponseIsAStaleQueryResponse_ReturnsFalse() {
+        var exchange = new EatRawExchange("bf,33",
+            new[] { "{UI|SET|ready_light.IndicatorColor=Red}", "***Get Current Positions***", "400", "400", "400", "400",
+                    "***End Current Positions***", "***Action Processed***" }, timedOut: false);
+        Assert.That(EatResponses.ParseMoveAck(exchange), Is.False,
+            "a query's sentinel must never acknowledge a move");
     }
 
     [Test]

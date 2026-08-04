@@ -13,6 +13,7 @@
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -33,7 +34,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
     /// is decoded with <see cref="EatCommands.TryParse"/> back into its axis + steps, turned into the wizard-
     /// order per-corner effect (<see cref="TiltAdapterMove.UnitEffect"/> × steps — the exact vector the
     /// controller formatted from), applied to the actuator, and acknowledged (an exchange that did not time out,
-    /// which <see cref="EatResponses.ParseMoveAck"/> treats as success).</para>
+    /// which <see cref="EatResponses.ParseMoveAck"/> treats as success). A move's acknowledgement also carries
+    /// the post-move position block real firmware embeds, in the same wire order ([TL, TR, BL, BR]) — so the
+    /// simulator rehearses the production path in which the device's own report, not dead reckoning, is what
+    /// reconciles the shadow and drives the live position display between the moves of a run.</para>
     /// </summary>
     public sealed class SimulatedEatTransport : IEatTransport {
         private readonly ISimulatedTiltActuator actuator;
@@ -79,8 +83,19 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             }
             actuator.ApplyWizardScrewSteps(wizardSteps);
 
-            // Empty, non-timed-out exchange = success ack (EatResponses.ParseMoveAck returns !TimedOut).
-            return Task.FromResult(new EatRawExchange(command, Array.Empty<string>(), timedOut: false));
+            // Non-timed-out exchange = success ack (EatResponses.ParseMoveAck returns !TimedOut), carrying the
+            // post-move position block a real move response embeds. The actuator's counters are DEVICE order
+            // (TR, TL, BR, BL); the block is emitted in the device's WIRE order (TL, TR, BL, BR), which is the
+            // pairwise swap EatResponses undoes -- so the simulator is parsed by exactly the same code path as
+            // the hardware, including the actuator's own clamping at its travel limits.
+            var afterMove = actuator.GetPerMotorPositions();
+            var lines = new List<string> { "***Get Current Positions***" };
+            foreach (var index in new[] { 1, 0, 3, 2 }) {
+                lines.Add(afterMove[index].ToString(CultureInfo.InvariantCulture));
+            }
+            lines.Add("***End Current Positions***");
+            lines.Add("***finished movement***");
+            return Task.FromResult(new EatRawExchange(command, lines, timedOut: false));
         }
     }
 }

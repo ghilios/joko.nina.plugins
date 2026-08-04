@@ -296,8 +296,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         // Adapter Wizard reads this to record each calibration step's saved location for later replay.
         public string LastSaveFolder { get; private set; }
 
-        public async Task<bool> AnalyzeAutoFocus(CancellationToken token, bool captureCameraBlock = false, AutoFocusSaveOverride saveOverride = null) {
-            var task = AnalyzeAutoFocusImpl(captureCameraBlock, saveOverride);
+        /// <summary>
+        /// Runs the full Aberration Inspector analysis: the multi-region AutoFocus sweep, the sensor model fitted
+        /// from it, and — unless <paramref name="includeExposureAnalysis"/> is false — a final validation exposure
+        /// analyzed for the FWHM-contour and eccentricity panels.
+        ///
+        /// <para><paramref name="includeExposureAnalysis"/> exists for callers that consume only the fitted sensor
+        /// model, the Tilt Adapter Wizard's calibration steps above all: that validation exposure costs a further
+        /// <c>SimpleExposureSeconds</c> plus a full-frame PSF-modeling detection on EVERY step of a six-step run,
+        /// for panels the wizard neither reads nor shows — and, because a failure here fails the whole call, it
+        /// could also fail a calibration step whose sensor model had already been fitted successfully.</para>
+        /// </summary>
+        public async Task<bool> AnalyzeAutoFocus(CancellationToken token, bool captureCameraBlock = false, AutoFocusSaveOverride saveOverride = null, bool includeExposureAnalysis = true) {
+            var task = AnalyzeAutoFocusImpl(captureCameraBlock, saveOverride, includeExposureAnalysis);
             token.Register(() => analyzeCts?.Cancel());
             return await task;
         }
@@ -456,7 +467,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private async Task<bool> AnalyzeAutoFocusImpl(bool captureCameraBlock, AutoFocusSaveOverride saveOverride = null) {
+        private async Task<bool> AnalyzeAutoFocusImpl(bool captureCameraBlock, AutoFocusSaveOverride saveOverride = null, bool includeExposureAnalysis = true) {
             var localAnalyzeTask = analyzeTask;
             if (localAnalyzeTask != null && !localAnalyzeTask.IsCompleted) {
                 Notification.ShowError("Analysis still in progress");
@@ -552,14 +563,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         return false;
                     }
                     ActivateTiltMeasurement();
-                    var exposureAnalysisResult = await TakeAndAnalyzeExposureImpl(autoFocusEngine, analyzeCts.Token);
-                    if (!exposureAnalysisResult) {
-                        InspectorErrorText = "Exposure Analysis Failed. View saved AF report in the AutoFocus tab.";
-                        Notification.ShowError("Exposure Analysis Failed");
-                        DeactivateAutoFocusAnalysis();
-                        return false;
+                    if (includeExposureAnalysis) {
+                        var exposureAnalysisResult = await TakeAndAnalyzeExposureImpl(autoFocusEngine, analyzeCts.Token);
+                        if (!exposureAnalysisResult) {
+                            InspectorErrorText = "Exposure Analysis Failed. View saved AF report in the AutoFocus tab.";
+                            Notification.ShowError("Exposure Analysis Failed");
+                            DeactivateAutoFocusAnalysis();
+                            return false;
+                        }
+                        ActivateExposureAnalysis();
+                    } else {
+                        // Hidden rather than left showing: those panels would otherwise still be displaying the
+                        // PREVIOUS run's validation exposure next to a freshly fitted sensor model, which reads as
+                        // if they belonged to it.
+                        DeactivateExposureAnalysis();
                     }
-                    ActivateExposureAnalysis();
                     Notification.ShowInformation("Aberration Inspection Complete");
                     return true;
                 } finally {
@@ -2558,70 +2576,92 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             Exception failure = null;
             var moveProgress = new Progress<string>(text => this.progress.Report(new ApplicationStatus { Status = $"Automatic Adjustment: {text}" }));
 
-            for (int i = 0; i < moves.Count; i++) {
-                var move = moves[i];
-                this.progress.Report(new ApplicationStatus { Status = $"Automatic Adjustment: move {i + 1} of {moves.Count} — {move.Description}" });
-                try {
-                    await controller.ExecuteMoveAsync(move, moveProgress, CancellationToken.None);
-                    journal.Add(move);
-                } catch (Exception ex) {
-                    failure = ex;
-                    break;
+            // Everything below reports transient per-move status text, and NINA's status bar shows the last
+            // reported line until something reports an empty one (.claude/docs/mvvm-patterns.md, "Status-bar
+            // lines don't clear themselves"). EVERY exit from here — success, cancellation, a failed plan, a
+            // revert, or a revert that itself failed partway — must therefore land in this finally, or the
+            // last "move N of M" / "reverting move N of M" line hangs in the corner of NINA forever.
+            try {
+                for (int i = 0; i < moves.Count; i++) {
+                    var move = moves[i];
+                    this.progress.Report(new ApplicationStatus { Status = $"Automatic Adjustment: move {i + 1} of {moves.Count} — {move.Description}" });
+                    try {
+                        await controller.ExecuteMoveAsync(move, moveProgress, CancellationToken.None);
+                        journal.Add(move);
+                        // The 'cp' poll is suspended for this whole lease, so the panel's motor counters only
+                        // advance if the moves themselves publish them (see PublishControllerPositions).
+                        RefreshDevicePositionDisplays();
+                    } catch (Exception ex) {
+                        failure = ex;
+                        break;
+                    }
                 }
-            }
 
-            // Consumed once execution has STARTED (>= 1 move sent), regardless of what happens next (success,
-            // failure, or a later revert) — the same measurement can never drive a second plan.
-            if (journal.Count > 0) {
-                lastExecutedMeasurementGeneration = capturedGeneration;
-                AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
-            }
-
-            if (failure != null) {
-                Logger.Error(failure, "Automatic Adjustment: move execution failed");
-                await HandleExecutionFailureAsync(controller, journal, failure);
-                return;
-            }
-
-            this.progress.Report(new ApplicationStatus { Status = "Automatic Adjustment: complete" });
-            Notification.ShowInformation($"Automatic Adjustment complete: {journal.Count} move(s) sent.");
-
-            bool confirmRerun = await confirmPromptAsync(
-                "Automatic Adjustment finished sending the approved moves. Re-run the Aberration Inspector to confirm the improvement?",
-                "Confirm Adjustment");
-            if (!confirmRerun) {
-                return;
-            }
-
-            bool analyzed = await reRunAnalysisAsync(CancellationToken.None);
-            if (!analyzed) {
-                Notification.ShowWarning("The confirming Aberration Inspector run did not complete; verify the result manually before adjusting again.");
-                return;
-            }
-
-            var afterModel = SensorModel?.DisplayedSensorModel;
-            double afterTiltMagnitude = TiltMagnitude(afterModel);
-            if (TiltWorsened(beforeTiltMagnitude, afterTiltMagnitude)) {
-                Notification.ShowError(
-                    "Tilt got WORSE after this Automatic Adjustment. This can indicate a stale calibration, a rotated camera/adapter, " +
-                    "or an incorrect curvature-sign setting — investigate before adjusting again.");
-                bool confirmRevert = await confirmPromptAsync(
-                    "Tilt appears WORSE after the moves just applied. Revert them now (send the inverse of each move, in reverse order)?",
-                    "Tilt Worsened — Revert?");
-                if (confirmRevert) {
-                    await RevertJournalAsync(controller, journal, "post-adjustment worsening");
-
-                    // The confirming re-run above incremented measurementGeneration (a new completed
-                    // analysis), but lastExecutedMeasurementGeneration is still stamped with the PRE-revert
-                    // generation this plan was computed from. Left unbumped, the canExecute gate
-                    // (currentGeneration > lastExecutedGeneration) would immediately re-enable the button
-                    // against the STALE, now-reverted DisplayedSensorModel — a second plan computed before
-                    // the user has looked at fresh (post-revert) numbers could over-correct an already-reverted
-                    // device. Consume the confirming measurement so a genuinely NEW analysis is required.
-                    lastExecutedMeasurementGeneration = measurementGeneration;
+                // Consumed once execution has STARTED (>= 1 move sent), regardless of what happens next (success,
+                // failure, or a later revert) — the same measurement can never drive a second plan.
+                if (journal.Count > 0) {
+                    lastExecutedMeasurementGeneration = capturedGeneration;
                     AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
                 }
+
+                if (failure != null) {
+                    Logger.Error(failure, "Automatic Adjustment: move execution failed");
+                    await HandleExecutionFailureAsync(controller, journal, failure);
+                    return;
+                }
+
+                this.progress.Report(new ApplicationStatus { Status = "Automatic Adjustment: complete" });
+                Notification.ShowInformation($"Automatic Adjustment complete: {journal.Count} move(s) sent.");
+
+                bool confirmRerun = await confirmPromptAsync(
+                    "Automatic Adjustment finished sending the approved moves. Re-run the Aberration Inspector to confirm the improvement?",
+                    "Confirm Adjustment");
+                if (!confirmRerun) {
+                    return;
+                }
+
+                bool analyzed = await reRunAnalysisAsync(CancellationToken.None);
+                if (!analyzed) {
+                    Notification.ShowWarning("The confirming Aberration Inspector run did not complete; verify the result manually before adjusting again.");
+                    return;
+                }
+
+                var afterModel = SensorModel?.DisplayedSensorModel;
+                double afterTiltMagnitude = TiltMagnitude(afterModel);
+                if (TiltWorsened(beforeTiltMagnitude, afterTiltMagnitude)) {
+                    Notification.ShowError(
+                        "Tilt got WORSE after this Automatic Adjustment. This can indicate a stale calibration, a rotated camera/adapter, " +
+                        "or an incorrect curvature-sign setting — investigate before adjusting again.");
+                    bool confirmRevert = await confirmPromptAsync(
+                        "Tilt appears WORSE after the moves just applied. Revert them now (send the inverse of each move, in reverse order)?",
+                        "Tilt Worsened — Revert?");
+                    if (confirmRevert) {
+                        await RevertJournalAsync(controller, journal, "post-adjustment worsening");
+
+                        // The confirming re-run above incremented measurementGeneration (a new completed
+                        // analysis), but lastExecutedMeasurementGeneration is still stamped with the PRE-revert
+                        // generation this plan was computed from. Left unbumped, the canExecute gate
+                        // (currentGeneration > lastExecutedGeneration) would immediately re-enable the button
+                        // against the STALE, now-reverted DisplayedSensorModel — a second plan computed before
+                        // the user has looked at fresh (post-revert) numbers could over-correct an already-reverted
+                        // device. Consume the confirming measurement so a genuinely NEW analysis is required.
+                        lastExecutedMeasurementGeneration = measurementGeneration;
+                        AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+                    }
+                }
+            } finally {
+                this.progress.Report(new ApplicationStatus { Status = string.Empty });
             }
+        }
+
+        /// <summary>
+        /// Publishes the device's post-move counters to the panel without any extra device round trip (see
+        /// <see cref="TiltDeviceConnectionService.PublishControllerPositions"/>). Called after every move this
+        /// VM sends — forward and revert alike — because position polling stays suspended for the whole
+        /// Automatic Adjustment lease, which spans the plan, the confirming analysis run, and the revert.
+        /// </summary>
+        private void RefreshDevicePositionDisplays() {
+            tiltDeviceConnectionService?.PublishControllerPositions();
         }
 
         private async Task HandleExecutionFailureAsync(ITiltMotionController controller, List<TiltAdapterMove> journal, Exception failure) {
@@ -2658,6 +2698,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 try {
                     this.progress.Report(new ApplicationStatus { Status = $"Automatic Adjustment: reverting move {journal.Count - i} of {journal.Count} — {inverse.Description}" });
                     await controller.ExecuteMoveAsync(inverse, null, CancellationToken.None);
+                    // Same reason as the forward moves: the panel's counters have to walk back down with the
+                    // revert instead of freezing at the pre-revert values until the lease is released.
+                    RefreshDevicePositionDisplays();
                 } catch (Exception ex) {
                     // Revert itself failed partway: the device's tracked position can no longer be trusted.
                     // There is no interface member to force-invalidate a controller's shadow position, so the
@@ -2717,7 +2760,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         // Default answer is No for every caller of confirmPromptAsync in this file — never proceed with an
         // irreversible hardware action (re-run, revert) just because a dialog was dismissed.
         private static Task<bool> ShowYesNoPromptAsync(string message, string title) {
-            var result = MyMessageBox.Show(message, title, MessageBoxButton.YesNo, MessageBoxResult.No);
+            // Wrapped because these messages quote device errors verbatim (a failed command, its 20 s ack
+            // timeout, the state-dirty warning) on one long line, and MyMessageBox does not wrap: the modal
+            // grows past the screen edge and clips the very question the user has to answer. See DialogText.
+            var result = MyMessageBox.Show(DialogText.Wrap(message), title, MessageBoxButton.YesNo, MessageBoxResult.No);
             return Task.FromResult(result == MessageBoxResult.Yes);
         }
 

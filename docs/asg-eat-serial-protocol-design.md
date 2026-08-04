@@ -141,7 +141,7 @@ moving BL - -5.00
 - **`start_cmd:` / `tilt_value:`** provide a free confirmation that the device parsed our command as intended (useful as a validation hook).
 - **`moving <MOTOR> <sign> <value>`** lines are the authoritative per-motor report of what physically moved. Backfocus reports as a single `moving Backfocus  + <value>` line (all four motors, one line).
 - Every move ends with **`***Save EEPROM***`** then **`***finished movement***`**. The EEPROM save confirms our whole no-undo safety model.
-- A response also embeds a fresh `***Get Current Positions***` block, so a move doubles as a position read (no separate `cp` needed after a move).
+- A response also embeds a fresh `***Get Current Positions***` block, so a move doubles as a position read (no separate `cp` needed after a move). **Implemented:** `EatResponses.TryParseMovePositions` + `EatTiltMotionController.ExecuteMoveAsync` reconcile the shadow from this block (falling back to advancing by the commanded delta only when it is absent, e.g. the simulator), and expose it as `LastKnownPositions` — which is what drives the live per-motor display between the moves of a run, with no follow-up `cp`.
 
 ### 4.3 Mnemonic → motor mapping
 

@@ -118,6 +118,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         Task<TiltDevicePositions> QueryPositionsAsync(CancellationToken ct);
 
         /// <summary>
+        /// The per-motor counters as of the most recent device interaction that reported them — a parsed
+        /// position query, or the position block a move response embeds — with NO further I/O.
+        /// <see cref="TiltDevicePositions.Unknown"/> until the device has confirmed positions at least once.
+        ///
+        /// <para>This is what lets a caller executing a multi-move plan (a calibration run, an Automatic
+        /// Adjustment) show live counters between moves. Position polling is suspended for the whole lifetime
+        /// of that plan's exclusive operation lease, and a follow-up query per move would be both a wasted
+        /// round trip and an extra failure point — the device already reported its new positions as part of
+        /// the move it just acknowledged.</para>
+        /// </summary>
+        TiltDevicePositions LastKnownPositions { get; }
+
+        /// <summary>
         /// Orders <paramref name="moves"/> (a small plan) to minimize the peak per-motor excursion across
         /// every intermediate state, starting from the device's current (shadow-tracked) position.
         /// Pure/side-effect-free: does not touch device state and sends nothing. Callers (e.g. the

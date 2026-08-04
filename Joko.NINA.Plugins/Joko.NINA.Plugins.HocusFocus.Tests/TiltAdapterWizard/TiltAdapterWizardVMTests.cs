@@ -1645,10 +1645,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         public void DeviceMove_UpdatesScrewPositionDisplayWithDeltaFromStart() {
             var (vm, options, service, controller, _, _) = BuildMotorized();
             options.CalibrationAppliedAmount.Returns(150.0);
-            // First read is the run baseline (captured before the first move); second is the post-move position.
-            controller.QueryPositionsAsync(Arg.Any<CancellationToken>()).Returns(
-                Task.FromResult(new TiltDevicePositions(new[] { 0, 0, 0, 0 }, known: true)),
-                Task.FromResult(new TiltDevicePositions(new[] { 150, 150, 150, 150 }, known: true)));
+            // The counters come from the controller's own latest report, read once when the service connects,
+            // once for the run baseline (before the first move), and once per move (what the move itself carried).
+            controller.LastKnownPositions.Returns(
+                new TiltDevicePositions(new[] { 0, 0, 0, 0 }, known: true),
+                new TiltDevicePositions(new[] { 0, 0, 0, 0 }, known: true),
+                new TiltDevicePositions(new[] { 150, 150, 150, 150 }, known: true));
 
             vm.SelectedPortName = "COM3";
             ((AsyncRelayCommand)vm.ConnectDeviceCommand).ExecuteAsync(null).GetAwaiter().GetResult();
@@ -1657,6 +1659,69 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
 
             // TR = motor 1 = index 0: shows the live position plus the delta from the run's baseline.
             Assert.That(vm.ScrewPositionTopRightDisplay, Does.Contain("150").And.Contain("Δ").And.Contain("+150"));
+        }
+
+        // The run baseline is captured ONCE (before the run's first move), so every later step's display must
+        // keep counting from it -- the delta is "since this calibration run started", not "since the last move".
+        [Test]
+        public void DeviceMove_LaterStepsInSameRun_KeepUpdatingAgainstTheRunBaseline() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            controller.LastKnownPositions.Returns(
+                new TiltDevicePositions(new[] { 0, 0, 0, 0 }, known: true),         // read when the service connects
+                new TiltDevicePositions(new[] { 0, 0, 0, 0 }, known: true),         // run baseline
+                new TiltDevicePositions(new[] { 150, 150, 150, 150 }, known: true), // after step 1
+                new TiltDevicePositions(new[] { 300, 150, 150, 0 }, known: true));  // after step 2
+
+            vm.SelectedPortName = "COM3";
+            ((AsyncRelayCommand)vm.ConnectDeviceCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            vm.ExecuteDeviceMoveForCurrentStepAsync(WizardStep.AllInward, CancellationToken.None).GetAwaiter().GetResult();
+            vm.ExecuteDeviceMoveForCurrentStepAsync(WizardStep.Screw1, CancellationToken.None).GetAwaiter().GetResult();
+
+            Assert.That(vm.ScrewPositionTopRightDisplay, Does.Contain("300").And.Contain("+300"));
+        }
+
+        // The device reports its new counters as part of the move it just acknowledged, so a step must never
+        // depend on a follow-up position query: that query was a wasted round trip AND an extra failure point
+        // that, when it came back unparseable, silently froze the position/Δ display at its pre-move values.
+        [Test]
+        public void DeviceMove_UpdatesTheDisplayWithoutASeparatePositionQuery() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            controller.LastKnownPositions.Returns(
+                new TiltDevicePositions(new[] { 0, 0, 0, 0 }, known: true),
+                new TiltDevicePositions(new[] { 0, 0, 0, 0 }, known: true),
+                new TiltDevicePositions(new[] { 150, 150, 150, 150 }, known: true));
+
+            vm.SelectedPortName = "COM3";
+            ((AsyncRelayCommand)vm.ConnectDeviceCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+            vm.ExecuteDeviceMoveForCurrentStepAsync(WizardStep.AllInward, CancellationToken.None).GetAwaiter().GetResult();
+
+            Assert.Multiple(() => {
+                Assert.That(vm.ScrewPositionTopRightDisplay, Does.Contain("150").And.Contain("+150"));
+                controller.DidNotReceive().QueryPositionsAsync(Arg.Any<CancellationToken>());
+            });
+        }
+
+        // A run whose counters are not confirmed (nothing has ever parsed a position report) must keep the last
+        // snapshot rather than blanking the panel mid-run -- and the service logs it, so a frozen display is
+        // diagnosable instead of silent.
+        [Test]
+        public void DeviceMove_PositionsNeverConfirmed_KeepsTheLastSnapshotInsteadOfBlanking() {
+            var (vm, options, service, controller, _, _) = BuildMotorized(
+                polledPositions: new TiltDevicePositions(new[] { 7, 7, 7, 7 }, known: true));
+            options.CalibrationAppliedAmount.Returns(150.0);
+            controller.LastKnownPositions.Returns(TiltDevicePositions.Unknown);
+
+            vm.SelectedPortName = "COM3";
+            ((AsyncRelayCommand)vm.ConnectDeviceCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+            service.PublishControllerPositions(); // no-op: nothing confirmed
+            vm.ExecuteDeviceMoveForCurrentStepAsync(WizardStep.AllInward, CancellationToken.None).GetAwaiter().GetResult();
+
+            Assert.That(vm.ScrewPositionTopRightDisplay, Is.EqualTo("unknown"),
+                "an unconfirmed position must read 'unknown', never a stale number presented as current");
         }
 
         [Test]

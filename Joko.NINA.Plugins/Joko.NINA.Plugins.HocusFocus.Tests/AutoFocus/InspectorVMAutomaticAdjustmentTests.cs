@@ -18,6 +18,7 @@ using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
+using NINA.Core.Model;
 using NINA.Core.Utility.SerialCommunication;
 using NSubstitute;
 using NUnit.Framework;
@@ -449,7 +450,33 @@ public class InspectorVMAutomaticAdjustmentTests {
         // reference for forward moves, by (axis, steps) for the freshly-constructed inverse moves reverts send.
         public Func<TiltAdapterMove, Exception> FailureForMove { get; set; }
 
+        // Every ApplicationStatus.Status the VM reported. ProgressFactory wraps the mediator in a Progress<T>,
+        // which -- with no SynchronizationContext installed (see the note on this fixture's synchronous style)
+        // -- delivers through the thread pool: arrival is both asynchronous AND unordered, so assertions poll
+        // and must not depend on which report landed last. What matters is that the clearing (empty) status is
+        // reported at all; NINA's real dispatcher context delivers in order.
+        private readonly object statusGate = new object();
+
+        private readonly List<string> reportedStatuses = new();
+
+        /// <summary>True once the flow has reported the empty status that clears NINA's status bar.</summary>
+        public bool ReportedAClearingStatus {
+            get {
+                lock (statusGate) {
+                    return reportedStatuses.Exists(string.IsNullOrEmpty);
+                }
+            }
+        }
+
         public AdjustmentFixture() {
+            Bundle.ApplicationStatusMediator
+                .When(m => m.StatusUpdate(Arg.Any<ApplicationStatus>()))
+                .Do(ci => {
+                    lock (statusGate) {
+                        reportedStatuses.Add(ci.Arg<ApplicationStatus>()?.Status ?? string.Empty);
+                    }
+                });
+
             Controller = Substitute.For<ITiltMotionController>();
             Controller.ConnectAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
             Controller.QueryPositionsAsync(Arg.Any<CancellationToken>()).Returns(Task.FromResult(TiltDevicePositions.Unknown));
@@ -1022,5 +1049,131 @@ public class InspectorVMAutomaticAdjustmentTests {
             Assert.That(fx.ExecutedMoves[2].Steps, Is.EqualTo(-moveA.Steps));
             Assert.That(vm.LastExecutedMeasurementGenerationForTest, Is.EqualTo(1));
         });
+    }
+
+    // --- Status bar: a transient per-move line must never outlive the operation -----------------------------
+    //
+    // ".claude/docs/mvvm-patterns.md" (UI Threading & Dispatcher Marshaling): "Status-bar lines don't clear
+    // themselves ... After a transient operation (a device move, a recovery sweep), clear it in a finally".
+    // Every exit from Automatic Adjustment is such an exit -- including the revert paths, which are exactly
+    // where a leftover "reverting move N of M" line was observed hanging in NINA's status bar forever.
+
+    [Test]
+    public void ApprovedPlan_WhenComplete_ClearsTheStatusBar() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.SeedValidModel(vm);
+        vm.MeasurementGenerationForTest = 1;
+        fx.ConnectAsync().GetAwaiter().GetResult();
+        var move = Move(TiltMoveAxis.Backfocus, 10, TiltMoveGroup.Backfocus, "bf");
+        var plan = new TiltAdapterMovePlan(new[] { move }, new double[4], 0, 10);
+        fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, plan);
+        fx.ConfirmAnswers.Enqueue(false); // decline the re-run prompt
+
+        vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        Assert.That(() => fx.ReportedAClearingStatus, Is.True.After(2000).PollEvery(20),
+            "finishing the plan must report the empty status that clears NINA's status bar");
+    }
+
+    [Test]
+    public void ReRunConfirmed_TiltWorsened_AfterRevert_ClearsTheStatusBar() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.SeedValidModel(vm, gx: 0.001, gy: 0.0);
+        vm.MeasurementGenerationForTest = 1;
+        fx.ConnectAsync().GetAwaiter().GetResult();
+        var moveA = Move(TiltMoveAxis.DiagonalA, 40, TiltMoveGroup.Tilt, "A");
+        var moveB = Move(TiltMoveAxis.Backfocus, 10, TiltMoveGroup.Backfocus, "B");
+        var plan = new TiltAdapterMovePlan(new[] { moveA, moveB }, new double[4], 0, 20);
+        fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, plan);
+        fx.ConfirmAnswers.Enqueue(true); // accept the re-run
+        fx.ConfirmAnswers.Enqueue(true); // accept the worsening-revert offer
+        fx.OnReRun = () => fx.SeedValidModel(vm, gx: 0.01, gy: 0.0);
+
+        vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        Assert.That(fx.ExecutedMoves, Has.Count.EqualTo(4), "precondition: 2 forward moves + 2 reverts");
+        Assert.That(() => fx.ReportedAClearingStatus, Is.True.After(2000).PollEvery(20),
+            "the 'reverting move N of M' line must not survive the revert");
+    }
+
+    [Test]
+    public void MidPlanFailure_RevertFailsPartway_StillClearsTheStatusBar() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.SeedValidModel(vm);
+        vm.MeasurementGenerationForTest = 1;
+        fx.ConnectAsync().GetAwaiter().GetResult();
+        var moveA = Move(TiltMoveAxis.DiagonalA, 40, TiltMoveGroup.Tilt, "A");
+        var moveB = Move(TiltMoveAxis.DiagonalB, -12, TiltMoveGroup.Tilt, "B");
+        var moveC = Move(TiltMoveAxis.Backfocus, 8, TiltMoveGroup.Backfocus, "C");
+        var plan = new TiltAdapterMovePlan(new[] { moveA, moveB, moveC }, new double[4], 0, 30);
+        fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, plan);
+        fx.FailureForMove = m => {
+            if (ReferenceEquals(m, moveC)) return new TiltDeviceCommandFailedException("ack timeout");
+            if (m.Axis == moveB.Axis && m.Steps == -moveB.Steps) return new TiltDeviceCommandFailedException("revert ack timeout");
+            return null;
+        };
+        fx.ConfirmAnswers.Enqueue(true); // confirm revert
+
+        vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        Assert.That(() => fx.ReportedAClearingStatus, Is.True.After(2000).PollEvery(20),
+            "even a revert that bails out partway must leave the status bar clean");
+    }
+
+    // --- Live device positions ------------------------------------------------------------------------------
+    //
+    // The connection service's 'cp' poll is suspended for the WHOLE operation lease -- which spans the moves,
+    // the confirming Aberration Inspector re-run (minutes) and any revert -- so the panel's motor counters are
+    // frozen for the entire adjustment unless this flow refreshes them itself. The FakeTimeSource here never
+    // ticks, so a poll can never be what satisfies these tests.
+
+    [Test]
+    public void ApprovedPlan_RefreshesTheDisplayedMotorPositionsAfterEachMove() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.SeedValidModel(vm);
+        vm.MeasurementGenerationForTest = 1;
+        fx.ConnectAsync().GetAwaiter().GetResult();
+        // What the device reports back as part of executing the move -- no follow-up query involved.
+        fx.Controller.LastKnownPositions.Returns(new TiltDevicePositions(new[] { 640, 600, 560, 600 }, known: true));
+        var move = Move(TiltMoveAxis.DiagonalA, 40, TiltMoveGroup.Tilt, "A");
+        var plan = new TiltAdapterMovePlan(new[] { move }, new double[4], 0, 10);
+        fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, plan);
+        fx.ConfirmAnswers.Enqueue(false); // decline the re-run prompt
+
+        vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ScrewPositionTopRightDisplay, Is.EqualTo("640"), "TR = device motor 1 = index 0");
+            Assert.That(vm.ScrewPositionBottomRightDisplay, Is.EqualTo("560"), "BR = device motor 3 = index 2");
+        });
+    }
+
+    [Test]
+    public void ReRunConfirmed_TiltWorsened_AfterRevert_ShowsThePostRevertPositions() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.SeedValidModel(vm, gx: 0.001, gy: 0.0);
+        vm.MeasurementGenerationForTest = 1;
+        fx.ConnectAsync().GetAwaiter().GetResult();
+        var move = Move(TiltMoveAxis.DiagonalA, 40, TiltMoveGroup.Tilt, "A");
+        var plan = new TiltAdapterMovePlan(new[] { move }, new double[4], 0, 10);
+        fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, plan);
+        fx.ConfirmAnswers.Enqueue(true); // accept the re-run
+        fx.ConfirmAnswers.Enqueue(true); // accept the worsening-revert offer
+        fx.OnReRun = () => fx.SeedValidModel(vm, gx: 0.01, gy: 0.0);
+        // The forward move reports 640/600/560/600; the revert puts every motor back to 600.
+        fx.Controller.LastKnownPositions.Returns(
+            new TiltDevicePositions(new[] { 640, 600, 560, 600 }, known: true),
+            new TiltDevicePositions(new[] { 600, 600, 600, 600 }, known: true));
+
+        vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        Assert.That(fx.ExecutedMoves, Has.Count.EqualTo(2), "precondition: 1 forward move + 1 revert");
+        Assert.That(vm.ScrewPositionTopRightDisplay, Is.EqualTo("600"),
+            "after a revert the panel must show the reverted position without waiting for the poll to resume");
     }
 }

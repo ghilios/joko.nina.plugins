@@ -11,6 +11,9 @@
 #endregion "copyright"
 
 using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using NINA.Core.Utility.SerialCommunication;
@@ -34,14 +37,21 @@ public class EatTiltMotionControllerTests {
     private static IEatTransport NewTransport() {
         var transport = Substitute.For<IEatTransport>();
         transport.OpenAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
-        // Default: any command acks immediately with no lines. For "cp" specifically this means
-        // ParseCpPositions finds zero integers and throws InvalidDeviceResponseException -- i.e. the
-        // GUARANTEED pre-T15 "positions unknown" case is the test default; tests that need a real position
-        // reading call WithCpResponse. For any move command this means ParseMoveAck (= !TimedOut) succeeds
-        // by default; tests that need a failed/timed-out ack call WithTimedOutResponse for that exact wire
-        // string (configured AFTER this default so it takes precedence for matching calls).
+        // Default per command: "cp" answers with no lines, so ParseCpPositions finds zero integers and throws
+        // InvalidDeviceResponseException -- the "positions unknown" case is the test default, and tests that
+        // need a real reading call WithCpResponse. Every other command (a move) answers with the device's
+        // move-completion sentinel and nothing else, which is the minimum ParseMoveAck accepts as success --
+        // a bare non-timed-out exchange no longer counts (see ParseMoveAck's remarks on why). Tests that need
+        // a failed/timed-out ack call WithTimedOutResponse for that exact wire string (configured AFTER this
+        // default so it takes precedence for matching calls).
         transport.SendAsync(Arg.Any<string>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
-            .Returns(callInfo => Task.FromResult(new EatRawExchange((string)callInfo[0], Array.Empty<string>(), timedOut: false)));
+            .Returns(callInfo => {
+                var command = (string)callInfo[0];
+                var lines = command == EatCommands.PositionQuery()
+                    ? Array.Empty<string>()
+                    : new[] { "***finished movement***" };
+                return Task.FromResult(new EatRawExchange(command, lines, timedOut: false));
+            });
         return transport;
     }
 
@@ -216,6 +226,72 @@ public class EatTiltMotionControllerTests {
     public void ExecuteMoveAsync_NullMove_Throws() {
         var controller = new EatTiltMotionController(NewTransport(), NewOptions());
         Assert.ThrowsAsync<ArgumentNullException>(async () => await controller.ExecuteMoveAsync(null, null, CancellationToken.None));
+    }
+
+    // --- ExecuteMoveAsync: positions the move itself reports ------------------------------------------------
+
+    // Real move responses embed their own "***Get Current Positions***" block (firmware 7.1.0, see
+    // docs/asg-eat-serial-protocol-design.md §4.2 — "a move doubles as a position read"). Those counters are
+    // the device's own report and must win over dead reckoning: it keeps the shadow self-correcting for
+    // excursion enforcement, and it is what lets a caller show live positions between the moves of a plan
+    // without paying for (or risking) a follow-up 'cp' per move.
+    private static void WithMoveResponse(IEatTransport transport, string command, params int[] wireOrderPositions) {
+        var lines = new List<string> { "start_cmd", "***Get Current Positions***" };
+        lines.AddRange(wireOrderPositions.Select(v => v.ToString(CultureInfo.InvariantCulture)));
+        lines.Add("***End Current Positions***");
+        lines.Add("***Save EEPROM***");
+        lines.Add("***finished movement***");
+        transport.SendAsync(command, Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult(new EatRawExchange(command, lines, timedOut: false)));
+    }
+
+    [Test]
+    public async Task ExecuteMoveAsync_ResponseCarriesPositionBlock_ReconcilesShadowFromTheDevicesOwnReport() {
+        var transport = NewTransport();
+        WithCpResponse(transport, 600, 600, 600, 600);
+        // Wire order is [TL, TR, BL, BR]; the device reports TR at 640 and BL at 560 after the move.
+        WithMoveResponse(transport, "bf,40", 600, 640, 560, 600);
+        var options = NewOptions(maxExcursionSteps: 1000);
+        var controller = new EatTiltMotionController(transport, options);
+        await controller.ConnectAsync("COM5", CancellationToken.None);
+
+        await controller.ExecuteMoveAsync(new TiltAdapterMove(TiltMoveAxis.Backfocus, 40, TiltMoveGroup.Backfocus, "bf"), null, CancellationToken.None);
+
+        Assert.Multiple(() => {
+            // Device motor order is [TR, TL, BR, BL] -- the reported block, not 600+40 on every motor.
+            Assert.That(controller.LastKnownPositions.PerMotorSteps, Is.EqualTo(new[] { 640, 600, 600, 560 }));
+            Assert.That(controller.LastKnownPositions.Known, Is.True);
+            Assert.That(options.TiltDeviceShadowPositions,
+                Is.EqualTo(EatTiltMotionController.SerializeShadowPositions(true, new[] { 640, 600, 600, 560 })),
+                "the persisted shadow must be reconciled to the device's own report, not dead reckoned");
+        });
+    }
+
+    [Test]
+    public async Task ExecuteMoveAsync_ResponseWithoutPositionBlock_StillAdvancesShadowByTheCommandedDelta() {
+        var transport = NewTransport(); // default move response: acked, no lines at all
+        WithCpResponse(transport, 600, 600, 600, 600);
+        var options = NewOptions(maxExcursionSteps: 1000);
+        var controller = new EatTiltMotionController(transport, options);
+        await controller.ConnectAsync("COM5", CancellationToken.None);
+
+        await controller.ExecuteMoveAsync(new TiltAdapterMove(TiltMoveAxis.Backfocus, 40, TiltMoveGroup.Backfocus, "bf"), null, CancellationToken.None);
+
+        Assert.That(controller.LastKnownPositions.PerMotorSteps, Is.EqualTo(new[] { 640, 640, 640, 640 }),
+            "a simulator/fixture response with no embedded block must fall back to advancing by the commanded delta");
+    }
+
+    [Test]
+    public async Task LastKnownPositions_BeforeAnythingIsConfirmed_IsUnknown() {
+        var transport = NewTransport(); // 'cp' does not parse -> nothing ever confirmed
+        var controller = new EatTiltMotionController(transport, NewOptions());
+        await controller.ConnectAsync("COM5", CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(controller.AbsolutePositionsKnown, Is.False, "precondition");
+            Assert.That(controller.LastKnownPositions.Known, Is.False,
+                "an unconfirmed estimate may back a travel-limit check, but must never be published as a known position");
+        });
     }
 
     // --- ExecuteMoveAsync: cap violation => NO send ---------------------------------------------------------
