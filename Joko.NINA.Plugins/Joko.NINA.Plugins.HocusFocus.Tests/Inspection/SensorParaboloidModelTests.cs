@@ -320,6 +320,39 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
             Assert.That(analytic, Is.EqualTo(numeric).Within(Math.Abs(numeric) * 1e-9 + 1e-3));
         }
 
+        [Test]
+        public void Volume_AreaAveragePiston_GhiliosCorrectedRun_ShiftsPistonUnderHalfPercent() {
+            // ghilios_corrected (2026-08-04): the wizard's piston-implied pitch uses the fitted surface's
+            // CENTRE value (Z0, since MeanFocuserPosition's symmetric corner tilt terms cancel and the apex
+            // is pinned at the sensor centre). The proposed field-matched alternative is the surface's area
+            // average over the sensor, whose closed form is Volume(w,h)/(w·h) = Z0 + K·(w²+h²)/12 for a
+            // centre-pinned apex. On this run's own per-state fits the switch moves the piston-implied pitch
+            // 2.2332 -> 2.2238 um/step, only -0.42%: the fitted ΔK across the piston (+0.9e-8/um) is ~6x
+            // smaller than the honest region-AF ΔK (+5.6e-8/um), so almost none of the true sag change
+            // survives in the fitted K — the compression has already pushed it into ΔZ0. The area average is
+            // therefore a no-op today; it becomes the honest field-matched piston only once the per-star
+            // vertex estimator (design doc §8) stops compressing K.
+            double w = 9576 * 3.76, h = 6388 * 3.76;
+            const double applied = 150.0;
+            // Final per-state paraboloid fits (Z0 um, K um^-1) from the run's replay diagnostics. Gx/Gy do
+            // not enter the area average when the apex is pinned at (0,0); use the fitted values anyway.
+            var baseline = new SensorParaboloidModel(x0: 0, y0: 0, z0: 3035.279500, gx: -2.446780e-4, gy: -5.965910e-4, k: -9.732659e-8);
+            var allInward = new SensorParaboloidModel(x0: 0, y0: 0, z0: 2688.764211, gx: -7.895114e-4, gy: -6.835693e-4, k: -9.282100e-8);
+            var reBaseline1 = new SensorParaboloidModel(x0: 0, y0: 0, z0: 3012.208968, gx: 5.371334e-4, gy: -3.106165e-4, k: -1.063551e-7);
+
+            double AreaAverage(SensorParaboloidModel m) => m.Volume(w, h) / (w * h);
+            // Closed form for the pinned apex: Z0 + K·(w²+h²)/12.
+            Assert.That(AreaAverage(baseline), Is.EqualTo(baseline.Z0 + baseline.K * (w * w + h * h) / 12.0).Within(1e-6));
+
+            double centrePiston = Math.Abs(allInward.Z0 - 0.5 * (baseline.Z0 + reBaseline1.Z0)) / applied;
+            double areaPiston = Math.Abs(AreaAverage(allInward) - 0.5 * (AreaAverage(baseline) + AreaAverage(reBaseline1))) / applied;
+            Assert.Multiple(() => {
+                Assert.That(centrePiston, Is.EqualTo(2.2332).Within(1e-3));
+                Assert.That(areaPiston, Is.EqualTo(2.2238).Within(1e-3));
+                Assert.That(areaPiston / centrePiston - 1.0, Is.EqualTo(-0.0042).Within(2e-4));
+            });
+        }
+
         // ---- χ² acceptance statistic ----
 
         private static Func<double, double> GaussianNoise(int seed, double sigma) {

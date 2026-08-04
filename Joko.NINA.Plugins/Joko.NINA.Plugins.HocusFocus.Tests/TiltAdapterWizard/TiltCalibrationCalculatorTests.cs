@@ -841,6 +841,125 @@ public class TiltCalibrationCalculatorTests {
         });
     }
 
+    // --- ghilios_corrected (2026-08-04): the run behind docs/tilt-calibration-pitch-nonlinearity-design.md.
+    // Same six measurement states fed through both estimators the wizard computes; every literal is taken
+    // from the run's own stored data (per-star paraboloid replay diagnostics; the wizard's live per-region
+    // AF reports for the corner planes; corner-plane A,B regressed against the true region centers at
+    // normalized ±1/3, mean = the 4-corner vertex average).
+    private static TiltCalibrationInputs GhiliosCorrectedInputs(
+        (double a, double b, double mean) baseline, (double a, double b, double mean) allInward,
+        (double a, double b, double mean) reBaseline1, (double a, double b, double mean) screw1,
+        (double a, double b, double mean) reBaseline2, (double a, double b, double mean) screw2) {
+        return new TiltCalibrationInputs {
+            ScrewCount = 4, HasCurvatureMeasurement = true, IsStepperAdjustment = true,
+            Baseline = new TiltGradient(baseline.a, baseline.b, baseline.mean),
+            AllInward = new TiltGradient(allInward.a, allInward.b, allInward.mean),
+            ReBaseline1 = new TiltGradient(reBaseline1.a, reBaseline1.b, reBaseline1.mean),
+            Screw1 = new TiltGradient(screw1.a, screw1.b, screw1.mean),
+            ReBaseline2 = new TiltGradient(reBaseline2.a, reBaseline2.b, reBaseline2.mean),
+            Screw2 = new TiltGradient(screw2.a, screw2.b, screw2.mean),
+            ImageWidthPixels = 9576, ImageHeightPixels = 6388, PixelSizeMicrons = 3.76,
+            FocuserStepMicrons = 0.269, ScrewRadiusMillimeters = 55.0,
+            CalibrationAppliedAmount = 150.0,
+        };
+    }
+
+    [Test]
+    public void Calibrate_GhiliosCorrectedRun_PistonCheckFiresOnParaboloidPairNotOnSameRadiusCornerPair() {
+        // The run's 21% piston-vs-tilt disagreement is NOT a field-radius systematic. Evaluating BOTH
+        // sides of the check from the same estimator family shows it: the corner-region pairing puts the
+        // piston (mean of the 4 corner vertices, field radius 14.43 mm) at exactly the same field radius
+        // as the corner tilt gradient, and that honestly field-matched pairing disagrees by only ~13.7%
+        // — under the 20% warning threshold. The paraboloid pairing disagrees by ~21.3% because the
+        // per-star tilt estimate is shrunk (the §8 vertex compression, Screw2 move ratio 1.53), which is
+        // exactly the failure the piston check exists to catch. Field-dependence of the focuser-to-plate
+        // frame factor moves the piston by only ~3.5% across the whole sensor (region AF: 2.343 at the
+        // centre vs 2.265 at the corner radius), so it cannot produce a 20%+ firing on its own.
+        var paraboloid = GhiliosCorrectedInputs(
+            baseline: (-32.7502, -53.2693, 11283.5669), allInward: (-105.6764, -61.0356, 9995.4060),
+            reBaseline1: (71.8955, -27.7348, 11197.8029), screw1: (-514.0233, 364.2764, 11157.2839),
+            reBaseline2: (-11.6299, -49.3158, 11137.9751), screw2: (391.7824, 181.4274, 11073.4907));
+        var corner = GhiliosCorrectedInputs(
+            baseline: (-12.3755, -55.6319, 11213.4757), allInward: (-63.3028, 4.7892, 9931.0006),
+            reBaseline1: (27.8136, -38.8674, 11174.7386), screw1: (-516.8488, 344.1753, 11089.9786),
+            reBaseline2: (-51.2544, -82.8465, 11072.6428), screw2: (454.2507, 205.6455, 11031.1524));
+
+        var parabolidResult = TiltCalibrationCalculator.Calibrate(paraboloid);
+        var cornerResult = TiltCalibrationCalculator.Calibrate(corner);
+        Assert.Multiple(() => {
+            // Paraboloid pairing: tilt-derived 1.841 vs piston-implied 2.233 -> 21.3% > 20% (fires).
+            Assert.That(parabolidResult.MeasuredHardwareMicrons, Is.EqualTo(1.8412).Within(1e-3));
+            Assert.That(parabolidResult.PistonImpliedMicronsPerStep, Is.EqualTo(2.2332).Within(1e-3));
+            double parabolidRelDiff = Math.Abs(parabolidResult.PistonImpliedMicronsPerStep - parabolidResult.MeasuredHardwareMicrons)
+                / parabolidResult.MeasuredHardwareMicrons;
+            Assert.That(parabolidRelDiff, Is.EqualTo(0.2129).Within(1e-3));
+            Assert.That(parabolidRelDiff, Is.GreaterThan(0.20));
+            // Same-radius corner pairing: tilt-derived 1.993 vs piston-implied 2.265 -> 13.7% < 20%.
+            Assert.That(cornerResult.MeasuredHardwareMicrons, Is.EqualTo(1.9930).Within(1e-3));
+            Assert.That(cornerResult.PistonImpliedMicronsPerStep, Is.EqualTo(2.2652).Within(1e-3));
+            double cornerRelDiff = Math.Abs(cornerResult.PistonImpliedMicronsPerStep - cornerResult.MeasuredHardwareMicrons)
+                / cornerResult.MeasuredHardwareMicrons;
+            Assert.That(cornerRelDiff, Is.EqualTo(0.1366).Within(1e-3));
+            Assert.That(cornerRelDiff, Is.LessThan(0.20));
+            // The paraboloid's Screw2 shrinkage is what separates the two pairings: its move ratio is 1.53
+            // (would fire the 1.5x unequal-turns warning) while the corner estimator reads 1.19.
+            Assert.That(parabolidResult.MoveMagnitudeRatio, Is.EqualTo(1.5296).Within(1e-3));
+            Assert.That(cornerResult.MoveMagnitudeRatio, Is.EqualTo(1.1872).Within(1e-3));
+        });
+    }
+
+    [Test]
+    public void RecoverHardware_LinearTiltDrift_ShortensScrew2PitchUntilFinalRebaseline() {
+        // Magnitude-space complement of Calibrate_LinearTiltDrift_CancelsExactlyForScrew1 (which pins the
+        // recovered DIRECTIONS): under a constant per-interval tilt drift v, screw 1's bracketed reference
+        // cancels the drift in its recovered per-screw pitch exactly, while screw 2's one-sided ReBaseline2
+        // reference leaves exactly one interval of drift (+v) inside its delta. With v anti-parallel to
+        // screw 2's move, its recovered pitch is short by exactly |v|'s share; a measured final re-baseline
+        // (ReBaseline3) restores the symmetric bracket and the exact pitch. This is the mechanism that made
+        // the ghilios_corrected run's screw-2 move read ~8% small on BOTH estimators (drift RB1->RB2 was
+        // ~16% of the screw-2 move, roughly anti-parallel to it), on top of the paraboloid-only shrinkage.
+        const double axial = 270.0;   // 150 steps x 1.8 um/step, per screw of the push-pull pair
+        const double applied = 150.0;
+        const double driftFraction = 0.08;
+
+        // Four-screw push-pull calibration move = single-screw reading doubled (opposite screw moves -d at
+        // p(theta+180) = -p, contributing the same gradient change).
+        TiltGradient FourScrewMove(double angleDeg, double mean = 0.0) {
+            var single = SingleScrewReading(angleDeg, axial, 4, mean);
+            return new TiltGradient(2 * single.A, 2 * single.B, mean);
+        }
+        var move2 = FourScrewMove(90);
+        double vA = -driftFraction * move2.A, vB = -driftFraction * move2.B;
+        TiltGradient Drift(TiltGradient g, int k) => new TiltGradient(g.A + k * vA, g.B + k * vB, g.MeanFocuserPosition);
+
+        TiltCalibrationInputs Build(bool withFinalRebaseline) => new TiltCalibrationInputs {
+            ScrewCount = 4,
+            Baseline = Drift(new TiltGradient(0, 0, 0), 0),
+            AllInward = Drift(new TiltGradient(0, 0, 100), 1),
+            ReBaseline1 = Drift(new TiltGradient(0, 0, 0), 2),
+            Screw1 = Drift(FourScrewMove(0), 3),
+            ReBaseline2 = Drift(new TiltGradient(0, 0, 0), 4),
+            Screw2 = Drift(move2, 5),
+            ReBaseline3 = withFinalRebaseline ? Drift(new TiltGradient(0, 0, 0), 6) : default,
+            HasFinalRebaseline = withFinalRebaseline,
+            ImageWidthPixels = ImgW, ImageHeightPixels = ImgH, PixelSizeMicrons = PixelSize,
+            FocuserStepMicrons = FStep, ScrewRadiusMillimeters = RadiusMm,
+            CalibrationAppliedAmount = applied, IsStepperAdjustment = true,
+        };
+
+        var (_, oneSided1, oneSided2) = TiltCalibrationCalculator.RecoverHardwareDetailed(Build(withFinalRebaseline: false));
+        var (_, bracketed1, bracketed2) = TiltCalibrationCalculator.RecoverHardwareDetailed(Build(withFinalRebaseline: true));
+        Assert.Multiple(() => {
+            // Screw 1 is drift-immune either way (mid(RB1, RB2) bracket).
+            Assert.That(oneSided1, Is.EqualTo(axial / applied).Within(1e-9));
+            Assert.That(bracketed1, Is.EqualTo(axial / applied).Within(1e-9));
+            // Screw 2 without RB3: exactly one drift interval anti-parallel to the move -> pitch short by 8%.
+            Assert.That(oneSided2, Is.EqualTo((1 - driftFraction) * axial / applied).Within(1e-9));
+            // Screw 2 with RB3: mid(RB2, RB3) bracket cancels the drift exactly, like screw 1.
+            Assert.That(bracketed2, Is.EqualTo(axial / applied).Within(1e-9));
+        });
+    }
+
     [TestCase(30.0, true, 3, 30.0, 150.0, 270.0, double.NaN)]
     [TestCase(30.0, false, 3, 30.0, 270.0, 150.0, double.NaN)]
     [TestCase(350.0, true, 4, 350.0, 80.0, 170.0, 260.0)]
