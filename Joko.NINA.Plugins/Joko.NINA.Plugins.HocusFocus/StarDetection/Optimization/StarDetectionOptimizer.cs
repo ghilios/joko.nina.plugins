@@ -130,7 +130,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // nothing pulls a seeded MinHFR back up, and raising a gate a caller deliberately set lower would be a
             // knob with no gradient to climb back down. See MinHfrSeed for why the value is a sampling constant
             // and not derived from any measured HFR.
+            //
+            // CLONE, DO NOT MUTATE THE CALLER'S SEED. Callers reuse one StarDetectorParams across many runs --
+            // TestApp `optimize --per-run` builds a single RunDetectionContext outside its per-dataset loop, and
+            // the wizard passes a live reference to runs[0].Seed. An in-place write here leaks the first run's
+            // seeded gate into every subsequent run, which silently re-gates datasets whose fit never triggered.
+            // Measured: it took the whole 17-dataset synthetic bank to MinHFR 0.3 off ONE firing on D01, including
+            // D05 -- the control whose entire job is to be left alone.
             if (settings.MinHfrSeedFloor is double minHfrFloor && minHfrFloor < seed.MinHFR) {
+                seed = seed.Clone();
                 seed.MinHFR = minHfrFloor;
             }
 
