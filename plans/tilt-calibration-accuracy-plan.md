@@ -151,7 +151,7 @@ public static TiltPlaneModel Create(
 - Modify: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/TiltAdapterWizard/TiltCalibrationCalculator.cs`
 - Test: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/TiltAdapterWizard/TiltCalibrationCalculatorTests.cs`
 
-- [ ] **Step 2.1: Write the failing test** (values precomputed; f=0.5, 6000×4000 px, pixel 3.76 → two moves of EQUAL physical magnitude at physical directions 200° and 290°):
+- [x] **Step 2.1: Write the failing test** (values precomputed; f=0.5, 6000×4000 px, pixel 3.76 → two moves of EQUAL physical magnitude at physical directions 200° and 290°):
 
 ```csharp
 [Test]
@@ -180,9 +180,9 @@ public void Calibrate_AnisotropicSensor_ReadsPhysicalGapAndEqualMagnitudes() {
 }
 ```
 
-- [ ] **Step 2.2: Run** `--filter "FullyQualifiedName~TiltCalibrationCalculatorTests"` → new test FAILS (rawDiff ≈ 255.0 → folded 105.0... assert reports 255.0 vs 90.0; ratio 1.354). Existing tests still pass (they use a square sensor where (A,B) space is isotropic).
+- [x] **Step 2.2: Run** `--filter "FullyQualifiedName~TiltCalibrationCalculatorTests"` → new test FAILS (rawDiff ≈ 255.0 → folded 105.0... assert reports 255.0 vs 90.0; ratio 1.354). Existing tests still pass (they use a square sensor where (A,B) space is isotropic).
 
-- [ ] **Step 2.3: Implement.** In `TiltCalibrationCalculator`:
+- [x] **Step 2.3: Implement.** In `TiltCalibrationCalculator`:
 
 ```csharp
 /// <summary>Screw-move delta in physical gradient space (µm focus travel per µm of sensor
@@ -202,10 +202,10 @@ internal static (double gx, double gy) PhysicalDelta(TiltGradient to, TiltGradie
   - `Calibrate` — compute `var (d1x, d1y) = PhysicalDelta(inputs.Screw1, inputs.ReBaseline1, inputs);` (Task 3 will change the reference point) and same for screw 2; feed those to `ComputeScrewAngles`, `MoveMagnitudeRatio`, and the two `Screw*DirectionDegrees`.
   - `ScrewMoveSignal`/`NoiseEstimate` in `TiltCalibrationConfidence`: update the doc comments to say "physical gradient units (µm/µm)" — displayed only via the dimensionless SNR.
 
-- [ ] **Step 2.4: Run the calculator fixture** → all PASS. The existing square-sensor tests must pass without edits except signature-site updates if any test calls `ComputeScrewAngles`/`MoveMagnitudeRatio` directly with (A,B) values — convert those call sites with `a * FStep / SensorW` (constants already exist at the fixture top). `ComputeConfidence_RealAstrodet6Run_IsNoiseDominated` pins SNR 0.81/50.9° from literal TiltGradients: SNR is scale-invariant but NOT aniso-invariant — recompute the pinned values by running the test, and update the literals with a comment `// physical-space values (F2 fix)`.
-- [ ] **Step 2.5:** In `TiltAdapterWizardVM.RunAveragedMeasurement` (:2374) and `ReplayAsync` (:3080), the per-state `DirectionDeg` is `NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI)` — change both to physical: reuse the gx/gy conversion already present in `ComputeTiltAngleDeg` (extract a small private helper `(double gx, double gy) StateGradient(double a, double b, TiltPlaneModel model)` from its body, then `DirectionDeg = NormalizeAngle(Math.Atan2(gx, -gy) * 180.0 / Math.PI)`).
-- [ ] **Step 2.6: Run** `--filter "FullyQualifiedName~TiltAdapterWizard"` → green.
-- [ ] **Step 2.7: Commit** — `fix(tilt): compute calibration angles, ratios, and SNR in physical gradient space (F2)`
+- [x] **Step 2.4: Run the calculator fixture** → all PASS. The existing square-sensor tests must pass without edits except signature-site updates if any test calls `ComputeScrewAngles`/`MoveMagnitudeRatio` directly with (A,B) values — convert those call sites with `a * FStep / SensorW` (constants already exist at the fixture top). `ComputeConfidence_RealAstrodet6Run_IsNoiseDominated` pins SNR 0.81/50.9° from literal TiltGradients: SNR is scale-invariant but NOT aniso-invariant — recompute the pinned values by running the test, and update the literals with a comment `// physical-space values (F2 fix)`.
+- [x] **Step 2.5:** In `TiltAdapterWizardVM.RunAveragedMeasurement` (:2374) and `ReplayAsync` (:3080), the per-state `DirectionDeg` is `NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI)` — change both to physical: reuse the gx/gy conversion already present in `ComputeTiltAngleDeg` (extract a small private helper `(double gx, double gy) StateGradient(double a, double b, TiltPlaneModel model)` from its body, then `DirectionDeg = NormalizeAngle(Math.Atan2(gx, -gy) * 180.0 / Math.PI)`).
+- [x] **Step 2.6: Run** `--filter "FullyQualifiedName~TiltAdapterWizard"` → green.
+- [x] **Step 2.7: Commit** — `fix(tilt): compute calibration angles, ratios, and SNR in physical gradient space (F2)`
 
 ---
 
