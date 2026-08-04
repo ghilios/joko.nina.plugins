@@ -330,6 +330,52 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             return m1 >= m2 ? m1 / m2 : m2 / m1;
         }
 
+        /// <summary>Physical-gradient-space move magnitude of a single screw's move (see <see cref="PhysicalDelta"/>),
+        /// referenced the same drift-cancelling way <see cref="Calibrate"/> itself does
+        /// (<see cref="Screw1Delta"/> / <see cref="Screw2Delta"/>). <paramref name="screwNumber"/> must be 1 or 2.
+        /// Exposed so callers that need to diagnose a specific screw (e.g. the wizard's corner-cross-check
+        /// degenerate-estimator log, see <see cref="EstimatorRelativeDifference"/>'s doc comment) can compare two
+        /// estimators' per-screw magnitudes without re-deriving the delta math themselves.</summary>
+        internal static double ScrewMoveMagnitude(int screwNumber, TiltCalibrationInputs inputs) {
+            var delta = screwNumber == 1 ? Screw1Delta(inputs) : Screw2Delta(inputs);
+            var (gx, gy) = PhysicalDelta(delta, inputs);
+            return Magnitude(gx, gy);
+        }
+
+        /// <summary>
+        /// Relative disagreement between two independent estimators of the same screw moves — e.g. the wizard's
+        /// corner-region-AF cross-check of the per-star paraboloid (see
+        /// <c>TiltAdapterWizardVM.RunCalibrationMath</c>) — as the LARGER of the two screws' relative differences
+        /// in physical-gradient-space move magnitude (see <see cref="ScrewMoveMagnitude"/>). Centralized here
+        /// (not hand-duplicated in the wizard VM and TestApp's headless validator) for the same reason every
+        /// other calibration formula lives in this class: the validator and the wizard must never drift.
+        /// <paramref name="alternate"/> is the reference each ratio is measured against — its magnitude is each
+        /// relative difference's denominator — so for the wizard's cross-check this is the corner-region AF
+        /// estimator (the one <paramref name="primary"/>, the paraboloid, is being sanity-checked against).
+        ///
+        /// Guarded against a ~0 <paramref name="alternate"/> magnitude for EITHER screw: a relative difference
+        /// against a near-zero reference is meaningless (Infinity for any nonzero <paramref name="primary"/>
+        /// move, NaN for a coincidentally-zero one), not a genuine, supportable disagreement — so the WHOLE pair
+        /// returns NaN rather than a one-screw-only evaluation, which would silently mix "no basis for
+        /// comparison" with "measured and found to agree." This guard can itself hide the most diagnostic
+        /// disagreement possible — the alternate estimator seeing ~no move for a screw the primary estimator
+        /// says was clearly turned — so a caller that wants to log/report that case specifically should compare
+        /// <see cref="ScrewMoveMagnitude"/>(1/2, primary) against ScrewMoveMagnitude(1/2, alternate) directly
+        /// rather than trying to recover it from this method's NaN.
+        /// </summary>
+        internal static double EstimatorRelativeDifference(TiltCalibrationInputs primary, TiltCalibrationInputs alternate) {
+            double p1Mag = ScrewMoveMagnitude(1, primary);
+            double p2Mag = ScrewMoveMagnitude(2, primary);
+            double a1Mag = ScrewMoveMagnitude(1, alternate);
+            double a2Mag = ScrewMoveMagnitude(2, alternate);
+            if (a1Mag <= 0 || a2Mag <= 0) {
+                return double.NaN;
+            }
+            double rel1 = Math.Abs(p1Mag - a1Mag) / a1Mag;
+            double rel2 = Math.Abs(p2Mag - a2Mag) / a2Mag;
+            return Math.Max(rel1, rel2);
+        }
+
         /// <summary>
         /// Per-screw position angles from the two single-screw gradient changes (screw move minus baseline), in
         /// physical gradient space (gx, gy) — see <see cref="PhysicalDelta"/>. Determines the winding direction

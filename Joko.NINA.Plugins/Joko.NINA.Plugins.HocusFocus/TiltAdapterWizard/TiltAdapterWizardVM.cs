@@ -264,8 +264,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // since Task 1), captured alongside the paraboloid reading above for the corner-region AF
             // cross-check (see RunCalibrationMath). NaN when the corner plane could not be fit for this step
             // (or any of the averaged sub-measurements that make it up) -- a struct default of 0.0 would look
-            // like a valid zero-tilt corner reading and silently corrupt the cross-check, so every writer of
-            // this struct must set these explicitly rather than relying on the field default.
+            // like a valid zero-tilt corner reading and silently corrupt the cross-check, so every WRITER of
+            // this struct (SeedStepReading, RunAveragedMeasurement, ReplayAsync) sets these explicitly rather
+            // than relying on the field default. That covers every step actually present in stepReadings, but
+            // NOT a step missing from it entirely: Reading(step) falls back to default(StepReading) for an
+            // absent key, which zero-inits CornerA/B/Mean to 0.0 too (C# struct defaults, not this comment's
+            // "writer" guarantee). RunCalibrationMath's completeness check therefore also requires
+            // stepReadings.ContainsKey(step) (via TryGetValue), not just the non-NaN test alone, so an
+            // entirely-unmeasured step can never be mistaken for a valid zero-tilt corner reading.
             public double CornerA;
             public double CornerB;
             public double CornerMean;
@@ -2789,7 +2795,21 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             };
         }
 
-        private static double Mag(double x, double y) => Math.Sqrt(x * x + y * y);
+        // Fix 5 (post-review): the EstimatorRelativeDifference guard goes silent whenever either alternate
+        // (corner) screw magnitude is ~0 -- correctly, when the primary (paraboloid) estimator ALSO saw ~no
+        // move for that screw (nothing to compare). But when the corner estimator saw ~no move for a screw the
+        // paraboloid says was clearly turned, that is itself a real, diagnostic disagreement the guard would
+        // otherwise hide entirely. The plan specifies exactly one user-facing warning string
+        // (CheckCornerCrossCheck's, documented in Task 8) -- this does NOT grow a second one; it logs to the
+        // NINA log only, where it is discoverable without inventing new UI text.
+        private static void LogDegenerateCornerScrewIfNeeded(int screwNumber, double paraboloidMagnitude, double cornerMagnitude) {
+            if (cornerMagnitude <= 0 && paraboloidMagnitude > 0) {
+                Logger.Warning(
+                    $"Tilt calibration: the corner-region AF plane saw essentially no move for screw {screwNumber} " +
+                    $"(magnitude {cornerMagnitude:0.###e+0}) while the per-star model measured {paraboloidMagnitude:0.###e+0} " +
+                    "-- the corner-AF cross-check cannot form a ratio for this screw and is being skipped.");
+            }
+        }
 
         private void RunCalibrationMath(int screwCount, double radiusMm, double pixelSize, double fStep,
             double appliedAmount, bool isStepper, bool deviceDriven) {
@@ -2850,9 +2870,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // would be non-NaN but physically meaningless.
             double imageWidthPixels = model?.ImageSize.Width ?? 1;
             double imageHeightPixels = model?.ImageSize.Height ?? 1;
-            var inputs = BuildCalibrationInputs(
-                screwCount, measuredCurvature, tiltAdapterOptions.ScrewInwardCurvatureSign,
-                imageWidthPixels, imageHeightPixels, pixelSize, fStep, radiusMm, appliedAmount, isStepper,
+            // Local function closing over this run's shared geometry/flag locals (Fix 6, post-review): both
+            // the paraboloid `inputs` below and the Task-5 corner-cross-check `cornerInputs` further down call
+            // THIS one function, so only the six gradient readings can ever differ between the two
+            // TiltCalibrationInputs objects — nothing short of editing this one signature could let the
+            // ~10 shared leading arguments drift apart between the call sites.
+            TiltCalibrationInputs MakeInputs(TiltGradient baseline, TiltGradient allInward, TiltGradient reBaseline1,
+                TiltGradient screw1, TiltGradient reBaseline2, TiltGradient screw2) =>
+                BuildCalibrationInputs(
+                    screwCount, measuredCurvature, tiltAdapterOptions.ScrewInwardCurvatureSign,
+                    imageWidthPixels, imageHeightPixels, pixelSize, fStep, radiusMm, appliedAmount, isStepper,
+                    baseline, allInward, reBaseline1, screw1, reBaseline2, screw2);
+            var inputs = MakeInputs(
                 new TiltGradient(a.A, a.B, a.Mean), new TiltGradient(b.A, b.B, b.Mean),
                 new TiltGradient(c.A, c.B, c.Mean), new TiltGradient(d.A, d.B, d.Mean),
                 new TiltGradient(e.A, e.B, e.Mean), new TiltGradient(f.A, f.B, f.Mean));
@@ -2917,49 +2946,46 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
             // ---- Task 5: corner-region AF cross-check ---------------------------------------------------
             // The inspector's 4-corner region plane (an honest per-corner estimator since Task 1) is a second,
-            // independent measurement of the same screw moves. Only cross-check when EVERY active step
-            // captured a real corner reading -- a partially-available run (an older saved run captured before
-            // this feature, or a step whose corner regions failed to fit) degrades cleanly to "no cross-check"
+            // independent measurement of the same screw moves. Only cross-check when EVERY active step is
+            // BOTH present in stepReadings AND carries a non-NaN corner reading -- Reading(step) falls back to
+            // default(StepReading) for a step missing from stepReadings entirely, which zero-inits CornerA/B/
+            // Mean to 0.0 (a struct default), NOT NaN, so the non-NaN test alone would be fooled into treating
+            // an unmeasured step as a valid zero-tilt corner reading. A partially-available run (an older saved
+            // run captured before this feature, a step whose corner regions failed to fit, or -- the reason for
+            // the explicit key check -- a step never measured at all) degrades cleanly to "no cross-check"
             // rather than NaN-contaminated arithmetic or (worse) a spurious warning built from a biased subset.
             cornerMeasuredHardwareMicrons = double.NaN;
             estimatorRelativeDifference = double.NaN;
-            bool cornerDataComplete = activeMeasurementSteps.All(step => {
-                var r = Reading(step);
-                return !double.IsNaN(r.CornerA) && !double.IsNaN(r.CornerB) && !double.IsNaN(r.CornerMean);
-            });
+            bool cornerDataComplete = activeMeasurementSteps.All(step =>
+                stepReadings.TryGetValue(step, out var r) &&
+                !double.IsNaN(r.CornerA) && !double.IsNaN(r.CornerB) && !double.IsNaN(r.CornerMean));
             if (cornerDataComplete) {
-                var cornerInputs = BuildCalibrationInputs(
-                    screwCount, measuredCurvature, tiltAdapterOptions.ScrewInwardCurvatureSign,
-                    imageWidthPixels, imageHeightPixels, pixelSize, fStep, radiusMm, appliedAmount, isStepper,
+                // Reuses the SAME MakeInputs local function the paraboloid `inputs` above was built with (Fix
+                // 6, post-review) — only the six gradient readings differ here.
+                var cornerInputs = MakeInputs(
                     new TiltGradient(a.CornerA, a.CornerB, a.CornerMean), new TiltGradient(b.CornerA, b.CornerB, b.CornerMean),
                     new TiltGradient(c.CornerA, c.CornerB, c.CornerMean), new TiltGradient(d.CornerA, d.CornerB, d.CornerMean),
                     new TiltGradient(e.CornerA, e.CornerB, e.CornerMean), new TiltGradient(f.CornerA, f.CornerB, f.CornerMean));
                 var cornerResult = TiltCalibrationCalculator.Calibrate(cornerInputs);
 
-                // Per-screw move-magnitude comparison between the two estimators, in physical gradient space
-                // (mirrors Calibrate()'s own MoveMagnitudeRatio math via the same Screw1Delta/Screw2Delta/
-                // PhysicalDelta helpers, but compares the paraboloid's delta against the corner estimator's
-                // instead of screw1 against screw2 within one estimator). This is dimensionless (a ratio-like
+                // Fix 5 (post-review) diagnostic: TiltCalibrationCalculator.EstimatorRelativeDifference's own
+                // zero-magnitude guard (below) goes silent whenever either corner screw magnitude is ~0 --
+                // correctly, when the paraboloid ALSO saw ~no move for that screw. But when the corner
+                // estimator saw ~no move for a screw the paraboloid says was clearly turned, that is itself
+                // the most diagnostic disagreement possible; log it (not a new user-facing warning -- see
+                // LogDegenerateCornerScrewIfNeeded) rather than letting the guard hide it entirely.
+                LogDegenerateCornerScrewIfNeeded(1,
+                    TiltCalibrationCalculator.ScrewMoveMagnitude(1, inputs), TiltCalibrationCalculator.ScrewMoveMagnitude(1, cornerInputs));
+                LogDegenerateCornerScrewIfNeeded(2,
+                    TiltCalibrationCalculator.ScrewMoveMagnitude(2, inputs), TiltCalibrationCalculator.ScrewMoveMagnitude(2, cornerInputs));
+
+                // The per-screw move-magnitude comparison itself is centralized in TiltCalibrationCalculator
+                // (Fix 1, post-review) so the wizard and TestApp's headless validator (Task 7) never
+                // hand-duplicate — and cannot drift on — this formula. It is dimensionless (a ratio-like
                 // relative difference), so — like MoveMagnitudeRatio/angles/SNR above — it is safe under the
                 // 1x1 pseudo-sensor fallback (a uniform scale of both estimators' deltas) and is deliberately
                 // NOT gated on model != null; only the µm hardware number below needs a real lever arm.
-                var (p1x, p1y) = TiltCalibrationCalculator.PhysicalDelta(TiltCalibrationCalculator.Screw1Delta(inputs), inputs);
-                var (p2x, p2y) = TiltCalibrationCalculator.PhysicalDelta(TiltCalibrationCalculator.Screw2Delta(inputs), inputs);
-                var (c1x, c1y) = TiltCalibrationCalculator.PhysicalDelta(TiltCalibrationCalculator.Screw1Delta(cornerInputs), cornerInputs);
-                var (c2x, c2y) = TiltCalibrationCalculator.PhysicalDelta(TiltCalibrationCalculator.Screw2Delta(cornerInputs), cornerInputs);
-                double c1Mag = Mag(c1x, c1y);
-                double c2Mag = Mag(c2x, c2y);
-                // Guard the denominator: a ~0 corner magnitude means the corner estimator saw essentially no
-                // screw move at all, so a relative difference against it is meaningless (Infinity for any
-                // nonzero paraboloid move, NaN for a coincidentally-zero one) rather than a genuine
-                // disagreement either estimator can actually support -- leave the cross-check uncomputed (NaN,
-                // no warning) instead of asserting one from a degenerate reference. Same philosophy as
-                // MoveMagnitudeRatio's own zero-magnitude guard (TiltCalibrationCalculator.MoveMagnitudeRatio).
-                if (c1Mag > 0 && c2Mag > 0) {
-                    double rel1 = Math.Abs(Mag(p1x, p1y) - c1Mag) / c1Mag;
-                    double rel2 = Math.Abs(Mag(p2x, p2y) - c2Mag) / c2Mag;
-                    estimatorRelativeDifference = Math.Max(rel1, rel2);
-                }
+                estimatorRelativeDifference = TiltCalibrationCalculator.EstimatorRelativeDifference(inputs, cornerInputs);
 
                 // The recovered corner-AF hardware number needs the SAME model != null gate as the
                 // paraboloid's measuredHardwareMicrons above: a model-less run's 1x1 pseudo-sensor carries no

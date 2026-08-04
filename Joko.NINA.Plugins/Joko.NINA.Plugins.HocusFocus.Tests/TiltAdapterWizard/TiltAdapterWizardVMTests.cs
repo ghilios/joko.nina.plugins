@@ -2563,6 +2563,86 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             }
         }
 
+        // Fix 4 (post-review): CornerTiltPlaneOverrideForTest mirrors CalibrationTiltPlaneOverrideForTest but
+        // was never exercised by a test -- ReplayAsync's corner-capture line only ever ran its null/NaN
+        // fallback. Sets BOTH overrides per replayed step (a fresh TiltPlaneModel each time, since
+        // ReplayStepOverrideForTest runs before ReplayAsync reads CalibrationTiltPlane/corner for that step) to
+        // the SAME 25%-higher-corner geometry as RunCalibrationForTest_CornerMagnitudes25PercentHigherThan-
+        // Paraboloid... above, proving the real capture site (not just the SeedStepReading test shortcut) wires
+        // through to the cross-check end to end. UseCaptureTimeSettingsInMemory (rather than UseCurrentSettings,
+        // used by the other ReplayAsync tests) so RunCalibrationMath's geometry comes entirely from `metadata`
+        // (radius/pixel/focuser-step/applied all under test control), matching the isotropic-sensor convention
+        // the seeded-reading tests use -- not from the unconfigured profile/options substitutes.
+        [Test]
+        public void ReplayAsync_CapturesCornerReadingsAndTheCrossCheckFires() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+
+            string runRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hf-tilt-replay-corner-test-" + Guid.NewGuid().ToString("N"));
+            var stepFolders = new[] { "01_Baseline", "02_Screw1", "03_ReBaseline2", "04_Screw2" };
+            System.IO.Directory.CreateDirectory(runRoot);
+            try {
+                foreach (var stepFolder in stepFolders) {
+                    System.IO.Directory.CreateDirectory(System.IO.Path.Combine(runRoot, stepFolder));
+                }
+                var metadata = new TiltCalibrationMetadata {
+                    NumberOfScrews = 4,
+                    PixelSizeMicrons = 1,
+                    FocuserStepSizeMicrons = 1,
+                    ScrewRadiusMillimeters = 44,
+                    CalibrationAppliedAmount = 1.0,
+                    RunStepMapping = new List<TiltRunStepMapping> {
+                        new TiltRunStepMapping { Step = "Baseline", Folder = stepFolders[0] },
+                        new TiltRunStepMapping { Step = "Screw1", Folder = stepFolders[1] },
+                        new TiltRunStepMapping { Step = "ReBaseline2", Folder = stepFolders[2] },
+                        new TiltRunStepMapping { Step = "Screw2", Folder = stepFolders[3] },
+                    }
+                };
+                System.IO.File.WriteAllText(System.IO.Path.Combine(runRoot, "metadata.json"), metadata.Serialize());
+
+                // Paraboloid: clean (0,-5e-5)/(5e-5,0) deltas (magnitude 5e-5 each). Corner: the SAME deltas
+                // scaled 25% higher (magnitude 6.25e-5 each) -- identical numbers to the seeded-reading
+                // disagreement test, so the expected outputs below are the same known values (2.75 µm/turn).
+                var paraboloidByStep = new Dictionary<WizardStep, (double a, double b)> {
+                    [WizardStep.Baseline] = (0.0, 0.0),
+                    [WizardStep.Screw1] = (0.0, -0.00005),
+                    [WizardStep.ReBaseline2] = (0.0, 0.0),
+                    [WizardStep.Screw2] = (0.00005, 0.0),
+                };
+                var cornerByStep = new Dictionary<WizardStep, (double a, double b)> {
+                    [WizardStep.Baseline] = (0.0, 0.0),
+                    [WizardStep.Screw1] = (0.0, -0.0000625),
+                    [WizardStep.ReBaseline2] = (0.0, 0.0),
+                    [WizardStep.Screw2] = (0.0000625, 0.0),
+                };
+                TiltPlaneModel PlaneFor(double a, double b) => new TiltPlaneModel(new System.Drawing.Size(1, 1), fRatio: 7,
+                    a: a, b: b, c: 0, mean: 1000, focuserStepSizeMicrons: 1,
+                    centerPosition: 1000, topLeftPosition: 1000, topRightPosition: 1000,
+                    bottomLeftPosition: 1000, bottomRightPosition: 1000);
+
+                vm.SelectReplayFolderForTest = _ => runRoot;
+                vm.SelectReplaySettingsForTest = _ => Task.FromResult(ReplaySettingsChoice.UseCaptureTimeSettingsInMemory);
+                vm.ReplayStepOverrideForTest = (step, ct) => {
+                    var (pa, pb) = paraboloidByStep[step];
+                    vm.CalibrationTiltPlaneOverrideForTest = PlaneFor(pa, pb);
+                    var (ca, cb) = cornerByStep[step];
+                    vm.CornerTiltPlaneOverrideForTest = PlaneFor(ca, cb);
+                    return Task.FromResult(true);
+                };
+
+                ((AsyncRelayCommand)vm.ReplayCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+                Assert.Multiple(() => {
+                    Assert.That(vm.IsComplete, Is.True, "precondition: the replay actually completed (RunCalibrationMath was reached)");
+                    Assert.That(vm.HasCornerCrossCheck, Is.True);
+                    Assert.That(vm.CornerCrossCheckDisplay, Is.EqualTo("Corner-AF cross-check: 2.75 µm/turn"));
+                    Assert.That(vm.WarningText, Does.Contain("the per-star model and the corner-region AF disagree on the screw moves by"));
+                    Assert.That(vm.WarningText, Does.Contain("corner-AF estimate: 2.75 µm"));
+                });
+            } finally {
+                System.IO.Directory.Delete(runRoot, recursive: true);
+            }
+        }
+
         [Test]
         public void ApplyManualCalibrationCommand_ClearsDeviceLinkedMarker() {
             var (vm, options, _, _) = Build();
@@ -2807,6 +2887,36 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(vm.WarningText, Is.Empty);
                 Assert.That(vm.HasCornerCrossCheck, Is.False);
                 Assert.That(vm.CornerCrossCheckDisplay, Is.Empty);
+            });
+        }
+
+        [Test]
+        public void RunCalibrationForTest_StepEntirelyMissingFromReadings_SkipsCrossCheckCleanly() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+            // Distinct from the partial-corner-data test above (which SEEDS Screw1 but leaves its corner
+            // fields at their NaN default): here Screw2 is never seeded AT ALL, so stepReadings has no entry
+            // for it. Reading(WizardStep.Screw2) then falls back to default(StepReading), whose CornerA/B/Mean
+            // are a struct-default 0.0 -- NOT NaN -- so a completeness check built on the non-NaN test alone
+            // would be fooled into treating this as a complete, valid (0,0,0) corner reading for Screw2 (Fix
+            // 2, post-review). Screw2's corner delta would then be (0,0) - ReBaseline2's corner (0,0) = (0,0),
+            // and 4-screw RecoverHardwareDetailed's own guard only rejects an overall measured <= 0 (not a
+            // per-screw zero) -- averaging that zero against Screw1's real corner move still yields a
+            // non-NaN, plausible-looking µm/turn, so this specific failure mode would NOT be caught by
+            // downstream NaN propagation; only the explicit stepReadings.ContainsKey/TryGetValue check does.
+            // (Screw2's paraboloid side is equally absent, which trips the UNRELATED screw-angle-gap warning
+            // -- expected, and not asserted against; this test only cares about the corner outputs.)
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, cornerA: 0.0, cornerB: 0.0, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0, cornerA: 0.0, cornerB: -0.0000625, cornerMean: 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0, cornerA: 0.0, cornerB: 0.0, cornerMean: 1000.0);
+            // WizardStep.Screw2 intentionally NEVER seeded.
+
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasCornerCrossCheck, Is.False);
+                Assert.That(vm.CornerCrossCheckDisplay, Is.Empty);
+                Assert.That(vm.WarningText, Does.Not.Contain("corner-region AF disagree"));
             });
         }
 
