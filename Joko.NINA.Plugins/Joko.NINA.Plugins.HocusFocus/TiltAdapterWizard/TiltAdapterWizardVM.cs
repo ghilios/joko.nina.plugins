@@ -333,6 +333,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 this.tiltDeviceConnectionService.IdlePromptRequested += TiltDeviceConnectionService_IdlePromptRequested;
             }
 
+            // The display-only focuser convention k changes what the mechanical wording and the physical
+            // screw angles READ, never what is stored. Refresh exactly those (design §3, site 6).
+            if (this.inspector?.InspectorOptions != null) {
+                this.inspector.InspectorOptions.PropertyChanged += (s, e) => OnUIThread(() => {
+                    if (e.PropertyName == nameof(IInspectorOptions.FocuserIncreasesTowardObjective)) {
+                        RaisePropertyChanged(nameof(CwMovesAdapterTowardObjective));
+                        RebuildDiagram();
+                    }
+                });
+            }
+
             tiltAdapterOptions.PropertyChanged += (s, e) => OnUIThread(() => {
                 if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewInwardCurvatureSign)) {
                     RaisePropertyChanged(nameof(HasCurvatureCalibration));
@@ -481,7 +492,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 // the previous value is kept, matching the constructor's NaN guard.
                 if (!double.IsNaN(tiltAdapterOptions.Screw1AngleDegrees)) {
                     ManualScrew1AngleDegrees = TiltScrewGeometry.PhysicalToStoredAngle(
-                        tiltAdapterOptions.Screw1AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
+                        tiltAdapterOptions.Screw1AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign, FocuserSign);
                 }
             });
 
@@ -493,7 +504,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // back (PhysicalToStoredAngle is self-inverse) with the current direction sign.
             if (!double.IsNaN(tiltAdapterOptions.Screw1AngleDegrees)) {
                 manualScrew1AngleDegrees = TiltScrewGeometry.PhysicalToStoredAngle(
-                    tiltAdapterOptions.Screw1AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
+                    tiltAdapterOptions.Screw1AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign, FocuserSign);
             }
 
             RebuildDiagram();
@@ -534,10 +545,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // self-inverse, so the same call converts stored→physical with the adapter-direction sign in
         // effect. RebuildDiagram() re-raises these (and the sign-change handler calls it) so the
         // readout tracks both a re-calibration and a direction change.
-        public double PhysicalScrew1AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw1AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
-        public double PhysicalScrew2AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw2AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
-        public double PhysicalScrew3AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw3AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
-        public double PhysicalScrew4AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw4AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
+        public double PhysicalScrew1AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw1AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign, FocuserSign);
+        public double PhysicalScrew2AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw2AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign, FocuserSign);
+        public double PhysicalScrew3AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw3AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign, FocuserSign);
+        public double PhysicalScrew4AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw4AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign, FocuserSign);
 
         public bool IsWizardRunning {
             get => isWizardRunning;
@@ -1060,17 +1071,39 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         public bool IsStepperAdjustment => tiltAdapterOptions.AdjustmentType == TiltAdjustmentType.StepperMotors;
 
+        /// <summary>
+        /// The display-only focuser convention k as a sign: +1 standard, −1 reversed. Read only by the
+        /// mechanical wording below and by the physical⇄stored angle conversions; it never reaches the
+        /// calibration math (docs/focuser-direction-convention-design.md §2.2).
+        /// </summary>
+        private int FocuserSign =>
+            inspector?.InspectorOptions != null && inspector.InspectorOptions.FocuserIncreasesTowardObjective ? -1 : 1;
+
         // Mechanical framing of ScrewInwardCurvatureSign: does a CW screw turn (or +steps) move the
         // adapter plate toward the objective? Editing writes the sign (and marks it assumed); a
         // 6-step wizard measurement overwrites the sign and this re-reads it.
+        //
+        // The stored σ fuses the adapter mechanics and the focuser convention, σ = m·sign(k), so translating
+        // it into this mechanical question needs k on BOTH sides: the getter shows m = σ·sign(k), and for the
+        // combo to round-trip the setter stores σ = m·sign(k).
+        //
+        // THE ONE DELIBERATE EXCEPTION to "k never influences motion" (design §2.3, accepted by the user
+        // 2026-08-04). Its exposure is narrow: it writes only the ASSUMED σ, which every guidance surface
+        // flags "(assumed)" and any 6-step measurement overwrites; at the default k = +1 it is bit-identical
+        // to the previous behavior; and on a genuinely reversed rig it makes the manual path CORRECT where a
+        // pinned k = +1 conversion would silently store an inverted σ for an honest answer about m. Without
+        // it the UI contradicts itself on reversed rigs — the user picks "toward the objective" and the
+        // readback immediately says "toward the camera". Accepted residual risk: a user who sets k wrong AND
+        // sets the direction by hand instead of running the 6-step wizard gets inverted motion. Do NOT widen
+        // this; the only other sanctioned path is TiltScrewGeometry.PhysicalToStoredAngle (§7.4).
         public bool CwMovesAdapterTowardObjective {
             get {
                 int sign = tiltAdapterOptions.ScrewInwardCurvatureSign;
                 if (sign == 0) sign = TiltScrewGeometry.DefaultScrewInwardCurvatureSign;
-                return TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(sign);
+                return TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(sign * FocuserSign);
             }
             set {
-                int sign = TiltScrewGeometry.CurvatureSignForCwDirection(value);
+                int sign = TiltScrewGeometry.CurvatureSignForCwDirection(value) * FocuserSign;
                 if (tiltAdapterOptions.ScrewInwardCurvatureSign != sign) {
                     tiltAdapterOptions.ScrewInwardCurvatureSign = sign;
                     tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured = false;
@@ -1137,7 +1170,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // sign = -1 rigs), and the guidance math consumes stored angles as response-convention.
             // Convert with the adapter-direction sign in effect now; if the user changes that setting
             // later they must click Apply again (the conversion is not retroactive).
-            double stored1 = TiltScrewGeometry.PhysicalToStoredAngle(manualScrew1AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign);
+            double stored1 = TiltScrewGeometry.PhysicalToStoredAngle(manualScrew1AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign, FocuserSign);
             var (s1, s2, s3, s4) = TiltCalibrationCalculator.ComputeManualScrewAngles(stored1, manualNumberingClockwise, n);
             tiltAdapterOptions.Screw1AngleDegrees = s1;
             tiltAdapterOptions.Screw2AngleDegrees = s2;
@@ -2648,11 +2681,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 // from the raw model solves. The curvature effects are logged alongside because they are the
                 // quantity the stored sign is DEFINED in terms of (see TiltScrewGeometry's empirical anchor),
                 // and a run where the two disagree is exactly the evidence needed to settle the convention.
+                // The raw σ is printed as-is (it is the stored, k-free quantity); only the mechanical
+                // OBJECTIVE/CAMERA word needs the focuser convention, because m = σ·sign(k) — hence the
+                // explicit "per the focuser direction setting" caveat (design §3, site 6).
                 Logger.Info(
                     $"Tilt calibration: adapter direction measured from the all-screws step. Mean best-focus position {a.Mean:F1} → {b.Mean:F1} " +
                     $"(Δ {b.Mean - a.Mean:+0.0;-0.0} focuser steps); curvature effect at screw radius {a.CurvatureEffectAtScrewRadiusMicrons:F1} → {b.CurvatureEffectAtScrewRadiusMicrons:F1} µm. " +
-                    $"ScrewInwardCurvatureSign = {curvatureSign:+0;-0} (clockwise/+steps moves the adapter toward the " +
-                    $"{(TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(curvatureSign) ? "OBJECTIVE" : "CAMERA")}).");
+                    $"ScrewInwardCurvatureSign = {curvatureSign:+0;-0} (per the focuser direction setting, clockwise/+steps moves the adapter toward the " +
+                    $"{(TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(curvatureSign * FocuserSign) ? "OBJECTIVE" : "CAMERA")}).");
                 tiltAdapterOptions.ScrewInwardCurvatureSign = curvatureSign;
                 tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured = true;
             }
@@ -3287,11 +3323,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // image as shown in NINA"), so plot the PHYSICAL position — 180° from stored on −1 rigs,
             // identical on +1. Self-inverse PhysicalToStoredAngle converts stored→physical.
             int sign = tiltAdapterOptions.ScrewInwardCurvatureSign;
+            int focuserSign = FocuserSign;
             var angles = new[] {
-                TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw1AngleDegrees, sign),
-                TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw2AngleDegrees, sign),
-                TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw3AngleDegrees, sign),
-                n == 4 ? TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw4AngleDegrees, sign) : double.NaN
+                TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw1AngleDegrees, sign, focuserSign),
+                TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw2AngleDegrees, sign, focuserSign),
+                TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw3AngleDegrees, sign, focuserSign),
+                n == 4 ? TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw4AngleDegrees, sign, focuserSign) : double.NaN
             };
 
             var centers = new (double cx, double cy)[n];

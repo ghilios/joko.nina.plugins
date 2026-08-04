@@ -156,7 +156,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     focuserStepSizeMicrons: focuserSizeMicrons,
                     finalFocusPosition: finalFocusPosition,
                     registeredStars: fitResult.RegisteredStars,
-                    acceptableRSquaredMin: inspectorOptions.AcceptableRSquaredMin);
+                    acceptableRSquaredMin: inspectorOptions.AcceptableRSquaredMin,
+                    focuserSign: FocuserSign);
 
                 var historyId = Interlocked.Increment(ref nextHistoryId);
                 SensorTiltHistoryModels.Insert(0, new SensorParaboloidTiltHistoryModel(
@@ -1481,12 +1482,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             return (registeredStars, totalRejectionsOnBrightness);
         }
 
+        /// <summary>
+        /// The display-only focuser convention as a sign: +1 standard, −1 reversed. Passed to
+        /// <see cref="SensorModelAberrationResult.Update"/> for the spacer advice's REMOVING/ADDING word and
+        /// nothing else — no fitted or reported value reads it
+        /// (docs/focuser-direction-convention-design.md §2.2).
+        /// </summary>
+        private int FocuserSign => inspectorOptions != null && inspectorOptions.FocuserIncreasesTowardObjective ? -1 : 1;
+
         private void UpdateTiltModels(SensorParaboloidTiltHistoryModel historyModel) {
             SensorModelResult.Update(
                 sensorModel: historyModel.SensorModel, imageSize: historyModel.ImageSize, pixelSizeMicrons: historyModel.PixelSizeMicrons,
                 fRatio: historyModel.FRatio, focuserStepSizeMicrons: historyModel.FocuserSizeMicrons, finalFocusPosition: historyModel.FinalFocusPosition,
                 registeredStars: [],
-                acceptableRSquaredMin: inspectorOptions.AcceptableRSquaredMin);
+                acceptableRSquaredMin: inspectorOptions.AcceptableRSquaredMin,
+                focuserSign: FocuserSign);
             DisplayedSensorModel = historyModel.SensorModel;
         }
 

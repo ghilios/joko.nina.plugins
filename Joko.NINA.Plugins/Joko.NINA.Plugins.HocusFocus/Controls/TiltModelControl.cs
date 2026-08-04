@@ -65,6 +65,28 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             set { SetValue(SurfaceLowExtremeColorProperty, value); }
         }
 
+        /// <summary>
+        /// The display-only focuser-direction setting k, bound from IInspectorOptions. The plot's z axis is a
+        /// focuser delta, so which end of it faces the telescope depends on the focuser convention: a higher
+        /// best-focus position is closer to the objective only when increasing focuser position moves the
+        /// camera away from it. False (default) = standard, which renders exactly as before this property
+        /// existed. Labels only — no plotted value reads it
+        /// (docs/focuser-direction-convention-design.md §3, site 3).
+        /// </summary>
+        public static readonly DependencyProperty FocuserIncreasesTowardObjectiveProperty = DependencyProperty.Register(
+            "FocuserIncreasesTowardObjective",
+            typeof(bool),
+            typeof(TiltModelControl),
+            new FrameworkPropertyMetadata(
+                false,
+                FrameworkPropertyMetadataOptions.AffectsRender,
+                OnAnyPropertyChanged));
+
+        public bool FocuserIncreasesTowardObjective {
+            get { return (bool)GetValue(FocuserIncreasesTowardObjectiveProperty); }
+            set { SetValue(FocuserIncreasesTowardObjectiveProperty, value); }
+        }
+
         public DrawingColor TopColor => DrawingColor.PaleVioletRed;
         public DrawingColor BottomColor => DrawingColor.LightGreen;
         public bool ColorCodeCorners => true;
@@ -139,8 +161,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                 if (Math.Abs(actualZMax) > 0.5d) {
                     model.ZTicks.Add(new PlotTick(actualZMax, actualZMax.ToString("0")));
                 }
-                model.ScreenLabels.Add(new ScreenLabel("Telescope", 0.5f, 0.05f, TextColor.ToDrawingColor()));
-                model.ScreenLabels.Add(new ScreenLabel("Sensor", 0.5f, 0.95f, TextColor.ToDrawingColor()));
+                // Top of the plot is the higher focuser delta. On a standard focuser that is nearer the
+                // telescope; on a reversed one the two labels swap. Nothing plotted above changes.
+                var topLabel = FocuserIncreasesTowardObjective ? "Sensor" : "Telescope";
+                var bottomLabel = FocuserIncreasesTowardObjective ? "Telescope" : "Sensor";
+                model.ScreenLabels.Add(new ScreenLabel(topLabel, 0.5f, 0.05f, TextColor.ToDrawingColor()));
+                model.ScreenLabels.Add(new ScreenLabel(bottomLabel, 0.5f, 0.95f, TextColor.ToDrawingColor()));
                 return model;
             } catch (Exception e) {
                 Logger.Error(e, "Failed updating tilt model visualization");
