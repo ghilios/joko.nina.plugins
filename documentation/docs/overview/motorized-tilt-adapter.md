@@ -56,12 +56,16 @@ you must do.
 - **Steps applied per screw** defaults to 150 steps for the EAT presets (270 µm at 1.8 µm per step),
   large enough that each calibration move stands well above measurement noise. The value must fit
   within the [safety limits](#safety-limits) before a run will start.
-- The first time you connect in a session, the wizard turns on **Measure direction** (the six-step
-  calibration) and notifies you. Leaving it on is recommended: the adapter's direction is then
-  measured with the same backfocus command that Automatic Adjustment later sends. If you turn it
-  off, backfocus moves keep an "(assumed direction)" warning.
+- The first time you connect in a session, the wizard turns on **Measure direction**, adding 2 steps
+  to the run, and notifies you. With **Measure final re-baseline** also at its default (on), a
+  freshly-connected device runs the full 7-step calibration. Leaving Measure direction on is
+  recommended: the adapter's direction is then measured with the same backfocus command that
+  Automatic Adjustment later sends. If you turn it off, backfocus moves keep an "(assumed direction)"
+  warning.
 - **Auto Run All** drives every remaining step without further clicks: the wizard sends the step's
-  move, runs the measurement, advances, and finishes with a restore move that returns every motor to
+  move, runs the measurement, and advances. With **Measure final re-baseline** on, the last
+  measurement step already restores and measures every motor, so the run finishes there; with it
+  off, the wizard finishes with an additional, unmeasured restore move that returns every motor to
   its starting position. To step through manually instead, use **Run This Step** (the **Run
   Measurement** button is relabeled while a motorized device is connected), which sends one step's
   move and measurement at a time.

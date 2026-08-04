@@ -199,8 +199,9 @@ radius yourself.
     - **Piston-implied** is a second, independent estimate of the same effective pitch, from how far
       best focus moved when all screws were driven the same amount (a pure piston, no tilt). It only
       appears when **Measure direction** (above) was on for that run, since that setting is what adds
-      the all-screws step. The wizard warns when it disagrees with the tilt-derived measurement by more
-      than 20%.
+      the all-screws step. Measure direction is **off by default**, so a default run shows neither
+      this line nor its warning. When it does appear, the wizard warns if it disagrees with the
+      tilt-derived measurement by more than 20%.
     - **Corner-AF cross-check** is the same measurement re-derived from the four corner regions' own
       autofocus results instead of the per-star sensor model: a second estimator of the screw moves.
       The wizard warns when it disagrees with the main reading by more than 15%.
