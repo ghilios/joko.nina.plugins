@@ -659,7 +659,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // Resolve the definitive review request from the SAME flag that gates this block (capture-time flag on replay).
             frameReviewRequestedForRun = IsFrameReviewRequested(inspectorOptions.FrameReviewEnabled, sensorCurveModelEnabled);
             if (sensorCurveModelEnabled) {
-                double focuserSizeMicrons = SensorModelFocuserSizeOverrideMicrons ?? InspectorOptions.MicronsPerFocuserStep;
+                // Layer 1 (a replay's captured step size) over the resolver's layers 2-4 (override, driver,
+                // unset) - docs/focuser-step-size-driver-design.md §2.
+                double focuserSizeMicrons = SensorModelFocuserSizeOverrideMicrons ?? InspectorOptions.EffectiveMicronsPerFocuserStep;
                 if (double.IsNaN(focuserSizeMicrons) || focuserSizeMicrons <= 0.0) {
                     if (!focuserStepSizeWarningShowed) {
                         Notification.ShowWarning("Focuser Step Size not set. Assuming 1 micron per focuser step. This message won't be shown again.");
@@ -1674,20 +1676,33 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             var fRatio = profileService.ActiveProfile.TelescopeSettings.FocalRatio;
             CriticalFocusMicrons = 2.44 * fRatio * fRatio * 0.55;
-            InnerFocuserPosition = centerFocuser;
-            OuterFocuserPosition = outerFocuserPositionSum / 4;
-            BackfocusFocuserPositionDelta = OuterFocuserPosition - InnerFocuserPosition;
-            BackfocusDirection = BackfocusDirectionFor(BackfocusFocuserPositionDelta);
-            if (InspectorOptions.MicronsPerFocuserStep > 0) {
-                BackfocusMicronDelta = BackfocusFocuserPositionDelta * InspectorOptions.MicronsPerFocuserStep;
-            } else {
-                BackfocusMicronDelta = double.NaN;
-            }
-
-            BackfocusWithinCFZ = Math.Abs(BackfocusMicronDelta) < criticalFocusMicrons;
+            ApplyBackfocusMeasurement(inner: centerFocuser, outer: outerFocuserPositionSum / 4);
             InnerHFR = centerHFR;
             OuterHFR = outerHFRSum / 4;
             BackfocusHFR = OuterHFR - InnerHFR;
+        }
+
+        /// <summary>
+        /// Everything derived from the inner/outer best-focus positions: the raw focuser delta, the
+        /// TOWARDS/AWAY FROM wording, the micron conversion, and the critical-focus-zone verdict.
+        ///
+        /// <para>Extracted so the k-invariance guard and the focuser step-size tests drive the same derivation
+        /// the real run does, rather than a partial re-implementation that can silently disagree with it.</para>
+        ///
+        /// <para>The micron conversion reads the EFFECTIVE µm/step (override, else the driver's reported step
+        /// size, else unknown). Unknown stays NaN — the readout drops out rather than showing a fabricated
+        /// number, which is the same graceful degradation this had before the driver became a source.</para>
+        /// </summary>
+        private void ApplyBackfocusMeasurement(double inner, double outer) {
+            InnerFocuserPosition = inner;
+            OuterFocuserPosition = outer;
+            BackfocusFocuserPositionDelta = OuterFocuserPosition - InnerFocuserPosition;
+            BackfocusDirection = BackfocusDirectionFor(BackfocusFocuserPositionDelta);
+            var micronsPerStep = InspectorOptions.EffectiveMicronsPerFocuserStep;
+            BackfocusMicronDelta = micronsPerStep > 0
+                ? BackfocusFocuserPositionDelta * micronsPerStep
+                : double.NaN;
+            BackfocusWithinCFZ = Math.Abs(BackfocusMicronDelta) < criticalFocusMicrons;
         }
 
         /// <summary>
@@ -1709,15 +1724,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         /// <summary>
         /// Test seam: the backfocus panel is normally filled by <see cref="UpdateBackfocusMeasurements"/> from a
-        /// completed AutoFocus result. This writes the same two measured positions directly, so the k-invariance
-        /// guard can assert the TOWARDS/AWAY FROM wording without staging a whole run.
+        /// completed AutoFocus result. This supplies the same two measured positions directly and runs the real
+        /// derivation, so tests exercise the shipping code rather than a copy of it.
         /// </summary>
-        internal void SetBackfocusMeasurementForTest(double inner, double outer) {
-            InnerFocuserPosition = inner;
-            OuterFocuserPosition = outer;
-            BackfocusFocuserPositionDelta = outer - inner;
-            BackfocusDirection = BackfocusDirectionFor(BackfocusFocuserPositionDelta);
-        }
+        internal void SetBackfocusMeasurementForTest(double inner, double outer) =>
+            ApplyBackfocusMeasurement(inner, outer);
 
         // The Inspector region report indexes RegionHFRs[1..5] (center = 1, corners = 2..5), so it needs the full
         // Inspector grid of at least 6 regions. Extracted + internal so the precondition is unit-testable.
@@ -2948,6 +2959,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public void UpdateDeviceInfo(FocuserInfo deviceInfo) {
             FocuserInfo = deviceInfo;
+            // The single writer of the driver-reported focuser step size (this VM is a Shared MEF singleton
+            // registered as the plugin's focuser consumer). Deliberately unconditional: the setter accepts
+            // only finite, positive values, so a disconnect's StepSize = 0 is dropped there and the last
+            // known value stands. Adding a second guard here would let the two drift apart.
+            InspectorOptions.DriverMicronsPerFocuserStep = deviceInfo.StepSize;
         }
 
         private FocuserInfo focuserInfo = DeviceInfo.CreateDefaultInstance<FocuserInfo>();

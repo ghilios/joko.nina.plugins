@@ -19,10 +19,12 @@ how far your focuser moves per step.
 - **Focal length** (mm) — NINA's **Options → Equipment → Telescope** tab. Together with pixel size this
   gives your pixel scale (arcsec/px). The detector uses it directly, and knowing it tells you which
   Simple-mode [Pixel Scale preset](settings/advanced-debug.md#pixel-scale) to pick.
-- **Focuser Step Size** — set this in the
+- **Focuser Step Size** — how far the focuser moves per step, in microns, which is what lets the inspector
+  report tilt and backfocus adjustments in microns rather than bare focuser steps. **Usually nothing to do
+  here**: it comes from your focuser driver. Check the
   [Aberration Inspector options](overview/tilt-aberration-inspector.md#inspector-options) (the inspector
-  panel, not the main Options page). This tells the inspector how far the focuser moves per step, in
-  microns, so it can report tilt and backfocus adjustments in microns rather than bare focuser steps.
+  panel, not the main Options page) — if the greyed-out hint in the box shows a sensible number, you are
+  set. If it is empty, or your driver reports it wrongly, type the real value to override it.
 
 ## 2. Switch NINA over to Hocus Focus
 

@@ -200,7 +200,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public void UpdateTiltModel(AutoFocusResult result, double fRatio, double backfocusFocuserPositionDelta) {
-            var micronsPerFocuserStep = inspectorOptions.MicronsPerFocuserStep > 0 ? inspectorOptions.MicronsPerFocuserStep : double.NaN;
+            var effective = inspectorOptions.EffectiveMicronsPerFocuserStep;
+            var micronsPerFocuserStep = effective > 0 ? effective : double.NaN;
             var tiltModel = TiltPlaneModel.Create(result, fRatio: fRatio, focuserStepSizeMicrons: micronsPerFocuserStep);
             UpdateTiltMeasurementsTable(tiltModel, backfocusFocuserPositionDelta);
         }

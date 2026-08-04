@@ -145,7 +145,7 @@ namespace TestApp {
             var sortedFocusers = frameFiles.Select(f => (double)f.focuser).OrderBy(x => x).ToList();
             var finalFocusPosition = sortedFocusers[sortedFocusers.Count / 2]; // median; alignment is independent of this
             var stepSize = sortedFocusers.Count > 1 ? (int)Math.Round(sortedFocusers[1] - sortedFocusers[0]) : 100;
-            var focuserSizeMicrons = inspectorOptions.MicronsPerFocuserStep > 0 ? inspectorOptions.MicronsPerFocuserStep : 1.0;
+            var focuserSizeMicrons = inspectorOptions.EffectiveMicronsPerFocuserStep > 0 ? inspectorOptions.EffectiveMicronsPerFocuserStep : 1.0;
             var pixelSize = activeProfile.CameraSettings.PixelSize > 0 ? activeProfile.CameraSettings.PixelSize : 3.76;
 
             var messages = new List<string>();

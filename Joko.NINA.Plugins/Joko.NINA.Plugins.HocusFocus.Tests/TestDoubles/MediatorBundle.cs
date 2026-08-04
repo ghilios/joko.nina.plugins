@@ -87,11 +87,17 @@ internal sealed class MediatorBundle {
         return this;
     }
 
+    /// <param name="inspectorOptions">
+    /// Overrides the bundle's substitute. Pass a real <c>InspectorOptions</c> when the behaviour under test
+    /// lives in the options class itself (e.g. the focuser step-size resolver's accept-only-valid setter,
+    /// which a substitute would flatten into a plain auto-property).
+    /// </param>
     public InspectorVM BuildInspectorVM(
         TiltDeviceConnectionService tiltDeviceConnectionService = null,
         Func<string, string, Task<bool>> confirmPromptAsync = null,
         Func<Func<bool, bool, TiltDevicePlanPreview>, bool, string, bool, double, Task<TiltDeviceAdjustmentChoice>> showAdjustmentPromptAsync = null,
-        Func<CancellationToken, Task<bool>> reRunAnalysisAsync = null) {
+        Func<CancellationToken, Task<bool>> reRunAnalysisAsync = null,
+        IInspectorOptions inspectorOptions = null) {
         return new InspectorVM(
             profileService: ProfileService,
             applicationStatusMediator: ApplicationStatusMediator,
@@ -102,7 +108,7 @@ internal sealed class MediatorBundle {
             telescopeMediator: TelescopeMediator,
             starDetectionOptions: StarDetectionOptions,
             starAnnotatorOptions: StarAnnotatorOptions,
-            inspectorOptions: InspectorOptions,
+            inspectorOptions: inspectorOptions ?? InspectorOptions,
             autoFocusOptions: AutoFocusOptions,
             autoFocusEngineFactory: AutoFocusEngineFactory,
             imageDataFactory: ImageDataFactory,

@@ -17,6 +17,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         public double DetailedAnalysisExposureSeconds { get; set; }
         public bool LoopingExposureAnalysisEnabled { get; set; }
         public double MicronsPerFocuserStep { get; set; }
+        public double DriverMicronsPerFocuserStep { get; set; } = -1;
+        public double EffectiveMicronsPerFocuserStep =>
+            MicronsPerFocuserStep > 0 ? MicronsPerFocuserStep
+            : DriverMicronsPerFocuserStep > 0 ? DriverMicronsPerFocuserStep
+            : -1;
+        public bool HasFocuserStepSizeMismatch => false;
         public bool FocuserIncreasesTowardObjective { get; set; }
         public bool EccentricityColorMapEnabled { get; set; }
         public bool MouseOnChartsEnabled { get; set; }

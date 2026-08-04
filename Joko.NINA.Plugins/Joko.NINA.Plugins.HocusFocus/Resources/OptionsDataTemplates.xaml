@@ -29,6 +29,7 @@
     <hfconverters:DoubleNegativeToVisibilityConverter x:Key="HF_DoubleNegativeToVisibilityConverter" />
     <hfconverters:InverseDoubleNegativeToVisibilityConverter x:Key="HF_InverseDoubleNegativeToVisibilityConverter" />
     <hfconverters:DoubleNegativeToEmptyStringConverter x:Key="HF_DoubleNegativeToEmptyStringConverter" />
+    <hfconverters:PositiveDoubleToHintTextConverter x:Key="HF_PositiveDoubleToHintTextConverter" />
     <hfconverters:InterpolateColorConverter x:Key="HF_InterpolateColorConverter" />
     <hfconverters:InverseNaNToVisibilityCollapsedConverter x:Key="HF_InverseNaNToVisibilityCollapsedConverter" />
     <hfconverters:NullToVisibilityCollapsedConverter x:Key="HF_NullToVisibilityCollapsedConverter" />
@@ -527,6 +528,8 @@
     <TextBlock x:Key="MeasurementAverage_Tooltip" Text="Controls how the average star measurement across the frame is calculated. Median is robust to outliers, and is the default." />
     <TextBlock x:Key="MaxAutoFocusOutlierRejections_Tooltip" Text="Controls the maximum number of points that can be rejected as outliers during Auto Focus curve fitting." />
     <TextBlock x:Key="MaxBlindStepsPerDirection_Tooltip" Text="Maximum number of blind AutoFocus steps attempted in each direction before reversing to try the other side. Set to 0 to disable the cap." />
+    <!--  Declared here, not in AutoFocus/DataTemplates.xaml: that file MERGES this one, so a key defined here is visible to both rows that show the flag.  -->
+    <TextBlock x:Key="FocuserStepSizeMismatch_Tooltip" Text="Your focuser step size differs from what the driver reports by more than 1%. This is informational — your value is the one being used, and if you measured it yourself it is probably the better one. It is worth a look because some drivers report this field wrongly (a common case reports 1, meaning one step per step rather than one micron per step). Clear the box to use the driver's value instead." />
     <TextBlock x:Key="FocuserIncreasesTowardObjective_Tooltip" Text="Which way your focuser travels: does a HIGHER focuser position move the camera away from the objective (standard), or toward it (reversed)? This affects direction LABELS AND DIAGRAMS ONLY — the &quot;move toward/away from the objective&quot; captions, the Telescope/Sensor labels on the sensor model, the spacer advice, and the up/down motion arrows in the tilt guidance. It can never change a measurement, a screw angle, or a correction: the tilt adapter's direction is measured in focuser units, and the focuser convention cancels out of that measurement entirely. So if these labels read backwards on your rig, flip this — nothing you have already calibrated is affected, and nothing will start turning the other way." />
     <TextBlock x:Key="AutoFocusOutlierRejectionConfidence_Tooltip" Text="Confidence level for a two-tailed Grubbs statistical test of outliers to use during Auto Focus curve fitting. 95% is a reasonable default. Must be above 50% and below 100%." />
     <DataTemplate x:Key="HocusFocus_AutoFocus_Options">
@@ -3155,7 +3158,7 @@
           camera itself. Rig belongs with the device; only the observing settings are changed from this tab.  -->
     <TextBlock x:Key="CamSim_RigReadOnly_Tooltip" Text="Rig settings are edited in the camera's setup dialog — click the gear icon next to the camera in the Equipment &gt; Camera pane. They are shown here for reference only. Aperture and focal length show the value actually in effect, which is inferred from your NINA telescope settings when it has not been set explicitly." />
     <TextBlock x:Key="CamSim_OptimalFocuserPosition_Tooltip" Text="The focuser step position where best focus occurs (x0 in the defocus model). At this position stars render at their minimum HFR; moving the focuser away grows the donut. Set this to match the best-focus position of your connected (simulator) focuser." />
-    <TextBlock x:Key="CamSim_FocuserStepSizeMicrons_Tooltip" Text="How many microns of sensor-plane defocus one focuser step produces (k). Larger values make the HFR-vs-position curve steeper, so the star field defocuses faster as the focuser moves away from the optimal position. This is the same setting as the Aberration Inspector's Focuser Step Size: editing it here changes it there, and editing it there changes it here. That sharing is deliberate — the simulator renders defocus at this step size and the Aberration Inspector has to interpret that defocus at the same step size, or everything it measures back is wrong by the ratio between the two. Leave it blank if you have not calibrated it, and the simulator renders at the 2 µm/step shown greyed out in the box." />
+    <TextBlock x:Key="CamSim_FocuserStepSizeMicrons_Tooltip" Text="How many microns of sensor-plane defocus one focuser step produces (k). Larger values make the HFR-vs-position curve steeper, so the star field defocuses faster as the focuser moves away from the optimal position. This is the same setting as the Aberration Inspector's Focuser Step Size: editing it here changes it there, and editing it there changes it here. That sharing is deliberate — the simulator renders defocus at this step size and the Aberration Inspector has to interpret that defocus at the same step size, or everything it measures back is wrong by the ratio between the two. Leave it blank and the simulator renders at whatever the greyed-out hint shows: your focuser driver's reported step size if it supplies one, otherwise 2 µm/step." />
     <!--  The per-field rig tooltips moved to CameraSimulator/SetupDialog/SetupDataTemplates.xaml, next to the only
           controls that still edit those values. Here the rig renders read-only and shares CamSim_RigReadOnly_Tooltip.  -->
     <TextBlock x:Key="CamSim_Gain_Tooltip" Text="Sensor gain in ZWO-style 0.1 dB units. Higher gain lowers electrons-per-ADU (and read noise, down to the sensor's floor) but tightens digital saturation." />
@@ -3217,6 +3220,10 @@
                     "unset" is a real state here (-1), which the converter shows as an empty box with the value the
                     render will actually use as the hint. No FloatRangeRule: validation rules run on the RAW text
                     before the converter, so one would reject the blank/unset box outright.
+
+                    The hint now resolves override -> focuser driver -> the simulator's 2 µm default, because
+                    EffectiveFocuserStepSizeMicrons reads the Inspector's effective value. The render and the
+                    inspector's recovery must use the SAME k or the inject/recover loop breaks by their ratio.
                 -->
                 <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Focuser Step Size" ToolTip="{StaticResource CamSim_FocuserStepSizeMicrons_Tooltip}" />
                 <StackPanel Grid.Row="1" Grid.Column="1" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Orientation="Horizontal">
@@ -3238,6 +3245,16 @@
                         </ninactrl:HintTextBox.Text>
                     </ninactrl:HintTextBox>
                     <TextBlock Margin="3,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Text="µm/step" ToolTip="{StaticResource CamSim_FocuserStepSizeMicrons_Tooltip}" />
+                    <!--  Advisory only: the override still wins. Same flag as the Aberration Inspector's row.  -->
+                    <TextBlock
+                        Margin="6,0,0,0"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Center"
+                        FontStyle="Italic"
+                        Foreground="{StaticResource NotificationWarningBrush}"
+                        Text="⚠ differs from the focuser driver"
+                        ToolTip="{StaticResource FocuserStepSizeMismatch_Tooltip}"
+                        Visibility="{Binding InspectorOptions.HasFocuserStepSizeMismatch, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 </StackPanel>
 
                 <!--  Rig (read-only here; edited in the camera's setup dialog). Bound to the Effective* values, not

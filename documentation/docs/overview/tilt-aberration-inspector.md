@@ -139,7 +139,7 @@ star-matching, outlier-rejection, and save-images settings (plus **Astigmatic fi
 | Setting | Default | Range | What it does |
 |---|---|---|---|
 | **Eccentricity Grid Width** | 7 | odd, positive | "How many cells wide to divide the sensor pixels when generating a grid of eccentricity vectors … the height will be calculated proportionally." |
-| **Focuser Step Size** | -1 (auto) | -1 or &gt;0 | "How much the focuser moves per step, in microns. If this is set, the adjustment chart will include adjustments in microns." |
+| **Focuser Step Size** | blank | blank or &gt;0 | µm of focuser travel per step. Blank uses the value your focuser driver reports (shown greyed out in the box); a value here overrides it. See [below](#where-the-focuser-step-size-comes-from). |
 | **Increasing focuser position** | Moves camera away from objective (standard) | standard / reversed | Which way your focuser travels. Affects direction labels and diagrams only — see [below](#which-way-does-your-focuser-travel). Also editable under Options → Hocus Focus → Auto Focus. |
 | **Sensor ROI** | 1.0 | 0.1–1.0 | "Uses only a centered portion of the full sensor when evaluating aberration. This is useful if you have a flattener that cannot produce a flat field for your sensor." |
 | **Corners ROI** | 1.0 | 0.1–1.0 | "Reduces the size of the corner regions when performing corners analysis … evaluate only stars closer to the corners than the full 1/9th region. This can be combined with Sensor ROI." |
@@ -170,6 +170,30 @@ star-matching, outlier-rejection, and save-images settings (plus **Astigmatic fi
 !!! tip "Sensor ROI protects the tilt fit"
     Restricting analysis to the well-corrected center (**Sensor ROI**) keeps a corner your
     flattener cannot correct from polluting the tilt fit.
+
+### Where the focuser step size comes from
+
+The focuser step size is the scale that turns everything the inspector measures — which is measured in
+focuser positions — into microns. It sets the curvature and tilt effects in µm, the per-screw corrections,
+and the backfocus error.
+
+It resolves in this order:
+
+1. **What you typed** in **Focuser Step Size**, if anything.
+2. **What your focuser driver reports**, if it reports a usable value. Most drivers do, so most people never
+   need to touch this. The greyed-out hint in the box shows the value that will be used.
+3. **Nothing** — micron readouts are hidden rather than guessed.
+
+!!! warning "⚠ differs from the focuser driver"
+    If you type a value and it disagrees with the driver's by more than 1%, the box shows this flag. It is
+    informational: **your** value is the one being used, and if you measured it yourself it is very likely the
+    better of the two.
+
+    It is worth a look, though, because the driver field is optional in ASCOM and some drivers fill it in
+    wrongly. The common failure is a driver reporting `1` — meaning "one step per step" rather than one micron
+    per step — which would scale every micron the inspector reports by whatever your real step size is.
+
+    To go back to the driver's value, clear the box.
 
 ### Which way does your focuser travel?
 

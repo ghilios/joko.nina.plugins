@@ -87,11 +87,12 @@ would otherwise fail to register are not dropped from a step's model: the frame 
 its search instead (see [cross-frame
 registration](sensor-model.md#from-stars-to-data-points)).
 
-!!! note "Set Focuser Step Size for the best guidance"
-    Per its tooltip, *Focuser Step Size* is "how much the focuser moves per step, in microns.
-    If this is set, the adjustment chart will include adjustments in microns." Without it, adjustments
-    are still reported in focuser steps, and the tilt-angle calculation falls back to the connected
-    focuser's reported step size when available.
+!!! note "Focuser Step Size drives the micron figures"
+    *Focuser Step Size* is how far the focuser moves per step, in microns. It normally comes from your
+    focuser driver with no setup at all; you only need to type a value if your driver does not report one,
+    or reports it wrongly. See [where it comes
+    from](tilt-aberration-inspector.md#where-the-focuser-step-size-comes-from). Without any value at all,
+    adjustments are still reported in focuser steps.
 
 ## What the screws can fix
 

@@ -31,7 +31,7 @@
     <TextBlock x:Key="FramesPerPoint_Tooltip" Text="How many exposures to average together for each focuser point. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="NumRegionsWide_Tooltip" Text="How many cells wide to divide the sensor pixels when generating a grid of eccentricity vectors. This value must be an odd, positive integer, and the height will be calculated proportionally from it based on the sensor resolution" />
-    <TextBlock x:Key="MicronsPerFocuserStep_Tooltip" Text="How much the focuser moves per step, in microns. If this is set, the adjustment chart will include adjustments in microns" />
+    <TextBlock x:Key="MicronsPerFocuserStep_Tooltip" Text="How much the focuser moves per step, in microns — the scale that turns every focuser measurement into microns. Leave this blank to use the value your focuser driver reports (shown greyed out in the box); type a value to override it. If neither is available, micron readouts are hidden rather than guessed." />
     <TextBlock x:Key="Inspector_FocuserDirection_Tooltip" Text="Which way your focuser travels: does a HIGHER focuser position move the camera away from the objective (standard), or toward it (reversed)? This affects direction LABELS AND DIAGRAMS ONLY — the &quot;move toward/away from the objective&quot; captions, the Telescope/Sensor labels on the sensor model, the spacer advice, and the up/down motion arrows in the tilt guidance. It can never change a measurement, a screw angle, or a correction: the tilt adapter's direction is measured in focuser units, and the focuser convention cancels out of that measurement entirely. So if these labels read backwards on your rig, flip this — nothing you have already calibrated is affected, and nothing will start turning the other way." />
     <TextBlock x:Key="EccentricityColorMapEnabled_Tooltip" Text="Enable color on the eccentricity map" />
     <TextBlock x:Key="MouseOnChartsEnabled_Tooltip" Text="Enable mouse events on charts to scroll, pan, and zoom. Disable this if you don't want the charts to intercept mouse actions" />
@@ -1789,13 +1789,18 @@
                             Grid.Row="0"
                             Grid.Column="3"
                             Orientation="Horizontal">
+                            <!--
+                                The box edits the OVERRIDE; the greyed hint shows what an EMPTY box resolves to
+                                — the focuser driver's reported step size, or "(not set)" when no driver
+                                supplies one (docs/focuser-step-size-driver-design.md §5).
+                            -->
                             <ninactrl:HintTextBox
                                 MinWidth="40"
                                 VerticalAlignment="Center"
                                 HorizontalContentAlignment="Left"
                                 VerticalContentAlignment="Center"
                                 Foreground="{StaticResource PrimaryBrush}"
-                                HintText="(disabled)"
+                                HintText="{Binding InspectorOptions.EffectiveMicronsPerFocuserStep, Converter={StaticResource HF_PositiveDoubleToHintTextConverter}, Mode=OneWay}"
                                 TextAlignment="Left"
                                 ToolTip="{StaticResource MicronsPerFocuserStep_Tooltip}">
                                 <ninactrl:HintTextBox.Text>
@@ -1812,6 +1817,16 @@
                                 VerticalAlignment="Center"
                                 Text="microns"
                                 ToolTip="{StaticResource MicronsPerFocuserStep_Tooltip}" />
+                            <!--  Advisory only: the override still wins. See the design doc §4.  -->
+                            <TextBlock
+                                Margin="6,0,0,0"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Foreground="{StaticResource NotificationWarningBrush}"
+                                Text="⚠ differs from the focuser driver"
+                                ToolTip="{StaticResource FocuserStepSizeMismatch_Tooltip}"
+                                Visibility="{Binding InspectorOptions.HasFocuserStepSizeMismatch, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                         </StackPanel>
 
                         <TextBlock

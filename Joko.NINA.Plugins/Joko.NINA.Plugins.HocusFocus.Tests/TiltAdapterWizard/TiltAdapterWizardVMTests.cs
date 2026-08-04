@@ -1250,7 +1250,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         [Test]
         public void CaptureMeasurementContext_ReadsInspectorAndProfileValues() {
             var inspector = Substitute.For<IInspectorOptions>();
-            inspector.MicronsPerFocuserStep.Returns(3.6);
+            // The EFFECTIVE step size, not the raw override: a run captured while the focuser driver supplied
+            // the step size must record what it actually measured with, or a replay reinterprets it wrongly.
+            inspector.EffectiveMicronsPerFocuserStep.Returns(3.6);
             inspector.UseRANSAC.Returns(true);
             inspector.AcceptableRSquaredMin.Returns(0.8);
             inspector.SensorROI.Returns(1.0); inspector.CornersROI.Returns(1.0);

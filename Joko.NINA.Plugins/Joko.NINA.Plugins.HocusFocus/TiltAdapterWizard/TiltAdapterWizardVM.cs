@@ -2142,7 +2142,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         internal static TiltMeasurementContext CaptureMeasurementContext(
             IInspectorOptions inspector, IAutoFocusOptions af, double fRatio, double focalLengthMm) {
             return new TiltMeasurementContext {
-                MicronsPerFocuserStep = inspector.MicronsPerFocuserStep,
+                // The EFFECTIVE value, so a run captured under a driver-supplied step size records what it
+                // actually measured with. A replay restores this as SensorModelFocuserSizeOverrideMicrons,
+                // which sits above both the override and the driver in the resolver.
+                MicronsPerFocuserStep = inspector.EffectiveMicronsPerFocuserStep,
                 FocalRatio = fRatio,
                 FocalLengthMm = focalLengthMm,
                 UseRANSAC = inspector.UseRANSAC,
@@ -2175,11 +2178,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             return string.Join(", ", diffs);
         }
 
-        private double EffectiveFocuserStepMicrons() {
-            var v = inspector.InspectorOptions?.MicronsPerFocuserStep ?? -1;
-            if (v > 0) return v;
-            return focuserInfo.StepSize > 0 ? focuserInfo.StepSize : -1;
-        }
+        // Delegates to the shared resolver (docs/focuser-step-size-driver-design.md §2). This used to
+        // duplicate the override→driver fallback locally against the wizard's own live focuserInfo — the
+        // pattern that design generalized. The shared one differs in being STICKY: a focuser that drops off
+        // the bus mid-run no longer silently changes the step size a measurement is interpreted at.
+        private double EffectiveFocuserStepMicrons() =>
+            inspector.InspectorOptions?.EffectiveMicronsPerFocuserStep ?? -1;
 
         private async Task RunMeasurementAsync() {
             HasMeasurementConsistencyWarning = false;
