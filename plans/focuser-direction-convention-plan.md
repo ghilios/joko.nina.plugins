@@ -3,7 +3,9 @@
 Executes `docs/focuser-direction-convention-design.md` (revised, user-approved layered shape):
 **measured σ stays authoritative for all motion; a new display-only focuser-direction setting `k`
 drives the physical-direction captions and mechanical wording.** The change is (1) the
-unconditional measurement flip, (2) the matching camera-simulator piston flip, (3) a one-time
+unconditional measurement flip **paired in the same commit with `PhysicalToStoredAngle`'s offset
+flip — the two inversions have been cancelling, and correcting either alone inverts the screw
+diagram for every user (design §7)**, (2) the matching camera-simulator piston flip, (3) a one-time
 migration for measured-σ profiles, (4) the new `k` option + its presentation consumers +
 invariance guards, (5) prose/doc corrections, (6) required warning-only cross-check (resolved question
 Q3). Steps are ordered; each step ends green
@@ -33,7 +35,12 @@ output is bit-identical to today):
 
 ---
 
-## Step 1 — Flip the measurement
+## Step 1 — Flip the measurement (and, in the SAME commit, Step 1b)
+
+> **HARD CONSTRAINT — do not land Step 1 without Step 1b.** `PhysicalToStoredAngle`'s 180° offset
+> keys off σ with an inverted assignment, and the two inversions have been cancelling. Correcting
+> only the measurement flips every displayed screw angle by 180° (screw 1 would render bottom-left
+> instead of top-right). Derivation and the log evidence: design §7.
 
 **File:** `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/TiltAdapterWizard/TiltCalibrationCalculator.cs:183–185`
 
@@ -67,6 +74,39 @@ becomes `k`-aware later, in step 6).
   `ComputeCurvatureSign_Session20260803_BaselineHigherMeansTowardCamera` —
   `ComputeCurvatureSign(5136.6, 5498.4) == +1`, with a comment that +1 reads "toward the camera"
   on a standard focuser (`m = σ·k`) and is the value that made corrections converge.
+
+## Step 1b — Flip `PhysicalToStoredAngle`'s offset (SAME COMMIT as Step 1)
+
+**File:** `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/TiltAdapterWizard/TiltScrewGeometry.cs:169–180`
+
+The offset must key on the adapter mechanics `m`, not on σ directly. Required rule (design §7.3):
+
+    offset = 180°   iff   m = +1   i.e.   iff   σ·sign(k) = +1
+
+Today it fires when `σ == CurvatureSignWhenCwMovesAdapterTowardObjective` (−1), which at `k = +1`
+reads "iff `m = −1`" — exactly inverted. Two edits, both required:
+
+- invert the condition so the 180° offset belongs to `m = +1`;
+- take `k` into account via `σ·sign(k)` rather than σ alone, consistent with the anchor-dictionary
+  lookups introduced in step 6. Note in the XML doc that this makes `PhysicalToStoredAngle` the
+  **second** sanctioned path on which `k` can reach motion (through Manual Calibration Entry) —
+  design §7.4, alongside §2.3's direction combo. Do not widen it further.
+
+**Do NOT migrate stored angles.** They live in the response frame, which this change does not
+touch; only the physical⇄stored conversion moves. Migrating them would double-apply the fix.
+
+**Tests (same commit):**
+- Pin the paired-flip invariant directly, as the acceptance criterion from design §7.3: for the
+  session's stored angles `s1 = 219.4°` with the corrected `σ = +1, k = +1`, the displayed physical
+  angle must be `39.4°` (top-right) — **identical to what the old code produced with the old
+  inverted σ**. A test that passes with only one of the two flips applied is the bug this step
+  exists to prevent, so assert the pair, not each half.
+- Round-trip: `PhysicalToStoredAngle` is self-inverse for every `(σ, k)` combination.
+- Guard that the default `k = +1` path is bit-identical to today's behavior *after* Step 1's σ flip.
+
+**Verification beyond unit tests:** the pair of flips must be a **no-op for what users see**. Open
+the wizard's screw diagram on an existing calibrated profile before and after; any visible change
+means one of the two flips was missed or double-applied.
 
 ## Step 2 — Wizard VM tests that seed six-step runs
 

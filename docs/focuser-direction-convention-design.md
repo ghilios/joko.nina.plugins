@@ -1,7 +1,8 @@
 # Focuser Direction Convention: measured σ stays authoritative; explicit display-only k
 
-**Status:** design, revised after user review; the layered shape in §2 is user-approved. Open
-questions at the end still need answers. Builds on `docs/tilt-adapter-direction-sign-design.md`
+**Status:** design, revised after user review; the layered shape in §2 is user-approved, and every
+open question is now resolved (Q1/Q3 by the user, Q2 from log evidence in §7, Q4 folded into §2).
+Ready to execute. Builds on `docs/tilt-adapter-direction-sign-design.md`
 (the confirmed measurement inversion, session `20260803-200647`) and
 `docs/tilt-guidance-motion-arrows-design.md` (whose §"Two vocabularies" equivalence at line 25 this
 doc corrects).
@@ -13,8 +14,10 @@ graphics are rendered? (2) If such a toggle were added, should it *replace*
 
 **Answer, in three sentences.** The correction math needs exactly one sign — the measured z-space
 response σ — and the sign algebra (§1) shows the focuser convention *cancels out* of its
-measurement, so the core fix is an unconditional one-line flip of `ComputeCurvatureSign` with zero
-user input. A focuser toggle can never replace σ, because σ is the *product* of two independent
+measurement, so the core fix is an unconditional flip of `ComputeCurvatureSign` with zero user
+input — which **must ship together with the matching flip of `PhysicalToStoredAngle`'s offset
+(§7)**, because those two inversions have been cancelling and correcting either alone inverts the
+screw diagram for every user. A focuser toggle can never replace σ, because σ is the *product* of two independent
 bits, `σ = sign(m)·sign(k)` (adapter mechanics × focuser convention), and the toggle supplies only
 one factor. But the convention does **not** cancel out of the *labels* — every caption that renders
 z-space into physical words currently pins `k = +1` silently — so the approved design layers them:
@@ -400,23 +403,85 @@ control plus tooltip in `Resources/OptionsDataTemplates.xaml` (§2.2, plan step 
   accepted as a bounded exception: the combo keeps its mechanical wording and its setter stores
   `σ = m·sign(k)`, touching only the *assumed* σ. See §2.3 for the rejected alternatives and the
   accepted residual risk.
-- **Q2 — `PhysicalToStoredAngle` absolute offset** (TiltScrewGeometry.cs:169–180): its 0°-vs-180°
-  assignment per σ was justified with the same family of reasoning as the inverted equivalence.
-  Checked against §1: the stored (response-frame) angle is the direction of local z-increase for a
-  CW turn, which works out to `θ_physical + Δ_mech + (180° iff σ = +1)` — a function of **σ and the
-  adapter's lever mechanics `Δ_mech`**, with `k` entering only through σ. So, contrary to first
-  appearances, storing `k` does **not** settle this: the unverified bit is the lever mechanics
-  (does tightening a screw at θ locally raise or lower the plate at θ — the tilt-domain doc's
-  pivot description suggests it may flip), not the focuser. What the explicit `k` buys is precise
-  mechanical wording around the setting once the mechanics bit is verified. Wizard-measured
-  calibrations are immune (angles measured directly); only **Manual Calibration Entry** and the
-  physical-angle *display* consume it. Decisive check, no code: on your calibrated rig, do the
-  wizard's displayed physical screw angles match where the screws actually sit? If yes, leave it;
-  if they read 180° off, that is a separate one-line fix plus its own migration question. This
-  design deliberately does not touch it.
+- **Q2 — RESOLVED from log evidence (2026-08-04): the offset IS inverted, and it must flip in the
+  SAME commit as `ComputeCurvatureSign`.** See §7 for the derivation. Superseded text: this
+  question previously asked whether the 0°-vs-180° assignment in `PhysicalToStoredAngle`
+  (TiltScrewGeometry.cs:169–180) was correct, and concluded no in-software evidence could settle
+  it. The `20260803-200647` log settles it, because the raw per-step tilt gradients recover the
+  stored angles directly and `m` is now known independently.
 - **Q3 — RESOLVED (user, 2026-08-04): adopt it.** The warning-only σ-vs-curvature-change
   disagreement check goes in the wizard's confidence panel (§2.4), not log-only. It is a required
   step of the plan, not an optional one. Warning-only is the point: it must never gate or alter the
   measured σ, only surface a disagreement for the user to judge. Note the known weakness recorded
   in §2.4 — the check is often drift-buried (the reference session's `Kx` slid monotonically across
   all six steps), so a quiet panel is weak evidence of agreement, not proof of it.
+
+## 7. The second inversion: `PhysicalToStoredAngle` (resolved from log `20260803-200647`)
+
+Q2 originally concluded that no in-software evidence could settle whether `PhysicalToStoredAngle`'s
+0°/180° assignment is correct, because the unverified bit is the adapter's lever mechanics rather
+than the focuser. That was right about *what* the unknown is and wrong that it was unreachable: `m`
+is now known independently, and the log preserves the raw per-step tilt gradients the stored angles
+were computed from. Together they close it.
+
+### 7.1 Recovering the stored angles from the log
+
+`StepReading.A/.B` are not the paraboloid's `Gx/Gy`. They are the weights of the four-corner plane
+fit in `TiltModel.cs:140–165`, whose inputs are `(x/W, y/H)` with **y pointing down**, so
+`A = Gx·W`, `B = Gy·H` — width and height scale them *differently*, and using `Gx/Gy` directly
+would give a wrong angle. With `W×H = 9576×6388` and the six solves logged at 21:27:50–21:46:21
+(`SensorModel.cs:209`):
+
+    d1 = (ΔA, ΔB) = (−35.890, +28.371)      [ReBaseline1 → Screw1]
+    d2 = (ΔA, ΔB) = (+52.717, +26.977)      [ReBaseline2 → Screw2]
+
+Feeding these through `ComputeScrewAngles` (`atan2(ΔA, −ΔB)`, which is exactly the wizard's
+0°-up/clockwise convention for a y-down image frame) yields the **stored, response-frame** angles:
+
+    s1 = 219.4°   s2 = 129.4°   s3 = 39.4°   s4 = 309.4°
+
+### 7.2 Where screw 1 physically sits — derived without the corner labels
+
+The stored angle is the direction of steepest **increase** in best-focus position produced by that
+screw's move. From §1, `m = σ·k = (+1)(+1) = +1`: a `+` step drives that corner toward the camera,
+which *lowers* best focus there. The screw therefore lies **opposite** the z-increase direction:
+
+    θ_physical(screw 1) = 219.4° − 180° = 39.4°   → top-right
+
+This uses only the raw gradients and `m`. It never consults `EatWizardMapping`, and it therefore
+**independently confirms** that mapping's `wizard screw 1 == TR`. The motor→corner correspondence
+is correct.
+
+### 7.3 The inversion, and why it was invisible
+
+`PhysicalToStoredAngle` applies its 180° offset when `σ == −1`. At the time of the reference
+screenshot σ *was* −1 (the panel reads "Curvature ↓ (measured)"), so it displayed
+`219.4 + 180 = 39.4°` — top-right, correct. Fix `ComputeCurvatureSign` and σ becomes `+1`, the
+offset drops to 0, and the same screw renders at **219.4° — bottom-left. Wrong.**
+
+The offset must key on the mechanics, not on σ directly:
+
+    offset = 180°  iff  m = +1   i.e.  iff  σ·k = +1
+
+As coded it fires when `σ = −1`, which at `k = +1` reads "iff `m = −1`" — exactly inverted. **Two
+inversions have been cancelling.** Fixing either alone flips the screw diagram for every user.
+
+Confirming check, and the acceptance criterion for the change: with both corrected,
+`σ·k = +1` → offset 180° → display `219.4 + 180 = 39.4°`, unchanged and still correct. **The pair
+of flips is a no-op for what users see.** Any visible change in the screw diagram after this change
+means one of the two was missed.
+
+### 7.4 Consequences for the layered design
+
+`PhysicalToStoredAngle` becomes a legitimate consumer of `k` — but it writes stored angles via
+**Manual Calibration Entry**, so it is a *second* bounded exception to "k never reaches motion",
+alongside the direction combo accepted in §2.3. The same reasoning applies: the wizard-measured
+path is immune (angles are measured directly into the response frame and never round-trip), the
+exposure is confined to hand-entered angles, and a wrong `k` there produces a wrong stored angle
+rather than a silently wrong sign. It must be listed with §2.3's exception, not treated as routine.
+
+Note on the evidence: the reference screenshot is from a *different, later* run than this log —
+every angle sits a uniform **+3.5°** off the values above (42.9/312.9/222.9/132.9), and its
+reported magnitude ratio is 1.5× where this run computes 1.294×. Same structure, same quadrants,
+slightly different camera rotation. It does not affect the derivation, which depends only on which
+side of 180° the stored angle falls.
