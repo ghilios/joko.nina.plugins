@@ -163,31 +163,66 @@ size (1.376 µm/step) carries the known region-path scale issue and is not usabl
   RMS ≈ 15–17 µm/star); reduced χ² 4.4–8.7 everywhere means per-star σ is still understated ~2–3×
   even after the 46778b9 σ-floor — the weighting is still not honestly calibrated on real frames.
 
-## 7. Recommendations (not yet implemented)
+## 7. Recommendations
+
+Status as of `plans/tilt-calibration-accuracy-plan.md` Task 8 (items below are annotated inline;
+short SHAs refer to commits on `ghilios/tilt-calibration-accuracy`).
 
 1. **Compute calibration magnitudes/directions in physical gradient space** (gx, gy), not (A, B)
    space — closes F2 and makes `MoveMagnitudeRatio`, rawDiff, and SNR honest. (Known open item; the
    pitch math is already isotropic-correct.)
+   **Implemented:** `ffabeac` (the (A,B)→physical-gradient conversion in `TiltCalibrationCalculator`),
+   `059002e` (routed the wizard's `RunCalibrationMath` through a single `Calibrate()` call so the fix
+   reaches the live wizard, not just the calculator), `ee6eca3` (removed a geometry fallback in
+   `PhysicalDelta` and re-gated hardware recovery on it, a code-review follow-up).
 2. **Cross-check the paraboloid gradient against the corner-region AF planes per step** and flag
    (or blend) when they disagree beyond the region σ — the region data is already computed during
    each wizard AF run; this run's warning would have been avoided and the pitch would have read ~2.0.
+   **Implemented (flag, not blend):** `efc208d` (captures the corner-region plane per step and adds
+   the disagreement warning), `a98cc77` (code-review follow-up). Prerequisite fix: `60eefda`, which
+   found the corner-region estimator itself was regressing the 4-corner plane against the frame
+   corners instead of the actual region centers, attenuating it by 2/3 — without that fix the
+   cross-check would have been comparing against a biased reference.
 3. **Investigate the paraboloid fit's gradient/curvature shrinkage** on real (not simulated) data:
    Screw2-state gradient ×0.80, curvature ×0.5 vs region AF. The winsorized-clip + σ-floor fix
    (46778b9) improved scatter but a state-dependent shrink survives on real frames.
+   **Investigated, see §8.** Every candidate mechanism inside the paraboloid solver (clipping,
+   pruning, weighting, weight monopoly, the high-σ tail, forced isotropic curvature) was ruled out by
+   direct measurement; the compression is already present in the per-star best-focus values the
+   solver is handed, and correlates with how well each star's sweep brackets its vertex. The *fix*
+   (tightening the per-star vertex estimator's acceptance criteria) is out of scope for this plan and
+   deferred to its own follow-up plan — it needs a TDD cycle against the synthetic AF bank, not a
+   change to the paraboloid solver's robust loop.
 4. **Treat pitch/corrections frame-consistently.** Either (a) always drive corrections with the
    measured (focuser-frame) pitch and reframe the UI comparison ("effective µm/step through your
    optics — expected to differ from the mechanical spec"), or (b) measure F explicitly from the
    AllInward piston (Δmean-focus µm / commanded plate µm — both already recorded) and surface it.
    The piston probe is currently used only for the curvature *sign*; it contains the frame factor
    for free.
+   **Measurement half implemented** via item 5's piston probe (`c7fd73c`, `29e451e`) plus this task's
+   manual rewrite (`documentation/docs/overview/tilt-adapter-wizard.md`), which reframes the UI
+   comparison per option (a). Driving corrections from the measured value is deliberately left as a
+   user choice, not automatic: the wizard already exposed a **Use measured value** button before this
+   plan; the manual now explains why a rig can legitimately need it.
 5. **Use the piston-implied pitch as a third estimate** (346 µm/150 steps, no pull-side mechanics,
    no tilt fit involved) to sanity-check the two tilt-derived per-screw pitches.
+   **Implemented:** `c7fd73c` (`PistonImpliedMicronsPerStep`, the 20% disagreement warning, schema
+   v3), `29e451e` (code-review follow-up, XAML row placement).
 6. **Average out settling/drift**: measure each diagonal both directions (+150 and −150) and average
    the two deltas — cancels hysteresis and linear drift to first order; or raise
    `measurementAverageCount` for calibration runs.
+   **Implemented** (the symmetric-delta variant, not the ± remeasurement variant): `a4a7304`
+   (drift-cancelling `Screw1Delta` referenced to mid(ReBaseline1, ReBaseline2), unconditional),
+   `f33548c` (code-review follow-up), `970bfc8` (optional measured final re-baseline / `ReBaseline3`,
+   giving screw 2 the same symmetric reference, default on), `dab006a` (test coverage for the
+   device-driven RB3 move and the shipped 5-step default flow).
 7. **Backfocus correction undershoot (~2×)**: after (3), re-derive the expected backfocus step
    counts; the chronic "backfocus errors remained" experience during iterative correction is
    consistent with the model's curvature shrinkage.
+   **Still pending**, now blocked on the §8 follow-up plan's fix (the per-star vertex estimator), not
+   on item 3 in the abstract: §8 found the curvature shrinkage is downstream of the same vertex-level
+   compression as the gradient shrinkage, so re-deriving backfocus step counts before that fix lands
+   would be re-deriving them against a known-short curvature.
 
 ## 8. Shrinkage mechanism: it is not in the surface solver
 
