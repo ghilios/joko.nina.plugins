@@ -1,6 +1,28 @@
 # Adapter direction (`ScrewInwardCurvatureSign`): the measured sign came out inverted
 
-**Status:** analysis + options. **Needs a decision before any code change** — this sign decides which way every
+**Status: RESOLVED — superseded by [`docs/focuser-direction-convention-design.md`](focuser-direction-convention-design.md), implemented 2026-08-04.**
+
+**Hypothesis 1 was confirmed, in a strengthened form.** `ComputeCurvatureSign` was not merely inverted on
+*this* rig — it was inverted on **every** rig. Writing the stored sign as `σ = sign(m)·sign(k)` (adapter
+mechanics × focuser convention) shows that `m` and `k` enter both σ and the all-screws probe only through
+their product, so the focuser convention **cancels out of the measurement**. That kills hypothesis 2 ("this
+rig's focuser is inverted; the code is right in general"): there is no focuser convention under which the old
+formula measured the sign the consumers need. The fix is therefore unconditional and needs no user input.
+
+The same factorization explains why the existing direction setting felt opaque: it asks the user a question
+about `m` but stores σ, with the `m ↔ σ` conversion silently pinned at `k = +1`. The resolution keeps σ
+measured and authoritative for all motion, and adds `k` as a separate, **display-only** setting so the
+mechanical wording is true rather than assumed.
+
+The investigation also turned up a **second** inversion hiding behind the first: `PhysicalToStoredAngle`
+assigned its 180° offset to the wrong half of the rigs, and the two had been cancelling in the screw diagram.
+They were corrected together.
+
+Retained below for the log evidence and the original reasoning.
+
+---
+
+**Original status:** analysis + options. **Needs a decision before any code change** — this sign decides which way every
 automated correction turns, and getting it wrong drives tilt in the wrong direction unattended.
 
 ## What happened
@@ -39,7 +61,11 @@ The convention is stated in `docs/tilt-guidance-motion-arrows-design.md` §"Two 
 
 > Because "adapter moves toward the objective" ⇔ "the local best-focus position decreases" …
 
-That equivalence is what `ComputeCurvatureSign` encodes. Working it through for a standard focuser (increasing
+(That quoted equivalence is itself backwards, and it has since been corrected in place — see
+`docs/focuser-direction-convention-design.md` §1(a). It is quoted here as it stood, because it is what
+`ComputeCurvatureSign` encoded.)
+
+Working it through for a standard focuser (increasing
 position = drawtube extends = camera moves **away** from the objective):
 
 - Let `S` be the objective→sensor distance. `S = k·P + B + const`, with `P` the focuser position and `B` the

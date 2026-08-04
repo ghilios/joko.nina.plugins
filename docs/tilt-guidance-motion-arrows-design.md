@@ -22,10 +22,25 @@ Two glyph vocabularies, each answering a different question:
 | ⬆ / ↑ / — / ↓ / ⬇ (arrows grid) | *What must the adapter do at this screw?* | ⬆ = this corner of the adapter plate moves **toward the objective**; ⬇ = toward the camera. Magnitude tiers (large/small/dash) keep today's threshold logic. |
 | ⟳ / ⟲ (numeric grid, screws) | *Which way do I turn this screw?* | ⟳ = clockwise (tighten); ⟲ = counter-clockwise (loosen). U+27F3 / U+27F2 text glyphs. |
 
-Because "adapter moves toward the objective" ⇔ "the local best-focus position decreases" (this is what `ScrewInwardCurvatureSign` σ together with the pinned constant `CurvatureSignWhenCwMovesAdapterTowardObjective = −1` encode — no new empirical input is needed), both vocabularies are computable from existing state:
+> **CORRECTED 2026-08-04** (`docs/focuser-direction-convention-design.md`). This paragraph originally
+> justified the arrow formulas with "adapter moves toward the objective ⇔ the local best-focus position
+> decreases". That equivalence is **backwards, and it is not convention-free**. Writing the sensor's
+> objective-distance as `D = S₀ + k·P + b` (focuser position `P`, focuser convention `k = ±1`, adapter
+> spacing `b`), the fitted best-focus surface is `z = (F₀ + f_c − S₀ − b)/k`, so `∂z/∂b ≈ −1/k`: on a
+> **standard** focuser (`k = +1`) moving the plate toward the objective *raises* the best-focus position.
+> The formulas below are correct as written; only the justification was wrong, and it needed a `k`.
 
-- **Tilt row** — rotation is σ-free (the calibrated screw angles already encode the rig's response direction): glyph ⟳ iff the CW-positive tilt turns value is positive. Motion needs σ: arrow ⬆ iff `σ · turns[i] < 0`.
-- **Backfocus row** — motion is σ-free (pure curvature physics): arrow ⬆ iff the backfocus correction calls for the local best-focus position to decrease (`BackfocusMicrons < 0` in the correction convention — verify the equivalent expression the VM already computes when implementing). Rotation needs σ: glyph ⟳ iff `σ · BackfocusMicrons > 0`.
+The right derivation. A CW/+ turn moves the plate toward the camera iff `m = +1`, where `m = σ·sign(k)` — the
+stored sign σ fuses the adapter's mechanics with the focuser convention, and only their product is observable
+from z-space. So the two vocabularies are computable from existing state, with `k` entering the *motion*
+claims and nothing else:
+
+- **Tilt row** — rotation is σ-free (the calibrated screw angles already encode the rig's response direction): glyph ⟳ iff the CW-positive tilt turns value is positive. Motion needs σ *and* `k`: arrow ⬆ iff `σ · sign(k) · turns[i] < 0`.
+- **Backfocus row** — motion is σ-free (the σ in "which rotation is needed" and the σ in "what a rotation does" cancel), but naming that motion still needs `k`: arrow ⬆ iff `sign(k) · E_z > 0`. Rotation needs σ: glyph ⟳ iff `σ · BackfocusMicrons > 0`.
+
+`k` is the display-only `IInspectorOptions.FocuserIncreasesTowardObjective`, and it ships defaulted to the
+standard convention (`sign(k) = +1`), at which both formulas reduce bit-for-bit to the ones this document
+originally specified. Nothing computed reads it.
 - **Total row** — rotation per the corrected PR #117 formula (`SignedTotalAdjustment`): glyph ⟳ iff `TiltMicrons + σ·BackfocusMicrons > 0`. (No motion arrow — the arrows grid has no Total row; unchanged.)
 
 Robustness property (state it in code comments and pin it in tests): with a **wrong** adapter-direction setting, the tilt *arrows* flip but the tilt *glyphs* stay correct, and the backfocus *arrows* stay correct while the backfocus *glyphs* flip. The old failure mode — two rotation indicators contradicting each other — cannot recur because arrows and glyphs no longer claim to answer the same question. The "(assumed …)" legend suffix remains the flag that σ is unverified.

@@ -109,7 +109,8 @@ hardware model, then converts the measured tilt into concrete screw-turn (or ste
 instructions. See [Tilt Adapter Wizard](tilt-adapter-wizard.md).
 
 The arrows describe what the adapter must do: ⬆ means that corner of the adapter plate moves toward
-the objective, ⬇ toward the camera — the same on every rig. The numeric rows each carry the screw
+the objective, ⬇ toward the camera — the same on every rig with the same **Increasing focuser
+position** setting ([below](#which-way-does-your-focuser-travel)). The numeric rows each carry the screw
 rotation that produces the move: `1.25 ⟳` means 1.25 turns clockwise (tighten), `0.50 ⟲`
 counter-clockwise (loosen); stepper adapters show signed steps (`+35 steps`) matching the wizard's
 prompts. A legend at the top of the section defines both conventions and is marked "(assumed)" until
@@ -139,6 +140,7 @@ star-matching, outlier-rejection, and save-images settings (plus **Astigmatic fi
 |---|---|---|---|
 | **Eccentricity Grid Width** | 7 | odd, positive | "How many cells wide to divide the sensor pixels when generating a grid of eccentricity vectors … the height will be calculated proportionally." |
 | **Focuser Step Size** | -1 (auto) | -1 or &gt;0 | "How much the focuser moves per step, in microns. If this is set, the adjustment chart will include adjustments in microns." |
+| **Increasing focuser position** | Moves camera away from objective (standard) | standard / reversed | Which way your focuser travels. Affects direction labels and diagrams only — see [below](#which-way-does-your-focuser-travel). Also editable under Options → Hocus Focus → Auto Focus. |
 | **Sensor ROI** | 1.0 | 0.1–1.0 | "Uses only a centered portion of the full sensor when evaluating aberration. This is useful if you have a flattener that cannot produce a flat field for your sensor." |
 | **Corners ROI** | 1.0 | 0.1–1.0 | "Reduces the size of the corner regions when performing corners analysis … evaluate only stars closer to the corners than the full 1/9th region. This can be combined with Sensor ROI." |
 | **Sensor Curve Model Enabled** | off | on/off | "Create a paraboloid model of the sensor by creating focus curves for every star. This enables calculation of centering error and curvature … similar to … CCD Inspector." |
@@ -168,6 +170,32 @@ star-matching, outlier-rejection, and save-images settings (plus **Astigmatic fi
 !!! tip "Sensor ROI protects the tilt fit"
     Restricting analysis to the well-corrected center (**Sensor ROI**) keeps a corner your
     flattener cannot correct from polluting the tilt fit.
+
+### Which way does your focuser travel?
+
+Everything the inspector measures is in focuser positions. Turning one of those measurements into a
+sentence about the real world — "move the sensor **towards** the flattener", "⬆ = toward the
+objective", "Telescope is up" — needs one more fact that no driver reports: whether a **higher**
+focuser position moves your camera *away* from the objective, or *toward* it.
+
+Almost every focuser is the first kind, so **Increasing focuser position** defaults to **Moves camera
+away from objective (standard)**. If your focuser is wired or geared the other way, set it to
+**reversed** and the labels follow.
+
+!!! info "This setting can only be wrong on a label"
+    It affects direction **labels and diagrams only**: the tilt-table captions, the Telescope/Sensor
+    labels on the sensor model, the spacer advice, the ⬆/⬇ motion arrows, and the wizard's direction
+    wording. It can never change a measurement, a stored screw angle, or a correction — the tilt
+    adapter's direction is measured in focuser units, and the focuser convention cancels out of that
+    measurement entirely.
+
+    So if the labels read backwards on your rig, just flip this. Nothing you have already calibrated
+    is affected, no numbers change, and nothing starts turning the other way.
+
+    One narrow exception, worth knowing about: if you skip the wizard's **Measure direction** step and
+    set the adapter direction by hand, that hand-entered direction *is* interpreted through this
+    setting. Running the six-step calibration overwrites it with a measurement that does not depend on
+    this setting at all.
 
 ## Running it from a sequence
 
