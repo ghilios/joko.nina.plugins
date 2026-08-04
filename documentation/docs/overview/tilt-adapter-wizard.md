@@ -16,11 +16,13 @@ measure-and-correct loop before working on real hardware, see the
 
 Screw orientations are stored as angles measured **clockwise from straight up (12 o'clock)**: `0°` is
 the top of the sensor, `90°` is to the right, `180°` is the bottom, `270°` is to the left. The wizard
-stores one angle per screw (`Screw1AngleDegrees` … `Screw4AngleDegrees`). On adapters where a
-clockwise turn moves the plate toward the objective, the stored convention encodes that direction:
-the wizard's diagram and saved-calibration angles read 180° rotated from the screws' physical
-positions in the image, while [Manual Calibration Entry](#manual-calibration-entry) always takes the
-physical angle.
+stores one angle per screw (`Screw1AngleDegrees` … `Screw4AngleDegrees`). The stored angle is the
+direction the best-focus tilt *responds* in, not where the screw sits: on adapters where a clockwise
+turn moves the plate toward the **camera**, that turn lowers best focus at the screw, so the stored
+angle sits 180° from the screw's physical position in the image. The wizard's diagram and the
+saved-calibration readout always show the **physical** position, and [Manual Calibration
+Entry](#manual-calibration-entry) always takes the physical angle, so you never have to do that
+conversion yourself.
 
 !!! warning "Orientation is tracked in image space, not physically"
     A star diagonal, a mirror, or a rotator can flip the sensor's orientation inside the camera body,
@@ -57,10 +59,17 @@ comes from the adapter direction setting in the wizard's **Measurement** section
 moves adapter** (or **+ steps move adapter** for steppers):
 either **Toward the camera** (outward, the default) or **Toward the objective** (inward). Until it
 is measured, guidance marks the direction "(assumed)". To measure it, turn on **Measure direction**:
-this adds two steps (an all-screws-clockwise move plus a return to baseline) that determine the sign
-of the effect (`ScrewInwardCurvatureSign`) from the curvature change, and the saved calibration then
-reports the direction as measured. To average out seeing, set **Measurements to average** above 1; the wizard
+this adds two steps (an all-screws-clockwise move plus a return to baseline) and reads the direction
+off the **change in mean best-focus position** between them. Turning every screw clockwise is a pure
+piston, so if the mean best-focus position *drops*, the plate moved toward the camera — on a standard
+focuser, that means clockwise moves the adapter toward the camera. The saved calibration then reports
+the direction as measured. To average out seeing, set **Measurements to average** above 1; the wizard
 flags inconsistent repeats so you can re-run.
+
+The measurement itself needs no knowledge of which way your focuser travels — the focuser convention
+cancels out of it. Only the *wording* of the direction selector depends on it, so the selector reflects
+your **Increasing focuser position** setting (see [Aberration Inspector](tilt-aberration-inspector.md#which-way-does-your-focuser-travel));
+on a reversed focuser the same stored measurement reads as the opposite mechanical direction.
 
 ![The Tilt Adapter Wizard's Measurement section: Signal Amplification, Center Focuser First, the adapter-direction selector, and Measure direction](../assets/screenshots/wizard-measurement-section.png){ width=620 }
 
@@ -78,11 +87,12 @@ would otherwise fail to register are not dropped from a step's model: the frame 
 its search instead (see [cross-frame
 registration](sensor-model.md#from-stars-to-data-points)).
 
-!!! note "Set Focuser Step Size for the best guidance"
-    Per its tooltip, *Focuser Step Size* is "how much the focuser moves per step, in microns.
-    If this is set, the adjustment chart will include adjustments in microns." Without it, adjustments
-    are still reported in focuser steps, and the tilt-angle calculation falls back to the connected
-    focuser's reported step size when available.
+!!! note "Focuser Step Size drives the micron figures"
+    *Focuser Step Size* is how far the focuser moves per step, in microns. It normally comes from your
+    focuser driver with no setup at all; you only need to type a value if your driver does not report one,
+    or reports it wrongly. See [where it comes
+    from](tilt-aberration-inspector.md#where-the-focuser-step-size-comes-from). Without any value at all,
+    adjustments are still reported in focuser steps.
 
 ## What the screws can fix
 

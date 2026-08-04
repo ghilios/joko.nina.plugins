@@ -98,6 +98,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 RaisePropertyChanged(nameof(FocuserStepSizeMicrons));
                 // The hint text resolves through the same value, so it moves with it.
                 RaisePropertyChanged(nameof(EffectiveFocuserStepSizeMicrons));
+            } else if (e.PropertyName == nameof(IInspectorOptions.EffectiveMicronsPerFocuserStep)) {
+                // A driver-reported step size moves the render scale WITHOUT touching the override, so this
+                // arrives on its own. FocuserStepSizeMicrons (the editable override) is deliberately not
+                // re-raised here — it did not change.
+                RaisePropertyChanged(nameof(EffectiveFocuserStepSizeMicrons));
             }
         }
 
@@ -348,7 +353,13 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             get {
                 // `> 0` and not `!(<= 0)`: NaN fails BOTH comparisons, so the `<=` form would wave it through into
                 // DefocusModel and produce an all-NaN frame with no error anywhere (see DefocusModel's ctor guards).
-                var configured = inspectorOptions.MicronsPerFocuserStep;
+                //
+                // Reads the Inspector's EFFECTIVE value, so a driver-reported step size reaches the render too.
+                // It has to: the simulator RENDERS defocus at k and the inspector RECOVERS tilt at k, the same k
+                // on both sides of an inverse. If the render used only the override while the inspector resolved
+                // through the driver, the inject⇄recover loop would break by exactly their ratio, silently — the
+                // original two-copies bug in a new disguise. The simulator's own default is last in the chain.
+                var configured = inspectorOptions.EffectiveMicronsPerFocuserStep;
                 return configured > 0.0 ? configured : DefaultFocuserStepSizeMicrons;
             }
         }

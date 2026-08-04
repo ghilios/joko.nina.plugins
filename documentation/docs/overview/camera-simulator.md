@@ -84,7 +84,7 @@ starts, so edits apply to the next frame.
 | Setting | Default | What it does |
 |---|---|---|
 | **Optimal Focuser Position** | 5000 steps | The focuser position at which stars are sharpest. Move the focuser away from it and stars defocus. |
-| **Focuser Step Size** | unset | Microns of defocus per focuser step. This is the same setting as the Aberration Inspector's **Focuser Step Size**; editing either changes both. Blank renders at 2 µm/step. |
+| **Focuser Step Size** | blank | Microns of defocus per focuser step. This is the same setting as the Aberration Inspector's **Focuser Step Size**; editing either changes both. Blank renders at whatever the greyed-out hint shows — your focuser driver's reported step size if it supplies one, otherwise 2 µm/step. |
 | **Gain** | 100 | Camera gain, on a ZWO-style scale. Affects e⁻/ADU and read noise, including the high-conversion-gain step. |
 | **Bias Pedestal** | 500 ADU | Offset added to every pixel. |
 | **Sensor Temperature** | −10 °C | Sets dark current, which doubles every 6.5 °C. |

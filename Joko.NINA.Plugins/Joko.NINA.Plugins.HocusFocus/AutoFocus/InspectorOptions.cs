@@ -70,6 +70,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             numRegionsWide = optionsAccessor.GetValueInt32(nameof(NumRegionsWide), 7);
             loopingExposureAnalysisEnabled = optionsAccessor.GetValueBoolean(nameof(LoopingExposureAnalysisEnabled), false);
             micronsPerFocuserStep = optionsAccessor.GetValueDouble(nameof(MicronsPerFocuserStep), -1);
+            // Not loaded — it has no accessor key. Assigned to the FIELD, not the property, because the
+            // property's setter rejects non-positive values by design. This runs on construction and on every
+            // ProfileChanged, which is exactly where "a different rig, so forget the last focuser" belongs.
+            driverMicronsPerFocuserStep = -1;
+            focuserIncreasesTowardObjective = optionsAccessor.GetValueBoolean(nameof(FocuserIncreasesTowardObjective), false);
             eccentricityColorMapEnabled = optionsAccessor.GetValueBoolean(nameof(EccentricityColorMapEnabled), true);
             mouseOnChartsEnabled = optionsAccessor.GetValueBoolean(nameof(MouseOnChartsEnabled), true);
             sensorCurveModelEnabled = optionsAccessor.GetValueBoolean(nameof(SensorCurveModelEnabled), false);
@@ -104,6 +109,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             NumRegionsWide = 7;
             LoopingExposureAnalysisEnabled = false;
             MicronsPerFocuserStep = -1;
+            FocuserIncreasesTowardObjective = false;
             EccentricityColorMapEnabled = true;
             MouseOnChartsEnabled = true;
             SensorCurveModelEnabled = false;
@@ -264,12 +270,90 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private double micronsPerFocuserStep;
 
+        /// <inheritdoc cref="IInspectorOptions.MicronsPerFocuserStep"/>
         public double MicronsPerFocuserStep {
             get => micronsPerFocuserStep;
             set {
                 if (micronsPerFocuserStep != value) {
                     micronsPerFocuserStep = value;
                     optionsAccessor.SetValueDouble(nameof(MicronsPerFocuserStep), micronsPerFocuserStep);
+                    RaisePropertyChanged();
+                    RaiseFocuserStepSizeDerivedChanged();
+                }
+            }
+        }
+
+        private double driverMicronsPerFocuserStep = -1;
+
+        /// <inheritdoc cref="IInspectorOptions.DriverMicronsPerFocuserStep"/>
+        /// <remarks>
+        /// No accessor key, by design — see the interface doc. The setter's guard IS the stickiness mechanism:
+        /// a disconnected focuser reports 0, the write is dropped, and the last known value stands. Keep the
+        /// filtering here and nowhere else, so the single writer stays a plain unconditional assignment and the
+        /// two cannot drift apart.
+        ///
+        /// <para><c>&gt; 0</c> and not <c>!(&lt;= 0)</c>: NaN fails BOTH comparisons, so only the positive form
+        /// rejects it. A NaN step size waved through here yields an all-NaN sensor model with no error
+        /// anywhere — the same trap documented on
+        /// <c>CameraSimulatorOptions.EffectiveFocuserStepSizeMicrons</c>.</para>
+        /// </remarks>
+        public double DriverMicronsPerFocuserStep {
+            get => driverMicronsPerFocuserStep;
+            set {
+                if (!(value > 0.0) || double.IsInfinity(value)) {
+                    return;
+                }
+                if (driverMicronsPerFocuserStep != value) {
+                    driverMicronsPerFocuserStep = value;
+                    RaisePropertyChanged();
+                    RaiseFocuserStepSizeDerivedChanged();
+                }
+            }
+        }
+
+        /// <inheritdoc cref="IInspectorOptions.EffectiveMicronsPerFocuserStep"/>
+        public double EffectiveMicronsPerFocuserStep =>
+            micronsPerFocuserStep > 0.0 ? micronsPerFocuserStep
+            : driverMicronsPerFocuserStep > 0.0 ? driverMicronsPerFocuserStep
+            : -1.0;
+
+        /// <summary>
+        /// How far the override may sit from the driver's reported step size before
+        /// <see cref="HasFocuserStepSizeMismatch"/> flags it, as a fraction of the driver's value.
+        ///
+        /// <para>Relative rather than absolute because real rigs span roughly 0.1–10 µm/step. 1% is loose
+        /// enough that a genuine calibration landing near the driver's round number stays quiet, and tight
+        /// enough to catch what this check exists for: a driver reporting steps rather than microns, or a 2×
+        /// error.</para>
+        /// </summary>
+        public const double FocuserStepSizeMismatchFraction = 0.01;
+
+        /// <inheritdoc cref="IInspectorOptions.HasFocuserStepSizeMismatch"/>
+        public bool HasFocuserStepSizeMismatch =>
+            micronsPerFocuserStep > 0.0 && driverMicronsPerFocuserStep > 0.0 &&
+            Math.Abs(micronsPerFocuserStep - driverMicronsPerFocuserStep) / driverMicronsPerFocuserStep
+                > FocuserStepSizeMismatchFraction;
+
+        // Both derived values read the override AND the driver value, so either input changing must re-raise
+        // both. Bindings (the hint text, the mismatch flag) depend on this.
+        private void RaiseFocuserStepSizeDerivedChanged() {
+            RaisePropertyChanged(nameof(EffectiveMicronsPerFocuserStep));
+            RaisePropertyChanged(nameof(HasFocuserStepSizeMismatch));
+        }
+
+        private bool focuserIncreasesTowardObjective;
+
+        /// <summary>
+        /// The focuser direction convention k. DISPLAY-ONLY — see
+        /// <see cref="IInspectorOptions.FocuserIncreasesTowardObjective"/> for the full contract and the two
+        /// sanctioned exceptions.
+        /// </summary>
+        public bool FocuserIncreasesTowardObjective {
+            get => focuserIncreasesTowardObjective;
+            set {
+                if (focuserIncreasesTowardObjective != value) {
+                    focuserIncreasesTowardObjective = value;
+                    optionsAccessor.SetValueBoolean(nameof(FocuserIncreasesTowardObjective), focuserIncreasesTowardObjective);
                     RaisePropertyChanged();
                 }
             }

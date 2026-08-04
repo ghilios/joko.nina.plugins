@@ -229,6 +229,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     e.PropertyName == nameof(IInspectorOptions.FramesPerPoint)) {
                     RaisePropertyChanged(nameof(SignalAmplificationSummary));
                 }
+                if (e.PropertyName == nameof(IInspectorOptions.FocuserIncreasesTowardObjective)) {
+                    // k is display-only, so this refreshes WORDS AND ARROWS ONLY: the backfocus
+                    // TOWARDS/AWAY FROM verdict, and the guidance's motion arrows. Every number, glyph and
+                    // total RebuildTiltGuidance produces is k-free by construction and comes out identical —
+                    // pinned by the invariance guards in InspectorVMFocuserDirectionTests.
+                    BackfocusDirection = BackfocusDirectionFor(BackfocusFocuserPositionDelta);
+                    RebuildTiltGuidance();
+                }
             };
             // SignalAmplificationSummary also reads the active profile's FocuserSettings (offset steps /
             // frames per point), which the user can edit in place without swapping profiles —
@@ -651,7 +659,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // Resolve the definitive review request from the SAME flag that gates this block (capture-time flag on replay).
             frameReviewRequestedForRun = IsFrameReviewRequested(inspectorOptions.FrameReviewEnabled, sensorCurveModelEnabled);
             if (sensorCurveModelEnabled) {
-                double focuserSizeMicrons = SensorModelFocuserSizeOverrideMicrons ?? InspectorOptions.MicronsPerFocuserStep;
+                // Layer 1 (a replay's captured step size) over the resolver's layers 2-4 (override, driver,
+                // unset) - docs/focuser-step-size-driver-design.md §2.
+                double focuserSizeMicrons = SensorModelFocuserSizeOverrideMicrons ?? InspectorOptions.EffectiveMicronsPerFocuserStep;
                 if (double.IsNaN(focuserSizeMicrons) || focuserSizeMicrons <= 0.0) {
                     if (!focuserStepSizeWarningShowed) {
                         Notification.ShowWarning("Focuser Step Size not set. Assuming 1 micron per focuser step. This message won't be shown again.");
@@ -1666,25 +1676,59 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             var fRatio = profileService.ActiveProfile.TelescopeSettings.FocalRatio;
             CriticalFocusMicrons = 2.44 * fRatio * fRatio * 0.55;
-            InnerFocuserPosition = centerFocuser;
-            OuterFocuserPosition = outerFocuserPositionSum / 4;
-            BackfocusFocuserPositionDelta = OuterFocuserPosition - InnerFocuserPosition;
-            if (BackfocusFocuserPositionDelta > 0) {
-                BackfocusDirection = "TOWARDS";
-            } else {
-                BackfocusDirection = "AWAY FROM";
-            }
-            if (InspectorOptions.MicronsPerFocuserStep > 0) {
-                BackfocusMicronDelta = BackfocusFocuserPositionDelta * InspectorOptions.MicronsPerFocuserStep;
-            } else {
-                BackfocusMicronDelta = double.NaN;
-            }
-
-            BackfocusWithinCFZ = Math.Abs(BackfocusMicronDelta) < criticalFocusMicrons;
+            ApplyBackfocusMeasurement(inner: centerFocuser, outer: outerFocuserPositionSum / 4);
             InnerHFR = centerHFR;
             OuterHFR = outerHFRSum / 4;
             BackfocusHFR = OuterHFR - InnerHFR;
         }
+
+        /// <summary>
+        /// Everything derived from the inner/outer best-focus positions: the raw focuser delta, the
+        /// TOWARDS/AWAY FROM wording, the micron conversion, and the critical-focus-zone verdict.
+        ///
+        /// <para>Extracted so the k-invariance guard and the focuser step-size tests drive the same derivation
+        /// the real run does, rather than a partial re-implementation that can silently disagree with it.</para>
+        ///
+        /// <para>The micron conversion reads the EFFECTIVE µm/step (override, else the driver's reported step
+        /// size, else unknown). Unknown stays NaN — the readout drops out rather than showing a fabricated
+        /// number, which is the same graceful degradation this had before the driver became a source.</para>
+        /// </summary>
+        private void ApplyBackfocusMeasurement(double inner, double outer) {
+            InnerFocuserPosition = inner;
+            OuterFocuserPosition = outer;
+            BackfocusFocuserPositionDelta = OuterFocuserPosition - InnerFocuserPosition;
+            BackfocusDirection = BackfocusDirectionFor(BackfocusFocuserPositionDelta);
+            var micronsPerStep = InspectorOptions.EffectiveMicronsPerFocuserStep;
+            BackfocusMicronDelta = micronsPerStep > 0
+                ? BackfocusFocuserPositionDelta * micronsPerStep
+                : double.NaN;
+            BackfocusWithinCFZ = Math.Abs(BackfocusMicronDelta) < criticalFocusMicrons;
+        }
+
+        /// <summary>
+        /// The display-only focuser convention as a sign: +1 standard (increasing focuser position moves the
+        /// camera away from the objective), −1 reversed. Resolved fresh at each presentation call site; it
+        /// never leaves them (docs/focuser-direction-convention-design.md §2.2).
+        /// </summary>
+        internal int FocuserSign => inspectorOptions != null && inspectorOptions.FocuserIncreasesTowardObjective ? -1 : 1;
+
+        /// <summary>
+        /// "Move sensor TOWARDS / AWAY FROM the flattener" for a given outer-minus-inner focuser delta.
+        /// A positive delta means the outer regions focus at a higher position than the center, i.e. the
+        /// curvature effect E_z &gt; 0 — which calls for reducing the spacing only when a higher focuser
+        /// position means "farther from the objective". Hence sign(k)·E_z, which at the default k = +1 is
+        /// exactly the previous unconditional test (design §3, site 4).
+        /// </summary>
+        private string BackfocusDirectionFor(double focuserPositionDelta) =>
+            FocuserSign * focuserPositionDelta > 0 ? "TOWARDS" : "AWAY FROM";
+
+        /// <summary>
+        /// Test seam: the backfocus panel is normally filled by <see cref="UpdateBackfocusMeasurements"/> from a
+        /// completed AutoFocus result. This supplies the same two measured positions directly and runs the real
+        /// derivation, so tests exercise the shipping code rather than a copy of it.
+        /// </summary>
+        internal void SetBackfocusMeasurementForTest(double inner, double outer) =>
+            ApplyBackfocusMeasurement(inner, outer);
 
         // The Inspector region report indexes RegionHFRs[1..5] (center = 1, corners = 2..5), so it needs the full
         // Inspector grid of at least 6 regions. Extracted + internal so the precondition is unit-testable.
@@ -2046,6 +2090,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // rule for the numeric rows.
                 int curvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign;
                 int resolvedSign = curvatureSign == 0 ? TiltScrewGeometry.DefaultScrewInwardCurvatureSign : curvatureSign;
+                // The display-only focuser convention. It touches the MOTION ARROWS only — the arrows are the
+                // one part of this panel that claims a physical direction ("toward the objective"), and
+                // translating a z-space quantity into that claim needs k. Everything else below (turns,
+                // glyphs, totals, the legend) is σ-frame and must not read it.
+                int focuserSign = FocuserSign;
 
                 var tiltPlane = TiltModel?.TiltPlaneModel;
                 if (tiltPlane != null) {
@@ -2074,8 +2123,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                                 tiltArrows[i] = "—";
                             } else {
                                 // turns[i] is CW-positive (the stored response-convention angles encode
-                                // the rig direction), so adapter MOTION toward the objective = −σ·turns.
-                                double ratio = (-resolvedSign * turns[i]) / maxAbs;
+                                // the rig direction). A CW turn drives the plate toward the camera iff
+                                // m = σ·sign(k) = +1, so adapter MOTION toward the objective is
+                                // −σ·sign(k)·turns — which at the default k = +1 is the previous −σ·turns.
+                                double ratio = (-resolvedSign * focuserSign * turns[i]) / maxAbs;
                                 if (ratio >= GuidanceLargeArrowThreshold) tiltArrows[i] = "⬆";
                                 else if (ratio >= GuidanceMinArrowThreshold) tiltArrows[i] = "↑";
                                 else if (ratio <= -GuidanceLargeArrowThreshold) tiltArrows[i] = "⬇";
@@ -2091,11 +2142,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
                 }
 
-                // Backfocus row: adapter MOTION needed to null the curvature effect. Toward the
-                // objective ⇔ the local best-focus position must decrease; the σ in "which rotation
-                // is needed" and the σ in "what a rotation does" cancel, so the motion arrow is
-                // sign(CurvatureEffectMicrons) — rig-independent physics (see
-                // docs/tilt-guidance-motion-arrows-design.md).
+                // Backfocus row: adapter MOTION needed to null the curvature effect. The σ in "which
+                // rotation is needed" and the σ in "what a rotation does" cancel, so the arrow does not
+                // depend on the adapter at all — but naming the resulting motion "toward the objective"
+                // still needs the focuser convention, so the test is sign(k)·E_z > 0. At the default
+                // k = +1 that is the previous sign(CurvatureEffectMicrons) (see
+                // docs/tilt-guidance-motion-arrows-design.md and
+                // docs/focuser-direction-convention-design.md §3, site 6).
                 if (SensorModel?.DisplayedSensorModel != null) {
                     double curvatureEffectMicrons = SensorModel.SensorModelResult.CurvatureEffectMicrons;
                     double absMicrons = Math.Abs(curvatureEffectMicrons);
@@ -2104,7 +2157,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     if (absMicrons < BackfocusNoiseThresholdMicrons) {
                         backfocusArrow = "—";
                     } else {
-                        bool towardObjective = curvatureEffectMicrons > 0;
+                        bool towardObjective = focuserSign * curvatureEffectMicrons > 0;
                         string bigArrow = towardObjective ? "⬆" : "⬇";
                         string smallArrow = towardObjective ? "↑" : "↓";
                         backfocusArrow = absMicrons >= BackfocusLargeArrowThresholdMicrons ? bigArrow : smallArrow;
@@ -2906,6 +2959,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public void UpdateDeviceInfo(FocuserInfo deviceInfo) {
             FocuserInfo = deviceInfo;
+            // The single writer of the driver-reported focuser step size (this VM is a Shared MEF singleton
+            // registered as the plugin's focuser consumer). Deliberately unconditional: the setter accepts
+            // only finite, positive values, so a disconnect's StepSize = 0 is dropped there and the last
+            // known value stands. Adding a second guard here would let the two drift apart.
+            InspectorOptions.DriverMicronsPerFocuserStep = deviceInfo.StepSize;
         }
 
         private FocuserInfo focuserInfo = DeviceInfo.CreateDefaultInstance<FocuserInfo>();

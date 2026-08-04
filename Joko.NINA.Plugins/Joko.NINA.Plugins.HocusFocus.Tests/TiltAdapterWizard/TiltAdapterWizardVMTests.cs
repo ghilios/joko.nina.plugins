@@ -36,7 +36,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
     [Apartment(System.Threading.ApartmentState.STA)]
     public class TiltAdapterWizardVMTests {
 
-        private static InspectorVM BuildInspector() {
+        private static InspectorVM BuildInspector(IInspectorOptions inspectorOptions = null) {
             return new InspectorVM(
                 profileService: Substitute.For<IProfileService>(),
                 applicationStatusMediator: Substitute.For<IApplicationStatusMediator>(),
@@ -47,7 +47,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 telescopeMediator: Substitute.For<ITelescopeMediator>(),
                 starDetectionOptions: Substitute.For<IStarDetectionOptions>(),
                 starAnnotatorOptions: Substitute.For<IStarAnnotatorOptions>(),
-                inspectorOptions: Substitute.For<IInspectorOptions>(),
+                inspectorOptions: inspectorOptions ?? Substitute.For<IInspectorOptions>(),
                 autoFocusOptions: Substitute.For<IAutoFocusOptions>(),
                 autoFocusEngineFactory: Substitute.For<IAutoFocusEngineFactory>(),
                 imageDataFactory: Substitute.For<IImageDataFactory>(),
@@ -61,7 +61,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options, ICameraMediator camera, IFocuserMediator focuser) Build(
             int screwCount = 3, IApplicationDispatcher dispatcher = null, System.Action<ITiltAdapterOptions> configureOptions = null,
             IProfileService profileService = null, TiltDeviceConnectionService tiltDeviceService = null,
-            ISerialPortProvider serialPortProvider = null, Func<Task<bool>> confirmIdleDisconnectAsync = null) {
+            ISerialPortProvider serialPortProvider = null, Func<Task<bool>> confirmIdleDisconnectAsync = null,
+            IInspectorOptions inspectorOptions = null) {
             profileService ??= Substitute.For<IProfileService>();
             var camera = Substitute.For<ICameraMediator>();
             var focuser = Substitute.For<IFocuserMediator>();
@@ -69,7 +70,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             options.ScrewCount.Returns(screwCount);
             options.MeasurementAverageCount.Returns(1);
             configureOptions?.Invoke(options);
-            var inspector = BuildInspector();
+            var inspector = BuildInspector(inspectorOptions);
             var vm = new TiltAdapterWizardVM(
                 profileService: profileService,
                 applicationStatusMediator: Substitute.For<IApplicationStatusMediator>(),
@@ -692,11 +693,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
-        public void ApplyManualCalibration_WritesCalibrationState_PositiveSignStoresPhysicalAngles() {
-            // On +1 rigs the stored response-convention angles coincide with the physical angles the
-            // user typed, so 30° places the clockwise-numbered screws at 30/150/270.
+        public void ApplyManualCalibration_WritesCalibrationState_CwTowardObjectiveStoresPhysicalAngles() {
+            // σ = −1 at the standard focuser is m = −1 — a CW turn drives the plate toward the
+            // objective, RAISING best focus at that screw, so the response direction points along the
+            // screw and the stored angles coincide with the physical angles the user typed: 30° places
+            // the clockwise-numbered screws at 30/150/270.
             var (vm, options, _, _) = Build(screwCount: 3);
-            options.ScrewInwardCurvatureSign.Returns(1);
+            options.ScrewInwardCurvatureSign.Returns(-1);
             vm.ManualScrew1AngleDegrees = 30;
             vm.ManualNumberingClockwise = true;
 
@@ -719,13 +722,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
-        public void ApplyManualCalibration_NegativeSign_ConvertsPhysicalToResponseConvention() {
-            // On −1 rigs a CW turn drives the tilt gradient opposite the physical screw direction, so
-            // the stored (response-convention) angles are the typed physical angle + 180°: wizard runs
+        public void ApplyManualCalibration_CwTowardCamera_ConvertsPhysicalToResponseConvention() {
+            // σ = +1 at the standard focuser is m = +1 — a CW turn drives the plate toward the camera,
+            // LOWERING best focus at that screw, so the tilt gradient responds opposite the physical
+            // screw direction and the stored angles are the typed physical angle + 180°. Wizard runs
             // persist response-convention angles and the guidance math consumes them, so a manual
             // entry must convert or its arrows would invert on these rigs.
             var (vm, options, _, _) = Build(screwCount: 3);
-            options.ScrewInwardCurvatureSign.Returns(-1);
+            options.ScrewInwardCurvatureSign.Returns(1);
             vm.ManualScrew1AngleDegrees = 30;
             vm.ManualNumberingClockwise = true;
 
@@ -769,7 +773,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         // ---- Screw-angle display shows the PHYSICAL image position (readout + wizard diagram) --------------
         //
         // The persisted Screw{N}AngleDegrees are RESPONSE-convention angles (physical + 180° on
-        // "CW moves adapter toward the objective" / −1 rigs). Both the calibration readout and the
+        // "CW moves adapter toward the camera" rigs — m = σ·sign(k) = +1). Both the calibration readout and the
         // wizard diagram are labelled image-space ("0° points up; image as shown in NINA"), and must
         // therefore display the PHYSICAL angle — matching the Manual Calibration Entry field — not the
         // raw stored value. Regression guard for docs/tilt-wizard-diagram-orientation-design.md.
@@ -789,11 +793,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
-        public void RebuildDiagram_NegativeSign_PlacesPhysicalTopScrewAtCanvasTop() {
-            // −1 rig: screw 1 is physically at the TOP (physical 0°), stored as 0+180 = 180°. The
-            // diagram must draw it at canvas-top (cy = 100 − 75·cos0 = 25 → Y = 25 − 12 = 13), NOT at
-            // the bottom (the raw-stored 180° would give cy = 175). Screws 2/3 are physically 120/240.
-            var (vm, _) = BuildCalibrated(sign: -1, s1: 180, s2: 300, s3: 60);
+        public void RebuildDiagram_OffsetRig_PlacesPhysicalTopScrewAtCanvasTop() {
+            // m = +1 rig (σ = +1 at the standard focuser): screw 1 is physically at the TOP (physical
+            // 0°), stored as 0+180 = 180°. The diagram must draw it at canvas-top (cy = 100 − 75·cos0
+            // = 25 → Y = 25 − 12 = 13), NOT at the bottom (the raw-stored 180° would give cy = 175).
+            // Screws 2/3 are physically 120/240.
+            var (vm, _) = BuildCalibrated(sign: 1, s1: 180, s2: 300, s3: 60);
 
             var screw1 = vm.ScrewDiagramItems.Single(i => i.Number == 1);
             Assert.Multiple(() => {
@@ -804,10 +809,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
-        public void RebuildDiagram_PositiveSign_PlacesScrewsAtStoredAngles() {
-            // +1 rig: stored == physical, so the diagram is unchanged. Screw 1 stored 90° → right edge
-            // (cx = 175, cy = 100 → X = 163, Y = 88). Guards against a double 180° offset.
-            var (vm, _) = BuildCalibrated(sign: 1, s1: 90, s2: 210, s3: 330);
+        public void RebuildDiagram_NoOffsetRig_PlacesScrewsAtStoredAngles() {
+            // m = −1 rig (σ = −1 at the standard focuser): stored == physical, so the diagram plots the
+            // stored angles directly. Screw 1 stored 90° → right edge (cx = 175, cy = 100 → X = 163,
+            // Y = 88). Guards against a double 180° offset.
+            var (vm, _) = BuildCalibrated(sign: -1, s1: 90, s2: 210, s3: 330);
 
             var screw1 = vm.ScrewDiagramItems.Single(i => i.Number == 1);
             Assert.Multiple(() => {
@@ -818,9 +824,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
-        public void PhysicalScrewAngles_NegativeSign_ConvertStoredResponseAnglesToPhysical() {
-            // Readout binds these; on a −1 rig they must be the stored angle − 180° (self-inverse).
-            var (vm, _) = BuildCalibrated(sign: -1, s1: 180, s2: 300, s3: 60);
+        public void PhysicalScrewAngles_OffsetRig_ConvertStoredResponseAnglesToPhysical() {
+            // Readout binds these; on an m = +1 rig they must be the stored angle − 180° (self-inverse).
+            var (vm, _) = BuildCalibrated(sign: 1, s1: 180, s2: 300, s3: 60);
 
             Assert.Multiple(() => {
                 Assert.That(vm.PhysicalScrew1AngleDegrees, Is.EqualTo(0.0).Within(1e-9));
@@ -830,8 +836,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         }
 
         [Test]
-        public void PhysicalScrewAngles_PositiveSign_EqualStoredAngles() {
-            var (vm, _) = BuildCalibrated(sign: 1, s1: 90, s2: 210, s3: 330);
+        public void PhysicalScrewAngles_NoOffsetRig_EqualStoredAngles() {
+            var (vm, _) = BuildCalibrated(sign: -1, s1: 90, s2: 210, s3: 330);
 
             Assert.Multiple(() => {
                 Assert.That(vm.PhysicalScrew1AngleDegrees, Is.EqualTo(90.0).Within(1e-9));
@@ -844,20 +850,20 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         public void ScrewInwardCurvatureSignChange_RefreshesPhysicalAnglesAndDiagram() {
             // Changing the adapter-direction setting flips the physical interpretation by 180°, so both
             // the readout properties and the diagram must refresh when ScrewInwardCurvatureSign changes.
-            var (vm, options) = BuildCalibrated(sign: 1, s1: 0, s2: 120, s3: 240);
-            // Built on +1: screw 1 (stored 0° = physical top) starts at canvas-top.
+            var (vm, options) = BuildCalibrated(sign: -1, s1: 0, s2: 120, s3: 240);
+            // Built on m = −1 (no offset): screw 1 (stored 0° = physical top) starts at canvas-top.
             Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(13.0).Within(0.5));
 
             var raised = new System.Collections.Generic.List<string>();
             vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
-            options.ScrewInwardCurvatureSign.Returns(-1);
+            options.ScrewInwardCurvatureSign.Returns(1);
             options.PropertyChanged += Raise.Event<System.ComponentModel.PropertyChangedEventHandler>(
                 options, new System.ComponentModel.PropertyChangedEventArgs(nameof(ITiltAdapterOptions.ScrewInwardCurvatureSign)));
 
             Assert.Multiple(() => {
                 Assert.That(raised, Does.Contain(nameof(TiltAdapterWizardVM.PhysicalScrew1AngleDegrees)));
                 Assert.That(raised, Does.Contain(nameof(TiltAdapterWizardVM.PhysicalScrew2AngleDegrees)));
-                // Now interpreted as a −1 rig: physical = 0 + 180 = 180° → screw 1 moves to the bottom.
+                // Now interpreted as an m = +1 rig: physical = 0 + 180 = 180° → screw 1 moves to the bottom.
                 Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(163.0).Within(0.5));
             });
         }
@@ -936,17 +942,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         public void Constructor_PrefillsManualAngleAsPhysical() {
             // Stored calibration angles are response-convention; the manual-entry field holds the
             // PHYSICAL image angle, so the pre-fill must convert back (the conversion is self-inverse).
-            var (vmNeg, _, _, _) = Build(screwCount: 3, configureOptions: o => {
+            var (vmOffset, _, _, _) = Build(screwCount: 3, configureOptions: o => {
                 o.Screw1AngleDegrees.Returns(210.0);
-                o.ScrewInwardCurvatureSign.Returns(-1);
+                o.ScrewInwardCurvatureSign.Returns(1); // m = +1 ⇒ 180° offset
             });
-            Assert.That(vmNeg.ManualScrew1AngleDegrees, Is.EqualTo(30).Within(1e-9));
+            Assert.That(vmOffset.ManualScrew1AngleDegrees, Is.EqualTo(30).Within(1e-9));
 
-            var (vmPos, _, _, _) = Build(screwCount: 3, configureOptions: o => {
+            var (vmNoOffset, _, _, _) = Build(screwCount: 3, configureOptions: o => {
                 o.Screw1AngleDegrees.Returns(210.0);
-                o.ScrewInwardCurvatureSign.Returns(1);
+                o.ScrewInwardCurvatureSign.Returns(-1); // m = −1 ⇒ identity
             });
-            Assert.That(vmPos.ManualScrew1AngleDegrees, Is.EqualTo(210).Within(1e-9));
+            Assert.That(vmNoOffset.ManualScrew1AngleDegrees, Is.EqualTo(210).Within(1e-9));
         }
 
         [Test]
@@ -1044,7 +1050,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             var store = new InMemoryPluginOptionsAccessor();
             var options = new TiltAdapterOptions(profileService, store);
             // Old profile: measured "CW moves the adapter toward the objective" (stored sign −1 per the empirical
-            // anchor) with a calibrated screw 1 at stored angle 210° (physical 30° on a −1 rig).
+            // anchor) with a calibrated screw 1 at stored angle 210°. m = σ·sign(k) = −1 takes no offset, so the
+            // physical angle is 210° too.
             options.ScrewInwardCurvatureSign = -1;
             options.ScrewInwardCurvatureSignIsMeasured = true;
             options.Screw1AngleDegrees = 210.0;
@@ -1061,7 +1068,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 tiltAdapterOptions: options);
             Assert.Multiple(() => {
                 Assert.That(vm.CwMovesAdapterTowardObjective, Is.True, "precondition: old profile's direction");
-                Assert.That(vm.ManualScrew1AngleDegrees, Is.EqualTo(30).Within(1e-9), "precondition: ctor pre-fill");
+                Assert.That(vm.ManualScrew1AngleDegrees, Is.EqualTo(210).Within(1e-9), "precondition: ctor pre-fill");
             });
 
             // The new profile stores the opposite (assumed) direction and a different screw-1 angle.
@@ -1084,8 +1091,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(raised, Does.Contain(nameof(vm.IsCalibrationValid)));
                 Assert.That(raised, Does.Contain(nameof(vm.StepInstructions)));
                 Assert.That(raised, Does.Contain(nameof(vm.BaselineRecoveryInstructions)));
-                // The manual pre-fill re-runs against the new profile: sign +1 stores physical angles unchanged.
-                Assert.That(vm.ManualScrew1AngleDegrees, Is.EqualTo(90).Within(1e-9));
+                // The manual pre-fill re-runs against the new profile: sign +1 is m = +1, so stored 90° is
+                // physical 270°.
+                Assert.That(vm.ManualScrew1AngleDegrees, Is.EqualTo(270).Within(1e-9));
                 Assert.That(raised, Does.Contain(nameof(vm.ManualScrew1AngleDegrees)));
             });
         }
@@ -1166,7 +1174,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             var (vm, options, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(true));
             vm.StartCommand.Execute(null);
 
-            // AllInward mean focus (990) below baseline (1000) => ComputeCurvatureSign(990, 1000) = −1.
+            // AllInward mean focus (990) below baseline (1000) => ComputeCurvatureSign(990, 1000) = +1:
+            // an all-screws-CW step that LOWERS the mean best focus is σ = +1
+            // (docs/focuser-direction-convention-design.md §1(c)).
             vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
             vm.SeedStepReading(WizardStep.AllInward, 0.0, 0.0, 990.0);
             vm.SeedStepReading(WizardStep.ReBaseline1, 0.0, 0.0, 1000.0);
@@ -1181,7 +1191,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
 
             Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Complete));
             Assert.Multiple(() => {
-                options.Received().ScrewInwardCurvatureSign = -1;
+                options.Received().ScrewInwardCurvatureSign = 1;
                 options.Received().ScrewInwardCurvatureSignIsMeasured = true;
                 options.Received().IsCalibrated = true;
             });
@@ -1240,7 +1250,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         [Test]
         public void CaptureMeasurementContext_ReadsInspectorAndProfileValues() {
             var inspector = Substitute.For<IInspectorOptions>();
-            inspector.MicronsPerFocuserStep.Returns(3.6);
+            // The EFFECTIVE step size, not the raw override: a run captured while the focuser driver supplied
+            // the step size must record what it actually measured with, or a replay reinterprets it wrongly.
+            inspector.EffectiveMicronsPerFocuserStep.Returns(3.6);
             inspector.UseRANSAC.Returns(true);
             inspector.AcceptableRSquaredMin.Returns(0.8);
             inspector.SensorROI.Returns(1.0); inspector.CornersROI.Returns(1.0);
@@ -2665,6 +2677,205 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             Connect(vm);
 
             options.DidNotReceive().MeasureCurvatureDuringCalibration = Arg.Any<bool>();
+        }
+
+        // ---- Warning-only curvature-channel cross-check (design §2.4) --------------------------------------
+        //
+        // σ is measured from the mean best-focus change (geometric channel). The curvature effect responds to
+        // the same piston and σ is DEFINED as the sign of that response, so the two are now independent
+        // measurements of one quantity. A large, contradicting curvature change is worth surfacing — but only
+        // as information: the optical channel is usually drift-buried and must never veto the robust one, nor
+        // change the stored sign.
+
+        // Seeds a 6-step run whose mean-focus channel always measures σ = +1 (all-inward mean 990 < baseline
+        // 1000), with the curvature effect at screw radius supplied per step so the cross-check has a signal
+        // and a drift scale to compare it against.
+        private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options) RunSixStepWithCurvature(
+                double baselineE, double allInwardE, double reBaseline1E, double reBaseline2E) {
+            var (vm, options, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(true));
+            vm.StartCommand.Execute(null);
+
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, baselineE);
+            vm.SeedStepReading(WizardStep.AllInward, 0.0, 0.0, 990.0, allInwardE);
+            vm.SeedStepReading(WizardStep.ReBaseline1, 0.0, 0.0, 1000.0, reBaseline1E);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0, reBaseline1E);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0, reBaseline2E);
+            vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0, reBaseline2E);
+
+            for (int i = 0; i < 6; i++) {
+                vm.NextStep();
+            }
+            return (vm, options);
+        }
+
+        [Test]
+        public void CurvatureCrossCheck_ChannelsAgree_NoWarning() {
+            // σ = +1 from the mean-focus channel; the curvature effect rose by +100 µm on the same step, which
+            // is what σ = +1 means by definition. Nothing to report.
+            var (vm, _) = RunSixStepWithCurvature(baselineE: -400, allInwardE: -300, reBaseline1E: -395, reBaseline2E: -390);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Complete));
+                Assert.That(vm.HasConfidenceWarning, Is.False);
+                Assert.That(vm.ConfidenceWarningText, Is.Empty);
+            });
+        }
+
+        [Test]
+        public void CurvatureCrossCheck_ContradictingButWithinDrift_NoWarning() {
+            // The curvature effect moved the "wrong" way, but only by 6 µm against re-baseline drifts of 20
+            // and 25 µm — exactly the drift-buried regime the reference session showed. Staying quiet here is
+            // the point: a noisy optical channel must not cast doubt on the robust one.
+            var (vm, _) = RunSixStepWithCurvature(baselineE: -400, allInwardE: -406, reBaseline1E: -380, reBaseline2E: -355);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Complete));
+                Assert.That(vm.HasConfidenceWarning, Is.False);
+            });
+        }
+
+        [Test]
+        public void CurvatureCrossCheck_ContradictingAndLarge_WarnsWithoutChangingTheSign() {
+            // A 150 µm move the wrong way against ~5 µm of re-baseline drift. Surface it — and keep the
+            // measured sign exactly as the mean-focus channel set it.
+            var (vm, options) = RunSixStepWithCurvature(baselineE: -400, allInwardE: -550, reBaseline1E: -404, reBaseline2E: -398);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Complete));
+                Assert.That(vm.HasConfidenceWarning, Is.True);
+                Assert.That(vm.ConfidenceWarningText, Does.Contain("cross-check"));
+                Assert.That(vm.ConfidenceWarningText, Does.Contain("informational"));
+                // Warning-only: the stored sign is still the mean-focus channel's verdict.
+                options.Received().ScrewInwardCurvatureSign = 1;
+                options.Received().ScrewInwardCurvatureSignIsMeasured = true;
+                options.Received().IsCalibrated = true;
+            });
+        }
+
+        [Test]
+        public void CurvatureCrossCheck_FourStepRun_NeverWarns() {
+            // No all-screws step ⇒ no curvature channel to compare against, and the configured sign is left
+            // untouched anyway.
+            var (vm, _, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(false));
+            vm.StartCommand.Execute(null);
+
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, -400);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0, -400);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0, -400);
+            vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0, -400);
+
+            for (int i = 0; i < 4; i++) {
+                vm.NextStep();
+            }
+
+            Assert.Multiple(() => {
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Complete));
+                Assert.That(vm.HasConfidenceWarning, Is.False);
+            });
+        }
+
+        // ---- The focuser-direction setting k is display-only (design §2.2) ---------------------------------
+
+        [Test]
+        public void SixStepRun_MeasuredCurvatureSign_IsIdenticalUnderEitherFocuserDirection() {
+            // THE INVARIANCE GUARD FOR THE MEASUREMENT. σ is measured from the mean best-focus change, and the
+            // focuser convention provably cancels out of that probe (design §1(c)) — m and k enter both σ and
+            // the probe only through their product. So a seeded 6-step run must store the SAME sign with k
+            // toggled either way. If this ever fails, k has leaked into the calibration math and the design's
+            // central guarantee ("a wrong k gives wrong labels, never wrong motion") is broken.
+            int MeasureWith(bool focuserIncreasesTowardObjective) {
+                var inspectorOptions = Substitute.For<IInspectorOptions>();
+                inspectorOptions.FocuserIncreasesTowardObjective.Returns(focuserIncreasesTowardObjective);
+                var (vm, options, _, _) = Build(
+                    configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(true),
+                    inspectorOptions: inspectorOptions);
+                vm.StartCommand.Execute(null);
+
+                vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+                vm.SeedStepReading(WizardStep.AllInward, 0.0, 0.0, 990.0);
+                vm.SeedStepReading(WizardStep.ReBaseline1, 0.0, 0.0, 1000.0);
+                vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0);
+                vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+                vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0);
+
+                int stored = 0;
+                options.When(o => o.ScrewInwardCurvatureSign = Arg.Any<int>())
+                    .Do(ci => stored = ci.Arg<int>());
+
+                for (int i = 0; i < 6; i++) {
+                    vm.NextStep();
+                }
+
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Complete), "precondition: the run completed");
+                return stored;
+            }
+
+            var standard = MeasureWith(false);
+            var reversed = MeasureWith(true);
+
+            Assert.Multiple(() => {
+                Assert.That(standard, Is.EqualTo(1), "the all-screws step lowered mean focus ⇒ σ = +1");
+                Assert.That(reversed, Is.EqualTo(standard), "the measured σ must not depend on the focuser setting");
+            });
+        }
+
+        [Test]
+        public void CwMovesAdapterTowardObjective_ReversedFocuser_RoundTripsThroughTheOppositeSign() {
+            // The ONE deliberate exception (design §2.3): the combo asks about the adapter mechanics m, but
+            // stores σ = m·sign(k). On a reversed focuser the same mechanical answer therefore stores the
+            // opposite σ — which is what makes the manual path correct there, where a pinned k = +1
+            // conversion would store an inverted sign for an honest answer. It writes only the ASSUMED σ.
+            var inspectorOptions = Substitute.For<IInspectorOptions>();
+            inspectorOptions.FocuserIncreasesTowardObjective.Returns(true);
+            var (vm, options, _, _) = Build(inspectorOptions: inspectorOptions);
+
+            options.ScrewInwardCurvatureSign.Returns(0);
+            vm.CwMovesAdapterTowardObjective = true;
+            var storedForTowardObjective = TiltScrewGeometry.CurvatureSignForCwDirection(true) * -1;
+
+            Assert.Multiple(() => {
+                options.Received().ScrewInwardCurvatureSign = storedForTowardObjective;
+                options.Received().ScrewInwardCurvatureSignIsMeasured = false;
+
+                // And the getter reads it back consistently, so the combo never contradicts itself.
+                options.ScrewInwardCurvatureSign.Returns(storedForTowardObjective);
+                Assert.That(vm.CwMovesAdapterTowardObjective, Is.True);
+            });
+        }
+
+        [Test]
+        public void FocuserDirectionChange_RefreshesTheMechanicalWordingAndPhysicalAngles() {
+            // k is display-only, so a change must re-raise the wording and re-run the physical-angle
+            // conversion — and touch nothing stored.
+            var inspectorOptions = Substitute.For<IInspectorOptions>();
+            var (vm, options, _, _) = Build(configureOptions: o => {
+                o.IsCalibrated.Returns(true);
+                o.CalibratedScrewCount.Returns(3);
+                o.ScrewInwardCurvatureSign.Returns(1);
+                o.Screw1AngleDegrees.Returns(180.0);
+                o.Screw2AngleDegrees.Returns(300.0);
+                o.Screw3AngleDegrees.Returns(60.0);
+            }, inspectorOptions: inspectorOptions);
+
+            Assert.That(vm.PhysicalScrew1AngleDegrees, Is.EqualTo(0.0).Within(1e-9),
+                "precondition: σ = +1 on a standard focuser is m = +1, so stored 180° is physical 0°");
+            options.ClearReceivedCalls();
+
+            var raised = new List<string>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+            inspectorOptions.FocuserIncreasesTowardObjective.Returns(true);
+            inspectorOptions.PropertyChanged += Raise.Event<System.ComponentModel.PropertyChangedEventHandler>(
+                inspectorOptions, new System.ComponentModel.PropertyChangedEventArgs(nameof(IInspectorOptions.FocuserIncreasesTowardObjective)));
+
+            Assert.Multiple(() => {
+                Assert.That(raised, Does.Contain(nameof(TiltAdapterWizardVM.CwMovesAdapterTowardObjective)));
+                Assert.That(raised, Does.Contain(nameof(TiltAdapterWizardVM.PhysicalScrew1AngleDegrees)));
+                Assert.That(vm.PhysicalScrew1AngleDegrees, Is.EqualTo(180.0).Within(1e-9),
+                    "σ = +1 on a reversed focuser is m = −1, so the offset drops and stored == physical");
+                options.DidNotReceive().ScrewInwardCurvatureSign = Arg.Any<int>();
+                options.DidNotReceive().Screw1AngleDegrees = Arg.Any<double>();
+                options.DidNotReceive().IsCalibrated = Arg.Any<bool>();
+            });
         }
 
         private static object SentinelFor(Type type, int index) {

@@ -511,7 +511,7 @@ namespace TestApp {
                 Logger.Warning($"bank-verify {label}: {cm.truthViolations} scored false positives land within the match radius of a truth star (F31 regression)");
             }
             try {
-                var focuserSizeMicrons = inspectorOptions.MicronsPerFocuserStep > 0 ? inspectorOptions.MicronsPerFocuserStep : 1.0;
+                var focuserSizeMicrons = inspectorOptions.EffectiveMicronsPerFocuserStep > 0 ? inspectorOptions.EffectiveMicronsPerFocuserStep : 1.0;
                 var pixelSize = activeProfile.CameraSettings.PixelSize > 0 ? activeProfile.CameraSettings.PixelSize : 3.76;
                 var sortedFoc = loaded.Select(l => (double)l.focuser).OrderBy(x => x).ToList();
                 var finalFocus = sortedFoc[sortedFoc.Count / 2];

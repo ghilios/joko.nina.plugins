@@ -462,7 +462,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
         /// Screw 1's PHYSICAL image angle (0° = straight up, increasing clockwise) — what the user enters and
         /// what the "Screw 1 angle" box shows. The stored <c>SimScrew1AngleDegrees</c> is response-convention
         /// (see <see cref="SimulatedTiltAdapter"/>), 180° from the physical position on "CW moves adapter toward
-        /// the objective" (−1) rigs; the self-inverse <see cref="TiltScrewGeometry.PhysicalToStoredAngle"/>
+        /// the camera" rigs; the self-inverse <see cref="TiltScrewGeometry.PhysicalToStoredAngle"/>
         /// converts both ways. Writing SimScrew1AngleDegrees re-derives screws 2..N and rebuilds the panel via
         /// <see cref="OnOptionsChanged"/>, which re-raises this property (through RebuildAll).
         /// </summary>
@@ -521,8 +521,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             : Math.Sign(options.SimScrewInwardCurvatureSign);
 
         /// <summary>Converts a stored response-convention screw angle to its physical image angle (self-inverse;
-        /// identical on +1 rigs, 180° apart on −1). Every image-space display (Screw 1 input, derived readouts,
-        /// the diagram, the row labels) goes through this; the physics keeps consuming the raw stored angle.</summary>
+        /// 180° apart when CW moves the adapter toward the camera, identical otherwise). Every image-space
+        /// display (Screw 1 input, derived readouts, the diagram, the row labels) goes through this; the
+        /// physics keeps consuming the raw stored angle. No focuser sign is passed: the simulator is k-free by
+        /// design (docs/focuser-direction-convention-design.md §4), so it renders the standard convention.</summary>
         private double ToPhysicalAngle(double storedAngle) =>
             TiltScrewGeometry.PhysicalToStoredAngle(storedAngle, ResolvedCurvatureSign);
 

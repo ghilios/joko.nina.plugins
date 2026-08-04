@@ -177,20 +177,73 @@ public class TiltScrewGeometryTests {
     }
 
     [Test]
-    public void PhysicalToStoredAngle_RoundTripsAndFlipsOnNegativeSign() {
+    public void PhysicalToStoredAngle_OffsetBelongsToCwTowardCamera() {
         Assert.Multiple(() => {
-            // +1 rigs: a CW turn drives the tilt gradient along the physical screw direction,
-            // so stored (response-convention) and physical angles coincide.
-            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(30, +1), Is.EqualTo(30).Within(1e-12));
-            // −1 rigs (CW moves the adapter toward the objective): the response is inverted,
-            // so stored = physical + 180°.
-            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(30, -1), Is.EqualTo(210).Within(1e-12));
+            // The offset keys on the adapter mechanics m = σ·sign(k), not on σ directly.
+            // m = +1 (CW drives the plate toward the CAMERA): a CW turn LOWERS best focus at that
+            // screw, so the direction of steepest z-INCREASE — the stored convention — is opposite
+            // the screw's physical position. stored = physical + 180°.
+            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(30, +1), Is.EqualTo(210).Within(1e-12));
+            // m = −1 (CW toward the objective): the response points along the screw, so the two
+            // conventions coincide.
+            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(30, -1), Is.EqualTo(30).Within(1e-12));
             // Self-inverse: applying the conversion to a stored angle recovers the physical one.
-            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(210, -1), Is.EqualTo(30).Within(1e-12));
-            // Unknown sign (0) resolves to the default direction (+1 ⇒ identity).
-            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(30, 0), Is.EqualTo(30).Within(1e-12));
+            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(210, +1), Is.EqualTo(30).Within(1e-12));
+            // Unknown sign (0) resolves to the default direction (+1 ⇒ 180° offset).
+            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(30, 0), Is.EqualTo(210).Within(1e-12));
             // Result is normalized to [0, 360).
-            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(-30, -1), Is.EqualTo(150).Within(1e-12));
+            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(-30, +1), Is.EqualTo(150).Within(1e-12));
+        });
+    }
+
+    [Test]
+    public void PhysicalToStoredAngle_ReversedFocuserSwapsTheOffset() {
+        Assert.Multiple(() => {
+            // k = −1 flips m for a given σ, so it flips which σ carries the offset. This is the
+            // SECOND sanctioned path on which k reaches motion (Manual Calibration Entry) —
+            // docs/focuser-direction-convention-design.md §7.4.
+            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(30, +1, focuserSign: -1), Is.EqualTo(30).Within(1e-12));
+            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(30, -1, focuserSign: -1), Is.EqualTo(210).Within(1e-12));
+            // The default parameter is the standard focuser, so omitting it must be identical to +1.
+            Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(30, +1, focuserSign: +1),
+                Is.EqualTo(TiltScrewGeometry.PhysicalToStoredAngle(30, +1)).Within(1e-12));
+            // Still self-inverse for every (σ, k) combination.
+            foreach (var sigma in new[] { -1, 0, +1 }) {
+                foreach (var k in new[] { -1, +1 }) {
+                    var stored = TiltScrewGeometry.PhysicalToStoredAngle(137.5, sigma, k);
+                    Assert.That(TiltScrewGeometry.PhysicalToStoredAngle(stored, sigma, k),
+                        Is.EqualTo(137.5).Within(1e-9), $"σ={sigma}, k={k}");
+                }
+            }
+        });
+    }
+
+    [Test]
+    public void PairedFlip_LeavesTheDisplayedScrewAngleUnchanged_Session20260803() {
+        // ACCEPTANCE CRITERION for the paired flip (design §7.3). Two inversions had been
+        // cancelling: ComputeCurvatureSign returned −σ, and PhysicalToStoredAngle assigned its 180°
+        // offset to m = −1 instead of m = +1. Correcting either ALONE rotates every displayed screw
+        // angle by 180°, so this asserts the PAIR, not each half.
+        //
+        // Session 20260803-200647: the four-corner plane deltas recover stored (response-frame)
+        // angles s1 = 219.4°, and screw 1 physically sits top-right at 39.4° (independently
+        // confirmed against EatWizardMapping, design §7.2).
+        const double storedScrew1 = 219.4;
+
+        // Post-fix: the probe measures σ = +1 (mean best focus 5498.4 → 5136.6 on the all-screws
+        // step) and the standard focuser is k = +1.
+        int sigmaNow = TiltCalibrationCalculator.ComputeCurvatureSign(5136.6, 5498.4);
+        Assert.That(sigmaNow, Is.EqualTo(+1));
+
+        double displayedNow = TiltScrewGeometry.PhysicalToStoredAngle(storedScrew1, sigmaNow, focuserSign: +1);
+
+        // Pre-fix the same run measured σ = −1 and the offset fired on σ = −1 — i.e. the old code
+        // displayed stored + 180°. Both paths must land on the same 39.4° top-right screw.
+        double displayedBefore = TiltCalibrationCalculator.NormalizeAngle(storedScrew1 + 180.0);
+
+        Assert.Multiple(() => {
+            Assert.That(displayedNow, Is.EqualTo(39.4).Within(1e-9));
+            Assert.That(displayedNow, Is.EqualTo(displayedBefore).Within(1e-9));
         });
     }
 

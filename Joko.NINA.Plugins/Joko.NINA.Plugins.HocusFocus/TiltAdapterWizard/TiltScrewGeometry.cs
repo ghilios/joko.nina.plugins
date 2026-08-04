@@ -167,15 +167,40 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public static int DefaultScrewInwardCurvatureSign => CurvatureSignForCwDirection(false);
 
         /// <summary>Converts between the physical image angle and the wizard's stored response-convention
-        /// angle (self-inverse): identical when CW raises the curvature effect (+1); 180° apart when CW
-        /// lowers it (−1). A zero sign is treated as the default direction. The condition is written
-        /// against the empirical-anchor constant so an anchor flip keeps the mechanical meaning
-        /// coherent: the 180° offset belongs to the rigs where CW moves the adapter toward the
-        /// objective. NOTE: callers convert with the sign in effect at Apply time — if the adapter
-        /// direction setting changes afterwards, the conversion must be re-applied.</summary>
-        public static double PhysicalToStoredAngle(double angleDegrees, int curvatureSign) {
+        /// angle (self-inverse). The stored angle is the direction of steepest INCREASE in best-focus
+        /// position produced by a CW/+ turn of that screw, so it sits 180° from the screw's physical
+        /// position exactly when a CW turn LOWERS best focus there — i.e. when the turn drives that
+        /// corner of the plate toward the camera:
+        ///
+        ///     offset = 180°   iff   m = +1   iff   σ·sign(k) = +1
+        ///
+        /// where <c>m</c> is the adapter's plate response to a CW turn and <c>k</c> the focuser
+        /// convention (<paramref name="focuserSign"/>; +1 = standard, increasing focuser position
+        /// moves the camera away from the objective). The condition is written against the
+        /// empirical-anchor constant so an anchor flip keeps the mechanical meaning coherent: the
+        /// 180° offset belongs to the rigs where CW moves the adapter toward the CAMERA. A zero
+        /// curvature sign is treated as the default direction.
+        ///
+        /// This is the SECOND sanctioned path on which the display-only focuser-direction setting
+        /// <c>k</c> can reach motion — through Manual Calibration Entry, which converts a typed
+        /// physical angle into a stored one — alongside the wizard's direction combo (design §2.3).
+        /// See docs/focuser-direction-convention-design.md §7.4; do NOT widen it. The
+        /// wizard-measured path is immune: those angles are measured directly into the response
+        /// frame and never round-trip through here.
+        ///
+        /// Before 2026-08-04 the offset was assigned to <c>m = −1</c> — exactly inverted — and had
+        /// been cancelling against the equally inverted
+        /// <see cref="TiltCalibrationCalculator.ComputeCurvatureSign"/>. Both were corrected in the
+        /// same commit, so displayed angles on measured profiles are unchanged (design §7.3).
+        ///
+        /// NOTE: callers convert with the signs in effect at Apply time — if the adapter-direction
+        /// or focuser-direction setting changes afterwards, the conversion must be re-applied.</summary>
+        public static double PhysicalToStoredAngle(double angleDegrees, int curvatureSign, int focuserSign = 1) {
             int resolvedSign = curvatureSign == 0 ? DefaultScrewInwardCurvatureSign : curvatureSign;
-            double offset = resolvedSign == CurvatureSignWhenCwMovesAdapterTowardObjective ? 180.0 : 0.0;
+            int resolvedFocuserSign = focuserSign < 0 ? -1 : 1;
+            // m = σ·sign(k). "CW moves the adapter toward the objective" is m = −1 and takes no
+            // offset; the 180° offset belongs to its complement, m = +1 (CW toward the camera).
+            double offset = CwMovesAdapterTowardObjectiveForSign(resolvedSign * resolvedFocuserSign) ? 0.0 : 180.0;
             return TiltCalibrationCalculator.NormalizeAngle(angleDegrees + offset);
         }
     }

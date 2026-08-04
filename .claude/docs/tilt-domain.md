@@ -23,7 +23,7 @@ Example: a screw at 0° (straight up from center) — turning it inward tilts th
 
 ## Guidance arrows vs rotation glyphs
 
-The inspector's Tilt Adapter Guidance table uses two glyph vocabularies that answer different questions. The ⬆/⬇ arrows describe adapter-plate **motion** (⬆ = that corner moves toward the objective) — pure physics, identical on every rig. The ⟳/⟲ glyphs (screws) and +/− step signs (steppers) on the numeric rows carry the rig-specific **rotation** that produces that motion, which depends on the adapter's direction setting (`ScrewInwardCurvatureSign`). Never present ⬆/⬇ as a rotation. The full contract and sign derivations are in `docs/tilt-guidance-motion-arrows-design.md`.
+The inspector's Tilt Adapter Guidance table uses two glyph vocabularies that answer different questions. The ⬆/⬇ arrows describe adapter-plate **motion** (⬆ = that corner moves toward the objective) — physics, identical on every rig *given the focuser-direction setting* (`IInspectorOptions.FocuserIncreasesTowardObjective`, the display-only `k`; translating a z-space quantity into "toward the objective" needs to know which way the focuser travels). The ⟳/⟲ glyphs (screws) and +/− step signs (steppers) on the numeric rows carry the rig-specific **rotation** that produces that motion, which depends on the adapter's direction setting (`ScrewInwardCurvatureSign`). Never present ⬆/⬇ as a rotation. The full contract and sign derivations are in `docs/tilt-guidance-motion-arrows-design.md`; the σ = m·k factorization, why the *measurement* needs no `k`, and the display-only contract are in `docs/focuser-direction-convention-design.md`.
 
 ## Live motor positions while a motorized device is being driven
 

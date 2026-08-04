@@ -179,9 +179,36 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             };
         }
 
-        /// <summary>Curvature (backfocus) sign from the all-screws-inward vs baseline mean-focus delta.</summary>
+        /// <summary>
+        /// Curvature (backfocus) sign σ from the all-screws-inward vs baseline mean-focus delta:
+        /// <c>σ = −sign(allScrewsMean − baselineMean)</c>. A zero delta yields +1, matching the
+        /// long-standing degenerate behavior.
+        ///
+        /// DERIVATION (docs/focuser-direction-convention-design.md §1). σ is DEFINED — see
+        /// <see cref="TiltScrewGeometry"/>'s empirical anchor — as the sign of the curvature-effect
+        /// response to a CW/+ turn, where the curvature effect is the FITTED (z-space) quantity. It
+        /// therefore factors into the two independent bits it fuses,
+        /// <c>σ = sign(m)·sign(k)</c>: the adapter's plate response <c>m</c> to a CW turn
+        /// (<c>m &gt; 0</c> ⇔ CW moves the plate toward the camera) and the focuser convention
+        /// <c>k</c> (<c>k = +1</c> ⇔ increasing focuser position moves the camera away from the
+        /// objective).
+        ///
+        /// The all-screws step is pure piston (<c>Δb = m·r</c>), so
+        /// <c>Δz̄ = −m·r·(1 − q̄)/k</c> and hence <c>sign(Δz̄) = −sign(m)·sign(k) = −σ</c> for the
+        /// <c>|q̄| ≪ 1</c> regime every real optical train sits in. <c>m</c> and <c>k</c> enter σ
+        /// and the probe ONLY through their product, so the focuser convention CANCELS: this
+        /// measurement is correct on standard and inverted focusers alike, with zero user input.
+        ///
+        /// This returned the negated sign — i.e. <c>−σ</c>, inverted on EVERY rig — until
+        /// 2026-08-04. Session 20260803-200647 is the measurement that exposed it: a +150 backfocus
+        /// step (plate toward the camera, <c>m = +1</c>) on a standard focuser moved the mean best
+        /// focus 5498.4 → 5136.6, so <c>σ = −sign(−361.8) = +1</c> — exactly the value the user had
+        /// already had to set by hand to make corrections converge. The paired correction to
+        /// <see cref="TiltScrewGeometry.PhysicalToStoredAngle"/>'s 180° offset shipped in the same
+        /// commit; the two inversions had been cancelling in the screw diagram (design §7).
+        /// </summary>
         public static int ComputeCurvatureSign(double allScrewsMean, double baselineMean) {
-            return (allScrewsMean - baselineMean) >= 0 ? 1 : -1;
+            return (allScrewsMean - baselineMean) <= 0 ? 1 : -1;
         }
 
         /// <summary>
