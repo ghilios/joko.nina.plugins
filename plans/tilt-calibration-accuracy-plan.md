@@ -295,7 +295,7 @@ The AllInward piston contains a free, tilt-fit-independent, focuser-frame pitch 
 - Modify: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/TiltAdapterWizard/DataTemplates.xaml` (~:1580 UniformGrid)
 - Test: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/TiltAdapterWizard/TiltCalibrationCalculatorTests.cs`
 
-- [ ] **Step 4.1: Write the failing tests** (fixture numbers are the real ghilios_corrected means):
+- [x] **Step 4.1: Write the failing tests** (fixture numbers are the real ghilios_corrected means):
 
 ```csharp
 [Test]
@@ -321,8 +321,8 @@ public void PistonImpliedMicronsPerStep_NaNWithoutCurvatureSteps() {
 }
 ```
 
-- [ ] **Step 4.2: Run** → FAIL (method missing).
-- [ ] **Step 4.3: Implement:**
+- [x] **Step 4.2: Run** → FAIL (method missing).
+- [x] **Step 4.3: Implement:**
 
 ```csharp
 /// <summary>
@@ -344,8 +344,8 @@ public static double PistonImpliedMicronsPerStep(TiltCalibrationInputs inputs) {
 ```
   Wire into `Calibrate`: new result field `public double PistonImpliedMicronsPerStep { get; set; }`.
 
-- [ ] **Step 4.4: Metadata:** `CurrentSchemaVersion = 3`; `TiltCalibrationResultRecord` gains `public double PistonImpliedMicronsPerStep { get; set; } = double.NaN;` — populated in `TiltAdapterWizardVM.FinalizeMetadata()` (:3243). Confirm `TiltCalibrationMetadataTests` round-trip test covers new fields (add the field to its fixture object).
-- [ ] **Step 4.5: VM display + warning.** In WizardVM: store the value in a new field `pistonImpliedMicronsPerStep` when `RunCalibrationMath` completes; add:
+- [x] **Step 4.4: Metadata:** `CurrentSchemaVersion = 3`; `TiltCalibrationResultRecord` gains `public double PistonImpliedMicronsPerStep { get; set; } = double.NaN;` — populated in `TiltAdapterWizardVM.FinalizeMetadata()` (:3243). Confirm `TiltCalibrationMetadataTests` round-trip test covers new fields (add the field to its fixture object).
+- [x] **Step 4.5: VM display + warning.** In WizardVM: store the value in a new field `pistonImpliedMicronsPerStep` when `RunCalibrationMath` completes; add:
 
 ```csharp
 public string PistonPitchDisplay =>
@@ -355,13 +355,13 @@ public string PistonPitchDisplay =>
   Raise it inside `RaiseHardwareSummaryChanged()` (:2753). Extend `ValidateCalibrationQuality` with a piston check: when both values are positive and `Math.Abs(piston - measured) / measured > 0.20`, append part:
   `$"piston-implied hardware ({piston:0.##} µm) and tilt-derived ({measured:0.##} µm) disagree by more than 20% — the tilt estimate may be unreliable"`.
   (Extend the method signature with `double measuredHardware, double pistonImplied`; both callers are in `RunCalibrationMath`.)
-- [ ] **Step 4.6: XAML.** In `DataTemplates.xaml` "Measured Adapter Hardware" `UniformGrid Columns="2"` (~:1580), after the `SavedHardwareDisplay` row add:
+- [x] **Step 4.6: XAML.** In `DataTemplates.xaml` "Measured Adapter Hardware" `UniformGrid Columns="2"` (~:1580), after the `SavedHardwareDisplay` row add:
 ```xml
 <TextBlock Text="{Binding PistonPitchDisplay}" Margin="0,2,8,0"
            Visibility="{Binding PistonPitchDisplay, Converter={StaticResource StringToVisibilityConverter}}" />
 ```
   (Use whatever empty-string-collapse pattern the sibling rows use — check :1583-1588; if they rely on empty TextBlocks rather than a converter, do the same and skip the Visibility binding.)
-- [ ] **Step 4.7: Run** calculator + wizard filters → green. **Commit** — `feat(tilt): piston-implied pitch estimate + disagreement warning`
+- [x] **Step 4.7: Run** calculator + wizard filters → green. **Commit** — `feat(tilt): piston-implied pitch estimate + disagreement warning`
 
 ---
 
