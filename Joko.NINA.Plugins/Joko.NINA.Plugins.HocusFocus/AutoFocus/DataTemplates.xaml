@@ -199,11 +199,13 @@
                         ItemsSource="{Binding PlotCoreFocusPoints}"
                         MarkerFill="{Binding Path=Color, Source={StaticResource PrimaryBrush}}"
                         MarkerType="Circle" />
+                    <!--  Point-to-point connecting line, inherited from core's AF chart. Drawn at 50% alpha so it reads as
+                          a background cue for the raw sweep shape and does not compete with the fitted curve.  -->
                     <oxy:LineSeries
                         DataFieldX="FocusPosition"
                         DataFieldY="HFR"
                         ItemsSource="{Binding PlotFocusPoints}"
-                        Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}}" />
+                        Color="{Binding Path=Color, Source={StaticResource SecondaryBrush}, Converter={StaticResource SetAlphaToColorConverter}, ConverterParameter=128}" />
                     <oxy:ScatterSeries
                         ItemsSource="{Binding PlotRejectedFocusPoints}"
                         MarkerType="Cross"
