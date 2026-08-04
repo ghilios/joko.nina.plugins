@@ -421,8 +421,8 @@ Gives screw 2 the same drift-cancelling symmetry as screw 1 and adds a third re-
 - Modify: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/TiltAdapterWizard/DataTemplates.xaml` (Panel A checkbox)
 - Test: `Joko.NINA.Plugins.HocusFocus.Tests/TiltAdapterDevices/AsgEat/EatWizardMappingTests.cs`, `Tests/TiltAdapterWizard/TiltCalibrationCalculatorTests.cs`, `Tests/TiltAdapterWizard/TiltAdapterWizardVMTests.cs`
 
-- [ ] **Step 6.1: Pre-check (read-only).** `grep -rn "(int)WizardStep\|(int)step\|(int)CurrentStep" Joko.NINA.Plugins/ --include="*.cs"` — confirm the only integer use is `StepFolderName` (WizardVM:2281). If any other numeric persistence of `WizardStep` exists, STOP and re-plan the enum placement with the user.
-- [ ] **Step 6.2: Failing tests first — mapping.** In `EatWizardMappingTests`:
+- [x] **Step 6.1: Pre-check (read-only).** `grep -rn "(int)WizardStep\|(int)step\|(int)CurrentStep" Joko.NINA.Plugins/ --include="*.cs"` — confirm the only integer use is `StepFolderName` (WizardVM:2281). If any other numeric persistence of `WizardStep` exists, STOP and re-plan the enum placement with the user.
+- [x] **Step 6.2: Failing tests first — mapping.** In `EatWizardMappingTests`:
 
 ```csharp
 [TestCase(150)]
@@ -450,14 +450,14 @@ public void ReBaseline3_IsDiagonalBRestore_AndCompleteBecomesNoMove() {
     });
 }
 ```
-- [ ] **Step 6.3: Run** `--filter "FullyQualifiedName~EatWizardMappingTests"` → FAIL (no enum member / overload).
-- [ ] **Step 6.4: Implement enum + mapping.**
+- [x] **Step 6.3: Run** `--filter "FullyQualifiedName~EatWizardMappingTests"` → FAIL (no enum member / overload).
+- [x] **Step 6.4: Implement enum + mapping.**
   - `WizardStep`: add `ReBaseline3 = 7,  // g (optional): undo the screw-2 move, measured — screw 2's drift-symmetric reference` (AFTER `Complete = 6`; do not renumber).
   - `StepFolderName` (:2281): `if (step == WizardStep.ReBaseline3) return "07_ReBaseline3";` before the generic format.
   - `EatWizardMapping.MoveForStep(WizardStep step, int appliedSteps, bool measuredFinalRebaseline = false)`: `ReBaseline3` → `new TiltAdapterMove(TiltMoveAxis.DiagonalB, -appliedSteps, TiltMoveGroup.Tilt, $"Wizard Re-Baseline 3: {FormatSigned(-appliedSteps)} diagonal-B (restore, measured)")`; `Complete` → `measuredFinalRebaseline ? null : <existing DiagonalB(-N)>`. Update the class doc comment ("six executed moves" → describes both variants). Keep the existing two-arg call sites compiling via the default parameter, then update the wizard's call site to pass the real flag.
-- [ ] **Step 6.5: Option.** `ITiltAdapterOptions`: `bool MeasureFinalRebaseline { get; set; }` with doc comment `/// <summary>Measure one extra re-baseline after the final restore move so screw 2's move is referenced symmetrically (drift-cancelling), at the cost of one more AF run. Default true.</summary>`. `TiltAdapterOptions`: standard accessor pattern (`optionsAccessor.GetValueBoolean(nameof(MeasureFinalRebaseline), true)` in `InitializeOptions`, `SetValueBoolean` + `RaisePropertyChanged` in the setter — copy the `MeasureCurvatureDuringCalibration` implementation verbatim with the new name). UI: checkbox in wizard Panel A next to the `MeasureCurvatureDuringCalibration` binding (DataTemplates.xaml ~:716/:755), same visual pattern, label "Measure final re-baseline (recommended)". (Tilt-adapter options live in the wizard pane, not `Resources/OptionsDataTemplates.xaml` — established pattern for this options family.)
-- [ ] **Step 6.6: Sequence + flow.** `GetMeasurementSteps(bool measureCurvature, bool measureFinalRebaseline)` appends `WizardStep.ReBaseline3` to either array when true. Update both callers (`StartAsync` :2047, `ReplayAsync` :2952 — replay passes `byStep.ContainsKey(WizardStep.ReBaseline3.ToString())`). `MeasureStep`/`NextStep` need no structural change (RB3 is an ordinary measured step; `Complete` remains the terminal state that triggers `RunCalibrationMath`). `StepDescription`/`StepInstructionsText`: add ReBaseline3 wording — stepper: `"Apply -N steps to motor 2 and +N steps to motor 4, returning to the baseline position, then click Run Measurement."`; the device-driven path sends the RB3 move via the updated `MoveForStep`.
-- [ ] **Step 6.7: Calculator.** Wire `ReBaseline3`/`HasFinalRebaseline` (added in Task 3) from the wizard's readings in `RunCalibrationMath` (:2700-2705 and :2731-2736). `ComputeConfidence`: when `HasFinalRebaseline`, add probe `drift3 = |PhysicalDelta(ReBaseline3, ReBaseline2)|` into the RMS (divide by 4 instead of 3) and surface `public double Rebaseline3Drift { get; set; } = double.NaN;` on `TiltCalibrationConfidence`. Calculator test:
+- [x] **Step 6.5: Option.** `ITiltAdapterOptions`: `bool MeasureFinalRebaseline { get; set; }` with doc comment `/// <summary>Measure one extra re-baseline after the final restore move so screw 2's move is referenced symmetrically (drift-cancelling), at the cost of one more AF run. Default true.</summary>`. `TiltAdapterOptions`: standard accessor pattern (`optionsAccessor.GetValueBoolean(nameof(MeasureFinalRebaseline), true)` in `InitializeOptions`, `SetValueBoolean` + `RaisePropertyChanged` in the setter — copy the `MeasureCurvatureDuringCalibration` implementation verbatim with the new name). UI: checkbox in wizard Panel A next to the `MeasureCurvatureDuringCalibration` binding (DataTemplates.xaml ~:716/:755), same visual pattern, label "Measure final re-baseline (recommended)". (Tilt-adapter options live in the wizard pane, not `Resources/OptionsDataTemplates.xaml` — established pattern for this options family.)
+- [x] **Step 6.6: Sequence + flow.** `GetMeasurementSteps(bool measureCurvature, bool measureFinalRebaseline)` appends `WizardStep.ReBaseline3` to either array when true. Update both callers (`StartAsync` :2047, `ReplayAsync` :2952 — replay passes `byStep.ContainsKey(WizardStep.ReBaseline3.ToString())`). `MeasureStep`/`NextStep` need no structural change (RB3 is an ordinary measured step; `Complete` remains the terminal state that triggers `RunCalibrationMath`). `StepDescription`/`StepInstructionsText`: add ReBaseline3 wording — stepper: `"Apply -N steps to motor 2 and +N steps to motor 4, returning to the baseline position, then click Run Measurement."`; the device-driven path sends the RB3 move via the updated `MoveForStep`.
+- [x] **Step 6.7: Calculator.** Wire `ReBaseline3`/`HasFinalRebaseline` (added in Task 3) from the wizard's readings in `RunCalibrationMath` (:2700-2705 and :2731-2736). `ComputeConfidence`: when `HasFinalRebaseline`, add probe `drift3 = |PhysicalDelta(ReBaseline3, ReBaseline2)|` into the RMS (divide by 4 instead of 3) and surface `public double Rebaseline3Drift { get; set; } = double.NaN;` on `TiltCalibrationConfidence`. Calculator test:
 
 ```csharp
 [Test]
@@ -467,8 +467,8 @@ public void Calibrate_WithFinalRebaseline_Screw2DeltaIsDriftImmune() {
 }
 ```
   (Write it out fully by copying Task 3's test shape.)
-- [ ] **Step 6.8: Metadata/replay.** `RecordStepIntoMetadata` already keys by step name — "ReBaseline3" rows serialize with no schema change beyond v3. Verify `MapRunsToSteps`-equivalent replay path (WizardVM `ReplayAsync` :2947-2953) tolerates the extra step (it iterates `activeMeasurementSteps`, which now includes RB3 when present).
-- [ ] **Step 6.9: Run** EatWizardMapping + calculator + wizard filters → green. **Commit** — `feat(tilt): optional measured final re-baseline for drift-symmetric screw-2 delta`
+- [x] **Step 6.8: Metadata/replay.** `RecordStepIntoMetadata` already keys by step name — "ReBaseline3" rows serialize with no schema change beyond v3. Verify `MapRunsToSteps`-equivalent replay path (WizardVM `ReplayAsync` :2947-2953) tolerates the extra step (it iterates `activeMeasurementSteps`, which now includes RB3 when present).
+- [x] **Step 6.9: Run** EatWizardMapping + calculator + wizard filters → green. **Commit** — `feat(tilt): optional measured final re-baseline for drift-symmetric screw-2 delta`
 
 ---
 
