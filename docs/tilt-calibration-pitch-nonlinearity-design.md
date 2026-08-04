@@ -189,6 +189,65 @@ size (1.376 µm/step) carries the known region-path scale issue and is not usabl
    counts; the chronic "backfocus errors remained" experience during iterative correction is
    consistent with the model's curvature shrinkage.
 
+## 8. Shrinkage mechanism: it is not in the surface solver
+
+§7 item 3 asked *what* shrinks the Screw2-state gradient ×0.80 and the curvature ×0.5 while Screw1's
+state fits honestly. The replay's per-state solver diagnostics (`diag/<Step>_iterations.csv`,
+`_points.csv`, `_stars.csv`) answer the question by elimination: **every candidate mechanism inside
+the paraboloid fit is ruled out, so the compression is already present in the per-star best-focus
+values the solver is handed.**
+
+### What was ruled out
+
+| Hypothesis | Test | Result |
+|---|---|---|
+| Robust clipping prunes the far-defocus side | Gx across winsorized iterations | Screw2 Gx 0.0028835 → 0.0029270 (**+1.5%**, it *grows*); Screw1 −0.0038379 → −0.0038403 (−0.06%). Flat. |
+| Pruning removes enough stars to matter | `enabledFinal` counts | 3–6.5% pruned in every state (Screw2 79 of 1291). Far too few for a 20% amplitude deficit. |
+| Weighting drags the gradient down | Refit the surviving points unweighted | Screw2 \|G\| moves **+3.6%**, Screw1 +2.8%. Not the mechanism. |
+| Weight monopoly (a milder repeat of the pre-46778b9 bug) | ESS = (Σw)²/Σw², w = 1/σ² | ESS/N = **0.47–0.56 in every state** (Screw2 0.47). No monopoly. |
+| The high-σ tail compresses the fit | Fit best-σ half vs worst-σ half separately | Screw2 0.003572 vs 0.003809 — agree within 4%, and the *worst* half reads larger. |
+| Forced isotropic curvature (Kx = Ky) leaks into the linear terms | Refit with free Kx, Ky, and with an xy cross term | \|G\| changes by **≤0.4%** in every state. Dropping curvature entirely moves Screw2 by 2.7%. |
+
+A hand reimplementation of the weighted solve reproduces the reported Gx to six digits for all six
+states, so these are tests of the real estimator, not of an approximation to it.
+
+### What the evidence points at instead
+
+The compression is in the per-star vertex (best-focus) estimates, and it scales with the state's tilt:
+
+- **Better-bracketed stars recover a larger gradient, and only on the tilted states.** Splitting each
+  state's accepted stars by `matchedFrames` and refitting: Screw2's best-bracketed stars give a
+  gradient **+8.8%** above its poorly-bracketed ones (0.003732 vs 0.003431); Screw1 gives +1.6%. The
+  near-flat states show no informative signal (their gradients are noise-dominated).
+- **Per-star σ correlates with position along the state's own tilt axis — uniquely on Screw2.**
+  corr(σ, projection on Ĝ) = **+0.314** for Screw2, vs −0.105 (Screw1), +0.115 (ReBaseline2), and
+  ≈0.01 for the flat states. Vertex quality degrades systematically across the tilt direction.
+- **Screw2 loses the most stars upstream of the fit**: 2243 detections → 916 rejected for fewer than
+  5 matched frames → **1291 accepted**, the fewest of any state (others 1434–1566). The deficit exists
+  before the solver's first iteration, not because of it.
+- Screw2's residual MAD is the *smallest* of all six states (2.07 vs Screw1's 3.15) at R² 0.84 — the
+  surface fit is internally consistent. It is faithfully fitting an input set whose amplitude is short.
+
+Note that +8.8% is a **lower bound** on the compression, not an estimate of it: the best-bracketed
+stars are preferentially those whose focus sits near the middle of the sweep, i.e. near the tilt's
+neutral axis, which is exactly where the lever arm is smallest.
+
+### Recommended next fix (needs its own plan)
+
+Attack the **per-star vertex estimator and its acceptance criteria**, not the paraboloid solver's
+robust loop — the loop is not where the error is:
+
+1. Replace the "≥5 matched frames" gate with a **bracketing** requirement: frames on both sides of the
+   estimated vertex, with a minimum span, so a star fit from a partial branch cannot enter the surface.
+2. Quantify the vertex estimator's compression against known truth on the synthetic AF bank (where the
+   true surface is prescribed), as a function of how the sweep brackets each star. That converts the
+   ≥8.8% lower bound into a calibrated number and tells us whether a correction is even needed once (1)
+   is in place.
+3. Re-run this dataset with more sweep positions to confirm the compression falls as bracketing improves.
+
+Until then, the corner-region AF cross-check added in this plan is the operative safeguard: it fires
+exactly on the states where this compression bites, which is what it was built for.
+
 ## Appendix: key numbers
 
 - Per-step tilt planes (stored model vs corner AF), µm frame = focuser steps per normalized coord:
