@@ -68,6 +68,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         ReBaseline2 = 4,  // e: undo the screw-1 move (≈ c)
         Screw2 = 5,       // f: screw 2 inward once (4-screw: + screw 4 outward)
         Complete = 6,
+        // ReBaseline3's ordinal (7) deliberately does NOT match its position in the flow: it runs BEFORE
+        // Complete (immediately after Screw2, when measured), not after it. Complete's ordinal must never be
+        // renumbered -- StepFolderName ((int)step + 1) persists it into saved-run folder names on disk
+        // ("06_Complete" would become e.g. "07_Complete") -- so this optional step was appended numerically
+        // last instead. StepFolderName special-cases ReBaseline3 -> "07_ReBaseline3" to sort correctly
+        // alongside it. The actual step ORDER everywhere else (NextStep, GetMeasurementSteps,
+        // activeMeasurementSteps) comes from an explicit array, never from this numeric value -- do not "fix"
+        // this ordinal to look sequential.
         ReBaseline3 = 7,  // g (optional): undo the screw-2 move, measured — screw 2's drift-symmetric reference
     }
 
@@ -617,8 +625,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // Steps that end with running the aberration inspector (measurement auto-advances)
         public bool IsOnMeasurementStep => activeMeasurementSteps.Contains(currentStep);
 
-        // "Step N of M" over the active measurement-step set (4- or 6-step, captured at run start). Empty on
-        // the terminal Complete panel, which shows its own "Calibration Complete!" header instead.
+        // Task 6: whether THIS run's active sequence includes the optional measured final re-baseline --
+        // captured into activeMeasurementSteps at run start (StartAsync/ReplayAsync), not read live off the
+        // option, so it stays correct for the whole run even if the option is toggled mid-run. Single named
+        // source for the two call sites that need to know whether Complete's own restore move should be
+        // suppressed (ReBaseline3 already sent and measured it): the device-instructions text (what the user
+        // is told will happen) and ExecuteDeviceMoveForCurrentStepAsync (what actually gets sent) -- both must
+        // agree, so both read this one property rather than re-deriving the Contains check separately.
+        private bool ActiveRunHasFinalRebaseline => activeMeasurementSteps.Contains(WizardStep.ReBaseline3);
+
+        // "Step N of M" over the active measurement-step set (4, 5, 6, or 7 steps depending on
+        // MeasureCurvatureDuringCalibration/MeasureFinalRebaseline, captured at run start). Empty on the
+        // terminal Complete panel, which shows its own "Calibration Complete!" header instead.
         public string StepProgressDisplay {
             get {
                 if (currentStep == WizardStep.Complete) {
@@ -928,7 +946,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 ? ReplayStepInstructionsText(currentStep)
                 : (IsTiltDeviceConnected && IsMotorizedDevice)
                     ? DeviceStepInstructionsText(currentStep, (int)Math.Round(CalibrationAppliedAmount), IsAutoRunningAll,
-                        activeMeasurementSteps.Contains(WizardStep.ReBaseline3))
+                        ActiveRunHasFinalRebaseline)
                     : StepInstructionsText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, CalibrationAppliedAmount);
 
         // Replay wording: a replay re-analyzes already-captured frames, so every imperative in the live copy
@@ -1839,13 +1857,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
 
             int appliedSteps = (int)Math.Round(CalibrationAppliedAmount);
-            // measuredFinalRebaseline reflects THIS run's active sequence (captured at StartAsync), not just
-            // the live option: it must stay true for the whole run even if the option is toggled mid-run.
-            // When true, Complete becomes a no-move — ReBaseline3 (an ordinary step earlier in this same
-            // sequence) already sent and measured the restore, so sending it again here would be a second,
-            // spurious, physically real move.
-            bool measuredFinalRebaseline = activeMeasurementSteps.Contains(WizardStep.ReBaseline3);
-            var move = EatWizardMapping.MoveForStep(step, appliedSteps, measuredFinalRebaseline);
+            // When ActiveRunHasFinalRebaseline, Complete becomes a no-move — ReBaseline3 (an ordinary step
+            // earlier in this same sequence) already sent and measured the restore, so sending it again here
+            // would be a second, spurious, physically real move.
+            var move = EatWizardMapping.MoveForStep(step, appliedSteps, ActiveRunHasFinalRebaseline);
             if (move == null) {
                 return true; // Baseline, or Complete after a measured ReBaseline3 already restored the device.
             }
@@ -2869,11 +2884,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private void RunCalibrationMath(int screwCount, double radiusMm, double pixelSize, double fStep,
             double appliedAmount, bool isStepper, bool deviceDriven) {
             bool measuredCurvature = stepReadings.ContainsKey(WizardStep.AllInward);
-            // Task 6: the optional measured final re-baseline. Presence in stepReadings (not activeMeasurementSteps)
-            // is the same "was it actually measured" test measuredCurvature above uses for AllInward -- correct for
-            // a replay too, since a saved run predating this feature (or captured with the option off) simply
-            // never has a ReBaseline3 entry, so this comes back false and Screw2Delta keeps its old ReBaseline2-only
-            // semantics (backward compatible).
+            // Task 6: the optional measured final re-baseline. Presence in stepReadings (NOT
+            // activeMeasurementSteps -- deliberately, for two independent reasons) is the same "was it
+            // actually measured" test measuredCurvature above uses for AllInward:
+            //  1. Replay: a saved run predating this feature (or captured with the option off) simply never
+            //     has a ReBaseline3 entry, so this comes back false and Screw2Delta keeps its old
+            //     ReBaseline2-only semantics (backward compatible) -- exactly like AllInward's replay case.
+            //  2. RunCalibrationForTest (the SeedStepReading test seam): it calls RunCalibrationMath directly
+            //     and never calls StartAsync/ReplayAsync, so activeMeasurementSteps is still sitting at its
+            //     ctor-time field-initializer default (the 4-step flow, no ReBaseline3) regardless of what
+            //     was actually seeded into stepReadings. Gating on activeMeasurementSteps here would make
+            //     every RunCalibrationForTest-based test seeding a ReBaseline3 reading silently ignore it.
             bool hasFinalRebaseline = stepReadings.ContainsKey(WizardStep.ReBaseline3);
             var a = Reading(WizardStep.Baseline);
             var b = Reading(WizardStep.AllInward);
@@ -3177,6 +3198,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         // Re-baseline drift: each re-baseline (c, e) should return close to the prior state. A large residual
         // relative to the subsequent screw move means backlash / an uneven undo contaminated the calibration.
+        // Deliberately does NOT evaluate ReBaseline3 (Task 6, optional): RebaselineDriftRatio needs a
+        // SUBSEQUENT screw move to form its ratio against (drift1 vs Screw1's move, drift2 vs Screw2's move),
+        // and ReBaseline3 has none -- it is immediately followed by Complete, which is itself a no-move once
+        // ReBaseline3 has run. Its magnitude is not lost, just measured differently: it feeds
+        // TiltCalibrationConfidence.Rebaseline3Drift, an absolute noise-probe term in ComputeConfidence's SNR
+        // RMS, rather than a relative-to-the-next-move ratio here. Do not "fix" this by inventing a ratio for
+        // it against some other reference -- there isn't a subsequent move to be honest about.
         private void EvaluateRebaselineDrift() {
             bool measuredCurvature = stepReadings.ContainsKey(WizardStep.AllInward);
             var a = Reading(WizardStep.Baseline);
@@ -3206,9 +3234,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     ". The undo between moves left residual tilt (backlash or an uneven turn); consider recalibrating.";
         }
 
-        // Overall calibration signal-to-noise from the six per-step tilt vectors. A low SNR means the recovered
-        // screw geometry is dominated by measurement noise / between-step drift (typically too few stars or a
-        // too-coarse focus step), regardless of how cleanly the screws were turned — warn the user not to apply it.
+        // Overall calibration signal-to-noise from the per-step tilt vectors (six, or seven with the optional
+        // measured final re-baseline). A low SNR means the recovered screw geometry is dominated by
+        // measurement noise / between-step drift (typically too few stars or a too-coarse focus step),
+        // regardless of how cleanly the screws were turned — warn the user not to apply it.
         private void EvaluateCalibrationConfidence(TiltCalibrationConfidence confidence) {
             var disagreement = curvatureChannelDisagreement;
             if (confidence == null || confidence.IsReliable) {

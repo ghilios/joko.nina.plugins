@@ -1216,6 +1216,69 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2, WizardStep.Complete }));
         }
 
+        // Task 6, code-quality follow-up (Fix 2): the shipped DEFAULT configuration (curvature measurement
+        // OFF, MeasureFinalRebaseline ON) is a 5-step run. RunCalibrationForTest bypasses activeMeasurementSteps/
+        // NextStep entirely (it seeds stepReadings directly and calls RunCalibrationMath), and ReplayAsync is a
+        // structurally different loop -- neither exercises the real production state machine every live user's
+        // default run actually walks. This mirrors NextStep_FourStepFlow_SkipsCurvatureStepsAndCompletes above,
+        // with ReBaseline3 appended.
+        [Test]
+        public void NextStep_FiveStepFlow_WithFinalRebaseline_WalksAndCompletes() {
+            var (vm, _, _, _) = Build(configureOptions: o => {
+                o.MeasureCurvatureDuringCalibration.Returns(false);
+                o.MeasureFinalRebaseline.Returns(true);
+            });
+            vm.StartCommand.Execute(null);
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Baseline));
+
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline3, 0.0, 0.0, 1000.0);
+
+            var walked = new List<WizardStep> { vm.CurrentStep };
+            for (int i = 0; i < 5; i++) {
+                vm.NextStep();
+                walked.Add(vm.CurrentStep);
+            }
+
+            Assert.Multiple(() => {
+                Assert.That(walked, Is.EqualTo(new[] {
+                    WizardStep.Baseline, WizardStep.Screw1, WizardStep.ReBaseline2,
+                    WizardStep.Screw2, WizardStep.ReBaseline3, WizardStep.Complete }));
+                Assert.That(vm.IsComplete, Is.True);
+            });
+        }
+
+        // Cheap to also cover: curvature ON + final re-baseline ON is a 7-step run.
+        [Test]
+        public void NextStep_SevenStepFlow_WithCurvatureAndFinalRebaseline_WalksAndCompletes() {
+            var (vm, _, _, _) = Build(configureOptions: o => {
+                o.MeasureCurvatureDuringCalibration.Returns(true);
+                o.MeasureFinalRebaseline.Returns(true);
+            });
+            vm.StartCommand.Execute(null);
+
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.AllInward, 0.0, 0.0, 1010.0);
+            vm.SeedStepReading(WizardStep.ReBaseline1, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline3, 0.0, 0.0, 1000.0);
+
+            var walked = new List<WizardStep> { vm.CurrentStep };
+            for (int i = 0; i < 7; i++) {
+                vm.NextStep();
+                walked.Add(vm.CurrentStep);
+            }
+
+            Assert.That(walked, Is.EqualTo(new[] {
+                WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1, WizardStep.Screw1,
+                WizardStep.ReBaseline2, WizardStep.Screw2, WizardStep.ReBaseline3, WizardStep.Complete }));
+        }
+
         // --- Curvature-sign persistence semantics at run completion ---
 
         [Test]
@@ -1918,6 +1981,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         [TestCase(WizardStep.ReBaseline2, TiltMoveAxis.DiagonalA, -150)]
         [TestCase(WizardStep.Screw2, TiltMoveAxis.DiagonalB, 150)]
         [TestCase(WizardStep.Complete, TiltMoveAxis.DiagonalB, -150)]
+        // Task 6, code-quality follow-up (Fix 1): ReBaseline3's move is unconditional in EatWizardMapping
+        // (only Complete branches on measuredFinalRebaseline), so this proves DiagonalB/-N is sent for it
+        // without needing StartCommand first (mirrors every other case above, none of which call it either).
+        [TestCase(WizardStep.ReBaseline3, TiltMoveAxis.DiagonalB, -150)]
         public void ExecuteDeviceMoveForCurrentStepAsync_EachStep_SendsExpectedMove(WizardStep step, TiltMoveAxis expectedAxis, int expectedSteps) {
             var (vm, options, service, controller, _, _) = BuildMotorized();
             options.CalibrationAppliedAmount.Returns(150.0);
@@ -1931,6 +1998,32 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 controller.Received(1).ExecuteMoveAsync(
                     Arg.Is<TiltAdapterMove>(m => m.Axis == expectedAxis && m.Steps == expectedSteps),
                     Arg.Any<IProgress<string>>(), Arg.Any<CancellationToken>());
+            });
+        }
+
+        // Task 6, code-quality follow-up (Fix 1): this is the wiring that decides what physically moves the
+        // hardware -- with MeasureFinalRebaseline active for THIS run (captured into activeMeasurementSteps by
+        // StartCommand, exactly as a live device-driven run would), ReBaseline3 (an earlier ordinary step in
+        // the same sequence) already sent and measured the restore, so Complete must send NOTHING to the
+        // controller here. A second DiagonalB(-N) would be a spurious, physically real move on real hardware.
+        [Test]
+        public void ExecuteDeviceMoveForCurrentStepAsync_Complete_SendsNothingWhenFinalRebaselineWasMeasured() {
+            var (vm, options, service, controller, _, _) = BuildMotorized();
+            options.CalibrationAppliedAmount.Returns(150.0);
+            StubSuccessfulMoves(controller);
+            Connect(vm);
+            // Connecting defaults MeasureCurvatureDuringCalibration ON (T11 item 4); re-assert false AFTER
+            // connecting so StartAsync (read fresh at Start) resolves the 4-step base flow this test wants,
+            // with ReBaseline3 appended by MeasureFinalRebaseline below.
+            options.MeasureCurvatureDuringCalibration.Returns(false);
+            options.MeasureFinalRebaseline.Returns(true);
+            vm.StartCommand.Execute(null); // captures activeMeasurementSteps INCLUDING ReBaseline3
+
+            bool result = vm.ExecuteDeviceMoveForCurrentStepAsync(WizardStep.Complete, CancellationToken.None).GetAwaiter().GetResult();
+
+            Assert.Multiple(() => {
+                Assert.That(result, Is.True, "Complete succeeds trivially -- there is nothing left to send");
+                controller.DidNotReceive().ExecuteMoveAsync(Arg.Any<TiltAdapterMove>(), Arg.Any<IProgress<string>>(), Arg.Any<CancellationToken>());
             });
         }
 
