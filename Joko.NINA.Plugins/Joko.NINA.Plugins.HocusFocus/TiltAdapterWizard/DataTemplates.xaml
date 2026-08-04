@@ -1616,7 +1616,7 @@
                               direct child of this StackPanel rather than another UniformGrid cell.  -->
                         <TextBlock Margin="0,4,0,0" Text="{Binding PistonPitchDisplay}">
                             <TextBlock.Style>
-                                <Style TargetType="TextBlock">
+                                <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                     <Setter Property="Visibility" Value="Collapsed" />
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding HasPistonPitch}" Value="True">
@@ -1632,7 +1632,7 @@
                               hardware, not a label/value pair.  -->
                         <TextBlock Margin="0,4,0,0" Text="{Binding CornerCrossCheckDisplay}">
                             <TextBlock.Style>
-                                <Style TargetType="TextBlock">
+                                <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
                                     <Setter Property="Visibility" Value="Collapsed" />
                                     <Style.Triggers>
                                         <DataTrigger Binding="{Binding HasCornerCrossCheck}" Value="True">

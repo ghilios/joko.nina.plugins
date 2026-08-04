@@ -3137,7 +3137,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             double foldedDiff = rawDiff <= 180.0 ? rawDiff : 360.0 - rawDiff;
             double deviation = Math.Abs(foldedDiff - expected);
             return deviation > 30.0
-                ? $"Screw 1→2 measured angle gap is {foldedDiff:F1}° (expected ~{expected}°)"
+                ? $"Screw 1 and screw 2 measured {foldedDiff:F1}° apart, but {expected:F0}° was expected."
                 : null;
         }
 
@@ -3147,7 +3147,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private static string CheckMagnitudeRatio(double magnitudeRatio) =>
             !double.IsNaN(magnitudeRatio) && magnitudeRatio > MagnitudeRatioWarnThreshold
-                ? $"the two screw turns produced very unequal tilt changes ({magnitudeRatio:F1}× apart) — turn each screw the same amount"
+                ? $"The two screw moves changed the tilt by very unequal amounts ({magnitudeRatio:F1}× apart)."
                 : null;
 
         // The piston-implied pitch and the tilt-derived measured hardware are both focuser-frame quantities
@@ -3164,8 +3164,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // tilt-fit-independent value as the reference), not "how far apart are these two numbers" in the
             // abstract.
             double relativeDiff = Math.Abs(pistonImplied - measuredHardware) / measuredHardware;
+            // Percent is formatted by hand rather than with ":P0": the "P" specifier inserts a space before
+            // the sign in most cultures ("17 %"), which reads as a typo in running prose.
             return relativeDiff > PistonDisagreementWarnThreshold
-                ? $"piston-implied hardware ({pistonImplied:0.##} µm) and tilt-derived ({measuredHardware:0.##} µm) disagree by more than 20% — the tilt estimate may be unreliable"
+                ? $"The piston-implied pitch ({pistonImplied:0.##} µm) and the tilt-derived pitch ({measuredHardware:0.##} µm) differ by {relativeDiff * 100.0:F0}%."
                 : null;
         }
 
@@ -3181,21 +3183,33 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             if (double.IsNaN(estimatorRelDiff) || estimatorRelDiff <= EstimatorDisagreementWarnThreshold) {
                 return null;
             }
-            return $"the per-star model and the corner-region AF disagree on the screw moves by {estimatorRelDiff:P0} " +
-                $"— the measured hardware may be unreliable (corner-AF estimate: {cornerMeasuredHardwareMicrons:0.###} µm)";
+            return $"The per-star model and the corner-region AF differ by {estimatorRelDiff * 100.0:F0}% on the screw " +
+                $"moves, and the corner-region AF puts the pitch at {cornerMeasuredHardwareMicrons:0.###} µm.";
         }
 
         private void ValidateCalibrationQuality(double rawDiff, double magnitudeRatio, int screwCount,
             double measuredHardware, double pistonImplied, double estimatorRelDiff, double cornerMeasuredHardwareMicrons) {
-            var parts = new[] {
-                CheckScrewAngleGap(rawDiff, screwCount),
-                CheckMagnitudeRatio(magnitudeRatio),
-                CheckPistonAgreement(measuredHardware, pistonImplied),
-                CheckCornerCrossCheck(estimatorRelDiff, cornerMeasuredHardwareMicrons),
-            }.Where(p => p != null).ToList();
+            string angleGap = CheckScrewAngleGap(rawDiff, screwCount);
+            string ratio = CheckMagnitudeRatio(magnitudeRatio);
+            string piston = CheckPistonAgreement(measuredHardware, pistonImplied);
+            string corner = CheckCornerCrossCheck(estimatorRelDiff, cornerMeasuredHardwareMicrons);
+            var parts = new[] { angleGap, ratio, piston, corner }.Where(p => p != null).ToList();
 
             HasWarning = parts.Count > 0;
-            WarningText = HasWarning ? string.Join("; ", parts) + ". Consider recalibrating." : string.Empty;
+            if (!HasWarning) {
+                WarningText = string.Empty;
+                return;
+            }
+
+            // The closing advice depends on WHICH checks fired. An unequal-magnitude reading on its own is
+            // most likely what it looks like: the two turns really were different sizes. But when a second,
+            // independent estimator also disagrees with the per-star model, the screw moves are no longer the
+            // most likely culprit -- telling the user to re-turn the screws would send them after the wrong
+            // thing, and on a motorized run it is advice they cannot even act on.
+            string closing = piston != null || corner != null
+                ? "An independent estimator disagrees with the per-star model, so suspect the measurement before the hardware. Re-run on a star-rich field, or raise Measurements to average."
+                : "Turn each screw by the same amount and recalibrate.";
+            WarningText = string.Join(" ", parts) + " " + closing;
         }
 
         // Re-baseline drift: each re-baseline (c, e) should return close to the prior state. A large residual

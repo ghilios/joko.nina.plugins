@@ -2830,8 +2830,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                     Assert.That(vm.IsComplete, Is.True, "precondition: the replay actually completed (RunCalibrationMath was reached)");
                     Assert.That(vm.HasCornerCrossCheck, Is.True);
                     Assert.That(vm.CornerCrossCheckDisplay, Is.EqualTo("Corner-AF cross-check: 2.75 µm/turn"));
-                    Assert.That(vm.WarningText, Does.Contain("the per-star model and the corner-region AF disagree on the screw moves by"));
-                    Assert.That(vm.WarningText, Does.Contain("corner-AF estimate: 2.75 µm"));
+                    Assert.That(vm.WarningText, Does.Contain("The per-star model and the corner-region AF differ by"));
+                    Assert.That(vm.WarningText, Does.Contain("corner-region AF puts the pitch at 2.75 µm"));
                 });
             } finally {
                 System.IO.Directory.Delete(runRoot, recursive: true);
@@ -2973,8 +2973,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             Assert.Multiple(() => {
                 Assert.That(vm.HasWarning, Is.True);
                 Assert.That(vm.WarningText, Does.Contain(
-                    "piston-implied hardware (2.86 µm) and tilt-derived (2.2 µm) disagree by more than 20% " +
-                    "— the tilt estimate may be unreliable"));
+                    "The piston-implied pitch (2.86 µm) and the tilt-derived pitch (2.2 µm) differ by 30%."));
                 Assert.That(vm.PistonPitchDisplay, Is.EqualTo("Piston-implied: 2.9 µm/turn"));
             });
         }
@@ -3053,8 +3052,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
 
             Assert.Multiple(() => {
                 Assert.That(vm.HasWarning, Is.True);
-                Assert.That(vm.WarningText, Does.Contain("the per-star model and the corner-region AF disagree on the screw moves by"));
-                Assert.That(vm.WarningText, Does.Contain("corner-AF estimate: 2.75 µm"));
+                Assert.That(vm.WarningText, Does.Contain("The per-star model and the corner-region AF differ by"));
+                Assert.That(vm.WarningText, Does.Contain("corner-region AF puts the pitch at 2.75 µm"));
                 Assert.That(vm.HasCornerCrossCheck, Is.True);
                 Assert.That(vm.CornerCrossCheckDisplay, Is.EqualTo("Corner-AF cross-check: 2.75 µm/turn"));
             });
@@ -3111,7 +3110,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             Assert.Multiple(() => {
                 Assert.That(vm.HasCornerCrossCheck, Is.False);
                 Assert.That(vm.CornerCrossCheckDisplay, Is.Empty);
-                Assert.That(vm.WarningText, Does.Not.Contain("corner-region AF disagree"));
+                Assert.That(vm.WarningText, Does.Not.Contain("corner-region AF differ"));
             });
         }
 
