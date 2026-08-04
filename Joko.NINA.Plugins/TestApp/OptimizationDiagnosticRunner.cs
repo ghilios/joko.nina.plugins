@@ -645,7 +645,8 @@ namespace TestApp {
             // The seeded value is reported below so a landing never silently differs from its recorded seed.
             settings.MinHfrSeedFloor = MinHfrSeed.Resolve(
                 perRunBaseline.Count > 0 ? (perRunBaseline[0].BestFit?.Minimum.Y ?? double.NaN) : double.NaN,
-                ctx.Seed.MinHFR);
+                ctx.Seed.MinHFR,
+                ctx.Seed.DetectionBinning);
             if (settings.MinHfrSeedFloor is double seededMinHfr) {
                 Console.WriteLine($"  MinHFR seed (F35): fitted vertex HFR {F(perRunBaseline[0].BestFit?.Minimum.Y ?? double.NaN)} px "
                     + $"is at or below the gate {F(ctx.Seed.MinHFR)}; seeding MinHFR -> {F(seededMinHfr)}");
