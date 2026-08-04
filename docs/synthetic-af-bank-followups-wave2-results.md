@@ -175,6 +175,24 @@ The risk on the proposed fix stands and is worth restating: seeding `MinHFR` ben
 creates a knob the search has no gradient to climb back out of, so it should be seeded to a *measured* value,
 not a permissive one.
 
+### F35 — `MinHFR` seeding, measured after the fact
+
+Filed answering "how far can `MinHFR` safely come down?". Three results, all from
+`golden eval --min-hfr` sweeps (~40 s per config) rather than a bank run:
+
+- **F20's proposed trigger is circular.** "If the median in-focus HFR is at or below `MinHFR`, seed beneath it"
+  cannot run when the in-focus frame detects zero stars. The sweep **wings** are the only uncensored
+  measurement, and they already fit at R² = 0.911 on D01.
+- **Neither available HFR statistic can size the seed.** The wing fit over-predicts D01's vertex 2.3× (0.548 vs
+  0.238 px), and the surviving-star medians read 2.2–2.8× high because they are **left-censored at `MinHFR`
+  itself** — the same trap F23 wave 1 hit with marginal SNR censored at the Sensitivity gate.
+- **The safe floor is 0.25–0.35 px, with FP = 0 in all 32 configurations**, and `D05_tec140_1000mm` is flat at
+  0.985 across the whole range — so a well-sampled rig is provably unperturbed and the seed can be global.
+
+It also corrects F20's success criterion: lowering the gate moves D01's recall only 0.129 → 0.165, but puts 5
+stars on the vertex frame at 0.5, which clears the `NHard` = 3 hard floor and is the entire cause of
+`FinalJ = 0.00000`.
+
 ### F22 is unaffected
 
 A binning/HFR result, not a precision one. Still confirmed, its "calibrate out the bias" fix still ruled out

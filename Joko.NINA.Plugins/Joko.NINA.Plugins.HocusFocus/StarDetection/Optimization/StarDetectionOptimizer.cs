@@ -36,6 +36,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// Phase-B stops halving a Continuous variable's step once it drops below InitialStep × this fraction.
         /// </summary>
         public double StepFloorFraction { get; set; } = 0.125;
+
+        /// <summary>
+        /// F35 — when set, <see cref="StarDetectorParams.MinHFR"/> is lowered to this value on the seed before the
+        /// search reads θ0, so a rig whose stars are smaller than the shipped gate starts somewhere with a
+        /// gradient instead of on the plateau where <c>J</c> is identically zero (F20).
+        ///
+        /// <para><b>The caller decides, the engine applies.</b> The trigger is
+        /// <c>BestFit.Minimum.Y &lt;= MinHFR</c> from a fit taken BEFORE the search, and
+        /// <see cref="RunEvaluationMetrics"/> — all this engine sees of an evaluation — carries the vertex X only
+        /// (<c>BestFocusPosition</c>), never its Y. So the two callers that already hold a pre-search
+        /// <c>RunEvaluationResult</c> compute the rule via <see cref="MinHfrSeed.Resolve"/> and pass the answer
+        /// here; the clamp lives in one place, ahead of θ0, so the seeded value flows into the seed evaluation,
+        /// into the never-regress floor, and into <c>RevertNeutralAxes</c>' notion of the seed.</para>
+        ///
+        /// <para>Null (the default) leaves every caller bit-identical — which is deliberately the case for
+        /// <c>synth-validate</c> and <c>tilt</c>, neither of which fits a curve before optimizing.</para>
+        /// </summary>
+        public double? MinHfrSeedFloor { get; set; }
     }
 
     /// <summary>Progress payload emitted during <see cref="StarDetectionOptimizer.OptimizeAsync"/>.</summary>
@@ -106,6 +124,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 throw new ArgumentNullException(nameof(evaluator));
             }
             settings = settings ?? new OptimizerSettings();
+
+            // F35 — seed MinHFR beneath the gate BEFORE θ0 is read, so the search starts from the lowered value
+            // rather than merely being allowed to reach it. Only ever lowers: the objective rewards star count, so
+            // nothing pulls a seeded MinHFR back up, and raising a gate a caller deliberately set lower would be a
+            // knob with no gradient to climb back down. See MinHfrSeed for why the value is a sampling constant
+            // and not derived from any measured HFR.
+            //
+            // CLONE, DO NOT MUTATE THE CALLER'S SEED. Callers reuse one StarDetectorParams across many runs --
+            // TestApp `optimize --per-run` builds a single RunDetectionContext outside its per-dataset loop, and
+            // the wizard passes a live reference to runs[0].Seed. An in-place write here leaks the first run's
+            // seeded gate into every subsequent run, which silently re-gates datasets whose fit never triggered.
+            // Measured: it took the whole 17-dataset synthetic bank to MinHFR 0.3 off ONE firing on D01, including
+            // D05 -- the control whose entire job is to be left alone.
+            if (settings.MinHfrSeedFloor is double minHfrFloor && minHfrFloor < seed.MinHFR) {
+                seed = seed.Clone();
+                seed.MinHFR = minHfrFloor;
+            }
 
             var ctx = new SearchContext(this, seed, variables, evaluator, settings, progress, token);
 

@@ -533,6 +533,94 @@ public class StarDetectionOptimizerTests {
             "the axis that actually moves J must still be optimized");
     }
 
+    // --- F35: MinHfrSeedFloor, applied at the engine seam ahead of theta0 -------------------------------------
+
+    /// <summary>
+    /// The seed must be stamped BEFORE theta0 is read, so the search genuinely starts from the lowered gate —
+    /// rather than merely being permitted to reach it, which on F20's cold-start plateau it never does.
+    /// </summary>
+    [Test]
+    public async Task MinHfrSeedFloor_LowersTheSeedGateBeforeTheFirstEvaluation() {
+        var seed = Seed();
+        seed.MinHFR = 1.2;
+        var settings = DefaultSettings();
+        settings.MinHfrSeedFloor = MinHfrSeed.SeedFloor;
+        var seenFirst = double.NaN;
+
+        await new StarDetectionOptimizer().OptimizeAsync(seed, OptimizerVariable.CreateCuratedSet(),
+            SyntheticEvaluator(p => { if (double.IsNaN(seenFirst)) { seenFirst = p.MinHFR; } }),
+            settings, null, CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(seenFirst, Is.EqualTo(MinHfrSeed.SeedFloor).Within(1e-9),
+                "the seed evaluation — the never-regress floor — must already see the seeded gate");
+            Assert.That(seed.MinHFR, Is.EqualTo(1.2).Within(1e-9),
+                "the CALLER'S seed must be left alone — see MinHfrSeedFloor_DoesNotLeakIntoALaterRun");
+        });
+    }
+
+    /// <summary>
+    /// THE REGRESSION THIS EXISTS FOR. Callers reuse one <see cref="StarDetectorParams"/> across many runs:
+    /// TestApp <c>optimize --per-run</c> builds a single context outside its per-dataset loop, and the wizard
+    /// hands over a live reference to <c>runs[0].Seed</c>. An in-place write inside the engine therefore leaks
+    /// the first run's seeded gate into every later run — silently re-gating datasets whose own fit never
+    /// triggered, and making the result depend on dataset ORDER.
+    ///
+    /// <para>Measured before the fix: one firing on D01 dragged the entire 17-dataset synthetic bank to
+    /// MinHFR 0.3, including <c>D05_tec140_1000mm</c> — the control whose whole purpose is to be left alone —
+    /// while printing exactly one "seeding" line, because every subsequent run saw a seed that was already at
+    /// the floor and so never triggered.</para>
+    /// </summary>
+    [Test]
+    public async Task MinHfrSeedFloor_DoesNotLeakIntoALaterRun() {
+        var sharedSeed = Seed();
+        sharedSeed.MinHFR = 1.2;
+        var variables = OptimizerVariable.CreateCuratedSet();
+
+        // Run 1 opts in (its fit triggered).
+        var withFloor = DefaultSettings();
+        withFloor.MinHfrSeedFloor = MinHfrSeed.SeedFloor;
+        await new StarDetectionOptimizer().OptimizeAsync(sharedSeed, variables, SyntheticEvaluator(), withFloor, null, CancellationToken.None);
+
+        // Run 2 does NOT opt in (a well-sampled rig — D05's case). It must start from the ORIGINAL gate.
+        var seenSecond = double.NaN;
+        await new StarDetectionOptimizer().OptimizeAsync(sharedSeed, variables,
+            SyntheticEvaluator(p => { if (double.IsNaN(seenSecond)) { seenSecond = p.MinHFR; } }),
+            DefaultSettings(), null, CancellationToken.None);
+
+        Assert.That(seenSecond, Is.EqualTo(1.2).Within(1e-9),
+            "a run whose fit did not trigger the seed must not inherit the previous run's seeded gate");
+    }
+
+    /// <summary>Null (every caller that does not opt in, including synth-validate and tilt) must be bit-identical.</summary>
+    [Test]
+    public async Task MinHfrSeedFloor_Unset_LeavesTheSeedUntouched() {
+        var seed = Seed();
+        seed.MinHFR = 1.2;
+
+        await new StarDetectionOptimizer().OptimizeAsync(seed, OptimizerVariable.CreateCuratedSet(),
+            SyntheticEvaluator(), DefaultSettings(), null, CancellationToken.None);
+
+        Assert.That(seed.MinHFR, Is.EqualTo(1.2).Within(1e-9));
+    }
+
+    /// <summary>
+    /// Only ever lowers. The objective rewards star count, so nothing pulls a seeded MinHFR back up — raising a
+    /// gate a caller deliberately set lower would be a knob with no gradient to climb back down.
+    /// </summary>
+    [Test]
+    public async Task MinHfrSeedFloor_NeverRaisesAGateThatIsAlreadyLower() {
+        var seed = Seed();
+        seed.MinHFR = 0.15;
+        var settings = DefaultSettings();
+        settings.MinHfrSeedFloor = MinHfrSeed.SeedFloor;   // 0.30 > 0.15
+
+        await new StarDetectionOptimizer().OptimizeAsync(seed, OptimizerVariable.CreateCuratedSet(),
+            SyntheticEvaluator(), settings, null, CancellationToken.None);
+
+        Assert.That(seed.MinHFR, Is.EqualTo(0.15).Within(1e-9));
+    }
+
     /// <summary>
     /// A synchronous <see cref="IProgress{T}"/> test double: <see cref="Report"/> appends directly to a list
     /// on the calling thread, so reports are captured deterministically (unlike <see cref="Progress{T}"/>,

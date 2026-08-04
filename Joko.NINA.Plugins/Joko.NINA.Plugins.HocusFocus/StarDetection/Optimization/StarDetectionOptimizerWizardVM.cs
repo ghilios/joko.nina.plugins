@@ -537,6 +537,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // the "before" the live readout counts from — so the σ pair shown mid-run matches the results page.
         private double currentBaselineSigma = double.NaN;
 
+        // F35 — the hyperbola vertex HFR (BestFit.Minimum.Y) from the MOST RECENT pre-search analyze pass, which
+        // is the statistic that triggers the MinHFR seed. Captured in AnalyzeWithProgressAsync because every path
+        // that reaches OptimizeAsync runs one first (the seed guard on Start; an explicit warm-up on each
+        // feedback/continue/re-optimize path), and because the fit is thrown away afterwards everywhere else.
+        //
+        // It must come from the WINGS, and it does: far from focus the PSF is large, so those frames are
+        // untouched by the gate and richly populated (D01's four outer frames carry 816-2002 accepted stars each
+        // at the default MinHFR, fitting at R2 = 0.911). The in-focus frames -- the ones F20's original wording
+        // wanted to measure -- are exactly the ones the gate has emptied, which is what made that trigger
+        // circular. NaN when no fit was determinable, which MinHfrSeed treats as "do nothing".
+        private double seedFitVertexHfr = double.NaN;
+
         /// <summary>
         /// MEF/T5 convenience constructor: wires the real collaborators from the plugin singletons + mediators.
         /// The wizard is not MEF-exported (it is created on demand by T5's launch command), so this just supplies
@@ -2920,6 +2932,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 var frameProgress = new Progress<RunLoadProgress>(rp => SetProgress(label, rp.Current, rp.Total));
                 results.Add(await run.Data.EvaluateAndFitAsync(paramsSelector(run), frameProgress, token).ConfigureAwait(true));
             }
+            // F35 — stash run 0's fitted vertex HFR for the MinHFR seeding rule. Run 0 is the representative run
+            // everywhere else in this VM (the plotted curve, the binning recommendation, the exposure advice), so
+            // the seed follows the same convention. Recomputed on every analyze pass, so a re-optimize after the
+            // user changes settings re-triggers off the fit those settings produce rather than a stale one.
+            seedFitVertexHfr = results.Count > 0 ? (results[0].BestFit?.Minimum.Y ?? double.NaN) : double.NaN;
             return results;
         }
 
@@ -2982,6 +2999,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // on), so it needs more iterations to converge: use the larger budget when enabled, else the standard
             // one. Re-applied each call so toggling the donut master between builds takes effect.
             optimizerSettings.MaxEvaluations = donutMaster ? DonutMaxEvaluations : standardMaxEvaluations;
+            // F35 — seed MinHFR beneath the gate when the pre-search fit says this rig's stars are smaller than it
+            // (F20's cold-start plateau: J is identically 0 across the neighbourhood, so no single-axis step
+            // improves anything and the search never lowers the gate on its own).
+            //
+            // FRESH passes only. Both non-fresh paths supply a seedOverride: "Continue optimizing" seeds from the
+            // prior round's best, and the feedback path seeds from GateRecommender's analytic recommendation --
+            // which owns MinHFR itself for RejectionGate.TooLowHFR. In both cases MinHFR is already the search's
+            // (or the recommender's) to set, and re-stamping the floor would silently undo an upward move that had
+            // been earned. A seed is a START condition, not a bound.
+            //
+            // Assigned unconditionally, including to null, for the same reason MaxEvaluations is re-applied above:
+            // optimizerSettings is a reused field and a value from a prior pass must never leak into this one.
+            optimizerSettings.MinHfrSeedFloor = seedOverride == null
+                ? MinHfrSeed.Resolve(seedFitVertexHfr, seed.MinHFR)
+                : null;
             var variables = variablesOverride ?? OptimizerVariable.CreateCuratedSet(seed);
             var evaluator = RunEvaluationData.CreateEvaluator(runs.Select(r => r.Data).ToList());
 
