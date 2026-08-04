@@ -2585,7 +2585,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
             vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0);
 
-            vm.RunCalibrationForTest(deviceDriven: true);
+            // No tiltPlaneOverride -> RunCalibrationMath's inputs fall back to a 1x1 image size, so real (any
+            // positive, equal-for-both-axes) pixel/focuser sizes must be supplied explicitly: PhysicalDelta has
+            // no fallback for a zero sensor size (geometry is a precondition -- see its doc comment), and
+            // BuildMotorized's mocked profile otherwise leaves PixelSize at its NSubstitute default of 0. A 1x1
+            // image size keeps the conversion isotropic, so the SNR ratio (and thus IsReliable) is unchanged
+            // from the pre-F2-fix raw-(A,B) computation this test was written against.
+            vm.RunCalibrationForTest(deviceDriven: true, pixelSizeMicrons: 3.76, focuserStepMicrons: 3.6);
 
             options.Received(1).CalibrationIsReliable = true;
         }
@@ -2602,11 +2608,52 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             vm.SeedStepReading(WizardStep.ReBaseline2, 0.4, 0.0, 1000.0);
             vm.SeedStepReading(WizardStep.Screw2, 0.9, 0.0, 1000.0);
 
-            vm.RunCalibrationForTest(deviceDriven: true);
+            // Explicit isotropic geometry -- see RunCalibrationForTest_DeviceDriven_ReliableCalibration_SetsCalibrationIsReliableTrue.
+            vm.RunCalibrationForTest(deviceDriven: true, pixelSizeMicrons: 3.76, focuserStepMicrons: 3.6);
 
             Assert.Multiple(() => {
                 options.Received(1).CalibrationIsReliable = false;
                 options.Received(1).DeviceLinkedCalibrationDeviceName = "ASG Electronic EAT - 90mm";
+            });
+        }
+
+        // F2 regression lock at the VM<->calculator seam: RunCalibrationMath must persist the PHYSICAL-space
+        // screw angles/ratio TiltCalibrationCalculator.Calibate() computes, not raw (A,B)-tilt-plane-coefficient
+        // values. The bug this refactor fixed (RunCalibrationMath hand-mirroring angle/ratio algebra in raw
+        // (A,B) space) manifested exactly at this seam, and the calculator-level anisotropic tests alone can't
+        // catch a future edit that bypasses Calibrate() again here.
+        //
+        // Two single-screw moves of EQUAL physical magnitude at physical directions 200 deg and 290 deg (90 deg
+        // apart -- this adapter's ideal 4-screw spacing) on a strongly non-square 6000x2000 image. Physically
+        // (what Calibrate() now correctly produces): Screw1 = 200 deg exactly, Screw2 = 290 deg exactly,
+        // RawAngleDiffDegrees = 90 deg, MoveMagnitudeRatio = 1.0 -- no warning.
+        // In raw (A,B) space (what the pre-refactor/pre-F2-fix inline math in RunCalibrationMath produced for
+        // these exact same deltas): Screw1 ~= 207.22 deg, Screw2 ~= 297.22 deg, RawAngleDiffDegrees ~= 49.4 deg,
+        // MoveMagnitudeRatio ~= 2.04 -- comfortably past the 1.5x "unequal tilt changes" warning threshold.
+        [Test]
+        public void RunCalibrationForTest_AnisotropicSensor_PersistsPhysicalSpaceScrewAnglesNotRawSpace() {
+            var (vm, options, _, _) = Build(screwCount: 4);
+            var tiltPlane = new TiltPlaneModel(new System.Drawing.Size(6000, 2000), fRatio: 7,
+                a: 0, b: 0, c: 0, mean: 1000, focuserStepSizeMicrons: 0.5,
+                centerPosition: 1000, topLeftPosition: 1000, topRightPosition: 1000,
+                bottomLeftPosition: 1000, bottomRightPosition: 1000);
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, -30.86389773370834, 28.265954033240128, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, -84.79786209972038, -10.287965911236123, 1000.0);
+
+            vm.RunCalibrationForTest(pixelSizeMicrons: 3.76, focuserStepMicrons: 0.5, tiltPlaneOverride: tiltPlane);
+
+            Assert.Multiple(() => {
+                options.Received(1).Screw1AngleDegrees = Arg.Is<double>(v => Math.Abs(v - 200.0) < 0.01);
+                options.Received(1).Screw2AngleDegrees = Arg.Is<double>(v => Math.Abs(v - 290.0) < 0.01);
+                // MoveMagnitudeRatio has no direct public getter, but it feeds the very same
+                // ValidateCalibrationQuality warning check as the angle gap: the physical ratio (1.0) is
+                // nowhere near the 1.5x threshold, whereas the raw-(A,B) ratio (~2.04x) would have tripped it
+                // -- so a clean (no-warning) WarningText is itself evidence MoveMagnitudeRatio came from
+                // Calibrate()'s physical result, not a raw-(A,B) recomputation.
+                Assert.That(vm.HasWarning, Is.False);
+                Assert.That(vm.WarningText, Is.Empty);
             });
         }
 

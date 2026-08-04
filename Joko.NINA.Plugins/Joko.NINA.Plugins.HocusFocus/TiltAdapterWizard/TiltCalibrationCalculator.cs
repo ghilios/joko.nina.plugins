@@ -144,26 +144,21 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         /// displacement). Angles and magnitude ratios MUST be computed here, not in (A,B) space —
         /// A and B are per-normalized-coordinate and distort directions on non-square sensors.
         ///
-        /// Production callers (the wizard's <c>TiltAdapterWizardVM.RunCalibrationMath</c>, TestApp's headless
-        /// validator) are expected to ALWAYS populate real sensor/focuser geometry (ImageWidthPixels,
-        /// ImageHeightPixels, PixelSizeMicrons, FocuserStepMicrons) — that is what makes this function's output
-        /// physically meaningful and is the entire point of the F2 fix. When geometry is left at its default
-        /// (all 0, e.g. a pure ratio/angle algebra unit test, or a test-only calibration run with no tilt-plane
-        /// model to read image size from), there is no physical space to convert into: this degrades to the raw
-        /// (A,B) delta (the pre-F2-fix behavior) rather than dividing by zero into NaN, so those geometry-less
-        /// callers stay well-defined instead of silently producing NaN — which downstream (e.g.
-        /// <see cref="ComputeConfidence"/>'s SNR) would otherwise risk being mis-signaled as "zero noise" /
-        /// infinite reliability. This degrade path is a test/degenerate-input affordance ONLY, not a supported
-        /// production mode: a real calibration with genuinely missing geometry should be treated as a bug to
-        /// fix at the call site, not silently tolerated here.</summary>
+        /// Geometry is a PRECONDITION, not an option: every caller — production (the wizard's
+        /// <c>TiltAdapterWizardVM.RunCalibrationMath</c>, TestApp's headless validator) and test alike — must
+        /// populate real ImageWidthPixels, ImageHeightPixels, PixelSizeMicrons, and FocuserStepMicrons. This
+        /// mirrors <see cref="RecoverHardwareDetailed"/>'s philosophy: one class of geometry precondition, one
+        /// failure behavior. There is deliberately NO fallback for invalid geometry (sensor size or focuser
+        /// step &lt;= 0) — it divides through and yields non-finite (Inf/NaN) gx/gy, which callers must treat as
+        /// unreliable (see <see cref="ComputeConfidence"/>'s NaN/Inf-safe SNR guard). A silent "degrade to raw
+        /// (A,B) units" fallback was tried and removed: on the production wizard path it would have let
+        /// mis-configured/zeroed geometry silently reintroduce the F2 bug (raw-(A,B)-space angles/ratio/SNR)
+        /// with no signal anywhere that anything was wrong.</summary>
         internal static (double gx, double gy) PhysicalDelta(TiltGradient to, TiltGradient from, TiltCalibrationInputs inputs) {
             double dA = to.A - from.A;
             double dB = to.B - from.B;
             double sensorW = inputs.ImageWidthPixels * inputs.PixelSizeMicrons;
             double sensorH = inputs.ImageHeightPixels * inputs.PixelSizeMicrons;
-            if (sensorW <= 0 || sensorH <= 0 || inputs.FocuserStepMicrons <= 0) {
-                return (dA, dB);
-            }
             return TiltScrewGeometry.PlaneGradientToPhysical(dA, dB, inputs.FocuserStepMicrons, sensorW, sensorH);
         }
 
@@ -199,12 +194,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 noise = drift2;
             }
 
-            // NaN-safe: PhysicalDelta divides by sensor/focuser geometry, so invalid geometry (e.g. a caller that
-            // forgot to populate ImageWidthPixels/PixelSizeMicrons/FocuserStepMicrons) propagates as NaN signal or
-            // noise. "noise > 0" is false for NaN, so without this guard a NaN noise would fall into the
-            // zero-noise branch and be misreported as infinite SNR — silently marking a bad measurement
-            // "reliable" instead of failing safe. This is a CRITICAL GATE (see TiltAdapterWizardVM.RunCalibrationMath).
-            double snr = double.IsNaN(signal) || double.IsNaN(noise)
+            // NaN/Inf-safe: PhysicalDelta has no fallback for invalid geometry (see its doc comment) — a caller
+            // that left ImageWidthPixels/PixelSizeMicrons/FocuserStepMicrons at 0 (or otherwise violated the
+            // geometry precondition) gets non-finite gx/gy (NaN from 0/0, +/-Infinity from a nonzero delta over
+            // a zero sensor size), which propagates into a non-finite signal and/or noise here. This guard is
+            // now the ONLY thing standing between bad geometry and a falsely "reliable" result, so it must catch
+            // BOTH: "noise > 0" is false for NaN, so an unguarded NaN noise would fall into the zero-noise
+            // branch and be misreported as infinite SNR; and an Infinite noise with an exactly-zero (or
+            // Infinite) signal could otherwise divide out to a deceptively finite or infinite ratio. Only when
+            // BOTH signal and noise are finite do we fall through to the normal ratio / exactly-zero-noise
+            // logic. This is a CRITICAL GATE (see TiltAdapterWizardVM.RunCalibrationMath).
+            double snr = !double.IsFinite(signal) || !double.IsFinite(noise)
                 ? double.NaN
                 : (noise > 0 ? signal / noise : double.PositiveInfinity);
             // A screw direction is atan2 of its move vector; transverse noise of ~noise on a signal of ~signal

@@ -2731,15 +2731,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             var model = CalibrationTiltPlane;
             // A model-less run (e.g. a seeded/test-only run with no live/replayed tilt plane) has no known
             // sensor size; fall back to a square 1x1 pseudo-sensor so the angle/ratio/confidence conversion
-            // stays isotropic instead of aspect-distorted. Every real (live or replayed) run has a model by the
-            // time this method is reached, so production calibrations always get their true geometry here — the
-            // fallback exists for test/degenerate inputs, not as a supported production mode. NOTE: hardware
-            // recovery (µm/turn) uses this SAME inputs object, so a hypothetical caller with a null model but
-            // otherwise-real pixelSize/fStep/radiusMm/appliedAmount would get a non-NaN but physically-meaningless
-            // µm/turn from the 1x1 fake sensor rather than the pre-refactor NaN; no current caller hits this
-            // combination (every RunCalibrationForTest scenario that omits a tiltPlaneOverride also leaves
-            // pixelSize/fStep at 0 from the unconfigured test profile, so RecoverHardwareDetailed's own
-            // radius/applied/pixelSize/fStep guard already returns NaN before geometry size matters).
+            // stays isotropic instead of aspect-distorted -- a uniform scale of the raw (A,B) delta reproduces
+            // the exact pre-refactor direction/ratio/SNR-ratio behavior for those outputs. Every real (live or
+            // replayed) run has a model by the time this method is reached, so production calibrations always
+            // get their true geometry here; the fallback exists for test/degenerate inputs, not as a supported
+            // production mode. This fallback is NOT safe for hardware recovery (see the model != null gate
+            // below): a fake 1-pixel-wide sensor carries no real lever arm, so µm/turn recovered against it
+            // would be non-NaN but physically meaningless.
             double imageWidthPixels = model?.ImageSize.Width ?? 1;
             double imageHeightPixels = model?.ImageSize.Height ?? 1;
             var inputs = new TiltCalibrationInputs {
@@ -2786,16 +2784,26 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ValidateCalibrationQuality(lastRawAngleDiff, lastMoveMagnitudeRatio, screwCount);
 
             // Recover the adapter hardware (µm/turn or µm/step) — Calibrate computes this via the same
-            // RecoverHardwareDetailed math this method used to call directly; only assign the persisted
-            // "last measured" option when it's a real (non-NaN) recovery.
+            // RecoverHardwareDetailed math this method used to call directly, off the SAME inputs/result as
+            // the angles/confidence above. Consumption is re-gated on model != null (as it was pre-refactor):
+            // the 1x1 image-size fallback used to build `inputs` is isotropic and therefore safe for
+            // angles/ratio/confidence (direction- and ratio-preserving, so it reproduces the pre-refactor
+            // behavior exactly), but it carries no real lever arm for hardware -- an ungated 1x1 fake sensor
+            // with genuinely-real pixelSize/fStep would pass RecoverHardwareDetailed's >0 guard and yield a
+            // non-NaN, physically-meaningless µm/turn that could get persisted into LastMeasured*Microns. Kept
+            // local (not the distant CalibrationTiltPlane == null bail-outs in RunAveragedMeasurement/
+            // ReplayAsync) because Task 5 adds a second TiltCalibrationInputs to this same method.
             measuredHardwareMicrons = double.NaN;
-            pitchUncertaintyMicrons = result.PitchUncertaintyMicrons;
-            if (!double.IsNaN(result.MeasuredHardwareMicrons)) {
-                measuredHardwareMicrons = result.MeasuredHardwareMicrons;
-                if (isStepper) {
-                    tiltAdapterOptions.LastMeasuredStepperStepSizeMicrons = result.MeasuredHardwareMicrons;
-                } else {
-                    tiltAdapterOptions.LastMeasuredThreadPitchMicrons = result.MeasuredHardwareMicrons;
+            pitchUncertaintyMicrons = double.NaN;
+            if (model != null) {
+                pitchUncertaintyMicrons = result.PitchUncertaintyMicrons;
+                if (!double.IsNaN(result.MeasuredHardwareMicrons)) {
+                    measuredHardwareMicrons = result.MeasuredHardwareMicrons;
+                    if (isStepper) {
+                        tiltAdapterOptions.LastMeasuredStepperStepSizeMicrons = result.MeasuredHardwareMicrons;
+                    } else {
+                        tiltAdapterOptions.LastMeasuredThreadPitchMicrons = result.MeasuredHardwareMicrons;
+                    }
                 }
             }
 

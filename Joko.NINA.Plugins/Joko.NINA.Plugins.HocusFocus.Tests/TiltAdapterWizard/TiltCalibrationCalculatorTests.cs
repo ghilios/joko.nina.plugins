@@ -354,11 +354,14 @@ public class TiltCalibrationCalculatorTests {
     [Test]
     public void ComputeConfidence_CleanMeasurement_HighSnrAndReliable() {
         // Baselines all identical (zero noise probes) and two clean equal screw moves -> infinite SNR, reliable.
-        // No sensor/focuser geometry is set here: PhysicalDelta degrades to the raw (A,B) delta when geometry
-        // is unpopulated (see its doc comment), so this pure noise-model algebra test is unaffected by the
-        // physical-gradient-space conversion (F2 fix).
+        // Deliberately isotropic unit geometry (1x1 sensor, 1 µm pixel, 1 µm focuser step): PhysicalDelta's
+        // gx = A*fStep/(W*pixelSize) = A*1/(1*1) = A (and same for B/gy), so this is byte-identical to raw
+        // (A,B) units — this pure noise-model algebra test is unaffected by the physical-gradient-space
+        // conversion (F2 fix). PhysicalDelta itself has no geometry fallback (see its doc comment): real
+        // geometry is a precondition everywhere, including here.
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
+            ImageWidthPixels = 1, ImageHeightPixels = 1, PixelSizeMicrons = 1, FocuserStepMicrons = 1,
             Baseline = new TiltGradient(0, 0, 1000),
             AllInward = new TiltGradient(0, 0, 1075),   // piston only: no tilt change vs baseline
             ReBaseline1 = new TiltGradient(0, 0, 1000),
@@ -379,10 +382,11 @@ public class TiltCalibrationCalculatorTests {
     [Test]
     public void ComputeConfidence_NoiseRivalsSignal_FlaggedUnreliable() {
         // A large all-inward tilt residual (a pure piston should give ~0) drives the noise floor near the signal.
-        // No geometry set (see ComputeConfidence_CleanMeasurement_HighSnrAndReliable) -> PhysicalDelta uses the
-        // raw (A,B) delta.
+        // Deliberately isotropic unit geometry (see ComputeConfidence_CleanMeasurement_HighSnrAndReliable) so
+        // PhysicalDelta is byte-identical to the raw (A,B) delta.
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
+            ImageWidthPixels = 1, ImageHeightPixels = 1, PixelSizeMicrons = 1, FocuserStepMicrons = 1,
             Baseline = new TiltGradient(0, 0, 1000),
             AllInward = new TiltGradient(20, 0, 1075),  // 20-unit spurious tilt change on a piston move
             ReBaseline1 = new TiltGradient(0, 0, 1000),
@@ -487,8 +491,9 @@ public class TiltCalibrationCalculatorTests {
         var drifted = new TiltGradient(0.01, 0, 1000); // ReBaseline2 drifts by 0.01 from ReBaseline1
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
-            // No geometry set (see ComputeConfidence_CleanMeasurement_HighSnrAndReliable) -> PhysicalDelta uses
-            // the raw (A,B) delta.
+            // Deliberately isotropic unit geometry (see ComputeConfidence_CleanMeasurement_HighSnrAndReliable)
+            // so PhysicalDelta is byte-identical to the raw (A,B) delta.
+            ImageWidthPixels = 1, ImageHeightPixels = 1, PixelSizeMicrons = 1, FocuserStepMicrons = 1,
             HasCurvatureMeasurement = false,
             ReBaseline1 = baseline,
             Screw1 = new TiltGradient(0.10, 0, 1000),
