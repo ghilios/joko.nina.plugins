@@ -217,7 +217,7 @@ internal static (double gx, double gy) PhysicalDelta(TiltGradient to, TiltGradie
 - Modify: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/TiltAdapterWizard/TiltCalibrationCalculator.cs`
 - Test: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/TiltAdapterWizard/TiltCalibrationCalculatorTests.cs`
 
-- [ ] **Step 3.1: Write the failing test:**
+- [x] **Step 3.1: Write the failing test:**
 
 ```csharp
 [Test]
@@ -251,8 +251,8 @@ public void Calibrate_LinearTiltDrift_CancelsExactlyForScrew1() {
 ```
   (Build the "clean" inputs by calling the same initializer with `Drift(g, 0)` — write it out; `TiltCalibrationInputs` is a class, no `with` expression.)
 
-- [ ] **Step 3.2: Run** → FAILS (old delta uses RB1 only; drift shifts direction).
-- [ ] **Step 3.3: Implement.** Central delta helpers used by `Calibrate`, `RecoverHardwareDetailed`, and `ComputeConfidence` (replacing their four inline `Screw1.A - ReBaseline1.A` computations):
+- [x] **Step 3.2: Run** → FAILS (old delta uses RB1 only; drift shifts direction).
+- [x] **Step 3.3: Implement.** Central delta helpers used by `Calibrate`, `RecoverHardwareDetailed`, and `ComputeConfidence` (replacing their four inline `Screw1.A - ReBaseline1.A` computations):
 
 ```csharp
 /// <summary>Screw-1 move referenced to the MIDPOINT of the re-baselines that bracket it
@@ -278,9 +278,9 @@ internal static (double dA, double dB) Screw2Delta(TiltCalibrationInputs inputs)
 ```
   Add to `TiltCalibrationInputs`: `public TiltGradient ReBaseline3 { get; set; }` and `public bool HasFinalRebaseline { get; set; }` (default false — Task 6 wires it). `PhysicalDelta` from Task 2 gains an overload taking `(dA, dB)` directly.
 
-- [ ] **Step 3.4:** Update `Calibrate_DerivesScrewDeltasFromReBaselineNotBaseline` (:235) — its intent ("not Baseline") still holds; its expected values shift to the midpoint reference. Recompute expectations from the helper semantics (the test constructs known moves; the midpoint of two identical re-baselines equals the old reference, so prefer constructing RB1 == RB2 there to keep it exact and obviously correct).
-- [ ] **Step 3.5: Run** the calculator fixture → all PASS.
-- [ ] **Step 3.6: Commit** — `feat(tilt): drift-cancelling symmetric screw-move deltas`
+- [x] **Step 3.4:** Update `Calibrate_DerivesScrewDeltasFromReBaselineNotBaseline` (:235) — its intent ("not Baseline") still holds; its expected values shift to the midpoint reference. Recompute expectations from the helper semantics (the test constructs known moves; the midpoint of two identical re-baselines equals the old reference, so prefer constructing RB1 == RB2 there to keep it exact and obviously correct).
+- [x] **Step 3.5: Run** the calculator fixture → all PASS.
+- [x] **Step 3.6: Commit** — `feat(tilt): drift-cancelling symmetric screw-move deltas`
 
 ---
 
