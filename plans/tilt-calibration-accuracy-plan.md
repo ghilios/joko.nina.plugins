@@ -520,11 +520,11 @@ The replay already wrote per-state solver diagnostics to `<scratch>/tilt_replay/
 **Files:**
 - Modify: `docs/tilt-calibration-pitch-nonlinearity-design.md` (findings section)
 
-- [ ] **Step 9.1:** From `Screw2_iterations.csv` vs `Screw1_iterations.csv`: does Gx start honest at iteration 0 and shrink across winsorized iterations (→ pruning/clipping mechanism), or start low (→ weighting/seed mechanism)? Plot/tabulate Gx, K, enabledCountAfter per iteration.
-- [ ] **Step 9.2:** From `Screw2_points.csv`: spatial pattern of `disabledAtIteration >= 0` stars — are pruned stars concentrated on the far-defocus side of the tilt (which would drag the gradient down)? Compute mean x,y of pruned vs kept stars, and the residual sign of pruned stars.
-- [ ] **Step 9.3:** From `*_stars.csv`: compare `sigma_used_um` distributions Screw1 vs Screw2 states; check whether the effective sample concentrates (ESS = (Σw)²/Σw² with w = 1/σ²) — a repeat of the pre-46778b9 weight-monopoly in milder form.
-- [ ] **Step 9.4:** Write the findings into the design doc (new section "§8 Shrinkage mechanism") with the concrete next fix (e.g., symmetric residual budget per tilt side, or gradient-preserving clip), sized as its own follow-up plan. **Do not** modify `SensorModel.cs` in this plan — the fix needs its own TDD cycle against sim + real regressions.
-- [ ] **Step 9.5: Commit** — `docs(tilt): paraboloid shrinkage mechanism findings`
+- [x] **Step 9.1:** From `Screw2_iterations.csv` vs `Screw1_iterations.csv`: does Gx start honest at iteration 0 and shrink across winsorized iterations (→ pruning/clipping mechanism), or start low (→ weighting/seed mechanism)? Plot/tabulate Gx, K, enabledCountAfter per iteration.
+- [x] **Step 9.2:** From `Screw2_points.csv`: spatial pattern of `disabledAtIteration >= 0` stars — are pruned stars concentrated on the far-defocus side of the tilt (which would drag the gradient down)? Compute mean x,y of pruned vs kept stars, and the residual sign of pruned stars.
+- [x] **Step 9.3:** From `*_stars.csv`: compare `sigma_used_um` distributions Screw1 vs Screw2 states; check whether the effective sample concentrates (ESS = (Σw)²/Σw² with w = 1/σ²) — a repeat of the pre-46778b9 weight-monopoly in milder form.
+- [x] **Step 9.4:** Write the findings into the design doc (new section "§8 Shrinkage mechanism") with the concrete next fix (e.g., symmetric residual budget per tilt side, or gradient-preserving clip), sized as its own follow-up plan. **Do not** modify `SensorModel.cs` in this plan — the fix needs its own TDD cycle against sim + real regressions.
+- [x] **Step 9.5: Commit** — `docs(tilt): paraboloid shrinkage mechanism findings`
 
 ---
 
