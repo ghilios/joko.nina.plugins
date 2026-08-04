@@ -332,7 +332,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     // Two rejection tallies the exposure recommendation reads to tell "the gate is holding stars
                     // back" from "there is nothing left to find" — see FrameDetectionResult for what each means.
                     LowSensitivityCount = (result as HocusFocusStarDetectionResult)?.Metrics?.LowSensitivity ?? 0,
-                    TooFlatCount = (result as HocusFocusStarDetectionResult)?.Metrics?.TooFlat ?? 0
+                    TooFlatCount = (result as HocusFocusStarDetectionResult)?.Metrics?.TooFlat ?? 0,
+                    // F20 part 1: the gate that empties the V-curve's CORE on an undersampled rig. Read here for
+                    // the same reason as its two siblings -- StarDetectorMetrics.TooLowHFR is a plain int counter,
+                    // incremented unconditionally at StarDetector.cs:1895, so no *Bounds rect list is involved.
+                    TooLowHFRCount = (result as HocusFocusStarDetectionResult)?.Metrics?.TooLowHFR ?? 0
                 };
             }
         }

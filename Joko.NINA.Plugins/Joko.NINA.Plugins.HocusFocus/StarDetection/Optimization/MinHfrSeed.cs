@@ -41,6 +41,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     /// HFR cannot fall far below pixel quantization, because a star whose flux lands in essentially one pixel
     /// still measures a few tenths of a pixel.</para>
     ///
+    /// <para><b>That argument covers the seeded VALUE only — not the trigger (F38).</b> The same sentence in
+    /// StarDetector.cs:483-486 says the other half too: "GateAndMeasureInternal scales every pixel-space output
+    /// back to source pixels before returning, so callers never see binned units." This class is exactly such a
+    /// caller. <paramref name="Resolve.currentMinHfr"/> is an un-rescaled PARAM (binned) while
+    /// <paramref name="Resolve.fitVertexHfr"/> is a rescaled OUTPUT (captured), so the trigger is a gate
+    /// comparison pair that has to be put back into one space by hand — which is what
+    /// <c>detectionBinning</c> is for. Elsewhere the detector is careful about precisely this:
+    /// <c>RejectedCandidateRecord.MeasuredValue</c>/<c>ThresholdValue</c> are deliberately NOT rescaled because
+    /// they are "the gate's own comparison pair" and "must stay in the same space" (StarDetector.cs:847-857).</para>
+    ///
     /// <para><b>The value is measured, not argued.</b> <c>golden eval --min-hfr</c> over 8 values from 1.2 to 0.1
     /// on D01/D02/D03 plus the D05 control scores <b>zero false positives in all 32 configurations</b>, with the
     /// recall gain saturating by 0.5. <c>D05_tec140_1000mm</c> (truth vertex 1.80 px) is <b>flat at 0.985 across
@@ -65,22 +75,55 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// The MinHFR to seed the search with, or <c>null</c> to leave the seed untouched.
         /// </summary>
         /// <param name="fitVertexHfr">
-        /// <c>BestFit.Minimum.Y</c> from a hyperbola fit taken BEFORE the search — the wing frames are far from
+        /// <c>BestFit.Minimum.Y</c> in CAPTURED (source) pixels — see <paramref name="detectionBinning"/>, which
+        /// converts it. From a hyperbola fit taken BEFORE the search — the wing frames are far from
         /// focus, so their PSF is large and the gate does not touch them (D01's four outer frames carry 816–2002
         /// accepted stars each at MinHFR 1.2, and the fit succeeds at R² = 0.911). Pass <see cref="double.NaN"/>
         /// when no fit is available.
         /// </param>
-        /// <param name="currentMinHfr">The gate the search would otherwise start from.</param>
+        /// <param name="currentMinHfr">The gate the search would otherwise start from, in BINNED pixels.</param>
+        /// <param name="detectionBinning">
+        /// <c>StarDetectorParams.DetectionBinning</c> for the same params bundle <paramref name="currentMinHfr"/>
+        /// came from. REQUIRED because the two inputs live in different pixel spaces (F38): the gate fires inside
+        /// the binned raster (<c>StarDetector.cs:1894</c>) while every HFR the detector REPORTS has already been
+        /// scaled back to source pixels (<c>StarDetector.cs:805-808</c>, <c>ScaleToSourcePixels</c> multiplies HFR
+        /// by the factor). Comparing them directly made the trigger conservative by exactly the binning factor —
+        /// strictly missed seeds, never spurious, and invisible because the wing frames still fit, so
+        /// <c>BestFit.Minimum.Y</c> was finite and the rule took the "clears the gate" branch on a rig that
+        /// emphatically did not. Latent headless (TestApp never leaves the default of 1, so no F35 bank result was
+        /// affected); ACTIVE in the wizard, which stamps the user's real profile/per-filter factor.
+        /// </param>
         /// <remarks>
         /// The rule only ever LOWERS. The objective rewards star count, so nothing pulls a seeded MinHFR back up —
         /// it is a knob the search cannot climb out of, which is why it comes from geometry rather than from a
         /// measurement the gate itself shaped, and why it must never raise a gate a caller deliberately set lower.
         /// </remarks>
-        public static double? Resolve(double fitVertexHfr, double currentMinHfr) {
+        /// <summary>
+        /// Whether this rig's in-focus stars measure at or below the gate — i.e. whether the gate is emptying the
+        /// V-curve's core (F20).
+        ///
+        /// <para>Shared deliberately with <see cref="Resolve"/> so the SEED and the user-facing message that
+        /// reports it cannot disagree. F20 part 1 is "say this happened" and part 2 is "do something about it";
+        /// two copies of the comparison would eventually drift into a wizard that seeds silently while telling the
+        /// user nothing, or warns about a gate it did not actually move.</para>
+        /// </summary>
+        /// <param name="fitVertexHfr">The fit vertex in CAPTURED pixels; see <see cref="Resolve"/>.</param>
+        /// <param name="currentMinHfr">The gate, in BINNED pixels.</param>
+        /// <param name="detectionBinning">The factor that relates the two (F38).</param>
+        public static bool IsBelowGate(double fitVertexHfr, double currentMinHfr, int detectionBinning) {
+            if (!IsUsable(fitVertexHfr) || !IsUsable(currentMinHfr)) {
+                return false;
+            }
+            // Into the gate's own space before comparing. SeedFloor needs no such conversion: it is already binned,
+            // and it is written to MinHFR, which is binned.
+            return fitVertexHfr / Math.Max(1, detectionBinning) <= currentMinHfr;
+        }
+
+        public static double? Resolve(double fitVertexHfr, double currentMinHfr, int detectionBinning) {
             if (!IsUsable(fitVertexHfr)) {
                 return null;                      // no fit => no trigger; never re-gate off a statistic that does not exist
             }
-            if (fitVertexHfr > currentMinHfr) {
+            if (!IsBelowGate(fitVertexHfr, currentMinHfr, detectionBinning)) {
                 return null;                      // the rig's stars clear the gate; leave it alone (the D05 case)
             }
             if (!(SeedFloor < currentMinHfr)) {

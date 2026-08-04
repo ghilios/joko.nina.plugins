@@ -14,6 +14,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using System;
 using System.IO;
 
@@ -84,6 +85,45 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 FilterName = string.IsNullOrEmpty(filterName) ? null : filterName,
                 StarDetection = snapshot
             };
+        }
+
+        /// <summary>
+        /// The same envelope, but describing an OPTIMIZER LANDING rather than a live profile — the form the AF bank
+        /// stores beside each run's frames so the landing can be replayed in the app.
+        /// </summary>
+        ///
+        /// <para><b>Why the flat knobs are overwritten and not just the nested DTO.</b> Handing back a snapshot whose
+        /// <see cref="StarDetectionSettingsSnapshot.OptimizedSettings"/> holds the landing while its flat properties
+        /// still hold the harness baseline produces a file that is silently WRONG on both consumers:
+        /// <see cref="StarDetectionOptions"/>'s import restores the optimized layer first and then copies every flat
+        /// knob verbatim (so the flat baseline wins), and the AF-replay in-memory override
+        /// (<c>BuildStarDetectorParams(IStarDetectionOptions)</c>) reads the flat knobs ONLY and never looks at the
+        /// nested DTO. Neither path errors; the user simply gets settings that are not the landing. So the landing is
+        /// written into both layers, and <see cref="OptimizedStarDetectionSettings.ApplyToFlatOptions"/> owns the
+        /// mapping so the two cannot drift.</para>
+        ///
+        /// <param name="baseOptions">
+        /// The options the optimize actually RAN with. Everything the curated axes do not cover — detection binning,
+        /// contamination, PSF/Moffat, saturation, dilation, measurement average — comes from here, because a landing
+        /// replayed against different values for those is not the configuration that was measured.
+        /// </param>
+        /// <param name="landing">The winning axis values, already post-AND for the defocus gates.</param>
+        public static StarDetectionSettingsExport FromOptimizedLanding(
+            IStarDetectionOptions baseOptions, OptimizedStarDetectionSettings landing) {
+            if (baseOptions == null) {
+                throw new ArgumentNullException(nameof(baseOptions));
+            }
+            if (landing == null) {
+                throw new ArgumentNullException(nameof(landing));
+            }
+
+            var export = FromOptions(baseOptions);
+            landing.ApplyToFlatOptions(export.StarDetection);
+            export.StarDetection.ApplyOptimizedSettings(landing);
+            // The state a wizard Accept leaves behind, so importing this file lands the user exactly there.
+            export.StarDetection.UseOptimizedSettings = true;
+            export.StarDetection.UseAdvanced = false;
+            return export;
         }
 
         public string Serialize() => JsonConvert.SerializeObject(this, JsonSettings);

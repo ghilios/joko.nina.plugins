@@ -305,6 +305,7 @@ namespace TestApp {
                 perFilterStore: new StubPerFilterStarDetectionStore(accessor));
             var ctx = new RunDetectionContext {
                 ProfileService = profileService,
+                StarDetectionOptions = starDetectionOptions,
                 HarnessSettings = harnessSettings,
                 Provenance = provenance,
                 AfOptions = afOptions,
@@ -344,6 +345,9 @@ namespace TestApp {
         /// <summary>Shared, run-independent dependencies + tuning settings threaded through the optimize helpers.</summary>
         private sealed class RunDetectionContext {
             public ProfileService ProfileService;
+            /// <summary>The options the optimize actually RAN with. Carried so the settings handoff can record the
+            /// knobs the curated axes do not cover (binning, contamination, PSF, saturation, ...).</summary>
+            public StarDetectionOptions StarDetectionOptions;
             public AutoFocusOptions AfOptions;
             public AlglibAPI AlglibAPI;
             public StarDetector Detector;
@@ -645,7 +649,8 @@ namespace TestApp {
             // The seeded value is reported below so a landing never silently differs from its recorded seed.
             settings.MinHfrSeedFloor = MinHfrSeed.Resolve(
                 perRunBaseline.Count > 0 ? (perRunBaseline[0].BestFit?.Minimum.Y ?? double.NaN) : double.NaN,
-                ctx.Seed.MinHFR);
+                ctx.Seed.MinHFR,
+                ctx.Seed.DetectionBinning);
             if (settings.MinHfrSeedFloor is double seededMinHfr) {
                 Console.WriteLine($"  MinHFR seed (F35): fitted vertex HFR {F(perRunBaseline[0].BestFit?.Minimum.Y ?? double.NaN)} px "
                     + $"is at or below the gate {F(ctx.Seed.MinHFR)}; seeding MinHFR -> {F(seededMinHfr)}");
@@ -723,7 +728,8 @@ namespace TestApp {
             // so the headless and in-app handoffs can never drift. The source-folder copies each carry that run's OWN
             // recommended step (StepSizeRecommender, exactly as BuildAggregateRow computes it); the single --out copy
             // uses the representative (first) run's step in joint mode (see WriteOptimizedSettings).
-            WriteOptimizedSettings(targetDir, loadedRuns, perRunBest, result, baselineJ, focuserMaxStep, ctx.Provenance);
+            WriteOptimizedSettings(targetDir, loadedRuns, perRunBest, result, baselineJ, focuserMaxStep, ctx.Provenance,
+                ctx.StarDetectionOptions);
 
             await WriteAnnotatedFrames(targetDir, loadedRuns, result.BestParams, ctx.Detector,
                 ctx.MeasurementAverage, ctx.HighSigmaOutlierRejection, ctx.LowSigmaOutlierRejection, ctx.AnnotateAll).ConfigureAwait(false);
@@ -754,9 +760,49 @@ namespace TestApp {
         /// is that single run's own subfolder, so "first run" == that run; behavior is unchanged.) A failed write for
         /// one run is logged and skipped — it never aborts the batch.
         /// </summary>
+        /// <summary>
+        /// Writes the landing a SECOND time, as a <see cref="StarDetectionSettingsExport"/> envelope the NINA UI can
+        /// actually load — so a bank run can be replayed in the app with the settings it was optimized at.
+        ///
+        /// <para><b>Why a separate file and not optimized_settings.json.</b> `golden eval --params optimized`,
+        /// `bank-verify`, `review` and `inspect-align` all locate the landing by that EXACT filename and
+        /// deserialize it as a bare <see cref="OptimizedStarDetectionSettings"/>. Handing them an envelope instead
+        /// would bind every curated knob to its CLR default (Sensitivity 0, MinHFR 0, StructureLayers 0) and score a
+        /// completely different detector with no error and no warning. The distinct name is load-bearing, not
+        /// cosmetic.</para>
+        ///
+        /// <para><b>And not metadata.json either.</b> That name is the AF replay path's capture-time record, resolved
+        /// folder-before-run-root, and the real bank already has genuine ones. Writing a landing there would shadow
+        /// a real record with a file the replay prompt describes as "the settings used at capture time".</para>
+        ///
+        /// <para>Best-effort: a failure here is reported and skipped, exactly like its sibling — the landing itself is
+        /// already on disk and no diagnostic depends on this file.</para>
+        /// </summary>
+        private static void WriteSettingsHandoff(
+            string folder, OptimizedStarDetectionSettings dto, StarDetectionOptions baseOptions, string runId) {
+            if (baseOptions == null) {
+                return;   // legacy/test callers that did not thread the options through: no honest snapshot to write
+            }
+            try {
+                var export = StarDetectionSettingsExport.FromOptimizedLanding(baseOptions, dto);
+                var path = Path.Combine(folder, SettingsHandoffFileName);
+                File.WriteAllText(path, export.Serialize());
+                Console.WriteLine($"  wrote {SettingsHandoffFileName} to {path}");
+            } catch (Exception ex) {
+                Console.Error.WriteLine($"  WARNING: failed to write {SettingsHandoffFileName} for run '{runId}': {ex.Message}");
+                Logger.Error(ex, $"Failed to write {SettingsHandoffFileName} for run '{runId}'");
+            }
+        }
+
+        /// <summary>The NINA-loadable settings handoff written beside every landing. Must NEVER be
+        /// "optimized_settings.json" (the bank readers match that name exactly) or "metadata.json" (the AF replay
+        /// record).</summary>
+        internal const string SettingsHandoffFileName = "hocusfocus_star_detection.json";
+
         private static void WriteOptimizedSettings(
             string targetDir, List<LoadedHarnessRun> loadedRuns, List<RunEvaluationResult> perRunBest,
-            OptimizationResult result, double baselineJ, int? focuserMaxStep, OptimizerProvenance provenance = null) {
+            OptimizationResult result, double baselineJ, int? focuserMaxStep, OptimizerProvenance provenance = null,
+            StarDetectionOptions baseOptions = null) {
             // Per-run source-folder copies: each run's frame directory gets the winner snapshot with its OWN step.
             for (int i = 0; i < loadedRuns.Count; i++) {
                 var run = loadedRuns[i];
@@ -773,6 +819,7 @@ namespace TestApp {
                         var runPath = Path.Combine(runFolder, "optimized_settings.json");
                         File.WriteAllText(runPath, json);
                         Console.WriteLine($"  wrote optimized_settings.json to {runPath}");
+                        WriteSettingsHandoff(runFolder, dto, baseOptions, run.Discovered.RunId);
                     } else {
                         Console.Error.WriteLine($"  WARNING: could not resolve source folder for run '{run.Discovered.RunId}'; skipped the in-folder optimized_settings.json");
                     }
@@ -794,6 +841,7 @@ namespace TestApp {
                     var json = JsonConvert.SerializeObject(dto);
                     var outPath = Path.Combine(targetDir, "optimized_settings.json");
                     File.WriteAllText(outPath, json);
+                    WriteSettingsHandoff(targetDir, dto, baseOptions, representative.Discovered.RunId);
                 } catch (Exception ex) {
                     Console.Error.WriteLine($"  WARNING: failed to write optimized_settings.json to --out dir '{targetDir}': {ex.Message}");
                     Logger.Error(ex, $"Failed to write --out optimized_settings.json to '{targetDir}'");

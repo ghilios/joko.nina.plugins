@@ -214,6 +214,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <see cref="BaselineMeasuredInFocusHfr"/> is.</summary>
         public double BaselineSensitivity { get; set; } = double.NaN;
 
+        /// <summary>
+        /// The minimum-HFR gate THIS VARIANT's settings use, in BINNED detection pixels. Follows the variant for
+        /// the same reason <see cref="VariantSensitivity"/> does: on the Current view the gate is the user's own
+        /// hand-set value, and that is exactly the case F20 exists to report.
+        /// </summary>
+        public double VariantMinHfr { get; set; } = double.NaN;
+
+        /// <summary>The CURRENT-settings equivalent, carried for <c>BuildCurrentSummary</c>.</summary>
+        public double BaselineMinHfr { get; set; } = double.NaN;
+
+        /// <summary>
+        /// F20 — whether this rig's in-focus stars measure at or below the minimum-HFR gate, so the detector is
+        /// rejecting them through the middle of the sweep.
+        ///
+        /// <para>Delegates to <see cref="MinHfrSeed.IsBelowGate"/> rather than re-deriving the comparison, so the
+        /// message and the seed cannot drift apart — and so the captured-vs-binned conversion (F38) is applied in
+        /// exactly one place. <see cref="MeasuredInFocusHfr"/> is in CAPTURED pixels;
+        /// <see cref="VariantMinHfr"/> is in BINNED ones.</para>
+        /// </summary>
+        public bool HasUndersampledStars =>
+            MinHfrSeed.IsBelowGate(MeasuredInFocusHfr, VariantMinHfr, RunDetectionBinning);
+
         /// <summary>The exposure-time recommendation derived from THIS VARIANT's accepted-star SNRs (see
         /// <see cref="ExposureRecommender"/>). Null when the summary was built without one (every pre-feature
         /// construction, and every unit test that does not exercise this block).</summary>
@@ -1947,6 +1969,35 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         internal const string LowSignalChartNoteText =
             "This run's star acceptance gate sits at the bottom of its range, so the result below is built from low-confidence detections; see Star signal.";
 
+        /// <summary>
+        /// F20 part 1 — the entry's actual title: "nothing in the output says your stars are smaller than the
+        /// minimum HFR". Sits beside <see cref="LowSignalChartNote"/> rather than inside the Star signal block,
+        /// because that block's contract is scoped to the SENSITIVITY gate; this is a different gate with a
+        /// different remedy, and folding it in would make the block say something it does not mean.
+        ///
+        /// <para>Placed above the chart for the same reason its sibling is: Accept lives outside the ScrollViewer,
+        /// so a note below the fold can be missed entirely by a user who accepts a landing built from a gated
+        /// curve.</para>
+        /// </summary>
+        public string UndersampledStarsChartNote {
+            get {
+                var s = SelectedSummary;
+                if (s == null || !s.HasUndersampledStars) {
+                    return string.Empty;
+                }
+                var binned = s.MeasuredInFocusHfr / Math.Max(1, s.RunDetectionBinning);
+                var binningClause = s.RunDetectionBinning > 1
+                    ? $" ({s.MeasuredInFocusHfr:0.00} px at {s.RunDetectionBinning}x{s.RunDetectionBinning} detection binning)"
+                    : string.Empty;
+                return $"This rig's in-focus stars measure {binned:0.00} px{binningClause}, at or below the "
+                    + $"{s.VariantMinHfr:0.00} px Minimum HFR gate, so the detector rejected them through the middle "
+                    + "of the sweep. Lower Minimum HFR for this optical train, or reduce detection binning.";
+            }
+        }
+
+        /// <summary>Whether the undersampled-stars note has anything to say.</summary>
+        public bool HasUndersampledStarsNote => !string.IsNullOrEmpty(UndersampledStarsChartNote);
+
         /// <summary>The recommended-exposure row's value (see <see cref="StarSignalCopy.DescribeExposureRow"/>).</summary>
         public string RecommendedExposureText => StarSignalCopy.DescribeExposureRow(SelectedSummary);
 
@@ -2076,6 +2127,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         private void RaiseExposureBlockChanged() {
             RaisePropertyChanged(nameof(HasExposureBlock));
             RaisePropertyChanged(nameof(LowSignalChartNote));
+            // F20 — follows the selected variant, so it re-evaluates on the same toggle its sibling does. The
+            // Current view's gate is the user's own, and that is precisely the case worth reporting.
+            RaisePropertyChanged(nameof(HasUndersampledStarsNote));
+            RaisePropertyChanged(nameof(UndersampledStarsChartNote));
             RaisePropertyChanged(nameof(RecommendedExposureText));
             RaisePropertyChanged(nameof(HasRecommendedExposure));
             RaisePropertyChanged(nameof(ExposureBodyText));
@@ -3012,7 +3067,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // Assigned unconditionally, including to null, for the same reason MaxEvaluations is re-applied above:
             // optimizerSettings is a reused field and a value from a prior pass must never leak into this one.
             optimizerSettings.MinHfrSeedFloor = seedOverride == null
-                ? MinHfrSeed.Resolve(seedFitVertexHfr, seed.MinHFR)
+                ? MinHfrSeed.Resolve(seedFitVertexHfr, seed.MinHFR, seed.DetectionBinning)
                 : null;
             var variables = variablesOverride ?? OptimizerVariable.CreateCuratedSet(seed);
             var evaluator = RunEvaluationData.CreateEvaluator(runs.Select(r => r.Data).ToList());
@@ -3205,6 +3260,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // BuildCurrentSummary, exactly as the in-focus HFR pair is.
                 VariantSensitivity = res.BestParams?.Sensitivity ?? double.NaN,
                 BaselineSensitivity = baseline?.Sensitivity ?? double.NaN,
+                VariantMinHfr = res.BestParams?.MinHFR ?? double.NaN,
+                BaselineMinHfr = baseline?.MinHFR ?? double.NaN,
                 ExposureAdvice = exposureAdvice,
                 BaselineExposureAdvice = baselineExposureAdvice
             };
@@ -3248,6 +3305,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // their own Sensitivity to 0 why this block is on screen at all.
                 VariantSensitivity = optimized.BaselineSensitivity,
                 BaselineSensitivity = optimized.BaselineSensitivity,
+                VariantMinHfr = optimized.BaselineMinHfr,
+                BaselineMinHfr = optimized.BaselineMinHfr,
                 ExposureAdvice = optimized.BaselineExposureAdvice,
                 BaselineExposureAdvice = optimized.BaselineExposureAdvice
             };

@@ -84,6 +84,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// sweep's outer frames, it means the sweep reaches further from focus than the detector can follow.
         /// </summary>
         public int TooFlatCount { get; set; }
+
+        /// <summary>
+        /// Candidates on this frame rejected for measuring SMALLER than the minimum HFR
+        /// (<c>StarDetectorMetrics.TooLowHFR</c>); the gate is <c>star.HFR &lt;= p.MinHFR</c>, inclusive, applied in
+        /// BINNED detection pixels (StarDetector.cs:1894). Unlike its two siblings this one is not about signal:
+        /// the stars are there and bright, they are simply undersampled for the gate the rig is running. A
+        /// concentration on the sweep's INNER frames is the F20 collapse — the gate emptying the V-curve's core,
+        /// which zeroes the objective outright via the NHard floor rather than merely lowering it.
+        /// </summary>
+        public int TooLowHFRCount { get; set; }
     }
 
     /// <summary>
@@ -654,6 +664,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var frameRelaxationAdmittedCounts = new List<int>(frames.Count);
             var frameLowSensitivityCounts = new List<int>(frames.Count);
             var frameTooFlatCounts = new List<int>(frames.Count);
+            var frameTooLowHfrCounts = new List<int>(frames.Count);
             var frameFocuserPositions = new List<int>(frames.Count);
             var frameStarHfrs = new List<IReadOnlyList<double>>(frames.Count);
             var frameStarSnrs = new List<IReadOnlyList<double>>(frames.Count);
@@ -668,6 +679,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // Inert in the objective; read by the exposure recommendation (see RunEvaluationMetrics).
                 frameLowSensitivityCounts.Add(detection.LowSensitivityCount);
                 frameTooFlatCounts.Add(detection.TooFlatCount);
+                frameTooLowHfrCounts.Add(detection.TooLowHFRCount);
                 frameFocuserPositions.Add(frames[i].FocuserPosition);
                 // Per-frame accepted-star HFRs (extreme-HFR outlier penalty) and region occupancy (coverage reward).
                 // Both stay inert in the objective when null/NaN, so the baseline J is unaffected.
@@ -791,6 +803,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 FrameRelaxationAdmittedCounts = frameRelaxationAdmittedCounts,
                 FrameLowSensitivityCounts = frameLowSensitivityCounts,
                 FrameTooFlatCounts = frameTooFlatCounts,
+                FrameTooLowHFRCounts = frameTooLowHfrCounts,
                 FrameFocuserPositions = frameFocuserPositions,
                 FrameStarHFRs = frameStarHfrs,
                 FrameStarSnrs = frameStarSnrs,

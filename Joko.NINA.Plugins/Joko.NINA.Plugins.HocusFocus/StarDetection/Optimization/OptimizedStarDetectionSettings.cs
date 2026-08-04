@@ -128,6 +128,62 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public OptimizerProvenance Provenance { get; set; }
 
+        /// <summary>
+        /// The names on this DTO that are ALSO live star-detection knobs, i.e. the curated axes. Excludes the
+        /// bookkeeping fields (<see cref="SchemaVersion"/>, <see cref="CreatedAtUtc"/>, <see cref="RunCount"/>,
+        /// <see cref="BaselineJ"/>, <see cref="FinalJ"/>, the recommended sweep geometry and
+        /// <see cref="Provenance"/>), which describe the RUN rather than the detector and have no option to write.
+        /// </summary>
+        private static readonly System.Collections.Generic.HashSet<string> NonKnobFields =
+            new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal) {
+                nameof(SchemaVersion), nameof(CreatedAtUtc), nameof(RunCount), nameof(BaselineJ), nameof(FinalJ),
+                nameof(RecommendedStepSize), nameof(RecommendedOffsetSteps), nameof(Provenance),
+                nameof(EffectiveSensitivityGate)
+            };
+
+        /// <summary>
+        /// Copies every curated axis onto the same-named property of a flat options snapshot.
+        ///
+        /// <para>Matched BY NAME through reflection rather than by a hand-written assignment list, deliberately: the
+        /// DTO's property names already ARE the option names, and a hand-written list silently stops covering an axis
+        /// the moment one is added to the curated set. <see cref="UnmappedKnobs"/> exposes the residue so a test can
+        /// fail on exactly that.</para>
+        /// </summary>
+        public void ApplyToFlatOptions(object flatOptions) {
+            if (flatOptions == null) {
+                throw new ArgumentNullException(nameof(flatOptions));
+            }
+            var targetType = flatOptions.GetType();
+            foreach (var source in KnobProperties()) {
+                var target = targetType.GetProperty(source.Name);
+                if (target == null || !target.CanWrite || target.PropertyType != source.PropertyType) {
+                    continue;
+                }
+                target.SetValue(flatOptions, source.GetValue(this));
+            }
+        }
+
+        /// <summary>The curated axes that would NOT land on <paramref name="flatOptionsType"/> — empty is the
+        /// invariant; anything else means a landing does not fully round-trip into a settings file.</summary>
+        public static System.Collections.Generic.IReadOnlyList<string> UnmappedKnobs(Type flatOptionsType) {
+            var missing = new System.Collections.Generic.List<string>();
+            foreach (var source in KnobProperties()) {
+                var target = flatOptionsType.GetProperty(source.Name);
+                if (target == null || !target.CanWrite || target.PropertyType != source.PropertyType) {
+                    missing.Add(source.Name);
+                }
+            }
+            return missing;
+        }
+
+        private static System.Collections.Generic.IEnumerable<System.Reflection.PropertyInfo> KnobProperties() {
+            foreach (var p in typeof(OptimizedStarDetectionSettings).GetProperties()) {
+                if (p.CanRead && !NonKnobFields.Contains(p.Name)) {
+                    yield return p;
+                }
+            }
+        }
+
         public OptimizedStarDetectionSettings Clone() {
             var copy = (OptimizedStarDetectionSettings)MemberwiseClone();
             // MemberwiseClone is shallow, so without this every copy would ALIAS one provenance instance — and a

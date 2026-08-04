@@ -28,13 +28,16 @@ public class MinHfrSeedTests {
 
     private const double DefaultGate = 1.2;   // HocusFocusStarDetection.BuildDefaultStarDetectorParams
 
+    /// <summary>StarDetectorParams.DetectionBinning's default -- captured and binned pixels coincide.</summary>
+    private const int DetectionBinningOff = 1;
+
     /// <summary>
     /// D01_ultrawide_40mm. The wing-only hyperbola fit reads 0.548 px against a truth vertex of 0.238 — it is
     /// 2.3x high and STILL sits below the 1.2 gate, which is exactly why the trigger works despite the bias.
     /// </summary>
     [Test]
     public void Resolve_SeedsBeneathTheGate_WhenTheFittedVertexIsBelowIt() {
-        Assert.That(MinHfrSeed.Resolve(0.548, DefaultGate), Is.EqualTo(MinHfrSeed.SeedFloor));
+        Assert.That(MinHfrSeed.Resolve(0.548, DefaultGate, DetectionBinningOff), Is.EqualTo(MinHfrSeed.SeedFloor));
     }
 
     /// <summary>
@@ -44,7 +47,7 @@ public class MinHfrSeedTests {
     /// </summary>
     [Test]
     public void Resolve_LeavesAWellSampledRigAlone() {
-        Assert.That(MinHfrSeed.Resolve(1.804, DefaultGate), Is.Null);
+        Assert.That(MinHfrSeed.Resolve(1.804, DefaultGate, DetectionBinningOff), Is.Null);
     }
 
     /// <summary>
@@ -54,7 +57,7 @@ public class MinHfrSeedTests {
     /// </summary>
     [Test]
     public void Resolve_SeedsWhenTheVertexSitsExactlyOnTheInclusiveGate() {
-        Assert.That(MinHfrSeed.Resolve(DefaultGate, DefaultGate), Is.EqualTo(MinHfrSeed.SeedFloor));
+        Assert.That(MinHfrSeed.Resolve(DefaultGate, DefaultGate, DetectionBinningOff), Is.EqualTo(MinHfrSeed.SeedFloor));
     }
 
     /// <summary>
@@ -63,7 +66,7 @@ public class MinHfrSeedTests {
     /// </summary>
     [Test]
     public void Resolve_DoesNothingWithoutAUsableFit([Values(double.NaN, double.PositiveInfinity, double.NegativeInfinity)] double vertex) {
-        Assert.That(MinHfrSeed.Resolve(vertex, DefaultGate), Is.Null);
+        Assert.That(MinHfrSeed.Resolve(vertex, DefaultGate, DetectionBinningOff), Is.Null);
     }
 
     /// <summary>
@@ -73,13 +76,76 @@ public class MinHfrSeedTests {
     /// </summary>
     [Test]
     public void Resolve_NeverRaisesAGateThatIsAlreadyLower() {
-        Assert.That(MinHfrSeed.Resolve(0.05, 0.2), Is.Null);
+        Assert.That(MinHfrSeed.Resolve(0.05, 0.2, DetectionBinningOff), Is.Null);
     }
 
     /// <summary>Equal to the floor is not lower than the floor — no write, so the landing stays comparable.</summary>
     [Test]
     public void Resolve_DoesNothingWhenTheGateAlreadyEqualsTheFloor() {
-        Assert.That(MinHfrSeed.Resolve(0.1, MinHfrSeed.SeedFloor), Is.Null);
+        Assert.That(MinHfrSeed.Resolve(0.1, MinHfrSeed.SeedFloor, DetectionBinningOff), Is.Null);
+    }
+
+    /// <summary>
+    /// F38 — the two operands live in different pixel spaces. The gate fires inside the binned raster
+    /// (StarDetector.cs:1894) while <c>BestFit.Minimum.Y</c> has already been scaled back to source pixels
+    /// (StarDetector.cs:805-808), so a captured vertex must be divided by the factor before it is compared.
+    ///
+    /// <para>The regression case: at binning 2 a captured vertex of 2.0 px IS 1.0 binned px, comfortably under
+    /// the 1.2 gate — the rig's near-focus frames really are being emptied by <c>TooLowHFR</c>. Before the fix
+    /// the rule compared 2.0 against 1.2, took the "clears the gate" branch, and declined to seed. Reverting the
+    /// division makes this fail, which is the only reason it is worth having.</para>
+    /// </summary>
+    [Test]
+    public void Resolve_SeedsABinnedRigWhoseVertexIsBelowTheGateInBinnedSpace() {
+        Assert.That(MinHfrSeed.Resolve(2.0, DefaultGate, 2), Is.EqualTo(MinHfrSeed.SeedFloor));
+    }
+
+    /// <summary>
+    /// The other side of F38: the conversion must not manufacture seeds either. At binning 2 a captured vertex of
+    /// 3.0 px is 1.5 binned px, genuinely above the gate, so the D05 branch still has to hold.
+    /// </summary>
+    [Test]
+    public void Resolve_LeavesABinnedRigAloneWhenItClearsTheGateInBinnedSpace() {
+        Assert.That(MinHfrSeed.Resolve(3.0, DefaultGate, 2), Is.Null);
+    }
+
+    /// <summary>
+    /// The silent-failure window itself, swept across the factor. A captured vertex of 2.2 px is ABOVE the 1.2
+    /// gate unbinned — so at 1x1 the rule correctly declines — but at 2x2 it is 1.1 binned px and the near-focus
+    /// frames really are being emptied. Every factor >= 2 must therefore seed.
+    ///
+    /// <para>This is the discriminating case, and deliberately so: the first version of this fixture's binning
+    /// coverage was five tests of which only ONE failed when the division was reverted. The other four asserted
+    /// behaviour that is identical with and without the fix, which is worth nothing as a regression test.</para>
+    /// </summary>
+    [Test]
+    public void Resolve_SeedsAcrossTheWholeSilentWindow([Values(2, 3, 4)] int binning) {
+        Assert.That(MinHfrSeed.Resolve(2.2, DefaultGate, binning), Is.EqualTo(MinHfrSeed.SeedFloor));
+    }
+
+    /// <summary>The same vertex at 1x1 is genuinely above the gate and must still be left alone.</summary>
+    [Test]
+    public void Resolve_LeavesTheSameVertexAloneWhenUnbinned() {
+        Assert.That(MinHfrSeed.Resolve(2.2, DefaultGate, DetectionBinningOff), Is.Null);
+    }
+
+    /// <summary>
+    /// GUARD, not a regression test — it passes with or without the F38 division. A caller that has not populated
+    /// DetectionBinning (0, or a nonsense negative) must behave as unbinned rather than divide by zero and seed
+    /// every rig it sees.
+    /// </summary>
+    [Test]
+    public void Resolve_TreatsAnUnsetBinningFactorAsUnbinned([Values(0, -1)] int binning) {
+        Assert.That(MinHfrSeed.Resolve(1.804, DefaultGate, binning), Is.Null);
+    }
+
+    /// <summary>
+    /// The seeded VALUE is unaffected by binning — <see cref="MinHfrSeed.SeedFloor"/> is already in binned pixels
+    /// and is written to MinHFR, which is also binned. Only the trigger ever needed converting.
+    /// </summary>
+    [Test]
+    public void Resolve_SeedsTheSameFloorRegardlessOfBinning([Values(1, 2, 4)] int binning) {
+        Assert.That(MinHfrSeed.Resolve(0.1, DefaultGate, binning), Is.EqualTo(MinHfrSeed.SeedFloor));
     }
 
     /// <summary>
