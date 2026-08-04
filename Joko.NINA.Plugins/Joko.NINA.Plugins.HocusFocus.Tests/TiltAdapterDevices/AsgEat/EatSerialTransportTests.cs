@@ -242,8 +242,12 @@ public class EatSerialTransportTests {
         });
     }
 
+    // A quiet gap in the middle of a response must NOT end the exchange. The device pauses mid-dump on a busy
+    // machine; treating that pause as completion abandoned a response partway, left its remainder in the port
+    // buffer, and desynced every later exchange by one response for the rest of the session (see the read-loop
+    // remarks on EatSerialTransport). Only the terminal sentinel — or the overall budget — ends a read.
     [Test]
-    public async Task SendAsync_CollectsLinesUntilQuietPeriod_ReturnsTimedOutFalse_AndReturnsEarly() {
+    public async Task SendAsync_QuietGapMidResponse_KeepsReading_UntilTheTerminalSentinel() {
         var (provider, port, readLine) = MakeFakeProvider();
         var transport = new EatSerialTransport(provider);
         await transport.OpenAsync("COM7", CancellationToken.None);
@@ -252,24 +256,79 @@ public class EatSerialTransportTests {
         readLine.Next = () => {
             callCount++;
             return callCount switch {
-                1 => "OK",
-                2 => "cp,100,200,300,400",
+                1 => "{UI|SET|ready_light.IndicatorColor=Red}",
+                2 => "***Get Current Positions***",
+                3 => throw new TimeoutException(), // the device pauses mid-dump -- NOT the end of the response
+                4 => "400",
+                5 => "400",
+                6 => "400",
+                7 => "400",
+                8 => "***End Current Positions***",
+                9 => "***Action Processed***",
                 _ => throw new TimeoutException()
             };
         };
 
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        // A generous overall budget -- the quiet-period race should end the exchange well before this
-        // elapses, which the elapsed-time assertion below verifies.
         var exchange = await transport.SendAsync("cp", TimeSpan.FromSeconds(10), CancellationToken.None);
-        sw.Stop();
 
         Assert.Multiple(() => {
             Assert.That(exchange.TimedOut, Is.False);
-            Assert.That(exchange.Lines, Is.EqualTo(new[] { "OK", "cp,100,200,300,400" }));
-            Assert.That(sw.Elapsed, Is.LessThan(TimeSpan.FromSeconds(5)),
-                "the quiet-period race should end the exchange well before the 10s overall budget elapses");
+            Assert.That(exchange.Lines, Is.EqualTo(new[] {
+                "{UI|SET|ready_light.IndicatorColor=Red}", "***Get Current Positions***",
+                "400", "400", "400", "400", "***End Current Positions***", "***Action Processed***" }),
+                "the lines after the pause belong to this response and must not be left for the next command to read");
+            Assert.That(EatResponses.ParseCpPositions(exchange).PerMotorSteps, Is.EqualTo(new[] { 400, 400, 400, 400 }));
         });
+    }
+
+    [Test]
+    public async Task SendAsync_ResponseNeverTerminates_ReportsTimedOut_RatherThanCallingItComplete() {
+        var (provider, port, readLine) = MakeFakeProvider();
+        var transport = new EatSerialTransport(provider);
+        await transport.OpenAsync("COM7", CancellationToken.None);
+
+        var callCount = 0;
+        readLine.Next = () => callCount++ == 0 ? "***Get Current Positions***" : throw new TimeoutException();
+
+        var exchange = await transport.SendAsync("cp", TimeSpan.FromMilliseconds(600), CancellationToken.None);
+
+        Assert.That(exchange.TimedOut, Is.True,
+            "a response with no terminal sentinel is INCOMPLETE; reporting it as complete is what desynced the link");
+    }
+
+    // The self-healing half of the desync fix: anything already buffered when a command is about to be written
+    // can only be a previous exchange's unread remainder, and must be discarded so this command reads its OWN
+    // response. Without it, the only recovery in a real session was closing and reopening the port.
+    [Test]
+    public async Task SendAsync_StaleInputBuffered_IsDiscardedBeforeWriting() {
+        var (provider, port, readLine) = MakeFakeProvider();
+        var transport = new EatSerialTransport(provider);
+        await transport.OpenAsync("COM7", CancellationToken.None);
+
+        port.BytesToRead.Returns(_ => 512); // leftover from an exchange that was abandoned mid-response
+        var callCount = 0;
+        readLine.Next = () => ++callCount == 1 ? "***Action Processed***" : throw new TimeoutException();
+
+        await transport.SendAsync("cp", TimeSpan.FromMilliseconds(600), CancellationToken.None);
+
+        Received.InOrder(() => {
+            port.DiscardInBuffer();
+            port.Write(Arg.Any<string>());
+        });
+    }
+
+    [Test]
+    public async Task SendAsync_NoStaleInput_DoesNotTouchTheBuffer() {
+        var (provider, port, readLine) = MakeFakeProvider();
+        var transport = new EatSerialTransport(provider);
+        await transport.OpenAsync("COM7", CancellationToken.None);
+
+        port.BytesToRead.Returns(_ => 0);
+        readLine.Next = () => "***Action Processed***";
+
+        await transport.SendAsync("cp", TimeSpan.FromMilliseconds(600), CancellationToken.None);
+
+        port.DidNotReceive().DiscardInBuffer();
     }
 
     // --- Boot-banner drain + terminal-sentinel completion (confirmed against firmware 7.1.0). ---
@@ -393,13 +452,23 @@ public class EatSerialTransportTests {
         var transport = new EatSerialTransport(provider);
         await transport.OpenAsync("COM7", CancellationToken.None);
 
-        var callerThreadId = Thread.CurrentThread.ManagedThreadId;
         int? writeThreadId = null;
         port.When(p => p.Write(Arg.Any<string>())).Do(_ => writeThreadId = Thread.CurrentThread.ManagedThreadId);
 
-        // A synchronous inline Write() could block the caller (e.g. the UI thread) for up to WriteTimeout
-        // under an XON/XOFF stall -- it must be offloaded, mirroring the already-offloaded read.
-        await transport.SendAsync("cp", TimeSpan.FromMilliseconds(300), CancellationToken.None);
+        // Driven from a DEDICATED thread, not the test's own: an async test continuation already runs on a
+        // thread-pool thread, and Task.Run is free to schedule the write onto that very same thread — so
+        // comparing against it makes the assertion a coin flip rather than a check that the write was
+        // offloaded. A dedicated thread is never a pool thread, so any pool thread proves the offload.
+        int callerThreadId = 0;
+        var caller = new Thread(() => {
+            callerThreadId = Thread.CurrentThread.ManagedThreadId;
+            // A synchronous inline Write() could block the caller (e.g. the UI thread) for up to WriteTimeout
+            // under a stalled link -- it must be offloaded, mirroring the already-offloaded read.
+            transport.SendAsync("cp", TimeSpan.FromMilliseconds(300), CancellationToken.None).GetAwaiter().GetResult();
+        });
+        caller.IsBackground = true;
+        caller.Start();
+        Assert.That(caller.Join(TimeSpan.FromSeconds(30)), Is.True, "the exchange should finish well within its budget");
 
         Assert.That(writeThreadId, Is.Not.Null);
         Assert.That(writeThreadId, Is.Not.EqualTo(callerThreadId));

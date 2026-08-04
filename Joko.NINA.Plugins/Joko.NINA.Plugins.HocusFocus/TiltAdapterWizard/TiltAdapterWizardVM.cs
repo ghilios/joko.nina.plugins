@@ -30,6 +30,7 @@ using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
 using NINA.WPF.Base.ViewModel;
@@ -1418,27 +1419,25 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RaisePropertyChanged(nameof(ScrewPositionBottomLeftDisplay));
         }
 
-        // Refresh the wizard's live device-position snapshot straight from the controller. Used during a run,
-        // when the connection service's cp poll is paused (the run holds the operation lease). Optionally
-        // (re)captures the "delta since start" baseline. Best-effort: a failed/unknown read leaves the last
-        // snapshot in place so the display simply keeps showing the previous value.
-        private async Task RefreshRunDevicePositionsAsync(ITiltMotionController controller, bool captureBaseline) {
-            if (controller == null) {
-                return;
+        // Refresh the wizard's live device-position snapshot from the controller's own latest counters, and
+        // publish them through the connection service so every other panel (e.g. the inspector's) updates too.
+        // Used during a run, when the service's cp poll is paused (the run holds the operation lease).
+        // Optionally (re)captures the "delta since start" baseline.
+        //
+        // Deliberately NO device I/O: a move response already carries the device's fresh counters (see
+        // EatTiltMotionController.ExecuteMoveAsync), so a follow-up 'cp' per move was both a wasted ~1 s round
+        // trip and an extra failure point — one that failed silently, freezing the position and Δ display at
+        // its pre-move values with nothing in the log to say so.
+        private void RefreshRunDevicePositions(bool captureBaseline) {
+            var positions = tiltDeviceConnectionService?.PublishControllerPositions();
+            if (positions == null || positions.Count < 4) {
+                return; // Already logged by the service; keep the previous snapshot rather than blanking the display.
             }
-            try {
-                var positions = await controller.QueryPositionsAsync(CancellationToken.None).ConfigureAwait(true);
-                if (positions == null || !positions.Known) {
-                    return;
-                }
-                deviceDisplayPositions = positions.PerMotorSteps.ToArray();
-                if (captureBaseline || calibrationBaselinePositions == null) {
-                    calibrationBaselinePositions = deviceDisplayPositions.ToArray();
-                }
-                RaiseScrewPositionDisplays();
-            } catch (Exception ex) {
-                Logger.Warning($"Failed to read tilt device positions for the wizard display: {ex.Message}");
+            deviceDisplayPositions = positions;
+            if (captureBaseline || calibrationBaselinePositions == null) {
+                calibrationBaselinePositions = positions.ToArray();
             }
+            RaiseScrewPositionDisplays();
         }
 
         private IReadOnlyList<string> EnumeratePortNames() {
@@ -1672,8 +1671,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // Production "change the simulator config?" prompt: NINA's Yes/No message box, default No (a dismissed
         // dialog must never silently rewrite the simulator's configuration).
         private static Task<bool> ShowSimConfigChangePromptAsync(string message, string title) {
+            // Wrapped: this message enumerates every mismatched simulator setting on one line, and MyMessageBox
+            // does not wrap — an unwrapped long line stretches the modal past the screen edge. See DialogText.
             var result = MyMessageBox.Show(
-                message, title, System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxResult.No);
+                DialogText.Wrap(message), title, System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxResult.No);
             return Task.FromResult(result == System.Windows.MessageBoxResult.Yes);
         }
 
@@ -1720,14 +1721,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             try {
                 if (calibrationBaselinePositions == null) {
                     // Capture the "delta since start" baseline before this run's first move.
-                    await RefreshRunDevicePositionsAsync(controller, captureBaseline: true).ConfigureAwait(true);
+                    RefreshRunDevicePositions(captureBaseline: true);
                 }
                 progress.Report(new ApplicationStatus { Status = $"Tilt Adapter Wizard: {move.Description}" });
                 StatusText = move.Description;
                 await controller.ExecuteMoveAsync(move, moveProgress, ct).ConfigureAwait(true);
                 appliedDeviceMovesThisRun.Add(move);
                 // Refresh the live position display + delta after the move (the poll is paused during the run).
-                await RefreshRunDevicePositionsAsync(controller, captureBaseline: false).ConfigureAwait(true);
+                RefreshRunDevicePositions(captureBaseline: false);
                 return true;
             } catch (Exception ex) {
                 Logger.Error(ex, $"Tilt adapter device move failed for wizard step {step}.");
@@ -1757,6 +1758,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
             try {
                 await controller.ExecuteMoveAsync(inverse, moveProgress, CancellationToken.None).ConfigureAwait(true);
+                RefreshRunDevicePositions(captureBaseline: false);
             } catch (Exception ex) {
                 Logger.Error(ex, "Failed to recover tilt adapter device position after a failed move; the device may not be at its expected position.");
             }
@@ -1798,6 +1800,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         progress.Report(new ApplicationStatus { Status = $"Tilt Adapter Wizard: recovering — {inverse.Description}" });
                         await controller.ExecuteMoveAsync(inverse, moveProgress, CancellationToken.None).ConfigureAwait(true);
                         anyRolledBack = true;
+                        RefreshRunDevicePositions(captureBaseline: false);
                     } catch (Exception ex) {
                         Logger.Error(ex, "Failed to fully recover tilt adapter device position after an automated-run cancellation/failure.");
                         MeasurementFailureText = $"Recovery failed while returning the device to its original position: {ex.Message}. Verify screw/motor positions before continuing.";
@@ -2337,7 +2340,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         // until the user has confirmed a selection.
                         ok = await inspector.AnalyzeAutoFocusFromSaved(token, onFolderSelected: () => IsMeasuring = true, saveOverride: saveOverride);
                     } else {
-                        ok = await inspector.AnalyzeAutoFocus(token, captureCameraBlock: true, saveOverride);
+                        // includeExposureAnalysis: false — a calibration step consumes ONLY the sensor model fitted
+                        // from the sweep (CalibrationTiltPlane, below). The inspector's closing validation exposure
+                        // feeds the FWHM-contour/eccentricity panels, which this wizard never reads, and it costs a
+                        // further SimpleExposureSeconds plus a full-frame PSF detection on every one of the six
+                        // steps — ~18 s per step on the rig this was measured on.
+                        ok = await inspector.AnalyzeAutoFocus(token, captureCameraBlock: true, saveOverride, includeExposureAnalysis: false);
                     }
                 } finally {
                     inspector.ForceSensorCurveModelGeneration = prevForce;
@@ -2633,7 +2641,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // Curvature (backfocus) sign from baseline (a) → all-inward (b) mean focus, only when
             // those steps ran; otherwise the configured/assumed sign is left untouched.
             if (measuredCurvature) {
-                tiltAdapterOptions.ScrewInwardCurvatureSign = TiltCalibrationCalculator.ComputeCurvatureSign(b.Mean, a.Mean);
+                int curvatureSign = TiltCalibrationCalculator.ComputeCurvatureSign(b.Mean, a.Mean);
+                // This one number decides which way EVERY later automated correction turns, and it is derived
+                // from a single comparison — so log the comparison itself, not just the verdict. Without it,
+                // checking a suspect direction against a night's log means reconstructing mean-focus positions
+                // from the raw model solves. The curvature effects are logged alongside because they are the
+                // quantity the stored sign is DEFINED in terms of (see TiltScrewGeometry's empirical anchor),
+                // and a run where the two disagree is exactly the evidence needed to settle the convention.
+                Logger.Info(
+                    $"Tilt calibration: adapter direction measured from the all-screws step. Mean best-focus position {a.Mean:F1} → {b.Mean:F1} " +
+                    $"(Δ {b.Mean - a.Mean:+0.0;-0.0} focuser steps); curvature effect at screw radius {a.CurvatureEffectAtScrewRadiusMicrons:F1} → {b.CurvatureEffectAtScrewRadiusMicrons:F1} µm. " +
+                    $"ScrewInwardCurvatureSign = {curvatureSign:+0;-0} (clockwise/+steps moves the adapter toward the " +
+                    $"{(TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(curvatureSign) ? "OBJECTIVE" : "CAMERA")}).");
+                tiltAdapterOptions.ScrewInwardCurvatureSign = curvatureSign;
                 tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured = true;
             }
 

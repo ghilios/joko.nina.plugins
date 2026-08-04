@@ -31,23 +31,35 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
     public static class EatResponses {
 
         // Move-ack policy, confirmed against ASG EAT firmware 7.1.0 (see docs/asg-eat-serial-protocol-design.md):
-        // a successful move ends with a "***finished movement***" sentinel line, and EatSerialTransport's read
-        // loop returns as soon as it sees that sentinel (TimedOut=false). A move that never completes leaves the
-        // read loop to exhaust its timeout budget (TimedOut=true). So "did not time out" IS the ack signal here --
-        // the sentinel recognition has already happened one layer down, in the transport. SimulatedEatTransport
-        // likewise returns a non-timed-out exchange for a successful move. NOTE: an explicit device-side ERROR
-        // response format was not captured (see the doc's open items), so a rejected move that still returns a
-        // terminal sentinel is not yet distinguished; tighten here if such a response is ever captured.
+        // a successful move ends with a "***finished movement***" sentinel line. NOTE: an explicit device-side
+        // ERROR response format was not captured (see the doc's open items), so a rejected move that still
+        // returns the move sentinel is not yet distinguished; tighten here if such a response is ever captured.
+        private const string MoveCompleteMarker = "finished movement";
+
         /// <summary>
-        /// Interpretation of a move command's response: success unless <paramref name="exchange"/> timed out.
-        /// The completion decision (reading through to "***finished movement***") lives in the transport's read
-        /// loop; this only maps that outcome to success/failure.
+        /// Interpretation of a move command's response: success only when the exchange did not time out AND
+        /// actually contains the device's move-completion sentinel.
+        ///
+        /// <para>Requiring the sentinel — rather than the old "did not time out", which trusted whichever
+        /// terminal marker the transport happened to see — is what stops a MOVE from being acknowledged by a
+        /// QUERY's sentinel. In a real session where the link had fallen one response behind, every move read
+        /// back a previous <c>cp</c>'s "***Action Processed***" and was journaled as successfully applied while
+        /// the motors had done something else entirely. A move is safety-critical and EEPROM-persisted: an
+        /// unconfirmed one must surface as ambiguous (the caller's state-dirty path), never as success.</para>
         /// </summary>
         public static bool ParseMoveAck(EatRawExchange exchange) {
             if (exchange == null) {
                 throw new ArgumentNullException(nameof(exchange));
             }
-            return !exchange.TimedOut;
+            if (exchange.TimedOut) {
+                return false;
+            }
+            foreach (var line in exchange.Lines) {
+                if (line != null && line.Contains(MoveCompleteMarker)) {
+                    return true;
+                }
+            }
+            return false;
         }
 
         // `cp` reply layout, confirmed against ASG EAT firmware 7.1.0 (see docs/asg-eat-serial-protocol-design.md):
@@ -106,6 +118,27 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
             }
 
             return new TiltDevicePositions(values, known: true);
+        }
+
+        /// <summary>
+        /// Extracts the position block that every MOVE response embeds (confirmed, firmware 7.1.0: a move
+        /// prints its own <c>***Get Current Positions***</c> block just before <c>***Save EEPROM***</c> — see
+        /// the design doc's §4.2 note that "a move doubles as a position read"). Deliberately TOLERANT and
+        /// non-throwing, unlike <see cref="ParseCpPositions"/>: a move's success must never hinge on its
+        /// embedded block parsing, so an absent or malformed block simply returns false and the caller falls
+        /// back to advancing its own shadow by the commanded delta.
+        /// </summary>
+        public static bool TryParseMovePositions(EatRawExchange exchange, out TiltDevicePositions positions) {
+            positions = null;
+            if (exchange == null) {
+                return false;
+            }
+            try {
+                return TryParseMarkedPositionBlock(exchange, out positions);
+            } catch (InvalidDeviceResponseException) {
+                positions = null;
+                return false;
+            }
         }
 
         /// <summary>
