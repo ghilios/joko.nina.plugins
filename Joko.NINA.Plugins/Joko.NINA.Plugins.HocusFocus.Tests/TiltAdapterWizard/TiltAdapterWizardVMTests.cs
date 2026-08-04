@@ -3273,7 +3273,19 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         // and a drift scale to compare it against.
         private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options) RunSixStepWithCurvature(
                 double baselineE, double allInwardE, double reBaseline1E, double reBaseline2E) {
-            var (vm, options, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(true));
+            // Deliberately isotropic UNIT geometry (1 µm pixels, 1 µm focuser step). ComputeConfidence converts
+            // its deltas to physical gradient space, where valid sensor/focuser geometry is a precondition — an
+            // unpopulated profile makes the conversion non-finite, which fails safe to an SNR warning and would
+            // drown out the curvature cross-check these tests are actually about. Unit geometry over the 1x1
+            // pseudo-sensor makes that conversion the identity, so the SNR here is exactly what raw (A,B) gives.
+            var profile = Substitute.For<IProfileService>();
+            profile.ActiveProfile.CameraSettings.PixelSize.Returns(1.0);
+            var inspectorOptions = Substitute.For<IInspectorOptions>();
+            inspectorOptions.EffectiveMicronsPerFocuserStep.Returns(1.0);
+            var (vm, options, _, _) = Build(
+                configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(true),
+                profileService: profile,
+                inspectorOptions: inspectorOptions);
             vm.StartCommand.Execute(null);
 
             vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, baselineE);
@@ -3337,7 +3349,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         public void CurvatureCrossCheck_FourStepRun_NeverWarns() {
             // No all-screws step ⇒ no curvature channel to compare against, and the configured sign is left
             // untouched anyway.
-            var (vm, _, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(false));
+            // Unit geometry for the same reason as RunSixStepWithCurvature: without it the physical-gradient
+            // conversion is non-finite and fails safe to an SNR warning, which is not what this test is about.
+            var profile = Substitute.For<IProfileService>();
+            profile.ActiveProfile.CameraSettings.PixelSize.Returns(1.0);
+            var inspectorOptions = Substitute.For<IInspectorOptions>();
+            inspectorOptions.EffectiveMicronsPerFocuserStep.Returns(1.0);
+            var (vm, _, _, _) = Build(
+                configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(false),
+                profileService: profile,
+                inspectorOptions: inspectorOptions);
             vm.StartCommand.Execute(null);
 
             vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, -400);
