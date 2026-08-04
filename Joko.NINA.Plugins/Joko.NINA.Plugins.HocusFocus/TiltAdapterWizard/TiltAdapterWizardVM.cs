@@ -1202,12 +1202,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // Clear stale wizard-run display state (measured-hardware panel, per-run warnings, summary
             // rows — the same state Restart clears) that would otherwise describe the previous run next
             // to a manually entered calibration.
-            measuredHardwareMicrons = double.NaN;
-            lastConfidence = null;
-            pitchUncertaintyMicrons = double.NaN;
-            pistonImpliedMicronsPerStep = double.NaN;
-            lastRawAngleDiff = double.NaN;
-            lastMoveMagnitudeRatio = double.NaN;
+            ResetDerivedCalibrationReadouts();
             HasWarning = false;
             WarningText = string.Empty;
             HasMeasurementConsistencyWarning = false;
@@ -1241,12 +1236,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             tiltAdapterOptions.LastMeasuredThreadPitchMicrons = -1;
             tiltAdapterOptions.LastMeasuredStepperStepSizeMicrons = -1;
 
-            measuredHardwareMicrons = double.NaN;
-            lastConfidence = null;
-            pitchUncertaintyMicrons = double.NaN;
-            pistonImpliedMicronsPerStep = double.NaN;
-            lastRawAngleDiff = double.NaN;
-            lastMoveMagnitudeRatio = double.NaN;
+            ResetDerivedCalibrationReadouts();
             HasWarning = false;
             WarningText = string.Empty;
             HasMeasurementConsistencyWarning = false;
@@ -1259,6 +1249,22 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ClearSummaryRows();
             RaiseHardwareSummaryChanged();
             RebuildDiagram();
+        }
+
+        // Shared by ApplyManualCalibration, ClearCalibration, and Restart: every path that invalidates the
+        // previous run's results without immediately running a new one. Resets exactly the derived-readout
+        // state RunCalibrationMath populates from a Calibrate() result -- NOT the warning-text/flag
+        // properties around it, which differ slightly per caller (e.g. Restart also clears
+        // HasDeviceLinkDroppedWarning, which the other two callers don't touch). Extracted so a field this
+        // task (or a future one, e.g. Task 5's corner-AF readouts) adds to the set can't be missed at one of
+        // the three call sites and leave a stale readout on screen after Clear/Restart/a manual entry.
+        private void ResetDerivedCalibrationReadouts() {
+            measuredHardwareMicrons = double.NaN;
+            lastConfidence = null;
+            pitchUncertaintyMicrons = double.NaN;
+            pistonImpliedMicronsPerStep = double.NaN;
+            lastRawAngleDiff = double.NaN;
+            lastMoveMagnitudeRatio = double.NaN;
         }
 
         public string WizardSweepSummary {
@@ -1321,10 +1327,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         // Piston-implied pitch (frame-factor probe): a free, tilt-fit-independent hardware estimate from the
         // AllInward piston alone (see TiltCalibrationCalculator.PistonImpliedMicronsPerStep). NaN for 4-step
-        // runs (no piston measured) — empty string collapses the row, same pattern as PitchUncertaintyDisplay.
+        // runs (no piston measured). The XAML row's visibility is gated on HasPistonPitch below (a
+        // standalone, self-labeling row -- not a shared label/value UniformGrid cell like the "Measured"/
+        // "Saved" rows above it), not on this string being empty.
         public string PistonPitchDisplay =>
             double.IsNaN(pistonImpliedMicronsPerStep) ? string.Empty
-            : $"Piston-implied: {pistonImpliedMicronsPerStep:0.###} µm/{(IsStepperAdjustment ? "step" : "turn")}";
+            : IsStepperAdjustment ? $"Piston-implied: {pistonImpliedMicronsPerStep:0.###} µm/step"
+            : $"Piston-implied: {pistonImpliedMicronsPerStep:0.#} µm/turn";
+
+        // Gates the piston-pitch row's visibility in DataTemplates.xaml (this file uses DataTrigger-driven
+        // Visibility throughout, never converters) — true once a 6-step run has measured a piston.
+        public bool HasPistonPitch => !double.IsNaN(pistonImpliedMicronsPerStep);
 
         // Config-panel bindings. They wrap the persisted options, presenting thread pitch in mm and
         // showing 0 for the unset (-1) sentinel so the textboxes read cleanly.
@@ -2601,12 +2614,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             appliedDeviceMovesThisRun.Clear();
             SaveAFRuns = false; // saving must be re-enabled explicitly for each run
             stepReadings.Clear();
-            measuredHardwareMicrons = double.NaN;
-            lastConfidence = null;
-            pitchUncertaintyMicrons = double.NaN;
-            pistonImpliedMicronsPerStep = double.NaN;
-            lastRawAngleDiff = double.NaN;
-            lastMoveMagnitudeRatio = double.NaN;
+            ResetDerivedCalibrationReadouts();
             runRootFolder = null;
             metadataPath = null;
             currentMetadata = null;
@@ -2824,8 +2832,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // sensor geometry at all -- TiltCalibrationCalculator.PistonImpliedMicronsPerStep consumes only
             // mean focuser positions, the focuser step size, and the applied amount, never the per-screw
             // lever arm the model != null gate above exists to protect. So it is deliberately NOT gated on
-            // model != null: it is exactly as valid on a model-less (seeded/test-only) run as a real one, and
-            // gating it would just hide a perfectly good, geometry-independent cross-check on those runs.
+            // model != null. This does NOT unlock a model-less UI/warning benefit -- the only display surface
+            // (the StackPanel this feeds, gated on HasMeasuredHardware) and the disagreement warning below
+            // (gated on measuredHardware > 0) both already require a real model indirectly, since
+            // measuredHardwareMicrons stays NaN without one. The actual benefit is narrower: the value still
+            // lands in FinalizeMetadata's persisted TiltCalibrationResultRecord (Task 7's offline consumer)
+            // on a model-less replay/test run, instead of silently dropping to NaN alongside the
+            // geometry-dependent fields.
             pistonImpliedMicronsPerStep = result.PistonImpliedMicronsPerStep;
 
             ValidateCalibrationQuality(lastRawAngleDiff, lastMoveMagnitudeRatio, screwCount,
@@ -2859,46 +2872,65 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RaisePropertyChanged(nameof(ConfidenceSummaryDisplay));
             RaisePropertyChanged(nameof(PitchUncertaintyDisplay));
             RaisePropertyChanged(nameof(PistonPitchDisplay));
+            RaisePropertyChanged(nameof(HasPistonPitch));
             OnUIThread(() => ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged());
         }
 
-        // Two single-screw turns of the same amount should produce gradient changes that are ~equal in magnitude
-        // and the correct angular distance apart. A bad angle gap OR very unequal magnitudes (uneven turning /
-        // backlash) means the recovered geometry/hardware is unreliable — warn so the user recalibrates.
+        // Each check below is independent and returns null when it has nothing to say, so ValidateCalibrationQuality
+        // stays a simple "collect the non-null messages" join no matter how many checks it ends up with (Task 5
+        // adds a 4th, the corner-AF estimator disagreement, without growing this method's own logic). Behavior,
+        // wording, and thresholds are unchanged from the flat-boolean version this replaced.
+
+        // Two single-screw turns of the same amount should land at the adapter's exact expected angular spacing;
+        // a bad angle gap means the recovered screw geometry is unreliable.
+        private static string CheckScrewAngleGap(double rawDiff, int screwCount) {
+            double expected = screwCount == 3 ? 120.0 : 90.0;
+            // Fold the diff so it is in [0, 180] — both CW and CCW gaps compare to the same expected value.
+            double foldedDiff = rawDiff <= 180.0 ? rawDiff : 360.0 - rawDiff;
+            double deviation = Math.Abs(foldedDiff - expected);
+            return deviation > 30.0
+                ? $"Screw 1→2 measured angle gap is {foldedDiff:F1}° (expected ~{expected}°)"
+                : null;
+        }
+
+        // Two single-screw turns of the same amount should also produce ~equal gradient-change magnitudes; very
+        // unequal magnitudes (uneven turning / backlash) mean the recovered hardware is unreliable.
         private const double MagnitudeRatioWarnThreshold = 1.5; // larger move > 1.5x smaller => suspect
+
+        private static string CheckMagnitudeRatio(double magnitudeRatio) =>
+            !double.IsNaN(magnitudeRatio) && magnitudeRatio > MagnitudeRatioWarnThreshold
+                ? $"the two screw turns produced very unequal tilt changes ({magnitudeRatio:F1}× apart) — turn each screw the same amount"
+                : null;
 
         // The piston-implied pitch and the tilt-derived measured hardware are both focuser-frame quantities
         // (see TiltCalibrationCalculator.PistonImpliedMicronsPerStep), so honest agreement is expected; a gap
         // this large means the tilt estimator (or the mechanics on pull-side moves) is off.
         private const double PistonDisagreementWarnThreshold = 0.20;
 
+        private static string CheckPistonAgreement(double measuredHardware, double pistonImplied) {
+            if (measuredHardware <= 0 || pistonImplied <= 0) {
+                return null;
+            }
+            // Denominator is the tilt-derived measuredHardware, not a symmetric mean of the two: the question
+            // this check answers is "does the tilt estimate look unreliable" (framed against the piston's free,
+            // tilt-fit-independent value as the reference), not "how far apart are these two numbers" in the
+            // abstract.
+            double relativeDiff = Math.Abs(pistonImplied - measuredHardware) / measuredHardware;
+            return relativeDiff > PistonDisagreementWarnThreshold
+                ? $"piston-implied hardware ({pistonImplied:0.##} µm) and tilt-derived ({measuredHardware:0.##} µm) disagree by more than 20% — the tilt estimate may be unreliable"
+                : null;
+        }
+
         private void ValidateCalibrationQuality(double rawDiff, double magnitudeRatio, int screwCount,
             double measuredHardware, double pistonImplied) {
-            double expected = screwCount == 3 ? 120.0 : 90.0;
-            // Fold the diff so it is in [0, 180] — both CW and CCW gaps compare to the same expected value.
-            double foldedDiff = rawDiff <= 180.0 ? rawDiff : 360.0 - rawDiff;
-            double deviation = Math.Abs(foldedDiff - expected);
-            bool angleBad = deviation > 30.0;
-            bool magnitudeBad = !double.IsNaN(magnitudeRatio) && magnitudeRatio > MagnitudeRatioWarnThreshold;
-            bool pistonBad = measuredHardware > 0 && pistonImplied > 0
-                && Math.Abs(pistonImplied - measuredHardware) / measuredHardware > PistonDisagreementWarnThreshold;
+            var parts = new[] {
+                CheckScrewAngleGap(rawDiff, screwCount),
+                CheckMagnitudeRatio(magnitudeRatio),
+                CheckPistonAgreement(measuredHardware, pistonImplied),
+            }.Where(p => p != null).ToList();
 
-            HasWarning = angleBad || magnitudeBad || pistonBad;
-            if (!HasWarning) {
-                WarningText = string.Empty;
-                return;
-            }
-            var parts = new List<string>(3);
-            if (angleBad) {
-                parts.Add($"Screw 1→2 measured angle gap is {foldedDiff:F1}° (expected ~{expected}°)");
-            }
-            if (magnitudeBad) {
-                parts.Add($"the two screw turns produced very unequal tilt changes ({magnitudeRatio:F1}× apart) — turn each screw the same amount");
-            }
-            if (pistonBad) {
-                parts.Add($"piston-implied hardware ({pistonImplied:0.##} µm) and tilt-derived ({measuredHardware:0.##} µm) disagree by more than 20% — the tilt estimate may be unreliable");
-            }
-            WarningText = string.Join("; ", parts) + ". Consider recalibrating.";
+            HasWarning = parts.Count > 0;
+            WarningText = HasWarning ? string.Join("; ", parts) + ". Consider recalibrating." : string.Empty;
         }
 
         // Re-baseline drift: each re-baseline (c, e) should return close to the prior state. A large residual

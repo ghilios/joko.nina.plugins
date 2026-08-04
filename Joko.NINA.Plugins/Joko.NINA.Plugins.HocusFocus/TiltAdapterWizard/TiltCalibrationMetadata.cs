@@ -61,8 +61,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public double RawAngleDiffDegrees { get; set; }
         public double MoveMagnitudeRatio { get; set; }
 
-        /// <summary>Focuser-frame µm-per-unit implied by the AllInward piston — a free, tilt-fit-independent
-        /// cross-check of <see cref="MeasuredHardwareMicrons"/>. See
+        /// <summary>Focuser-frame µm-per-applied-unit implied by the AllInward piston — a free, tilt-fit-independent
+        /// cross-check of <see cref="MeasuredHardwareMicrons"/>. "PerStep" names the applied unit generically,
+        /// same convention as <see cref="MeasuredHardwareMicrons"/>: it is a turn on thread-pitch (screw)
+        /// adapters, a step on stepper adapters. See
         /// <see cref="TiltCalibrationCalculator.PistonImpliedMicronsPerStep"/>. NaN for 4-step runs (no piston
         /// measured) or runs saved before this field existed.</summary>
         public double PistonImpliedMicronsPerStep { get; set; } = double.NaN;

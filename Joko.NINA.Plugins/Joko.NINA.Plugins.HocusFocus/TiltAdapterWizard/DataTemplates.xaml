@@ -1586,8 +1586,22 @@
                             </StackPanel>
                             <TextBlock Text="Saved" />
                             <TextBlock Text="{Binding SavedHardwareDisplay}" />
-                            <TextBlock Margin="0,2,8,0" Text="{Binding PistonPitchDisplay}" />
                         </UniformGrid>
+
+                        <!--  Self-labeling ("Piston-implied: ...") row, not a label/value pair, so it is a
+                              direct child of this StackPanel rather than another UniformGrid cell.  -->
+                        <TextBlock Margin="0,4,0,0" Text="{Binding PistonPitchDisplay}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasPistonPitch}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
 
                         <Button
                             Margin="0,8,0,2"

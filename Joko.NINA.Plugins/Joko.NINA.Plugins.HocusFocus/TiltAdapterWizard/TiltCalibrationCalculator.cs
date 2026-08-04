@@ -106,8 +106,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         /// is uncomputable.</summary>
         public double PitchUncertaintyMicrons { get; set; }
 
-        /// <summary>Focuser-frame µm-per-unit implied by the AllInward piston — a free, tilt-fit-independent
-        /// third estimate of the same hardware <see cref="MeasuredHardwareMicrons"/> reports. See
+        /// <summary>Focuser-frame µm-per-applied-unit implied by the AllInward piston — a free, tilt-fit-independent
+        /// third estimate of the same hardware <see cref="MeasuredHardwareMicrons"/> reports. "PerStep" names the
+        /// applied unit generically, same convention as <see cref="MeasuredHardwareMicrons"/>: it is a turn on
+        /// thread-pitch (screw) adapters, a step on stepper adapters. See
         /// <see cref="TiltCalibrationCalculator.PistonImpliedMicronsPerStep"/>. NaN for 4-step runs (no piston
         /// measured).</summary>
         public double PistonImpliedMicronsPerStep { get; set; }
@@ -420,15 +422,21 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public static double RecoverHardwareMicrons(TiltCalibrationInputs inputs) => RecoverHardwareDetailed(inputs).measured;
 
         /// <summary>
-        /// Focuser-frame µm-per-unit implied by the AllInward piston: all screws moved by the applied
-        /// amount, so mean best-focus shifts by (applied × unit) / frame-factor. Drift-corrected by
-        /// interpolating the baseline mean to AllInward's time as mid(Baseline, ReBaseline1) — the two
-        /// nominally-identical states that bracket it. This is measured in the SAME (focuser) frame as
-        /// the tilt-derived hardware, so honest values agree; a large gap means the tilt estimator (or
-        /// the mechanics on pull-side moves) is off. NaN for 4-step runs (no piston measured). Unlike
-        /// <see cref="RecoverHardwareMicrons"/>, this needs no sensor geometry at all (no PixelSizeMicrons,
-        /// ImageWidthPixels/Height, or ScrewRadiusMillimeters) — only mean focuser positions, the focuser
-        /// step size, and the applied amount — so it is a genuinely independent probe of the same quantity.
+        /// Focuser-frame µm-per-applied-unit implied by the AllInward piston: all screws moved by the applied
+        /// amount, so mean best-focus shifts by (applied × unit) / frame-factor. "PerStep" names the applied
+        /// unit generically, same convention as <see cref="RecoverHardwareMicrons"/>'s result: a turn on
+        /// thread-pitch (screw) adapters, a step on stepper adapters. Drift-corrected by interpolating the
+        /// baseline mean to AllInward's time as mid(Baseline, ReBaseline1) — the two nominally-identical
+        /// states that bracket it. This is measured in the SAME (focuser) frame as the tilt-derived hardware,
+        /// so honest values agree; a large gap means the tilt estimator (or the mechanics on pull-side moves)
+        /// is off. NaN for 4-step runs (no piston measured). Unlike <see cref="RecoverHardwareMicrons"/>, this
+        /// needs no sensor geometry at all (no PixelSizeMicrons, ImageWidthPixels/Height, or
+        /// ScrewRadiusMillimeters) — only mean focuser positions, the focuser step size, and the applied
+        /// amount — so it is a genuinely independent probe of the same quantity. The result is unsigned
+        /// (<see cref="Math.Abs"/> discards direction) because the piston's sign is derived separately by
+        /// <see cref="ComputeCurvatureSign"/>, which reads the raw <c>Baseline</c> mean directly rather than
+        /// this method's drift-corrected mid(Baseline, ReBaseline1) — a related but not identical reference
+        /// point.
         /// </summary>
         public static double PistonImpliedMicronsPerStep(TiltCalibrationInputs inputs) {
             if (!inputs.HasCurvatureMeasurement || inputs.CalibrationAppliedAmount <= 0 || inputs.FocuserStepMicrons <= 0) {

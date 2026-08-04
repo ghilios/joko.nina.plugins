@@ -599,6 +599,25 @@ public class TiltCalibrationCalculatorTests {
         Assert.That(TiltCalibrationCalculator.PistonImpliedMicronsPerStep(inputs), Is.NaN);
     }
 
+    // Mirrors RecoverHardwareMicrons_ReturnsNaN_OnNonPositiveInputs' TestCase shape for this method's other
+    // two guard branches (CalibrationAppliedAmount and FocuserStepMicrons); HasCurvatureMeasurement's guard
+    // is already covered above.
+    [TestCase(0.0, 0.269)]     // CalibrationAppliedAmount <= 0
+    [TestCase(-150.0, 0.269)]
+    [TestCase(150.0, 0.0)]     // FocuserStepMicrons <= 0
+    [TestCase(150.0, -0.269)]
+    public void PistonImpliedMicronsPerStep_NaN_OnNonPositiveApplicationOrStepSize(
+        double calibrationAppliedAmount, double focuserStepMicrons) {
+        var inputs = new TiltCalibrationInputs {
+            HasCurvatureMeasurement = true,
+            Baseline = new TiltGradient(0, 0, 11283.868653107538),
+            AllInward = new TiltGradient(0, 0, 9995.476157148303),
+            ReBaseline1 = new TiltGradient(0, 0, 11197.706101225354),
+            FocuserStepMicrons = focuserStepMicrons, CalibrationAppliedAmount = calibrationAppliedAmount,
+        };
+        Assert.That(TiltCalibrationCalculator.PistonImpliedMicronsPerStep(inputs), Is.NaN);
+    }
+
     [TestCase(30.0, true, 3, 30.0, 150.0, 270.0, double.NaN)]
     [TestCase(30.0, false, 3, 30.0, 270.0, 150.0, double.NaN)]
     [TestCase(350.0, true, 4, 350.0, 80.0, 170.0, 260.0)]

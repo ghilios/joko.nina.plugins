@@ -2657,6 +2657,77 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             });
         }
 
+        // --- Piston-implied-pitch warning wiring (Task 4) -------------------------------------------------
+
+        // Both piston tests share the same clean screw geometry: Screw1's delta is (0, -g), Screw2's is
+        // (g, 0) with g = 5e-5. A 1x1 isotropic tiltPlaneOverride + unit pixel size/focuser step (see
+        // RunCalibrationForTest below) makes PhysicalDelta byte-identical to these raw (A,B) seeds -- no
+        // forward/inverse conversion needed to reason about the numbers. That gives:
+        //  - equal magnitudes (ratio 1.0, comfortably under the 1.5x MagnitudeRatioWarnThreshold)
+        //  - a clean 90 deg gap (screw count 4's exact expected spacing, no angle warning)
+        //  - CalibrationAppliedAmount defaults to 1 turn (unconfigured options resolve to the VM's "Manual"
+        //    device-preset fallback -- see CalibrationAppliedAmount's getter), and the 4-screw lever arm is
+        //    the screw radius itself, so measured (tilt-derived) hardware = g * radiusMicrons / applied
+        //    = 0.00005 * 44000 / 1 = 2.2 um/turn.
+        // So the only thing that varies between the two tests below is AllInward's mean focuser position,
+        // which drives the piston-implied pitch relative to that fixed 2.2 um/turn -- isolating the piston
+        // check from the angle/magnitude checks (which never contribute a warning part in either case).
+        private static TiltPlaneModel IsotropicPistonWarningTiltPlane() =>
+            new TiltPlaneModel(new System.Drawing.Size(1, 1), fRatio: 7,
+                a: 0, b: 0, c: 0, mean: 1000, focuserStepSizeMicrons: 1,
+                centerPosition: 1000, topLeftPosition: 1000, topRightPosition: 1000,
+                bottomLeftPosition: 1000, bottomRightPosition: 1000);
+
+        [Test]
+        public void RunCalibrationForTest_PistonDisagreesWithMeasuredHardwareBy30Percent_WarnsAndDisplaysPiston() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            // AllInward's mean sits 2.86 focuser units below the Baseline/ReBaseline1 midpoint (both 1000.0,
+            // so there is no drift to correct for): piston = |1000.0 - 997.14| * fStep(1) / applied(1) =
+            // 2.86 um/turn. Relative to measured = 2.2 um/turn, that is a 30% disagreement (2.86 / 2.2 =
+            // 1.3) -- comfortably over the 20% PistonDisagreementWarnThreshold.
+            vm.SeedStepReading(WizardStep.AllInward, 0.0, 0.0, 997.14);
+            vm.SeedStepReading(WizardStep.ReBaseline1, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, 0.00005, 0.0, 1000.0);
+
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasWarning, Is.True);
+                Assert.That(vm.WarningText, Does.Contain(
+                    "piston-implied hardware (2.86 µm) and tilt-derived (2.2 µm) disagree by more than 20% " +
+                    "— the tilt estimate may be unreliable"));
+                Assert.That(vm.PistonPitchDisplay, Is.EqualTo("Piston-implied: 2.9 µm/turn"));
+            });
+        }
+
+        [Test]
+        public void RunCalibrationForTest_PistonAgreesWithMeasuredHardwareWithin20Percent_NoWarning() {
+            var (vm, _, _, _) = Build(screwCount: 4);
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            // Same fixed measured hardware (2.2 um/turn) as the disagreement test above, but AllInward's mean
+            // is only 2.53 focuser units below the Baseline/ReBaseline1 midpoint: piston = 2.53 um/turn, a
+            // 15% relative difference from measured (2.53 / 2.2 = 1.15) -- comfortably under the 20%
+            // threshold without being close to zero, so this is a meaningful negative case, not a trivial one.
+            vm.SeedStepReading(WizardStep.AllInward, 0.0, 0.0, 997.47);
+            vm.SeedStepReading(WizardStep.ReBaseline1, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.0, -0.00005, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, 0.00005, 0.0, 1000.0);
+
+            vm.RunCalibrationForTest(radiusMm: 44, pixelSizeMicrons: 1, focuserStepMicrons: 1,
+                tiltPlaneOverride: IsotropicPistonWarningTiltPlane());
+
+            Assert.Multiple(() => {
+                Assert.That(vm.HasWarning, Is.False);
+                Assert.That(vm.WarningText, Is.Empty);
+                Assert.That(vm.PistonPitchDisplay, Is.EqualTo("Piston-implied: 2.5 µm/turn"));
+            });
+        }
+
         [Test]
         public void ApplyManualCalibrationCommand_SetsCalibrationIsReliableFalse() {
             // A manual entry has no confidence computation to reuse (no per-step tilt vectors) -- conservative
