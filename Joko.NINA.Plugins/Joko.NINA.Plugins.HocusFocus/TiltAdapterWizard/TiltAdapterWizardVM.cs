@@ -1211,6 +1211,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RebaselineDriftWarningText = string.Empty;
             HasConfidenceWarning = false;
             ConfidenceWarningText = string.Empty;
+            curvatureChannelDisagreement = null;
             ClearSummaryRows();
             RaiseHardwareSummaryChanged();
             RebuildDiagram();
@@ -1248,6 +1249,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RebaselineDriftWarningText = string.Empty;
             HasConfidenceWarning = false;
             ConfidenceWarningText = string.Empty;
+            curvatureChannelDisagreement = null;
             ClearSummaryRows();
             RaiseHardwareSummaryChanged();
             RebuildDiagram();
@@ -2061,6 +2063,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RebaselineDriftWarningText = string.Empty;
             HasConfidenceWarning = false;
             ConfidenceWarningText = string.Empty;
+            curvatureChannelDisagreement = null;
             HasWarning = false;
             WarningText = string.Empty;
             HasDeviceLinkDroppedWarning = false;
@@ -2691,6 +2694,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     $"{(TiltScrewGeometry.CwMovesAdapterTowardObjectiveForSign(curvatureSign * FocuserSign) ? "OBJECTIVE" : "CAMERA")}).");
                 tiltAdapterOptions.ScrewInwardCurvatureSign = curvatureSign;
                 tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured = true;
+                curvatureChannelDisagreement = EvaluateCurvatureChannelCrossCheck(a, b, c, e, curvatureSign);
+            } else {
+                curvatureChannelDisagreement = null;
             }
 
             // Screw angles from each move relative to its preceding re-baseline (c→d, e→f).
@@ -2864,9 +2870,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // screw geometry is dominated by measurement noise / between-step drift (typically too few stars or a
         // too-coarse focus step), regardless of how cleanly the screws were turned — warn the user not to apply it.
         private void EvaluateCalibrationConfidence(TiltCalibrationConfidence confidence) {
+            var disagreement = curvatureChannelDisagreement;
             if (confidence == null || confidence.IsReliable) {
-                HasConfidenceWarning = false;
-                ConfidenceWarningText = string.Empty;
+                HasConfidenceWarning = disagreement != null;
+                ConfidenceWarningText = disagreement ?? string.Empty;
                 return;
             }
             HasConfidenceWarning = true;
@@ -2874,7 +2881,75 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 $"Low calibration confidence: signal-to-noise {confidence.SignalToNoise:F1} (need ≥ {TiltCalibrationCalculator.MinReliableSignalToNoise:F0}), " +
                 $"predicted screw-direction error ±{confidence.PredictedAngleUncertaintyDeg:F0}°. The tilt-measurement noise rivals the " +
                 "screw-move signal — usually too few stars or a too-coarse focus step (calibrate on a star-rich field with a finer step), " +
-                "or drift between steps. Re-capture before applying these screw angles.";
+                "or drift between steps. Re-capture before applying these screw angles." +
+                (disagreement == null ? string.Empty : " " + disagreement);
+        }
+
+        // The disagreement text from the last 6-step run's cross-check, or null. Held between
+        // EvaluateCurvatureChannelCrossCheck (which runs early in RunCalibrationMath, where the step readings
+        // are in hand) and EvaluateCalibrationConfidence (which owns the banner).
+        private string curvatureChannelDisagreement;
+
+        /// <summary>
+        /// How many times larger than the drift scale the a→b curvature-effect change must be before a
+        /// disagreement is worth surfacing. The optical channel is usually drift-buried, so this is a coarse
+        /// "obviously bigger than the noise" test, not a statistical one.
+        /// </summary>
+        private const double CurvatureCrossCheckDriftMultiple = 2.0;
+
+        /// <summary>
+        /// WARNING-ONLY cross-check of the measured σ against the OTHER channel (design §2.4, Q3 resolved
+        /// "adopt" by the user 2026-08-04).
+        ///
+        /// σ is measured from the mean best-focus change of the all-screws step — the geometric channel. The
+        /// curvature effect responds to the same piston, and σ is DEFINED as the sign of that response, so the
+        /// two are independent measurements of one quantity: one geometric, one optical. Before the sign fix
+        /// they agreed by construction; corrected, a disagreement is real information.
+        ///
+        /// It NEVER blocks, never prompts, and never changes the stored sign. The optical channel is usually
+        /// buried in secular drift (in the reference session Kx slid monotonically across all six steps,
+        /// including pure-tilt moves that changed no spacing), so it must not be allowed to veto the robust
+        /// channel — which also means a quiet panel is weak evidence of agreement, not proof of it. Hence the
+        /// scale test: the change must clear <see cref="CurvatureCrossCheckDriftMultiple"/>× the drift seen
+        /// across the two re-baselines, which is the only per-run estimate of that drift available.
+        ///
+        /// Reads no focuser convention: both channels are z-space, so k is irrelevant here by construction.
+        /// </summary>
+        /// <returns>The warning text, or null when the channels agree or the change is within the noise.</returns>
+        private static string EvaluateCurvatureChannelCrossCheck(
+                StepReading baseline, StepReading allInward, StepReading reBaseline1, StepReading reBaseline2, int measuredSign) {
+            double deltaE = allInward.CurvatureEffectAtScrewRadiusMicrons - baseline.CurvatureEffectAtScrewRadiusMicrons;
+            if (!double.IsFinite(deltaE) || deltaE == 0.0 || measuredSign == 0) {
+                return null;
+            }
+
+            // The re-baselines return the adapter to a previously-held state, so any curvature-effect change
+            // across them is drift, not signal. RMS of the two, mirroring ComputeConfidence's noise estimate.
+            double drift1 = reBaseline1.CurvatureEffectAtScrewRadiusMicrons - baseline.CurvatureEffectAtScrewRadiusMicrons;
+            double drift2 = reBaseline2.CurvatureEffectAtScrewRadiusMicrons - reBaseline1.CurvatureEffectAtScrewRadiusMicrons;
+            if (!double.IsFinite(drift1) || !double.IsFinite(drift2)) {
+                return null;
+            }
+            double driftScale = Math.Sqrt((drift1 * drift1 + drift2 * drift2) / 2.0);
+
+            bool agrees = Math.Sign(deltaE) == Math.Sign(measuredSign);
+            bool clearsNoise = Math.Abs(deltaE) > CurvatureCrossCheckDriftMultiple * driftScale;
+            if (agrees || !clearsNoise) {
+                return null;
+            }
+
+            string text =
+                $"Direction cross-check disagrees: the all-screws step moved the curvature effect at screw radius by " +
+                $"{deltaE:+0.0;-0.0} µm (re-baseline drift ≈ {driftScale:F1} µm), which implies the opposite adapter direction " +
+                $"from the mean best-focus measurement that set ScrewInwardCurvatureSign = {measuredSign:+0;-0}. The mean-focus " +
+                "channel is the more robust of the two and has been kept; this is informational. If corrections turn out to " +
+                "make aberrations worse, re-run the 6-step calibration on a star-rich field.";
+            Logger.Warning(
+                $"Tilt calibration: curvature-effect cross-check disagrees with the measured direction. " +
+                $"ΔE(a→b) = {deltaE:+0.0;-0.0} µm at screw radius, re-baseline drifts {drift1:+0.0;-0.0} / {drift2:+0.0;-0.0} µm " +
+                $"(RMS {driftScale:F1}); measured ScrewInwardCurvatureSign = {measuredSign:+0;-0}. The stored sign is unchanged — " +
+                "the mean-focus channel is the robust one (see docs/focuser-direction-convention-design.md §2.4).");
+            return text;
         }
 
         private StepReading Reading(WizardStep step) =>
@@ -2883,8 +2958,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // Test seam: seeds a step reading with the fields the calibration math consumes, so unit tests can
         // exercise NextStep/RunCalibrationMath without running the inspector. StepReading and stepReadings
         // stay private — this is the only external write path.
-        internal void SeedStepReading(WizardStep step, double a, double b, double mean) {
-            stepReadings[step] = new StepReading { A = a, B = b, Mean = mean };
+        internal void SeedStepReading(WizardStep step, double a, double b, double mean,
+                double curvatureEffectAtScrewRadiusMicrons = 0.0) {
+            stepReadings[step] = new StepReading {
+                A = a,
+                B = b,
+                Mean = mean,
+                CurvatureEffectAtScrewRadiusMicrons = curvatureEffectAtScrewRadiusMicrons
+            };
         }
 
         // Test seam: set the abandoned-run latch directly, so a test can prove StartAsync clears it WITHOUT

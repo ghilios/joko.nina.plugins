@@ -2677,6 +2677,101 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             options.DidNotReceive().MeasureCurvatureDuringCalibration = Arg.Any<bool>();
         }
 
+        // ---- Warning-only curvature-channel cross-check (design §2.4) --------------------------------------
+        //
+        // σ is measured from the mean best-focus change (geometric channel). The curvature effect responds to
+        // the same piston and σ is DEFINED as the sign of that response, so the two are now independent
+        // measurements of one quantity. A large, contradicting curvature change is worth surfacing — but only
+        // as information: the optical channel is usually drift-buried and must never veto the robust one, nor
+        // change the stored sign.
+
+        // Seeds a 6-step run whose mean-focus channel always measures σ = +1 (all-inward mean 990 < baseline
+        // 1000), with the curvature effect at screw radius supplied per step so the cross-check has a signal
+        // and a drift scale to compare it against.
+        private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options) RunSixStepWithCurvature(
+                double baselineE, double allInwardE, double reBaseline1E, double reBaseline2E) {
+            var (vm, options, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(true));
+            vm.StartCommand.Execute(null);
+
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, baselineE);
+            vm.SeedStepReading(WizardStep.AllInward, 0.0, 0.0, 990.0, allInwardE);
+            vm.SeedStepReading(WizardStep.ReBaseline1, 0.0, 0.0, 1000.0, reBaseline1E);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0, reBaseline1E);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0, reBaseline2E);
+            vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0, reBaseline2E);
+
+            for (int i = 0; i < 6; i++) {
+                vm.NextStep();
+            }
+            return (vm, options);
+        }
+
+        [Test]
+        public void CurvatureCrossCheck_ChannelsAgree_NoWarning() {
+            // σ = +1 from the mean-focus channel; the curvature effect rose by +100 µm on the same step, which
+            // is what σ = +1 means by definition. Nothing to report.
+            var (vm, _) = RunSixStepWithCurvature(baselineE: -400, allInwardE: -300, reBaseline1E: -395, reBaseline2E: -390);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Complete));
+                Assert.That(vm.HasConfidenceWarning, Is.False);
+                Assert.That(vm.ConfidenceWarningText, Is.Empty);
+            });
+        }
+
+        [Test]
+        public void CurvatureCrossCheck_ContradictingButWithinDrift_NoWarning() {
+            // The curvature effect moved the "wrong" way, but only by 6 µm against re-baseline drifts of 20
+            // and 25 µm — exactly the drift-buried regime the reference session showed. Staying quiet here is
+            // the point: a noisy optical channel must not cast doubt on the robust one.
+            var (vm, _) = RunSixStepWithCurvature(baselineE: -400, allInwardE: -406, reBaseline1E: -380, reBaseline2E: -355);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Complete));
+                Assert.That(vm.HasConfidenceWarning, Is.False);
+            });
+        }
+
+        [Test]
+        public void CurvatureCrossCheck_ContradictingAndLarge_WarnsWithoutChangingTheSign() {
+            // A 150 µm move the wrong way against ~5 µm of re-baseline drift. Surface it — and keep the
+            // measured sign exactly as the mean-focus channel set it.
+            var (vm, options) = RunSixStepWithCurvature(baselineE: -400, allInwardE: -550, reBaseline1E: -404, reBaseline2E: -398);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Complete));
+                Assert.That(vm.HasConfidenceWarning, Is.True);
+                Assert.That(vm.ConfidenceWarningText, Does.Contain("cross-check"));
+                Assert.That(vm.ConfidenceWarningText, Does.Contain("informational"));
+                // Warning-only: the stored sign is still the mean-focus channel's verdict.
+                options.Received().ScrewInwardCurvatureSign = 1;
+                options.Received().ScrewInwardCurvatureSignIsMeasured = true;
+                options.Received().IsCalibrated = true;
+            });
+        }
+
+        [Test]
+        public void CurvatureCrossCheck_FourStepRun_NeverWarns() {
+            // No all-screws step ⇒ no curvature channel to compare against, and the configured sign is left
+            // untouched anyway.
+            var (vm, _, _, _) = Build(configureOptions: o => o.MeasureCurvatureDuringCalibration.Returns(false));
+            vm.StartCommand.Execute(null);
+
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0, -400);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0, -400);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 1000.0, -400);
+            vm.SeedStepReading(WizardStep.Screw2, -0.25, 0.433, 1000.0, -400);
+
+            for (int i = 0; i < 4; i++) {
+                vm.NextStep();
+            }
+
+            Assert.Multiple(() => {
+                Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Complete));
+                Assert.That(vm.HasConfidenceWarning, Is.False);
+            });
+        }
+
         // ---- The focuser-direction setting k is display-only (design §2.2) ---------------------------------
 
         [Test]
