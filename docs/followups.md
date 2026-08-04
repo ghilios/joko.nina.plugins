@@ -514,7 +514,7 @@ is not, the candidate is a faint-end statistic (e.g. the SNR at the star count t
 than a fixed rank.
 
 ### F20 — Below `MinHFR` the autofocus objective collapses to exactly zero, with no diagnostic
-**Status:** Open — **part 2 done, part 1 outstanding** · found 2026-08-02 running `optimize --per-run` over the
+**Status:** Done (parts 1 and 2) · found 2026-08-02 running `optimize --per-run` over the
 synthetic AF bank
 
 > **Where this stands after wave 3.** The two halves of this entry's fix have diverged and the entry should not
@@ -523,11 +523,24 @@ synthetic AF bank
 > - **Part 2, "seed out of the plateau": DONE** via [F35](#f35--minhfr-should-be-seeded-from-the-sweep-wings-and-neither-available-hfr-statistic-can-size-it).
 >   D01 and D02 go from `FinalJ` exactly 0 to real landings; 14/17 synthetic and 19/19 real landings are
 >   bit-identical to the control.
-> - **Part 1, "report it": NOT DONE — and it is this entry's actual title.** Nothing user-facing still says
->   "your stars are smaller than the minimum HFR". TestApp prints a seeding line; the **wizard says nothing**.
->   The blocker named below is unchanged: `TooLowHFR` is one of the four `RejectionGate` constants with **no
->   `*Bounds` rect list**, so it is not reachable at the seam that already reads `LowSensitivity`/`TooFlat`.
->   This is still reporting **plus** one new counter.
+> - **Part 1, "report it": DONE (wave 4)** — and the blocker this entry named was not the blocker.
+>   `UndersampledStarsChartNote` now states the measured in-focus HFR, the gate it fell under, and the binning
+>   that relates them, as an italic warning above the focus curve (`Optimization/DataTemplates.xaml`), plus
+>   `FrameTooLowHFRCounts` through the optimizer.
+>
+>   **The `*Bounds` framing was a red herring.** The seam that reads `LowSensitivity`/`TooFlat`
+>   (`RunEvaluationLoader.cs:334-335`) reads **int properties** — `Metrics?.LowSensitivity ?? 0` — and
+>   `StarDetectorMetrics.TooLowHFR` is already exactly such an int (`IStarDetector.cs:755`), already incremented
+>   unconditionally (`StarDetector.cs:1895`), already merged across threads (`IStarDetector.cs:832`), and
+>   **already rendered in `AutoFocus/DataTemplates.xaml:1062-1074` as "HFR Too Low"**. Whether a gate owns a
+>   `*Bounds` rect list has nothing to do with reachability at that seam. So the project invariant about new
+>   `StarDetectorMetrics` fields was **already satisfied**, and the real work was the optimizer-side hop
+>   (`FrameDetectionResult` → `RunEvaluationMetrics`) — four edit sites across three files, not a detector change.
+>
+>   Deliberately **not** folded into the "Star signal" block: its doc comment (`VM:227-248`) scopes it to the
+>   *Sensitivity* gate, and this is a different gate with a different remedy. It is a sibling note instead, and
+>   both can be visible at once. The trigger is `MinHfrSeed.IsBelowGate`, shared with the seed so the message and
+>   the seeding decision cannot drift apart.
 > - **The real-bank claim below is disproven** (see the correction under Evidence). What reproduces on real rigs
 >   is the *symptom*, not the cause.
 
@@ -1072,6 +1085,124 @@ precision exactly (that is real and now verified), but it does not currently exh
 landing's Sensitivity is quoted, so a `mccomiskey`-shaped landing is not read as a floor landing. (2) Decide
 deliberately whether the bank should grow a dataset class that reproduces the shedding regime — and until it does,
 score every candidate objective change on **both** banks, never the synthetic one alone.
+
+**Part 2 DECIDED (wave 4): yes, and the mechanism is not what this entry assumes.** The synthetic bank does not
+fail to shed because its *render* differs from real frames. Measured with `golden eval` at ~40 s per arm, the
+detector's response to the gate is much the same at any density:
+
+| dataset | recall@high, Sensitivity 10 | Sensitivity 50 | high-tier stars surviving at 50 |
+|---|---|---|---|
+| `D04_esprit_550mm` (dense) | 0.762 | **0.208** | **4591** |
+| `D16_esprit550_ha3` (sparse) | 0.821 | **0.130** | **24** across 9 frames |
+
+Precision is **1.000 and FP is 0 on every arm** — everything shed is a real star. What density changes is not
+whether the detector *will* shed but whether the optimizer can **afford** to: D04 keeps thousands of stars and
+still clears `NHard = 3` on every frame, so the search can climb to a shedding operating point and score it; D16
+falls to ~2.7 stars/frame, `J` goes to 0, and the search is repelled. The synthetic bank's median min-frame
+detection count is **7** against the real bank's **37**, and only 2 of 17 datasets clear 100.
+
+So the missing ingredient is **headroom above the hard floor**, and it is a spec-level property — density is set
+by `limitingMagnitude` and pointing against a real Gaia/ASTAP catalog, not by generator code.
+
+**Shipped:** three rows in `synthetic-bank-spec.json` — `D18_m24_deep_shed` (M24 at limiting mag 15.5, 27084
+on-frame stars), `D19_cygnus_deep_shed` (a second optic and field so no finding rests on one geometry), and
+`D20_m24_bright_control` (the same rig and field at limiting mag 12.0: dense enough to have the headroom, but
+bright-dominated, so there is no faint near-threshold tail whose membership changes with focus). **The control
+was designed before the experiment** — wave 3's D05 lesson — and it isolates the faint tail from mere density: if
+D20 sheds too, the faint-tail mechanism is refuted and density alone explains the regime.
+
+**Acceptance criterion, fixed before generation so it cannot be moved afterwards:** a row earns its place only if
+at config A it reaches median trade rate **≤ −10** recall-points per unit `J` with **keep% < 80%**, at precision
+**≥ 0.99**. D20 must NOT meet it.
+
+**Why this is worth spending anything on:** only the synthetic bank knows the **true optimal focuser position**
+(`optimalFocuserPosition` is a spec input). So only it can answer whether shedding bought *real focus accuracy*
+or merely a smaller **self-reported** σ from a fit with fewer, better-behaved points — the crux of F32 and F4,
+currently unanswerable on either bank.
+
+### F38 — The `MinHFR` seed trigger compares a captured-pixel vertex against a binned-pixel gate
+**Status:** Done (wave 4) · found 2026-08-04 checking F20 part 1's trigger before reusing it for user-facing copy
+
+`MinHfrSeed.Resolve(fitVertexHfr, currentMinHfr)` compared two numbers that are not in the same space. The gate
+fires **inside the binned raster** — `if (star.HFR <= p.MinHFR)` at `StarDetector.cs:1894`, over the `BinMean`
+output — while every HFR the detector *reports* has already been scaled back to source pixels at `:805-808`
+(`ScaleToSourcePixels` multiplies HFR by the factor, `CvImageUtility.cs:818`). That rescaled value is what flows
+to `AverageHFR` → the hyperbola → `BestFit.Minimum.Y`. Nothing divided the factor back out.
+
+**The entry's own doc comment defended the wrong half.** `MinHfrSeed` argued the comparison was safe because
+"from the software-binning stage onward the whole pipeline runs in binned pixels" (`StarDetector.cs:483-486`).
+That sentence is about the **right-hand** operand, and its very next clause says the other half: "GateAndMeasure­Internal
+scales every pixel-space output back to source pixels before returning, **so callers never see binned units**."
+`MinHfrSeed` is exactly such a caller. The detector is careful about this elsewhere — `RejectedCandidateRecord`'s
+`MeasuredValue`/`ThresholdValue` are deliberately *not* rescaled because they are "the gate's own comparison pair"
+and "must stay in the same space" (`StarDetector.cs:847-857`). This was a gate comparison pair that was not.
+
+**Direction: missed seeds only, never spurious.** `{h ≤ G} ⊂ {h ≤ N·G}`, so every seed that fired was one the
+correct rule also fires. Sound but incomplete — no risk of lowering a gate that did not need lowering.
+
+**The silent window**, at the shipped `MinHFR = 1.2` and `N = 2`: a captured vertex in **(1.2, 2.4]** px. The
+rig's near-focus frames really are being emptied by `TooLowHFR`, but the *wing* frames still fit, so
+`BestFit.Minimum.Y` is finite and the rule takes the **"the rig's stars clear the gate; leave it alone (the D05
+case)"** branch on a rig that emphatically does not. It then prints nothing, because the seed simply never fires.
+
+**Reach — and why no F35 number is invalidated.** TestApp `optimize` never sets `DetectionBinning`
+(`ApplyAfContext` writes only PixelScale/Region/ModelPSF/paths), so it runs at the `StarDetectorParams` default
+of **1**, where both spaces coincide. The entire F35 evidence base — 17 synthetic datasets, 19 real runs, the D01
+firing, the D05 control — was produced at N = 1 and stands unchanged. The bug is **latent headless and ACTIVE in
+the wizard**, which stamps the user's real profile/per-filter factor via `ApplyDetectionImageContext`
+(`HocusFocusStarDetection.cs:573-574`) — i.e. it bites the actual product, on exactly the undersampled population
+F20/F35 exist to rescue.
+
+**Shipped:** `Resolve` and the new shared `MinHfrSeed.IsBelowGate` take the factor explicitly, so the mixed-unit
+comparison cannot recur silently, and F20 part 1's message reuses `IsBelowGate` rather than re-deriving it.
+`MinHfrSeedTests` had **zero binning coverage**, which is why this survived wave 3; it now has four discriminating
+cases, confirmed failing with the division reverted.
+
+**Lesson.** The first version of that coverage was five tests of which only **one** failed when the fix was
+reverted — the other four asserted behaviour identical with and without it. Wave 3's rule ("a regression test that
+passes either way is worth nothing") applies to a *set* of tests too: count the ones that discriminate, not the
+ones you wrote.
+
+### F39 — The harness records a detection binning the run never applied, and 7 datasets have never run at theirs
+**Status:** Open · found 2026-08-04 checking whether the banks differ in binning
+
+Every `harness_settings.json` in the synthetic bank says `"DetectionBinning": "Bin2"`; every real run says
+`Bin1`. That looks like a systematic difference between the banks that could explain F33 outright. **It is not,
+because the value is inert on the headless path** — but two real defects sit underneath it.
+
+**1. The recorded value is not the value used.** Nothing reads `harness_settings.json`'s `DetectionBinning` back
+into `StarDetectorParams`. `BuildStarDetectorParams` / `BuildDefaultStarDetectorParams` never map it; only
+`ApplyDetectionImageContext` does, and the headless runners never call it. `OptimizationDiagnosticRunner.cs:443`
+calls `HarnessSettingsStore.ResolveForRun(...)` and **discards the returned value** — it is a pure write
+side-effect. So every `optimize --per-run` and every `golden eval` over both banks ran at the default of **1**,
+and the file on disk claims otherwise. Anyone reproducing a run from that file gets the wrong binning.
+
+**2. The derivation never ran, on any dataset.** `ResolveForRun` derives the factor from
+`RecommendFromHfr(inFocusHfrPixels)` only when the run has an `autofocus_report_Region0.json` carrying a fitted
+minimum. No synthetic bank folder has one, so all 17 fell to "kept from base" and inherited `Bin2` from a profile
+export — every one of them says so in its own `DerivedNotes`: *"DetectionBinning kept from base (no fitted
+in-focus HFR for this dataset)"*.
+
+And it is **circular on exactly the datasets that matter most**: the derivation needs a fitted in-focus HFR, and
+D01/D02 have none *because the `MinHFR` gate zeroed the curve* — the very defect F20/F35 are about.
+
+**3. The consequence: an axis of the bank has never been exercised.** `expectedOptimal.detectionBinning = 2` for
+**D08, D09, D10, D12, D14, D15, D17** — seven datasets — and all seven have only ever been scored at 1.
+`D08_c11_2800mm`'s spec description calls it *"the first detectionBinning=2 dataset (in-focus HFR crosses the
+`DetectionBinningResolver` threshold)"*. It has never been one. Note this is also the population
+[F38](#f38--the-minhfr-seed-trigger-compares-a-captured-pixel-vertex-against-a-binned-pixel-gate) would bite on,
+so the bank cannot currently regression-test that fix either.
+
+**Why it matters.** No prior measurement is invalidated — the factor was a uniform 1 across every arm, so all
+A/B comparisons remain internally valid, and this is a provenance and coverage defect rather than a numbers
+defect. But it means the bank silently does not test what it says it tests, and a file that records settings a
+run did not use is worse than one that records nothing.
+
+**Next step.** Deliberately **not fixed inline**: making the headless path honour a per-run binning changes every
+synthetic number at once and would re-baseline the bank mid-wave. Two separable pieces. (a) Stop writing a
+derived-looking value that was not derived — either omit the field or mark it `kept-from-base` in the file
+itself, not only in `DerivedNotes`. (b) Decide whether the seven `detectionBinning = 2` datasets should be run at
+their expected factor, which is a re-baseline and needs its own arm.
 
 ### F35 — `MinHFR` should be seeded from the sweep WINGS, and neither available HFR statistic can size it
 **Status:** Done (wave 3) · found 2026-08-03 answering "how far can `MinHFR` safely come down?" for
