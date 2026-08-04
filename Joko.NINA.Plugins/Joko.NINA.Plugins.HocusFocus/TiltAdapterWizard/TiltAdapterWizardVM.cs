@@ -2716,15 +2716,58 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 curvatureChannelDisagreement = null;
             }
 
-            // Screw angles from each move relative to its preceding re-baseline (c→d, e→f).
-            double d1A = d.A - c.A, d1B = d.B - c.B;
-            double d2A = f.A - e.A, d2B = f.B - e.B;
-            var (s1, s2, s3, s4, rawDiff) = TiltCalibrationCalculator.ComputeScrewAngles(d1A, d1B, d2A, d2B, screwCount);
+            calibrationScrewRadiusMm = radiusMm;
+            calibrationPixelSizeMicrons = pixelSize;
+            calibrationFocuserStepMicrons = fStep;
 
-            tiltAdapterOptions.Screw1AngleDegrees = s1;
-            tiltAdapterOptions.Screw2AngleDegrees = s2;
-            tiltAdapterOptions.Screw3AngleDegrees = s3;
-            tiltAdapterOptions.Screw4AngleDegrees = s4;
+            // RunCalibrationMath is the SINGLE production consumer of TiltCalibrationCalculator.Calibrate: one
+            // TiltCalibrationInputs, one Calibrate() call, feeding the screw angles, raw gap/ratio, recovered
+            // hardware, and confidence alike. Do not hand-mirror any of that math back into this method — it
+            // used to (separate inline (A,B) angle/ratio algebra plus a separate RecoverHardwareDetailed call),
+            // which is exactly why the F2 physical-gradient-space fix didn't reach the wizard's persisted
+            // Screw1..4AngleDegrees or the "unequal tilt changes" warning until this refactor. Tasks 3-6 add
+            // fields to Calibrate's inputs/result; wiring them here (not duplicating them) is what makes them
+            // reach production automatically.
+            var model = CalibrationTiltPlane;
+            // A model-less run (e.g. a seeded/test-only run with no live/replayed tilt plane) has no known
+            // sensor size; fall back to a square 1x1 pseudo-sensor so the angle/ratio/confidence conversion
+            // stays isotropic instead of aspect-distorted. Every real (live or replayed) run has a model by the
+            // time this method is reached, so production calibrations always get their true geometry here — the
+            // fallback exists for test/degenerate inputs, not as a supported production mode. NOTE: hardware
+            // recovery (µm/turn) uses this SAME inputs object, so a hypothetical caller with a null model but
+            // otherwise-real pixelSize/fStep/radiusMm/appliedAmount would get a non-NaN but physically-meaningless
+            // µm/turn from the 1x1 fake sensor rather than the pre-refactor NaN; no current caller hits this
+            // combination (every RunCalibrationForTest scenario that omits a tiltPlaneOverride also leaves
+            // pixelSize/fStep at 0 from the unconfigured test profile, so RecoverHardwareDetailed's own
+            // radius/applied/pixelSize/fStep guard already returns NaN before geometry size matters).
+            double imageWidthPixels = model?.ImageSize.Width ?? 1;
+            double imageHeightPixels = model?.ImageSize.Height ?? 1;
+            var inputs = new TiltCalibrationInputs {
+                ScrewCount = screwCount,
+                // 4-step runs never measured Baseline/AllInward as curvature probes: leave them default —
+                // the calculator ignores them when HasCurvatureMeasurement is false (c carries the baseline).
+                Baseline = measuredCurvature ? new TiltGradient(a.A, a.B, a.Mean) : default,
+                AllInward = measuredCurvature ? new TiltGradient(b.A, b.B, b.Mean) : default,
+                ReBaseline1 = new TiltGradient(c.A, c.B, c.Mean),
+                Screw1 = new TiltGradient(d.A, d.B, d.Mean),
+                ReBaseline2 = new TiltGradient(e.A, e.B, e.Mean),
+                Screw2 = new TiltGradient(f.A, f.B, f.Mean),
+                HasCurvatureMeasurement = measuredCurvature,
+                FallbackCurvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign,
+                ImageWidthPixels = imageWidthPixels,
+                ImageHeightPixels = imageHeightPixels,
+                PixelSizeMicrons = pixelSize,
+                FocuserStepMicrons = fStep,
+                ScrewRadiusMillimeters = radiusMm,
+                CalibrationAppliedAmount = appliedAmount,
+                IsStepperAdjustment = isStepper
+            };
+            var result = TiltCalibrationCalculator.Calibrate(inputs);
+
+            tiltAdapterOptions.Screw1AngleDegrees = result.Screw1AngleDegrees;
+            tiltAdapterOptions.Screw2AngleDegrees = result.Screw2AngleDegrees;
+            tiltAdapterOptions.Screw3AngleDegrees = result.Screw3AngleDegrees;
+            tiltAdapterOptions.Screw4AngleDegrees = result.Screw4AngleDegrees;
             if (tiltAdapterOptions.ScrewCount != screwCount) {
                 tiltAdapterOptions.ScrewCount = screwCount; // replaying a run captured with a different screw count
             }
@@ -2738,77 +2781,26 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // calibration — err toward clearing whenever the run wasn't a fresh connected hands-off run.
             tiltAdapterOptions.DeviceLinkedCalibrationDeviceName = deviceDriven ? tiltAdapterOptions.DeviceName : string.Empty;
 
-            lastRawAngleDiff = rawDiff;
-            lastMoveMagnitudeRatio = TiltCalibrationCalculator.MoveMagnitudeRatio(d1A, d1B, d2A, d2B);
-            ValidateCalibrationQuality(rawDiff, lastMoveMagnitudeRatio, screwCount);
+            lastRawAngleDiff = result.RawAngleDiffDegrees;
+            lastMoveMagnitudeRatio = result.MoveMagnitudeRatio;
+            ValidateCalibrationQuality(lastRawAngleDiff, lastMoveMagnitudeRatio, screwCount);
 
-            // Recover the adapter hardware (µm/turn or µm/step).
+            // Recover the adapter hardware (µm/turn or µm/step) — Calibrate computes this via the same
+            // RecoverHardwareDetailed math this method used to call directly; only assign the persisted
+            // "last measured" option when it's a real (non-NaN) recovery.
             measuredHardwareMicrons = double.NaN;
-            lastConfidence = null;
-            pitchUncertaintyMicrons = double.NaN;
-            calibrationScrewRadiusMm = radiusMm;
-            calibrationPixelSizeMicrons = pixelSize;
-            calibrationFocuserStepMicrons = fStep;
-
-            var model = CalibrationTiltPlane;
-            if (model != null) {
-                var inputs = new TiltCalibrationInputs {
-                    ScrewCount = screwCount,
-                    // 4-step runs never measured Baseline/AllInward as curvature probes: leave them default —
-                    // the calculator ignores them when HasCurvatureMeasurement is false (c carries the baseline).
-                    Baseline = measuredCurvature ? new TiltGradient(a.A, a.B, a.Mean) : default,
-                    AllInward = measuredCurvature ? new TiltGradient(b.A, b.B, b.Mean) : default,
-                    ReBaseline1 = new TiltGradient(c.A, c.B, c.Mean),
-                    Screw1 = new TiltGradient(d.A, d.B, d.Mean),
-                    ReBaseline2 = new TiltGradient(e.A, e.B, e.Mean),
-                    Screw2 = new TiltGradient(f.A, f.B, f.Mean),
-                    HasCurvatureMeasurement = measuredCurvature,
-                    FallbackCurvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign,
-                    ImageWidthPixels = model.ImageSize.Width,
-                    ImageHeightPixels = model.ImageSize.Height,
-                    PixelSizeMicrons = pixelSize,
-                    FocuserStepMicrons = fStep,
-                    ScrewRadiusMillimeters = radiusMm,
-                    CalibrationAppliedAmount = appliedAmount,
-                    IsStepperAdjustment = isStepper
-                };
-                var (measured, hwDelta1, hwDelta2) = TiltCalibrationCalculator.RecoverHardwareDetailed(inputs);
-                pitchUncertaintyMicrons = double.IsNaN(hwDelta1) ? double.NaN : Math.Abs(hwDelta1 - hwDelta2) / 2.0;
-                if (!double.IsNaN(measured)) {
-                    measuredHardwareMicrons = measured;
-                    if (isStepper) {
-                        tiltAdapterOptions.LastMeasuredStepperStepSizeMicrons = measured;
-                    } else {
-                        tiltAdapterOptions.LastMeasuredThreadPitchMicrons = measured;
-                    }
+            pitchUncertaintyMicrons = result.PitchUncertaintyMicrons;
+            if (!double.IsNaN(result.MeasuredHardwareMicrons)) {
+                measuredHardwareMicrons = result.MeasuredHardwareMicrons;
+                if (isStepper) {
+                    tiltAdapterOptions.LastMeasuredStepperStepSizeMicrons = result.MeasuredHardwareMicrons;
+                } else {
+                    tiltAdapterOptions.LastMeasuredThreadPitchMicrons = result.MeasuredHardwareMicrons;
                 }
             }
 
             EvaluateRebaselineDrift();
-            // ComputeConfidence now converts to physical gradient space (F2 fix) and so needs real sensor
-            // geometry, same as the hardware-recovery inputs above. Reuse the model's image size when a live/
-            // replayed tilt plane produced one; when it didn't (e.g. a seeded/test-only run with no model), fall
-            // back to a square 1x1 pseudo-sensor so the conversion stays isotropic (ratio-preserving) rather than
-            // aspect-distorted. If pixelSize/fStep are ALSO unavailable (fully geometry-less, e.g. an unconfigured
-            // test profile), PhysicalDelta's own fallback degrades further to the raw (A,B) delta — see its doc
-            // comment — instead of dividing by zero into a NaN that could get misread as "zero noise".
-            double confImageWidthPixels = model?.ImageSize.Width ?? 1;
-            double confImageHeightPixels = model?.ImageSize.Height ?? 1;
-            lastConfidence = TiltCalibrationCalculator.ComputeConfidence(new TiltCalibrationInputs {
-                ScrewCount = screwCount,
-                Baseline = measuredCurvature ? new TiltGradient(a.A, a.B, a.Mean) : default,
-                AllInward = measuredCurvature ? new TiltGradient(b.A, b.B, b.Mean) : default,
-                ReBaseline1 = new TiltGradient(c.A, c.B, c.Mean),
-                Screw1 = new TiltGradient(d.A, d.B, d.Mean),
-                ReBaseline2 = new TiltGradient(e.A, e.B, e.Mean),
-                Screw2 = new TiltGradient(f.A, f.B, f.Mean),
-                HasCurvatureMeasurement = measuredCurvature,
-                FallbackCurvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign,
-                ImageWidthPixels = confImageWidthPixels,
-                ImageHeightPixels = confImageHeightPixels,
-                PixelSizeMicrons = pixelSize,
-                FocuserStepMicrons = fStep
-            });
+            lastConfidence = result.Confidence;
             EvaluateCalibrationConfidence(lastConfidence);
             // [CRITICAL GATE] Persist the confidence result as the automation-trust marker — the second half
             // of the automation gate alongside DeviceLinkedCalibrationDeviceName above. Unlike that marker,

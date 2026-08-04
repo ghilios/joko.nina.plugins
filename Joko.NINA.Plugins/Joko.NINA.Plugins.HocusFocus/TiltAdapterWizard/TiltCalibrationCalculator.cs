@@ -143,13 +143,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         /// <summary>Screw-move delta in physical gradient space (µm focus travel per µm of sensor
         /// displacement). Angles and magnitude ratios MUST be computed here, not in (A,B) space —
         /// A and B are per-normalized-coordinate and distort directions on non-square sensors.
-        /// When the caller hasn't populated real sensor/focuser geometry (ImageWidthPixels,
-        /// ImageHeightPixels, PixelSizeMicrons, FocuserStepMicrons all default to 0), there is no physical
-        /// space to convert into — degrade to the raw (A,B) delta (the pre-F2-fix behavior) rather than
-        /// divide by zero into NaN. This keeps geometry-agnostic callers (pure ratio/angle algebra tests,
-        /// a calibration step run with no known sensor size) well-defined instead of silently producing NaN,
-        /// which downstream (e.g. <see cref="ComputeConfidence"/>'s SNR) would otherwise risk being
-        /// mis-signaled as "zero noise" / infinite reliability.</summary>
+        ///
+        /// Production callers (the wizard's <c>TiltAdapterWizardVM.RunCalibrationMath</c>, TestApp's headless
+        /// validator) are expected to ALWAYS populate real sensor/focuser geometry (ImageWidthPixels,
+        /// ImageHeightPixels, PixelSizeMicrons, FocuserStepMicrons) — that is what makes this function's output
+        /// physically meaningful and is the entire point of the F2 fix. When geometry is left at its default
+        /// (all 0, e.g. a pure ratio/angle algebra unit test, or a test-only calibration run with no tilt-plane
+        /// model to read image size from), there is no physical space to convert into: this degrades to the raw
+        /// (A,B) delta (the pre-F2-fix behavior) rather than dividing by zero into NaN, so those geometry-less
+        /// callers stay well-defined instead of silently producing NaN — which downstream (e.g.
+        /// <see cref="ComputeConfidence"/>'s SNR) would otherwise risk being mis-signaled as "zero noise" /
+        /// infinite reliability. This degrade path is a test/degenerate-input affordance ONLY, not a supported
+        /// production mode: a real calibration with genuinely missing geometry should be treated as a bug to
+        /// fix at the call site, not silently tolerated here.</summary>
         internal static (double gx, double gy) PhysicalDelta(TiltGradient to, TiltGradient from, TiltCalibrationInputs inputs) {
             double dA = to.A - from.A;
             double dB = to.B - from.B;
