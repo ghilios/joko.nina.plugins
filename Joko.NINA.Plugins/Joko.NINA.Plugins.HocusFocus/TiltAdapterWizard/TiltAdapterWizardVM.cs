@@ -1391,9 +1391,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             lastConfidence == null ? string.Empty :
             $"Signal-to-noise {lastConfidence.SignalToNoise:F1} · screw-direction ±{lastConfidence.PredictedAngleUncertaintyDeg:F0}°";
 
+        // Precision follows MeasuredHardwareDisplay's convention rather than a fixed "F0". On a stepper the
+        // whole quantity lives near 1 µm/step, so "F0" rounded the screw-to-screw spread to a flat "± 0" --
+        // and that spread is the single most diagnostic number the calibration produces: it is what separates
+        // "both screws agree" from "one screw's move was measured badly and the mean is hiding it".
         public string PitchUncertaintyDisplay =>
             double.IsNaN(pitchUncertaintyMicrons) ? string.Empty :
-            $"± {pitchUncertaintyMicrons:F0} µm/{(IsStepperAdjustment ? "step" : "turn")}";
+            IsStepperAdjustment ? $"± {pitchUncertaintyMicrons:0.###} µm/step"
+            : $"± {pitchUncertaintyMicrons:0.#} µm/turn";
 
         // Piston-implied pitch (frame-factor probe): a free, tilt-fit-independent hardware estimate from the
         // AllInward piston alone (see TiltCalibrationCalculator.PistonImpliedMicronsPerStep). NaN for 4-step
