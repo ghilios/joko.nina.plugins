@@ -66,7 +66,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 FocuserStepSizeMicrons = 3.6, CalibrationAppliedAmount = 1.0,
                 Calibration = new TiltCalibrationResultRecord {
                     Screw1AngleDegrees = 67.1, SignalToNoise = 2.16,
-                    PredictedAngleUncertaintyDeg = 24.9, PitchUncertaintyMicrons = 43.0, ConfidenceIsReliable = true
+                    PredictedAngleUncertaintyDeg = 24.9, PitchUncertaintyMicrons = 43.0, ConfidenceIsReliable = true,
+                    PistonImpliedMicronsPerStep = 2.233258
                 }
             };
             var back = TiltCalibrationMetadata.Deserialize(meta.Serialize());
@@ -75,6 +76,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(back.Calibration.PredictedAngleUncertaintyDeg, Is.EqualTo(24.9).Within(1e-9));
                 Assert.That(back.Calibration.PitchUncertaintyMicrons, Is.EqualTo(43.0).Within(1e-9));
                 Assert.That(back.Calibration.ConfidenceIsReliable, Is.True);
+                Assert.That(back.Calibration.PistonImpliedMicronsPerStep, Is.EqualTo(2.233258).Within(1e-9));
             });
         }
 

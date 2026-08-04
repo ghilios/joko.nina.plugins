@@ -106,6 +106,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         /// is uncomputable.</summary>
         public double PitchUncertaintyMicrons { get; set; }
 
+        /// <summary>Focuser-frame µm-per-unit implied by the AllInward piston — a free, tilt-fit-independent
+        /// third estimate of the same hardware <see cref="MeasuredHardwareMicrons"/> reports. See
+        /// <see cref="TiltCalibrationCalculator.PistonImpliedMicronsPerStep"/>. NaN for 4-step runs (no piston
+        /// measured).</summary>
+        public double PistonImpliedMicronsPerStep { get; set; }
+
         /// <summary>Signal-to-noise / reliability of the whole calibration, derived from the per-step tilt vectors.
         /// Populated by <see cref="TiltCalibrationCalculator.Calibrate"/>.</summary>
         public TiltCalibrationConfidence Confidence { get; set; }
@@ -414,6 +420,26 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public static double RecoverHardwareMicrons(TiltCalibrationInputs inputs) => RecoverHardwareDetailed(inputs).measured;
 
         /// <summary>
+        /// Focuser-frame µm-per-unit implied by the AllInward piston: all screws moved by the applied
+        /// amount, so mean best-focus shifts by (applied × unit) / frame-factor. Drift-corrected by
+        /// interpolating the baseline mean to AllInward's time as mid(Baseline, ReBaseline1) — the two
+        /// nominally-identical states that bracket it. This is measured in the SAME (focuser) frame as
+        /// the tilt-derived hardware, so honest values agree; a large gap means the tilt estimator (or
+        /// the mechanics on pull-side moves) is off. NaN for 4-step runs (no piston measured). Unlike
+        /// <see cref="RecoverHardwareMicrons"/>, this needs no sensor geometry at all (no PixelSizeMicrons,
+        /// ImageWidthPixels/Height, or ScrewRadiusMillimeters) — only mean focuser positions, the focuser
+        /// step size, and the applied amount — so it is a genuinely independent probe of the same quantity.
+        /// </summary>
+        public static double PistonImpliedMicronsPerStep(TiltCalibrationInputs inputs) {
+            if (!inputs.HasCurvatureMeasurement || inputs.CalibrationAppliedAmount <= 0 || inputs.FocuserStepMicrons <= 0) {
+                return double.NaN;
+            }
+            double baselineAtAllInward = (inputs.Baseline.MeanFocuserPosition + inputs.ReBaseline1.MeanFocuserPosition) / 2.0;
+            double deltaSteps = inputs.AllInward.MeanFocuserPosition - baselineAtAllInward;
+            return Math.Abs(deltaSteps) * inputs.FocuserStepMicrons / inputs.CalibrationAppliedAmount;
+        }
+
+        /// <summary>
         /// Drift of a re-baseline relative to its reference, as a fraction of the subsequent screw-move magnitude.
         /// A good re-baseline returns close to the prior state, so this ratio is near 0; a large value means the
         /// undo/redo left residual tilt (backlash or an uneven turn) comparable to the screw-move signal, so the
@@ -456,6 +482,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 PitchUncertaintyMicrons = double.IsNaN(delta1PerApplied)
                     ? double.NaN
                     : Math.Abs(delta1PerApplied - delta2PerApplied) / 2.0,
+                PistonImpliedMicronsPerStep = PistonImpliedMicronsPerStep(inputs),
                 Screw1DirectionDegrees = NormalizeAngle(Math.Atan2(d1x, -d1y) * 180.0 / Math.PI),
                 Screw2DirectionDegrees = NormalizeAngle(Math.Atan2(d2x, -d2y) * 180.0 / Math.PI),
                 MoveMagnitudeRatio = MoveMagnitudeRatio(d1x, d1y, d2x, d2y),

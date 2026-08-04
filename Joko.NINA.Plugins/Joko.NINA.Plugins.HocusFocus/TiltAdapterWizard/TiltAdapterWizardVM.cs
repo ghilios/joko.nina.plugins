@@ -203,6 +203,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private double measuredHardwareMicrons = double.NaN;
         private TiltCalibrationConfidence lastConfidence;
         private double pitchUncertaintyMicrons = double.NaN;
+        private double pistonImpliedMicronsPerStep = double.NaN;
         private double calibrationPixelSizeMicrons;
         private double calibrationFocuserStepMicrons;
         private double calibrationScrewRadiusMm;
@@ -1204,6 +1205,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             measuredHardwareMicrons = double.NaN;
             lastConfidence = null;
             pitchUncertaintyMicrons = double.NaN;
+            pistonImpliedMicronsPerStep = double.NaN;
             lastRawAngleDiff = double.NaN;
             lastMoveMagnitudeRatio = double.NaN;
             HasWarning = false;
@@ -1242,6 +1244,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             measuredHardwareMicrons = double.NaN;
             lastConfidence = null;
             pitchUncertaintyMicrons = double.NaN;
+            pistonImpliedMicronsPerStep = double.NaN;
             lastRawAngleDiff = double.NaN;
             lastMoveMagnitudeRatio = double.NaN;
             HasWarning = false;
@@ -1315,6 +1318,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public string PitchUncertaintyDisplay =>
             double.IsNaN(pitchUncertaintyMicrons) ? string.Empty :
             $"± {pitchUncertaintyMicrons:F0} µm/{(IsStepperAdjustment ? "step" : "turn")}";
+
+        // Piston-implied pitch (frame-factor probe): a free, tilt-fit-independent hardware estimate from the
+        // AllInward piston alone (see TiltCalibrationCalculator.PistonImpliedMicronsPerStep). NaN for 4-step
+        // runs (no piston measured) — empty string collapses the row, same pattern as PitchUncertaintyDisplay.
+        public string PistonPitchDisplay =>
+            double.IsNaN(pistonImpliedMicronsPerStep) ? string.Empty
+            : $"Piston-implied: {pistonImpliedMicronsPerStep:0.###} µm/{(IsStepperAdjustment ? "step" : "turn")}";
 
         // Config-panel bindings. They wrap the persisted options, presenting thread pitch in mm and
         // showing 0 for the unset (-1) sentinel so the textboxes read cleanly.
@@ -2594,6 +2604,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             measuredHardwareMicrons = double.NaN;
             lastConfidence = null;
             pitchUncertaintyMicrons = double.NaN;
+            pistonImpliedMicronsPerStep = double.NaN;
             lastRawAngleDiff = double.NaN;
             lastMoveMagnitudeRatio = double.NaN;
             runRootFolder = null;
@@ -2784,7 +2795,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
             lastRawAngleDiff = result.RawAngleDiffDegrees;
             lastMoveMagnitudeRatio = result.MoveMagnitudeRatio;
-            ValidateCalibrationQuality(lastRawAngleDiff, lastMoveMagnitudeRatio, screwCount);
 
             // Recover the adapter hardware (µm/turn or µm/step) — Calibrate computes this via the same
             // RecoverHardwareDetailed math this method used to call directly, off the SAME inputs/result as
@@ -2809,6 +2819,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     }
                 }
             }
+
+            // Piston-implied pitch (frame-factor probe): unlike the hardware recovery above, this needs NO
+            // sensor geometry at all -- TiltCalibrationCalculator.PistonImpliedMicronsPerStep consumes only
+            // mean focuser positions, the focuser step size, and the applied amount, never the per-screw
+            // lever arm the model != null gate above exists to protect. So it is deliberately NOT gated on
+            // model != null: it is exactly as valid on a model-less (seeded/test-only) run as a real one, and
+            // gating it would just hide a perfectly good, geometry-independent cross-check on those runs.
+            pistonImpliedMicronsPerStep = result.PistonImpliedMicronsPerStep;
+
+            ValidateCalibrationQuality(lastRawAngleDiff, lastMoveMagnitudeRatio, screwCount,
+                measuredHardwareMicrons, pistonImpliedMicronsPerStep);
 
             EvaluateRebaselineDrift();
             lastConfidence = result.Confidence;
@@ -2837,6 +2858,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RaisePropertyChanged(nameof(ConfidenceIsReliable));
             RaisePropertyChanged(nameof(ConfidenceSummaryDisplay));
             RaisePropertyChanged(nameof(PitchUncertaintyDisplay));
+            RaisePropertyChanged(nameof(PistonPitchDisplay));
             OnUIThread(() => ((RelayCommand)UseMeasuredHardwareCommand).NotifyCanExecuteChanged());
         }
 
@@ -2845,25 +2867,36 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // backlash) means the recovered geometry/hardware is unreliable — warn so the user recalibrates.
         private const double MagnitudeRatioWarnThreshold = 1.5; // larger move > 1.5x smaller => suspect
 
-        private void ValidateCalibrationQuality(double rawDiff, double magnitudeRatio, int screwCount) {
+        // The piston-implied pitch and the tilt-derived measured hardware are both focuser-frame quantities
+        // (see TiltCalibrationCalculator.PistonImpliedMicronsPerStep), so honest agreement is expected; a gap
+        // this large means the tilt estimator (or the mechanics on pull-side moves) is off.
+        private const double PistonDisagreementWarnThreshold = 0.20;
+
+        private void ValidateCalibrationQuality(double rawDiff, double magnitudeRatio, int screwCount,
+            double measuredHardware, double pistonImplied) {
             double expected = screwCount == 3 ? 120.0 : 90.0;
             // Fold the diff so it is in [0, 180] — both CW and CCW gaps compare to the same expected value.
             double foldedDiff = rawDiff <= 180.0 ? rawDiff : 360.0 - rawDiff;
             double deviation = Math.Abs(foldedDiff - expected);
             bool angleBad = deviation > 30.0;
             bool magnitudeBad = !double.IsNaN(magnitudeRatio) && magnitudeRatio > MagnitudeRatioWarnThreshold;
+            bool pistonBad = measuredHardware > 0 && pistonImplied > 0
+                && Math.Abs(pistonImplied - measuredHardware) / measuredHardware > PistonDisagreementWarnThreshold;
 
-            HasWarning = angleBad || magnitudeBad;
+            HasWarning = angleBad || magnitudeBad || pistonBad;
             if (!HasWarning) {
                 WarningText = string.Empty;
                 return;
             }
-            var parts = new List<string>(2);
+            var parts = new List<string>(3);
             if (angleBad) {
                 parts.Add($"Screw 1→2 measured angle gap is {foldedDiff:F1}° (expected ~{expected}°)");
             }
             if (magnitudeBad) {
                 parts.Add($"the two screw turns produced very unequal tilt changes ({magnitudeRatio:F1}× apart) — turn each screw the same amount");
+            }
+            if (pistonBad) {
+                parts.Add($"piston-implied hardware ({pistonImplied:0.##} µm) and tilt-derived ({measuredHardware:0.##} µm) disagree by more than 20% — the tilt estimate may be unreliable");
             }
             WarningText = string.Join("; ", parts) + ". Consider recalibrating.";
         }
@@ -3406,6 +3439,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 PredictedAngleUncertaintyDeg = lastConfidence?.PredictedAngleUncertaintyDeg ?? double.NaN,
                 PitchUncertaintyMicrons = pitchUncertaintyMicrons,
                 ConfidenceIsReliable = lastConfidence?.IsReliable ?? false,
+                PistonImpliedMicronsPerStep = pistonImpliedMicronsPerStep,
             };
             WriteMetadata();
         }

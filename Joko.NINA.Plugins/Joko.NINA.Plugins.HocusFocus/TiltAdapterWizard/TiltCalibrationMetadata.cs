@@ -61,6 +61,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public double RawAngleDiffDegrees { get; set; }
         public double MoveMagnitudeRatio { get; set; }
 
+        /// <summary>Focuser-frame µm-per-unit implied by the AllInward piston — a free, tilt-fit-independent
+        /// cross-check of <see cref="MeasuredHardwareMicrons"/>. See
+        /// <see cref="TiltCalibrationCalculator.PistonImpliedMicronsPerStep"/>. NaN for 4-step runs (no piston
+        /// measured) or runs saved before this field existed.</summary>
+        public double PistonImpliedMicronsPerStep { get; set; } = double.NaN;
+
         // ---- Confidence (persisted so a saved/replayed run carries its reliability) ----
         public double SignalToNoise { get; set; } = double.NaN;
         public double PredictedAngleUncertaintyDeg { get; set; } = double.NaN;
@@ -96,7 +102,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     /// </summary>
     public sealed class TiltCalibrationMetadata {
 
-        public const int CurrentSchemaVersion = 2;
+        public const int CurrentSchemaVersion = 3;
 
         /// <summary>The six discrete measurement steps, in capture order. Same for 3- and 4-screw adapters.</summary>
         public static readonly string[] StepOrder = {

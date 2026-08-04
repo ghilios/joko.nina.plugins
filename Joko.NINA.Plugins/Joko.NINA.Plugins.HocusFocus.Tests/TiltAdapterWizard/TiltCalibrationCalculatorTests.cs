@@ -577,6 +577,28 @@ public class TiltCalibrationCalculatorTests {
         });
     }
 
+    [Test]
+    public void PistonImpliedMicronsPerStep_DriftCorrectedFromBracketingBaselines() {
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 4, HasCurvatureMeasurement = true,
+            Baseline = new TiltGradient(0, 0, 11283.868653107538),
+            AllInward = new TiltGradient(0, 0, 9995.476157148303),
+            ReBaseline1 = new TiltGradient(0, 0, 11197.706101225354),
+            FocuserStepMicrons = 0.269, CalibrationAppliedAmount = 150.0,
+            ImageWidthPixels = 9576, ImageHeightPixels = 6388, PixelSizeMicrons = 3.76,
+            ScrewRadiusMillimeters = 55.0,
+        };
+        Assert.That(TiltCalibrationCalculator.PistonImpliedMicronsPerStep(inputs),
+            Is.EqualTo(2.233258).Within(1e-5));
+    }
+
+    [Test]
+    public void PistonImpliedMicronsPerStep_NaNWithoutCurvatureSteps() {
+        var inputs = new TiltCalibrationInputs { HasCurvatureMeasurement = false,
+            FocuserStepMicrons = 0.269, CalibrationAppliedAmount = 150.0 };
+        Assert.That(TiltCalibrationCalculator.PistonImpliedMicronsPerStep(inputs), Is.NaN);
+    }
+
     [TestCase(30.0, true, 3, 30.0, 150.0, 270.0, double.NaN)]
     [TestCase(30.0, false, 3, 30.0, 270.0, 150.0, double.NaN)]
     [TestCase(350.0, true, 4, 350.0, 80.0, 170.0, 260.0)]

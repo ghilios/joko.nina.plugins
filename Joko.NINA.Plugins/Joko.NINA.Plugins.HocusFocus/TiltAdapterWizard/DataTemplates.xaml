@@ -1586,6 +1586,7 @@
                             </StackPanel>
                             <TextBlock Text="Saved" />
                             <TextBlock Text="{Binding SavedHardwareDisplay}" />
+                            <TextBlock Margin="0,2,8,0" Text="{Binding PistonPitchDisplay}" />
                         </UniformGrid>
 
                         <Button
