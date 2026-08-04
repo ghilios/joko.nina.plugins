@@ -76,18 +76,20 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public double RawAngleDiffDegrees { get; set; }      // measured screw1->screw2 gap before the constrained fit
         public int CurvatureSign { get; set; }               // +1 / -1; 0 = unknown (4-step run whose fallback sign was never configured)
         public double MeasuredHardwareMicrons { get; set; }  // µm/turn (screws) or µm/step (steppers); NaN if uncomputable
-        public double Screw1DirectionDegrees { get; set; }   // raw measured direction of screw 1's move (atan2(dA,-dB))
-        public double Screw2DirectionDegrees { get; set; }   // raw measured direction of screw 2's move
+        public double Screw1DirectionDegrees { get; set; }   // measured direction of screw 1's move in physical gradient space (atan2(gx,-gy))
+        public double Screw2DirectionDegrees { get; set; }   // measured direction of screw 2's move in physical gradient space
 
-        /// <summary>Ratio (&gt;= 1) of the larger to the smaller single-screw gradient-change magnitude. For two
-        /// clean, equal single-screw moves this is ~1; a large value means the two calibration turns were unequal
-        /// (uneven turning / backlash) and the recovered pitch/step size is unreliable. NaN if a magnitude is 0.</summary>
+        /// <summary>Ratio (&gt;= 1) of the larger to the smaller single-screw gradient-change magnitude, computed
+        /// in physical gradient space (see <see cref="PhysicalDelta"/>). For two clean, equal single-screw moves
+        /// this is ~1; a large value means the two calibration turns were unequal (uneven turning / backlash) and
+        /// the recovered pitch/step size is unreliable. NaN if a magnitude is 0.</summary>
         public double MoveMagnitudeRatio { get; set; }
 
         /// <summary>Half the absolute difference of the two single-screw recovered pitches (µm/turn or µm/step).
-        /// This is the physical-space 1σ on the recovered hardware — it captures screw-to-screw disagreement the
-        /// (A,B) <see cref="MoveMagnitudeRatio"/> misses because the plane→physical conversion is anisotropic.
-        /// NaN when the hardware is uncomputable.</summary>
+        /// This is the physical-space 1σ on the recovered hardware, expressed as an absolute µm delta after the
+        /// per-screw lever-arm conversion — a differently-scaled, complementary view of the same screw-to-screw
+        /// disagreement <see cref="MoveMagnitudeRatio"/> reports as a dimensionless ratio. NaN when the hardware
+        /// is uncomputable.</summary>
         public double PitchUncertaintyMicrons { get; set; }
 
         /// <summary>Signal-to-noise / reliability of the whole calibration, derived from the per-step tilt vectors.
@@ -106,8 +108,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     /// no matter how cleanly the screws were turned.
     /// </summary>
     public sealed class TiltCalibrationConfidence {
-        public double ScrewMoveSignal { get; set; }               // mean |single-screw move| magnitude (the signal)
-        public double NoiseEstimate { get; set; }                 // RMS of the noise probes below
+        public double ScrewMoveSignal { get; set; }               // mean |single-screw move| magnitude in physical gradient units (µm/µm) (the signal)
+        public double NoiseEstimate { get; set; }                 // RMS of the noise probes below, in physical gradient units (µm/µm)
         public double SignalToNoise { get; set; }                 // ScrewMoveSignal / NoiseEstimate (Inf if noise 0)
         public double PredictedAngleUncertaintyDeg { get; set; }  // ~1σ on each recovered screw direction
         public double AllInwardTiltResidual { get; set; }         // |AllInward − Baseline|, should be ~0 (pure piston); NaN for 4-step runs
@@ -124,7 +126,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     /// results to its options; keeping the math here guarantees the validator and the wizard never drift.
     ///
     /// Angle convention matches the rest of the plugin: degrees clockwise from straight up (12 o'clock) in image
-    /// space (+x right, +y down), via <c>atan2(dA, -dB)</c>.
+    /// space (+x right, +y down), via <c>atan2(gx, -gy)</c> on the physical gradient (gx, gy) — see
+    /// <see cref="PhysicalDelta"/>. NOT the raw (A, B) tilt-plane coefficients: A and B are per-normalized-
+    /// coordinate and distort directions/magnitudes on a non-square sensor (the F2 bug).
     /// </summary>
     public static class TiltCalibrationCalculator {
 
@@ -136,24 +140,51 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private static double Magnitude(double a, double b) => Math.Sqrt(a * a + b * b);
 
+        /// <summary>Screw-move delta in physical gradient space (µm focus travel per µm of sensor
+        /// displacement). Angles and magnitude ratios MUST be computed here, not in (A,B) space —
+        /// A and B are per-normalized-coordinate and distort directions on non-square sensors.
+        /// When the caller hasn't populated real sensor/focuser geometry (ImageWidthPixels,
+        /// ImageHeightPixels, PixelSizeMicrons, FocuserStepMicrons all default to 0), there is no physical
+        /// space to convert into — degrade to the raw (A,B) delta (the pre-F2-fix behavior) rather than
+        /// divide by zero into NaN. This keeps geometry-agnostic callers (pure ratio/angle algebra tests,
+        /// a calibration step run with no known sensor size) well-defined instead of silently producing NaN,
+        /// which downstream (e.g. <see cref="ComputeConfidence"/>'s SNR) would otherwise risk being
+        /// mis-signaled as "zero noise" / infinite reliability.</summary>
+        internal static (double gx, double gy) PhysicalDelta(TiltGradient to, TiltGradient from, TiltCalibrationInputs inputs) {
+            double dA = to.A - from.A;
+            double dB = to.B - from.B;
+            double sensorW = inputs.ImageWidthPixels * inputs.PixelSizeMicrons;
+            double sensorH = inputs.ImageHeightPixels * inputs.PixelSizeMicrons;
+            if (sensorW <= 0 || sensorH <= 0 || inputs.FocuserStepMicrons <= 0) {
+                return (dA, dB);
+            }
+            return TiltScrewGeometry.PlaneGradientToPhysical(dA, dB, inputs.FocuserStepMicrons, sensorW, sensorH);
+        }
+
         /// <summary>
         /// Estimates how trustworthy the calibration is from the per-step tilt vectors. See
         /// <see cref="TiltCalibrationConfidence"/> for the model: screw moves are the signal; the noise probes are
         /// independent quantities that are each ~0 in an ideal measurement — the all-inward piston residual and both
-        /// re-baseline drifts in a 6-step run, only the single re-baseline drift in a 4-step run.
+        /// re-baseline drifts in a 6-step run, only the single re-baseline drift in a 4-step run. All magnitudes are
+        /// computed in physical gradient space (<see cref="PhysicalDelta"/>), not raw (A,B) — see the F2 fix.
         /// </summary>
         public static TiltCalibrationConfidence ComputeConfidence(TiltCalibrationInputs inputs) {
-            double s1 = Magnitude(inputs.Screw1.A - inputs.ReBaseline1.A, inputs.Screw1.B - inputs.ReBaseline1.B);
-            double s2 = Magnitude(inputs.Screw2.A - inputs.ReBaseline2.A, inputs.Screw2.B - inputs.ReBaseline2.B);
+            var (s1x, s1y) = PhysicalDelta(inputs.Screw1, inputs.ReBaseline1, inputs);
+            var (s2x, s2y) = PhysicalDelta(inputs.Screw2, inputs.ReBaseline2, inputs);
+            double s1 = Magnitude(s1x, s1y);
+            double s2 = Magnitude(s2x, s2y);
             double signal = 0.5 * (s1 + s2);
 
-            double drift2 = Magnitude(inputs.ReBaseline2.A - inputs.ReBaseline1.A, inputs.ReBaseline2.B - inputs.ReBaseline1.B);
+            var (drift2x, drift2y) = PhysicalDelta(inputs.ReBaseline2, inputs.ReBaseline1, inputs);
+            double drift2 = Magnitude(drift2x, drift2y);
             double allInward = double.NaN;
             double drift1 = double.NaN;
             double noise;
             if (inputs.HasCurvatureMeasurement) {
-                allInward = Magnitude(inputs.AllInward.A - inputs.Baseline.A, inputs.AllInward.B - inputs.Baseline.B);
-                drift1 = Magnitude(inputs.ReBaseline1.A - inputs.Baseline.A, inputs.ReBaseline1.B - inputs.Baseline.B);
+                var (aiX, aiY) = PhysicalDelta(inputs.AllInward, inputs.Baseline, inputs);
+                allInward = Magnitude(aiX, aiY);
+                var (d1x, d1y) = PhysicalDelta(inputs.ReBaseline1, inputs.Baseline, inputs);
+                drift1 = Magnitude(d1x, d1y);
                 noise = Math.Sqrt((allInward * allInward + drift1 * drift1 + drift2 * drift2) / 3.0);
             } else {
                 // 4-step run: the only available noise probe is the single re-baseline drift. A one-sample noise
@@ -162,7 +193,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 noise = drift2;
             }
 
-            double snr = noise > 0 ? signal / noise : double.PositiveInfinity;
+            // NaN-safe: PhysicalDelta divides by sensor/focuser geometry, so invalid geometry (e.g. a caller that
+            // forgot to populate ImageWidthPixels/PixelSizeMicrons/FocuserStepMicrons) propagates as NaN signal or
+            // noise. "noise > 0" is false for NaN, so without this guard a NaN noise would fall into the
+            // zero-noise branch and be misreported as infinite SNR — silently marking a bad measurement
+            // "reliable" instead of failing safe. This is a CRITICAL GATE (see TiltAdapterWizardVM.RunCalibrationMath).
+            double snr = double.IsNaN(signal) || double.IsNaN(noise)
+                ? double.NaN
+                : (noise > 0 ? signal / noise : double.PositiveInfinity);
             // A screw direction is atan2 of its move vector; transverse noise of ~noise on a signal of ~signal
             // perturbs that direction by ~atan(noise/signal). Degenerate (no signal) => maximally uncertain.
             double angleUncertainty = signal > 0 ? Math.Atan2(noise, signal) * 180.0 / Math.PI : 90.0;
@@ -212,14 +250,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         /// <summary>
-        /// Ratio (&gt;= 1) of the larger to the smaller single-screw gradient-change magnitude. Two clean, equal
-        /// single-screw calibration turns produce ~equal magnitudes (ratio ~1); a large ratio means the two turns
-        /// were unequal, so the recovered hardware (pitch/step size) is unreliable. Returns NaN if either magnitude
-        /// is 0.
+        /// Ratio (&gt;= 1) of the larger to the smaller single-screw gradient-change magnitude, in physical
+        /// gradient space (gx, gy) — see <see cref="PhysicalDelta"/>. Two clean, equal single-screw calibration
+        /// turns produce ~equal magnitudes (ratio ~1); a large ratio means the two turns were unequal, so the
+        /// recovered hardware (pitch/step size) is unreliable. Returns NaN if either magnitude is 0.
         /// </summary>
-        public static double MoveMagnitudeRatio(double d1A, double d1B, double d2A, double d2B) {
-            double m1 = Math.Sqrt(d1A * d1A + d1B * d1B);
-            double m2 = Math.Sqrt(d2A * d2A + d2B * d2B);
+        public static double MoveMagnitudeRatio(double g1x, double g1y, double g2x, double g2y) {
+            double m1 = Math.Sqrt(g1x * g1x + g1y * g1y);
+            double m2 = Math.Sqrt(g2x * g2x + g2y * g2y);
             if (m1 <= 0 || m2 <= 0) {
                 return double.NaN;
             }
@@ -227,16 +265,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         /// <summary>
-        /// Per-screw position angles from the two single-screw gradient changes (screw move minus baseline).
-        /// Determines the winding direction from the measured data (image mirroring can flip clockwise/CCW), then
-        /// performs a constrained least-squares fit to equal angular spacing (120° for 3 screws; 90° with opposite
-        /// screws 180° apart for 4 screws). Returns the four screw angles (s4 = NaN for 3 screws) and the raw
-        /// measured screw1->screw2 gap (before the fit) for separation diagnostics.
+        /// Per-screw position angles from the two single-screw gradient changes (screw move minus baseline), in
+        /// physical gradient space (gx, gy) — see <see cref="PhysicalDelta"/>. Determines the winding direction
+        /// from the measured data (image mirroring can flip clockwise/CCW), then performs a constrained
+        /// least-squares fit to equal angular spacing (120° for 3 screws; 90° with opposite screws 180° apart for
+        /// 4 screws). Returns the four screw angles (s4 = NaN for 3 screws) and the raw measured screw1->screw2
+        /// gap (before the fit) for separation diagnostics.
         /// </summary>
         public static (double s1, double s2, double s3, double s4, double rawDiff) ComputeScrewAngles(
-            double d1A, double d1B, double d2A, double d2B, int screwCount) {
-            double angle1 = NormalizeAngle(Math.Atan2(d1A, -d1B) * 180.0 / Math.PI);
-            double angle2 = NormalizeAngle(Math.Atan2(d2A, -d2B) * 180.0 / Math.PI);
+            double g1x, double g1y, double g2x, double g2y, int screwCount) {
+            double angle1 = NormalizeAngle(Math.Atan2(g1x, -g1y) * 180.0 / Math.PI);
+            double angle2 = NormalizeAngle(Math.Atan2(g2x, -g2y) * 180.0 / Math.PI);
 
             double rawDiff = NormalizeAngle(angle2 - angle1);
             bool clockwise = rawDiff < 180.0;
@@ -332,14 +371,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             return driftMag / moveMag;
         }
 
-        /// <summary>Runs the full calibration: screw angles, curvature sign, and recovered hardware.</summary>
+        /// <summary>Runs the full calibration: screw angles, curvature sign, and recovered hardware. Angles,
+        /// the raw gap, and the magnitude ratio are all computed in physical gradient space (see
+        /// <see cref="PhysicalDelta"/>), not raw (A,B) — see the F2 fix.</summary>
         public static TiltCalibrationResult Calibrate(TiltCalibrationInputs inputs) {
-            double d1A = inputs.Screw1.A - inputs.ReBaseline1.A;
-            double d1B = inputs.Screw1.B - inputs.ReBaseline1.B;
-            double d2A = inputs.Screw2.A - inputs.ReBaseline2.A;
-            double d2B = inputs.Screw2.B - inputs.ReBaseline2.B;
+            var (d1x, d1y) = PhysicalDelta(inputs.Screw1, inputs.ReBaseline1, inputs);
+            var (d2x, d2y) = PhysicalDelta(inputs.Screw2, inputs.ReBaseline2, inputs);
 
-            var (s1, s2, s3, s4, rawDiff) = ComputeScrewAngles(d1A, d1B, d2A, d2B, inputs.ScrewCount);
+            var (s1, s2, s3, s4, rawDiff) = ComputeScrewAngles(d1x, d1y, d2x, d2y, inputs.ScrewCount);
             var (measuredHardware, delta1PerApplied, delta2PerApplied) = RecoverHardwareDetailed(inputs);
 
             return new TiltCalibrationResult {
@@ -357,9 +396,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 PitchUncertaintyMicrons = double.IsNaN(delta1PerApplied)
                     ? double.NaN
                     : Math.Abs(delta1PerApplied - delta2PerApplied) / 2.0,
-                Screw1DirectionDegrees = NormalizeAngle(Math.Atan2(d1A, -d1B) * 180.0 / Math.PI),
-                Screw2DirectionDegrees = NormalizeAngle(Math.Atan2(d2A, -d2B) * 180.0 / Math.PI),
-                MoveMagnitudeRatio = MoveMagnitudeRatio(d1A, d1B, d2A, d2B),
+                Screw1DirectionDegrees = NormalizeAngle(Math.Atan2(d1x, -d1y) * 180.0 / Math.PI),
+                Screw2DirectionDegrees = NormalizeAngle(Math.Atan2(d2x, -d2y) * 180.0 / Math.PI),
+                MoveMagnitudeRatio = MoveMagnitudeRatio(d1x, d1y, d2x, d2y),
                 Confidence = ComputeConfidence(inputs)
             };
         }

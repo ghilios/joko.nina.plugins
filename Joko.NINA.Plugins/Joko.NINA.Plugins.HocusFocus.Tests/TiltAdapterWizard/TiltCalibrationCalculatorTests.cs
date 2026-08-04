@@ -241,6 +241,31 @@ public class TiltCalibrationCalculatorTests {
         Assert.That(TiltCalibrationCalculator.Calibrate(inputs).MoveMagnitudeRatio, Is.EqualTo(2.0).Within(1e-6));
     }
 
+    [Test]
+    public void Calibrate_AnisotropicSensor_ReadsPhysicalGapAndEqualMagnitudes() {
+        // On a 3:2 sensor, equal-magnitude physical moves at 200° and 290° produce these (A,B) deltas.
+        // In raw (A,B) space they would read: gap 75.01°, magnitude ratio 1.354 — the F2 bug.
+        var inputs = new TiltCalibrationInputs {
+            ScrewCount = 4,
+            ReBaseline1 = new TiltGradient(0, 0, 0),
+            Screw1 = new TiltGradient(-77.1597, 141.3298, 0),
+            ReBaseline2 = new TiltGradient(0, 0, 0),
+            Screw2 = new TiltGradient(-211.9947, -51.4398, 0),
+            ImageWidthPixels = 6000, ImageHeightPixels = 4000,
+            PixelSizeMicrons = 3.76, FocuserStepMicrons = 0.5,
+            ScrewRadiusMillimeters = 44.0, CalibrationAppliedAmount = 1.0,
+            IsStepperAdjustment = false, HasCurvatureMeasurement = false, FallbackCurvatureSign = 1,
+        };
+        var result = TiltCalibrationCalculator.Calibrate(inputs);
+        Assert.Multiple(() => {
+            Assert.That(result.RawAngleDiffDegrees, Is.EqualTo(90.0).Within(0.01));
+            Assert.That(result.MoveMagnitudeRatio, Is.EqualTo(1.0).Within(0.001));
+            Assert.That(result.Screw1DirectionDegrees, Is.EqualTo(200.0).Within(0.01));
+            Assert.That(result.Screw2DirectionDegrees, Is.EqualTo(290.0).Within(0.01));
+            Assert.That(result.Screw1AngleDegrees, Is.EqualTo(200.0).Within(0.01));
+        });
+    }
+
     private static TiltGradient Plus(TiltGradient a, TiltGradient b) =>
         new TiltGradient(a.A + b.A, a.B + b.B, a.MeanFocuserPosition + b.MeanFocuserPosition);
 
@@ -329,6 +354,9 @@ public class TiltCalibrationCalculatorTests {
     [Test]
     public void ComputeConfidence_CleanMeasurement_HighSnrAndReliable() {
         // Baselines all identical (zero noise probes) and two clean equal screw moves -> infinite SNR, reliable.
+        // No sensor/focuser geometry is set here: PhysicalDelta degrades to the raw (A,B) delta when geometry
+        // is unpopulated (see its doc comment), so this pure noise-model algebra test is unaffected by the
+        // physical-gradient-space conversion (F2 fix).
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
             Baseline = new TiltGradient(0, 0, 1000),
@@ -351,6 +379,8 @@ public class TiltCalibrationCalculatorTests {
     [Test]
     public void ComputeConfidence_NoiseRivalsSignal_FlaggedUnreliable() {
         // A large all-inward tilt residual (a pure piston should give ~0) drives the noise floor near the signal.
+        // No geometry set (see ComputeConfidence_CleanMeasurement_HighSnrAndReliable) -> PhysicalDelta uses the
+        // raw (A,B) delta.
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
             Baseline = new TiltGradient(0, 0, 1000),
@@ -373,8 +403,12 @@ public class TiltCalibrationCalculatorTests {
     public void ComputeConfidence_RealAstrodet6Run_IsNoiseDominated() {
         // Regression lock on the real astrodet_6 calibration (D:\Tilt Calibration Bank\astrodet_6\...115023):
         // the per-step tilt vectors give SNR ~0.81 and ~51° predicted screw-direction error -> not reliable.
+        // Geometry: the astrodet rig's real camera/focuser (ASI2600 6248x4176 @ 3.76 µm, 3.6 µm focuser step —
+        // see docs/tilt-calibration-error-bounds-design.md's astrodet_6_2 companion run and the same values used
+        // elsewhere in this fixture for this rig family).
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
+            ImageWidthPixels = 6248, ImageHeightPixels = 4176, PixelSizeMicrons = 3.76, FocuserStepMicrons = 3.6,
             Baseline = new TiltGradient(-2.1105835080420547, 24.121199286798387, 591.0128980765176),
             AllInward = new TiltGradient(8.482652443992663, 6.478563541214388, 498.59261745105937),
             ReBaseline1 = new TiltGradient(3.575182052031437, 6.397250940705116, 599.5753346049264),
@@ -384,10 +418,13 @@ public class TiltCalibrationCalculatorTests {
         };
         var c = TiltCalibrationCalculator.ComputeConfidence(inputs);
         Assert.Multiple(() => {
-            Assert.That(c.ScrewMoveSignal, Is.EqualTo(13.91).Within(0.05));
-            Assert.That(c.NoiseEstimate, Is.EqualTo(17.10).Within(0.05));
-            Assert.That(c.SignalToNoise, Is.EqualTo(0.81).Within(0.02));
-            Assert.That(c.PredictedAngleUncertaintyDeg, Is.EqualTo(50.9).Within(0.5));
+            // physical-space values (F2 fix): the old (A,B)-space pins (13.91 / 17.10 / 0.81 / 50.9°) were
+            // computed on an implicitly-unit sensor; the real 6248x4176 anisotropy shifts SNR from 0.81 to
+            // ~0.71 and the angle uncertainty from 50.9° to ~54.5° — still solidly noise-dominated/unreliable.
+            Assert.That(c.ScrewMoveSignal, Is.EqualTo(0.0026615).Within(0.00005));
+            Assert.That(c.NoiseEstimate, Is.EqualTo(0.0037296).Within(0.00005));
+            Assert.That(c.SignalToNoise, Is.EqualTo(0.7136).Within(0.01));
+            Assert.That(c.PredictedAngleUncertaintyDeg, Is.EqualTo(54.49).Within(0.5));
             Assert.That(c.IsReliable, Is.False);
         });
     }
@@ -450,6 +487,8 @@ public class TiltCalibrationCalculatorTests {
         var drifted = new TiltGradient(0.01, 0, 1000); // ReBaseline2 drifts by 0.01 from ReBaseline1
         var inputs = new TiltCalibrationInputs {
             ScrewCount = 3,
+            // No geometry set (see ComputeConfidence_CleanMeasurement_HighSnrAndReliable) -> PhysicalDelta uses
+            // the raw (A,B) delta.
             HasCurvatureMeasurement = false,
             ReBaseline1 = baseline,
             Screw1 = new TiltGradient(0.10, 0, 1000),

@@ -2406,12 +2406,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             var latestModel = CalibrationTiltPlane;
             AppendSummaryRows(readings, stepDescription, latestModel, count, avgA, avgB);
 
+            var (avgGx, avgGy) = StateGradient(avgA, avgB, latestModel);
             var reading = new StepReading {
                 A = avgA,
                 B = avgB,
                 Mean = avgMean,
                 TiltAngleDeg = ComputeTiltAngleDeg(avgA, avgB, latestModel),
-                DirectionDeg = NormalizeAngle(Math.Atan2(avgA, -avgB) * 180.0 / Math.PI),
+                DirectionDeg = NormalizeAngle(Math.Atan2(avgGx, -avgGy) * 180.0 / Math.PI),
                 SaveFolder = saveOverride != null ? inspector.LastSaveFolder : null
             };
             PopulateCurvature(ref reading);
@@ -2490,8 +2491,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
-        private double ComputeTiltAngleDeg(double a, double b, TiltPlaneModel model) {
-            if (model == null) return double.NaN;
+        // Converts a step's (A, B) tilt-plane reading (focuser steps per normalized image coordinate) into the
+        // physical best-focus gradient (gx, gy): microns of focuser travel per micron of sensor displacement.
+        // Shared by ComputeTiltAngleDeg (magnitude) and the per-state DirectionDeg (atan2(gx,-gy)) so both read
+        // the same physical space instead of the anisotropic (A,B) coefficients (the F2 bug) — mirrors
+        // TiltScrewGeometry.PlaneGradientToPhysical / TiltCalibrationCalculator.PhysicalDelta. (NaN, NaN) when the
+        // model or the focuser/pixel size inputs are unavailable.
+        private (double gx, double gy) StateGradient(double a, double b, TiltPlaneModel model) {
+            if (model == null) return (double.NaN, double.NaN);
             var pixelSizeMicrons = profileService.ActiveProfile.CameraSettings.PixelSize;
             var fStepMicrons = model.FocuserStepSizeMicrons;
             // Fall back to the connected focuser's reported step size when the inspector
@@ -2500,11 +2507,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 fStepMicrons = focuserInfo.StepSize;
             }
             if (double.IsNaN(fStepMicrons) || fStepMicrons <= 0 ||
-                double.IsNaN(pixelSizeMicrons) || pixelSizeMicrons <= 0) return double.NaN;
+                double.IsNaN(pixelSizeMicrons) || pixelSizeMicrons <= 0) return (double.NaN, double.NaN);
             // A and B are in focuser steps per normalized image coordinate (range [-0.5, 0.5]).
             // Convert to gradient in physical units: (steps * microns/step) / (pixels * microns/pixel).
             var gx = a * fStepMicrons / (model.ImageSize.Width * pixelSizeMicrons);
             var gy = b * fStepMicrons / (model.ImageSize.Height * pixelSizeMicrons);
+            return (gx, gy);
+        }
+
+        private double ComputeTiltAngleDeg(double a, double b, TiltPlaneModel model) {
+            var (gx, gy) = StateGradient(a, b, model);
+            if (double.IsNaN(gx) || double.IsNaN(gy)) return double.NaN;
             return Math.Atan(Math.Sqrt(gx * gx + gy * gy)) * 180.0 / Math.PI;
         }
 
@@ -2772,6 +2785,15 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
 
             EvaluateRebaselineDrift();
+            // ComputeConfidence now converts to physical gradient space (F2 fix) and so needs real sensor
+            // geometry, same as the hardware-recovery inputs above. Reuse the model's image size when a live/
+            // replayed tilt plane produced one; when it didn't (e.g. a seeded/test-only run with no model), fall
+            // back to a square 1x1 pseudo-sensor so the conversion stays isotropic (ratio-preserving) rather than
+            // aspect-distorted. If pixelSize/fStep are ALSO unavailable (fully geometry-less, e.g. an unconfigured
+            // test profile), PhysicalDelta's own fallback degrades further to the raw (A,B) delta — see its doc
+            // comment — instead of dividing by zero into a NaN that could get misread as "zero noise".
+            double confImageWidthPixels = model?.ImageSize.Width ?? 1;
+            double confImageHeightPixels = model?.ImageSize.Height ?? 1;
             lastConfidence = TiltCalibrationCalculator.ComputeConfidence(new TiltCalibrationInputs {
                 ScrewCount = screwCount,
                 Baseline = measuredCurvature ? new TiltGradient(a.A, a.B, a.Mean) : default,
@@ -2781,7 +2803,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 ReBaseline2 = new TiltGradient(e.A, e.B, e.Mean),
                 Screw2 = new TiltGradient(f.A, f.B, f.Mean),
                 HasCurvatureMeasurement = measuredCurvature,
-                FallbackCurvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign
+                FallbackCurvatureSign = tiltAdapterOptions.ScrewInwardCurvatureSign,
+                ImageWidthPixels = confImageWidthPixels,
+                ImageHeightPixels = confImageHeightPixels,
+                PixelSizeMicrons = pixelSize,
+                FocuserStepMicrons = fStep
             });
             EvaluateCalibrationConfidence(lastConfidence);
             // [CRITICAL GATE] Persist the confidence result as the automation-trust marker — the second half
@@ -3194,12 +3220,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                         Notification.ShowError($"Replay produced no sensor-curve-model tilt at step '{step}'. The per-star paraboloid could not be fit.{profileNotChangedNote}");
                         return;
                     }
+                    var (mGx, mGy) = StateGradient(m.A, m.B, m);
                     var reading = new StepReading {
                         A = m.A,
                         B = m.B,
                         Mean = m.MeanFocuserPosition,
                         TiltAngleDeg = ComputeTiltAngleDeg(m.A, m.B, m),
-                        DirectionDeg = NormalizeAngle(Math.Atan2(m.A, -m.B) * 180.0 / Math.PI)
+                        DirectionDeg = NormalizeAngle(Math.Atan2(mGx, -mGy) * 180.0 / Math.PI)
                     };
                     PopulateCurvature(ref reading);
                     stepReadings[step] = reading;
