@@ -34,8 +34,8 @@ dotnet.exe test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo --filt
 
 **Files:** none (git only)
 
-- [ ] **Step 0.1:** `git checkout develop && git pull && git checkout -b ghilios/tilt-calibration-accuracy`
-- [ ] **Step 0.2:** Confirm clean: `git status` → "nothing to commit".
+- [x] **Step 0.1:** `git checkout develop && git pull && git checkout -b ghilios/tilt-calibration-accuracy`
+- [x] **Step 0.2:** Confirm clean: `git status` → "nothing to commit".
 
 ---
 
@@ -47,12 +47,12 @@ The `Create(AutoFocusResult, …)` overload feeds corner-REGION AF vertices (reg
 - Modify: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/AutoFocus/TiltModel.cs:113-165`
 - Test: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/AutoFocus/TiltPlaneModelTests.cs`
 
-- [ ] **Step 1.1: Read the existing test file and region types** to confirm construction patterns before writing the test:
+- [x] **Step 1.1: Read the existing test file and region types** to confirm construction patterns before writing the test:
   - `Joko.NINA.Plugins.HocusFocus.Tests/AutoFocus/TiltPlaneModelTests.cs` (how tests build `TiltPlaneModel` today)
   - The `StarDetectionRegion` + `RatioRect` types (grep: `grep -rn "class StarDetectionRegion\|class RatioRect" Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/ --include="*.cs"`), specifically the constructor and the `OuterBoundary.StartX/StartY/Width/Height` property names (these are the names serialized into the region reports, so they will match).
   Adapt the ctor calls in Step 1.2's test to what you find; the assertions and values stay as written.
 
-- [ ] **Step 1.2: Write the failing test** — a synthetic plane sampled at the standard corner-region centers must round-trip A/B exactly:
+- [x] **Step 1.2: Write the failing test** — a synthetic plane sampled at the standard corner-region centers must round-trip A/B exactly:
 
 ```csharp
 [Test]
@@ -95,10 +95,10 @@ private static AutoFocusRegionResult RegionResult(int index, RatioRect boundary,
 }
 ```
 
-- [ ] **Step 1.3: Run it, verify it fails with A = 200** (the 2/3 attenuation):
+- [x] **Step 1.3: Run it, verify it fails with A = 200** (the 2/3 attenuation):
   `dotnet.exe test ... --filter "FullyQualifiedName~TiltPlaneModelTests"` → new test FAILS, expected 300 actual 200.
 
-- [ ] **Step 1.4: Implement.** In `TiltModel.cs`, generalize the 8-arg overload with corner design-point parameters (defaults preserve every existing caller), and make the `AutoFocusResult` overload pass the actual region centers:
+- [x] **Step 1.4: Implement.** In `TiltModel.cs`, generalize the 8-arg overload with corner design-point parameters (defaults preserve every existing caller), and make the `AutoFocusResult` overload pass the actual region centers:
 
 ```csharp
 public static TiltPlaneModel Create(AutoFocusResult result, double fRatio, double focuserStepSizeMicrons) {
@@ -137,9 +137,9 @@ public static TiltPlaneModel Create(
 }
 ```
 
-- [ ] **Step 1.5: Run the fixture again** → PASS; also run `--filter "FullyQualifiedName~TiltModelTests|FullyQualifiedName~TiltPlaneModelTests"` → all green (existing 8-arg-overload tests are unaffected by the defaulted params).
-- [ ] **Step 1.6:** Note in the commit body that inspector per-corner "adjustment required" values grow ×1.5 with default ROI (they were understated).
-- [ ] **Step 1.7: Commit** — `fix(tilt): regress 4-corner plane against actual region centers, not frame corners`
+- [x] **Step 1.5: Run the fixture again** → PASS; also run `--filter "FullyQualifiedName~TiltModelTests|FullyQualifiedName~TiltPlaneModelTests"` → all green (existing 8-arg-overload tests are unaffected by the defaulted params).
+- [x] **Step 1.6:** Note in the commit body that inspector per-corner "adjustment required" values grow ×1.5 with default ROI (they were understated).
+- [x] **Step 1.7: Commit** — `fix(tilt): regress 4-corner plane against actual region centers, not frame corners`
 
 ---
 
