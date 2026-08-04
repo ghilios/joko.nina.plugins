@@ -375,8 +375,8 @@ The inspector already computes the 4-corner region plane every wizard AF (`inspe
 - Modify: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/TiltAdapterWizard/DataTemplates.xaml`
 - Test: `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/TiltAdapterWizard/TiltAdapterWizardVMTests.cs`
 
-- [ ] **Step 5.1: Extend `StepReading`** (WizardVM:246-255) with `public double CornerA; public double CornerB; public double CornerMean;` (NaN when unavailable). Extend `SeedStepReading` (:2850) with optional `double cornerA = double.NaN, double cornerB = double.NaN, double cornerMean = double.NaN`.
-- [ ] **Step 5.2: Capture.** In `RunAveragedMeasurement` (:2306), next to the `CalibrationTiltPlane` read (:2354), read `var corner = cornerTiltPlaneOverrideForTest ?? inspector.TiltModel?.TiltPlaneModel;` and accumulate `(corner.A, corner.B, corner.MeanFocuserPosition)` into a parallel list; average like the paraboloid readings. Add the test seam next to `CalibrationTiltPlaneOverrideForTest` (:2286-2301):
+- [x] **Step 5.1: Extend `StepReading`** (WizardVM:246-255) with `public double CornerA; public double CornerB; public double CornerMean;` (NaN when unavailable). Extend `SeedStepReading` (:2850) with optional `double cornerA = double.NaN, double cornerB = double.NaN, double cornerMean = double.NaN`.
+- [x] **Step 5.2: Capture.** In `RunAveragedMeasurement` (:2306), next to the `CalibrationTiltPlane` read (:2354), read `var corner = cornerTiltPlaneOverrideForTest ?? inspector.TiltModel?.TiltPlaneModel;` and accumulate `(corner.A, corner.B, corner.MeanFocuserPosition)` into a parallel list; average like the paraboloid readings. Add the test seam next to `CalibrationTiltPlaneOverrideForTest` (:2286-2301):
 ```csharp
 private TiltPlaneModel cornerTiltPlaneOverrideForTest;
 internal TiltPlaneModel CornerTiltPlaneOverrideForTest {
@@ -385,8 +385,8 @@ internal TiltPlaneModel CornerTiltPlaneOverrideForTest {
 }
 ```
   Do the same capture in `ReplayAsync` (:3070-3084).
-- [ ] **Step 5.3: Metadata.** `TiltPerStepResult` gains `public double CornerTiltPlaneA { get; set; } = double.NaN;`, `CornerTiltPlaneB`, `CornerMeanFocuserPosition` (NaN defaults). `RecordStepIntoMetadata` (:3216) fills them. `TiltCalibrationResultRecord` gains `public double CornerMeasuredHardwareMicrons { get; set; } = double.NaN;` and `public double EstimatorRelativeDifference { get; set; } = double.NaN;`.
-- [ ] **Step 5.4: Cross-check math.** In `RunCalibrationMath` (:2631), after the paraboloid `Calibrate` call: when every reading in `activeMeasurementSteps` has non-NaN corner values, build a second `TiltCalibrationInputs` from the corner readings (identical geometry fields) and run `TiltCalibrationCalculator.Calibrate`. Compute, using the Task-2/3 helpers:
+- [x] **Step 5.3: Metadata.** `TiltPerStepResult` gains `public double CornerTiltPlaneA { get; set; } = double.NaN;`, `CornerTiltPlaneB`, `CornerMeanFocuserPosition` (NaN defaults). `RecordStepIntoMetadata` (:3216) fills them. `TiltCalibrationResultRecord` gains `public double CornerMeasuredHardwareMicrons { get; set; } = double.NaN;` and `public double EstimatorRelativeDifference { get; set; } = double.NaN;`.
+- [x] **Step 5.4: Cross-check math.** In `RunCalibrationMath` (:2631), after the paraboloid `Calibrate` call: when every reading in `activeMeasurementSteps` has non-NaN corner values, build a second `TiltCalibrationInputs` from the corner readings (identical geometry fields) and run `TiltCalibrationCalculator.Calibrate`. Compute, using the Task-2/3 helpers:
 
 ```csharp
 var (p1x, p1y) = TiltCalibrationCalculator.PhysicalDelta(TiltCalibrationCalculator.Screw1Delta(inputs), inputs);
@@ -397,15 +397,15 @@ double estimatorRelDiff = Math.Max(rel1, rel2);
 ```
   Store `cornerCalibration.MeasuredHardwareMicrons` + `estimatorRelDiff` in fields + metadata. Extend `ValidateCalibrationQuality` with: when `estimatorRelDiff > 0.15`, append part
   `$"the per-star model and the corner-region AF disagree on the screw moves by {estimatorRelDiff:P0} — the measured hardware may be unreliable (corner-AF estimate: {cornerMeasuredHardwareMicrons:0.###} µm)"`.
-- [ ] **Step 5.5: Display.** New VM property, raised in `RaiseHardwareSummaryChanged`:
+- [x] **Step 5.5: Display.** New VM property, raised in `RaiseHardwareSummaryChanged`:
 ```csharp
 public string CornerCrossCheckDisplay =>
     double.IsNaN(cornerMeasuredHardwareMicrons) ? string.Empty
     : $"Corner-AF cross-check: {cornerMeasuredHardwareMicrons:0.###} µm/{(IsStepperAdjustment ? "step" : "turn")}";
 ```
   XAML row next to Task 4's, same pattern.
-- [ ] **Step 5.6: Write VM tests** in `TiltAdapterWizardVMTests` (follow existing patterns found there; use `SeedStepReading` + `RunCalibrationMath` via whatever internal invocation the existing calibration tests use — read the test file first). Two cases: (a) corner readings agreeing within 15% → no new warning part; (b) corner magnitudes 25% higher → warning contains "corner-region AF disagree".
-- [ ] **Step 5.7: Run** wizard + metadata filters → green. **Commit** — `feat(tilt): corner-region AF cross-check of the paraboloid calibration`
+- [x] **Step 5.6: Write VM tests** in `TiltAdapterWizardVMTests` (follow existing patterns found there; use `SeedStepReading` + `RunCalibrationMath` via whatever internal invocation the existing calibration tests use — read the test file first). Two cases: (a) corner readings agreeing within 15% → no new warning part; (b) corner magnitudes 25% higher → warning contains "corner-region AF disagree".
+- [x] **Step 5.7: Run** wizard + metadata filters → green. **Commit** — `feat(tilt): corner-region AF cross-check of the paraboloid calibration`
 
 ---
 
