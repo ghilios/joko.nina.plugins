@@ -70,6 +70,34 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public int RecommendedOffsetSteps { get; set; }
 
         /// <summary>
+        /// The gate this landing ACTUALLY enforces — <c>max(BrightnessSensitivity, StarPeakResponse ×
+        /// effective StarClippingMultiplier)</c> (followup F33). Derived, get-only: it adds no state, so it needs
+        /// no schema bump and is computed for every landing already on disk when one is read back.
+        ///
+        /// <para>Reported because <see cref="BrightnessSensitivity"/> alone misclassifies a whole shape of landing.
+        /// A run can record <c>0.0</c> here — which reads as "the optimizer drove the gate to its floor", the
+        /// synthetic bank's pathology — while the structure/clip stage enforces a gate many times the shipped
+        /// default. Read <see cref="EffectiveSensitivityGate"/> instead whenever the question is "how hard is this
+        /// landing culling stars".</para>
+        /// </summary>
+        [JsonProperty(Order = 100)]
+        public double EffectiveSensitivityGate => StarDetector.EffectiveSensitivityGate(GateParams());
+
+        /// <summary>
+        /// The minimal <see cref="StarDetectorParams"/> the gate algebra reads, rebuilt from this DTO. Deliberately
+        /// partial — it exists so <see cref="EffectiveSensitivityGate"/> routes through the SAME
+        /// <see cref="StarDetector"/> helpers the detector itself uses (the donut clip cap in particular), rather
+        /// than restating that algebra here where it could silently drift.
+        /// </summary>
+        private StarDetectorParams GateParams() => new StarDetectorParams {
+            Sensitivity = BrightnessSensitivity,
+            PeakResponse = StarPeakResponse,
+            StarClippingMultiplier = StarClippingMultiplier,
+            DefocusAwareDonutDetection = DefocusAwareDonutDetection,
+            DefocusDistortionSizeReference = DefocusDistortionSizeReference,
+        };
+
+        /// <summary>
         /// v1 = the original curated knob set. v2 added the defocus-aware axes. v3 added the optional
         /// <see cref="Provenance"/> block (F30) and changed NO knob semantics, so a v3 file stays knob-compatible
         /// with v2 in both directions — an older build ignores the unknown key, and a newer build reads a v1/v2

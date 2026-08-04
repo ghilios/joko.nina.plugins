@@ -1527,6 +1527,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             p == null ? double.NaN : p.PeakResponse * MinEffectiveClipMultiplier(p);
 
         /// <summary>
+        /// The gate a set of detector settings ACTUALLY enforces:
+        /// <c>max(Sensitivity, InertSensitivityBound)</c>. Report this wherever a landing's
+        /// <see cref="StarDetectorParams.Sensitivity"/> is quoted (followup F33).
+        ///
+        /// <para><b>Why the raw axis misleads.</b> Sensitivity below
+        /// <see cref="InertSensitivityBound"/> rejects nothing, so the structure/clip stage — not the Sensitivity
+        /// knob — is what is culling stars. A landing can therefore read <c>Sensitivity 0.0</c>, which looks like
+        /// the synthetic bank's "the optimizer drove the gate to its floor" pathology, while enforcing a gate
+        /// several times the shipped default. The real-bank <c>mccomiskey</c> run is the case that motivated this:
+        /// Sensitivity 0.0 with PeakResponse 0.98 × StarClip 10.0 ⇒ an effective gate of <b>9.81</b>, and
+        /// detections collapsing 3606 → 43. Read as a floor landing it says the opposite of what it does.</para>
+        ///
+        /// <para>Two more landings in the same arm are misread the same way (<c>caboose</c> at 5.05 on the real
+        /// bank; D11 at 2.36 and D12 at 2.10 on the synthetic one), so this is a systematic reading error rather
+        /// than one odd run.</para>
+        /// </summary>
+        public static double EffectiveSensitivityGate(StarDetectorParams p) =>
+            p == null ? double.NaN : Math.Max(p.Sensitivity, InertSensitivityBound(p));
+
+        /// <summary>
         /// Companion to <see cref="ComputeEffectiveMaxDistortion"/> for the NotCentered gate. Computes the
         /// effective StarCenterTolerance the centering check uses for a candidate of bbox max-dimension
         /// <paramref name="candidateSize"/> (= max(bbox.Width, bbox.Height), the SAME defocus proxy the distortion

@@ -452,11 +452,14 @@ namespace TestApp {
                     aggregate.Add(row);
                     Console.WriteLine($"  -> {d.RunId}: currentJ={F(outcome.BaselineJ)} bestJ={F(outcome.Result.BestJ)} " +
                         $"hard-floor {(outcome.HardFloorPassed ? "PASS" : "FAIL")}; outputs in {subDir}");
+                    // F33: always quote the EFFECTIVE gate next to the raw axis. "sensitivity=0.0 (AT FLOOR)" is
+                    // exactly the line that made mccomiskey look like a floor landing when its real gate was 9.81.
+                    var gate = $"     sensitivity={F(row.BrightnessSensitivity)} (effective gate {F(row.EffectiveSensitivityGate)})";
                     Console.WriteLine(row.SensitivityIsAtFloor && row.ExposureRecommendation?.HasRecommendation == true
-                        ? $"     sensitivity={F(row.BrightnessSensitivity)} (AT FLOOR): exposure rec {F(row.ExposureRecommendation.CurrentSeconds)}s -> {F(row.ExposureRecommendation.RecommendedSeconds)}s"
+                        ? $"{gate} (AT FLOOR): exposure rec {F(row.ExposureRecommendation.CurrentSeconds)}s -> {F(row.ExposureRecommendation.RecommendedSeconds)}s"
                         : row.SensitivityIsAtFloor
-                            ? $"     sensitivity={F(row.BrightnessSensitivity)} (AT FLOOR): no exposure recommendation (insufficient data)"
-                            : $"     sensitivity={F(row.BrightnessSensitivity)} (not at floor)");
+                            ? $"{gate} (AT FLOOR): no exposure recommendation (insufficient data)"
+                            : $"{gate} (not at floor)");
                 } catch (Exception ex) {
                     anyFailure = true;
                     Console.Error.WriteLine($"  -> {d.RunId}: FAILED to optimize ({ex.Message}); continuing to next run");
@@ -636,8 +639,25 @@ namespace TestApp {
             var buildsBefore = dataList.Sum(d => d.ContextBuilds);
             var reusesBefore = dataList.Sum(d => d.ContextReuses);
 
+            // F35 — seed MinHFR beneath the gate when the pre-search fit says this rig's stars are smaller than it.
+            // perRunBaseline (built above, before the objective was even finalized) already holds the fits, so the
+            // trigger statistic costs nothing extra here. Run 0 is the representative run, matching the wizard.
+            // The seeded value is reported below so a landing never silently differs from its recorded seed.
+            settings.MinHfrSeedFloor = MinHfrSeed.Resolve(
+                perRunBaseline.Count > 0 ? (perRunBaseline[0].BestFit?.Minimum.Y ?? double.NaN) : double.NaN,
+                ctx.Seed.MinHFR);
+            if (settings.MinHfrSeedFloor is double seededMinHfr) {
+                Console.WriteLine($"  MinHFR seed (F35): fitted vertex HFR {F(perRunBaseline[0].BestFit?.Minimum.Y ?? double.NaN)} px "
+                    + $"is at or below the gate {F(ctx.Seed.MinHFR)}; seeding MinHFR -> {F(seededMinHfr)}");
+            }
+
             var sw = System.Diagnostics.Stopwatch.StartNew();
             var result = await optimizer.OptimizeAsync(ctx.Seed, variables, evaluator, settings, progress, CancellationToken.None).ConfigureAwait(false);
+
+            // The seed is a START condition, not a bound: once the first pass has run, MinHFR is the search's to
+            // move. Leaving the floor set would re-stamp it on every continue round and silently undo any upward
+            // move the search had earned.
+            settings.MinHfrSeedFloor = null;
 
             // --continue-rounds: chain additional passes, each re-seeded from the prior best with a FRESH curated set
             // (resets the pattern-search step scale, so it can make larger moves again — the point of "Continue").
@@ -818,6 +838,12 @@ namespace TestApp {
             public double BrightnessSensitivity = double.NaN;
             public bool SensitivityIsAtFloor;
             public ExposureRecommendation ExposureRecommendation;
+
+            // F33 — the gate this landing ACTUALLY enforces: max(Sensitivity, PeakResponse x effective StarClip).
+            // Reported alongside BrightnessSensitivity everywhere because the raw axis misclassifies a whole shape
+            // of landing: mccomiskey records Sensitivity 0.0 (which reads as "drove the gate to its floor") while
+            // enforcing 9.81 and shedding 3606 detections down to 43.
+            public double EffectiveSensitivityGate = double.NaN;
         }
 
         /// <summary>Builds an aggregate row from a per-run outcome (exactly one run in the set in --per-run mode).
@@ -862,7 +888,8 @@ namespace TestApp {
                     : string.Join("; ", changed.Select(t => $"{t.Name}: {F(t.Cur)}->{F(t.Best)}")),
                 BrightnessSensitivity = landedSensitivity,
                 SensitivityIsAtFloor = sensitivityAtFloor,
-                ExposureRecommendation = exposureRecommendation
+                ExposureRecommendation = exposureRecommendation,
+                EffectiveSensitivityGate = StarDetector.EffectiveSensitivityGate(outcome.Result.BestParams)
             };
         }
 
@@ -894,7 +921,7 @@ namespace TestApp {
                 sb.AppendLine($"  sigma_focus : {F(r.BaselineSigmaFocus)} -> {F(r.BestSigmaFocus)}  (current -> optimized)");
                 sb.AppendLine($"  rec. step   : {r.RecommendedStep}");
                 sb.AppendLine($"  changed     : {r.ChangedParams}");
-                AppendExposureRecommendationLines(sb, "  ", r.BrightnessSensitivity, r.SensitivityIsAtFloor, r.ExposureRecommendation);
+                AppendExposureRecommendationLines(sb, "  ", r.BrightnessSensitivity, r.EffectiveSensitivityGate, r.SensitivityIsAtFloor, r.ExposureRecommendation);
                 sb.AppendLine();
             }
 
@@ -908,8 +935,15 @@ namespace TestApp {
         /// or printed for a healthy run. When it fired but <see cref="ExposureRecommendation.HasRecommendation"/> is
         /// false (thin data or an unrecorded exposure), that is reported explicitly rather than silently omitted.
         /// </summary>
-        private static void AppendExposureRecommendationLines(StringBuilder sb, string indent, double brightnessSensitivity, bool sensitivityIsAtFloor, ExposureRecommendation rec) {
-            sb.AppendLine($"{indent}sensitivity : {F(brightnessSensitivity)}{(sensitivityIsAtFloor ? "  (AT SEARCH FLOOR -- frames may be signal-starved)" : "")}");
+        /// <param name="effectiveSensitivityGate">
+        /// F33 — <c>max(Sensitivity, PeakResponse x effective StarClip)</c>, the gate the settings actually enforce.
+        /// Printed on the same line as the raw axis because that line, alone, misclassifies a whole shape of
+        /// landing: "sensitivity : 0.0 (AT SEARCH FLOOR)" is what made mccomiskey read as a floor landing when it
+        /// was enforcing 9.81 and had shed 3606 detections down to 43.
+        /// </param>
+        private static void AppendExposureRecommendationLines(StringBuilder sb, string indent, double brightnessSensitivity, double effectiveSensitivityGate, bool sensitivityIsAtFloor, ExposureRecommendation rec) {
+            sb.AppendLine($"{indent}sensitivity : {F(brightnessSensitivity)} (effective gate {F(effectiveSensitivityGate)})"
+                + (sensitivityIsAtFloor ? "  (AT SEARCH FLOOR -- frames may be signal-starved)" : ""));
             if (!sensitivityIsAtFloor) {
                 sb.AppendLine($"{indent}exposure rec: n/a (Sensitivity is not at the search floor)");
                 return;
@@ -1191,7 +1225,8 @@ namespace TestApp {
                 var exposureRec = sensitivityIsAtFloor
                     ? ExposureRecommender.Recommend(bestM, c, run.CapturedExposureSeconds, result.BestParams)
                     : null;
-                AppendExposureRecommendationLines(sb, "    ", result.BestParams.Sensitivity, sensitivityIsAtFloor, exposureRec);
+                AppendExposureRecommendationLines(sb, "    ", result.BestParams.Sensitivity,
+                    StarDetector.EffectiveSensitivityGate(result.BestParams), sensitivityIsAtFloor, exposureRec);
             }
             sb.AppendLine();
 

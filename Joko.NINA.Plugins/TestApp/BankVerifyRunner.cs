@@ -400,7 +400,13 @@ namespace TestApp {
             InspectorOptions inspectorOptions, AlglibAPI alglib, ProfileService profileService, NINA.Profile.Interfaces.IProfile activeProfile, int stepSize,
             StarDetector detector) {
 
-            var cm = new ConfigMetrics { config = label, nc = nc, donut = donut, sensitivity = p.Sensitivity };
+            // effectiveSensitivity is set HERE, from the same params the config is scored with, so C0/A/B all get it
+            // from one place (the A/B call sites re-stamp `sensitivity` afterwards; the effective gate must not
+            // acquire a second, drift-prone assignment).
+            var cm = new ConfigMetrics {
+                config = label, nc = nc, donut = donut, sensitivity = p.Sensitivity,
+                effectiveSensitivity = StarDetector.EffectiveSensitivityGate(p)
+            };
 
             // AF fit (reuses the optimizer's evaluation path → reproduces the dry-run σ_focus).
             Prog($"  [{label}] EvaluateAndFitAsync start (NC={nc}, donut={donut})");
@@ -759,6 +765,21 @@ namespace TestApp {
             public string config { get; set; }
             public double nc { get; set; }
             public double sensitivity { get; set; }
+
+            /// <summary>
+            /// F33 — <c>max(sensitivity, PeakResponse x effective StarClip)</c>: the gate this config actually
+            /// enforces. Read this, not <see cref="sensitivity"/>, when asking how hard a config is culling.
+            /// A config can record <c>sensitivity 0.0</c> — the synthetic bank's "drove the gate to its floor"
+            /// signature — while enforcing several times the shipped default; 2 of the 6 synthetic-bank
+            /// Sensitivity-0.0 landings (D11 at 2.36, D12 at 2.10) are exactly that, as is the real bank's
+            /// mccomiskey at 9.81.
+            ///
+            /// <para>ADDITIVE and derived, so the <c>afbank-verify</c> schema is deliberately NOT bumped: no
+            /// number changes and every prior report stays comparable. The /4 and /5 bumps were for changes that
+            /// made numbers non-comparable, which this is not.</para>
+            /// </summary>
+            public double effectiveSensitivity { get; set; } = double.NaN;
+
             public bool donut { get; set; }
             public double recallHigh { get; set; } = double.NaN;
             public double recallAll { get; set; } = double.NaN;

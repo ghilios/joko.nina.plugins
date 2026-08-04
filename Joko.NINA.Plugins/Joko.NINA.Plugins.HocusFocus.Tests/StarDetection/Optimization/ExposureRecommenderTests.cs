@@ -666,6 +666,53 @@ public class ExposureRecommenderTests {
         });
     }
 
+    // ── F33: the EFFECTIVE gate, max(Sensitivity, InertSensitivityBound) ────────────────────────────────────
+
+    /// <summary>
+    /// The `mccomiskey` landing, verbatim from its own optimized_settings.json. This is the case F33 was filed
+    /// on: Sensitivity reads 0.0 — indistinguishable from the synthetic bank's floor-landing pathology — while
+    /// the structure/clip stage enforces 9.81 and detections collapse 3606 -> 43.
+    ///
+    /// <para>Note 9.81, not the 7.5 the register originally quoted: that figure used the DEFAULT PeakResponse of
+    /// 0.75, but this landing's own PeakResponse is 0.98. Both inputs are searched axes, so the gate must always
+    /// be computed from the landing's own params.</para>
+    /// </summary>
+    [Test]
+    public void EffectiveSensitivityGate_ExposesAFloorLandingThatIsNotAFloor() {
+        var mccomiskey = new StarDetectorParams {
+            Sensitivity = 0.0, PeakResponse = 0.98, StarClippingMultiplier = 10.0,
+            DefocusAwareDonutDetection = false
+        };
+        Assert.Multiple(() => {
+            Assert.That(ExposureRecommender.SensitivityIsAtFloor(mccomiskey.Sensitivity), Is.True,
+                "the raw axis reads as a floor landing — which is the misreading");
+            Assert.That(StarDetector.EffectiveSensitivityGate(mccomiskey), Is.EqualTo(9.8).Within(1e-9));
+        });
+    }
+
+    /// <summary>When Sensitivity is the binding constraint the effective gate IS Sensitivity — the common case.</summary>
+    [Test]
+    public void EffectiveSensitivityGate_IsTheRawAxis_WhenTheAxisBinds() {
+        var p = new StarDetectorParams { Sensitivity = 34.3, PeakResponse = 0.75, StarClippingMultiplier = 2.9 };
+        Assert.That(StarDetector.EffectiveSensitivityGate(p), Is.EqualTo(34.3).Within(1e-9));
+    }
+
+    /// <summary>
+    /// The donut cap flows through: with the master on, an extended candidate's clip is capped at 2.0, so the
+    /// bound — and therefore the effective gate — uses the capped value, matching InertSensitivityBound.
+    /// </summary>
+    [Test]
+    public void EffectiveSensitivityGate_HonoursTheDonutClipCap() {
+        var p = new StarDetectorParams {
+            Sensitivity = 0.0, PeakResponse = 0.75, StarClippingMultiplier = 8.0,
+            DefocusAwareDonutDetection = true, DefocusDistortionSizeReference = 30.0
+        };
+        Assert.Multiple(() => {
+            Assert.That(StarDetector.EffectiveSensitivityGate(p), Is.EqualTo(1.5).Within(1e-12));
+            Assert.That(StarDetector.EffectiveSensitivityGate(null), Is.NaN);
+        });
+    }
+
     // ── StarCountIsTheLimit: bright enough, but too few ─────────────────────────────────────────────────────
 
     [Test]
