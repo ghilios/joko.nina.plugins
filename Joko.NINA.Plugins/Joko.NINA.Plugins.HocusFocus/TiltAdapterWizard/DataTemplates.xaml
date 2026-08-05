@@ -105,6 +105,569 @@
     </DataTemplate>
 
     <!--
+        ============================ Manual adjustment (DataContext = TiltAdapterManualAdjustmentVM) =========
+        Hand control of the connected motorized adapter. Collapsed by default (IsExpanded is TwoWay so a click
+        sticks for the session; the VM's getter force-opens it while a send runs or an undismissed failure is on
+        screen). Two modes: a 3×3 pad that sends exactly one generator command, and absolute target positions
+        that decompose through the same planner + approval dialog the inspector's Automatic Adjustment uses.
+
+        Visibility is driven by Style.Triggers throughout, matching the rest of this file — a directly-set
+        Visibility attribute would win over the trigger, and every local TextBlock.Style carries
+        BasedOn="{StaticResource StandardTextBlock}" per the THEME HAZARD note at the top of this file.
+    -->
+    <DataTemplate x:Key="HF_TiltManualAdjustmentPanel">
+        <Expander Margin="0,8,0,0" IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
+            <Expander.Header>
+                <WrapPanel>
+                    <TextBlock FontWeight="Bold" Text="Manual adjustment" />
+                    <TextBlock Margin="8,0,0,0" Opacity="0.6" Text="{Binding SummaryText}" />
+                </WrapPanel>
+            </Expander.Header>
+            <StackPanel Margin="4,6,0,0">
+
+                <!--  No undo: the counters live in the device's EEPROM and there is no abort command.  -->
+                <TextBlock
+                    Margin="0,0,0,6"
+                    FontStyle="Italic"
+                    Opacity="0.75"
+                    Text="{Binding CautionText}"
+                    TextWrapping="Wrap" />
+
+                <!--  Disconnected: the whole body collapses to one line.  -->
+                <TextBlock Opacity="0.7" Text="{Binding NotConnectedText}" TextWrapping="Wrap">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsDeviceConnected}" Value="False">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+
+                <StackPanel>
+                    <StackPanel.Style>
+                        <Style TargetType="StackPanel">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsDeviceConnected}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </StackPanel.Style>
+
+                    <!--  Mode switch. Caption is a sibling TextBlock, never control Content.  -->
+                    <WrapPanel Margin="0,0,0,6">
+                        <TextBlock VerticalAlignment="Center" Text="Mode" />
+                        <RadioButton
+                            Margin="8,0,0,0"
+                            VerticalAlignment="Center"
+                            AutomationProperties.Name="Single move mode"
+                            Content="Single move"
+                            GroupName="HFManualAdjustMode"
+                            IsChecked="{Binding IsSingleMoveMode, Mode=TwoWay}"
+                            ToolTip="Send one adjustment now: a corner, a side, or all four motors together." />
+                        <RadioButton
+                            Margin="10,0,0,0"
+                            VerticalAlignment="Center"
+                            AutomationProperties.Name="Target positions mode"
+                            Content="Target positions"
+                            GroupName="HFManualAdjustMode"
+                            IsChecked="{Binding IsTargetPositionsMode, Mode=TwoWay}"
+                            ToolTip="Type where each motor should end, review the moves it takes to get there, then send them." />
+                    </WrapPanel>
+
+                    <!--  ================================ Single move ================================  -->
+                    <StackPanel>
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSingleMoveMode}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+
+                        <TextBlock Margin="0,0,0,3" Text="What to move" />
+                        <!--  3×3 pad laid out as the sensor is imaged: corners drive the diagonal axes, edges
+                              the edge axes, centre the backfocus axis. The selection ring is drawn by the
+                              wrapping Border rather than relying on the theme's ToggleButton checked chrome.  -->
+                        <ItemsControl HorizontalAlignment="Left" ItemsSource="{Binding PadItems}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="3" Rows="3" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="1" BorderThickness="2" CornerRadius="4">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="BorderBrush" Value="Transparent" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                        <Setter Property="BorderBrush" Value="{StaticResource PrimaryBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <ToggleButton
+                                            MinWidth="62"
+                                            AutomationProperties.Name="{Binding Target.AutomationName}"
+                                            IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                            ToolTip="{Binding Target.Tooltip}">
+                                            <TextBlock Margin="8,5" HorizontalAlignment="Center" Text="{Binding Target.Label}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
+                                                        <Setter Property="Foreground" Value="{StaticResource ButtonForegroundBrush}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                                                <Setter Property="FontWeight" Value="Bold" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </ToggleButton>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!--  Direction. Deliberately "+ / −" and never "up / down": which way a positive step
+                              physically moves a corner is rig-dependent, which is why the approval dialog also
+                              speaks signed steps. The legend under the preview carries the meaning.  -->
+                        <WrapPanel Margin="0,8,0,0">
+                            <TextBlock VerticalAlignment="Center" Text="Direction" />
+                            <RadioButton
+                                Margin="8,0,0,0"
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="Positive direction"
+                                Content="+"
+                                GroupName="HFManualAdjustDirection"
+                                IsChecked="{Binding PositiveDirection, Mode=TwoWay}"
+                                ToolTip="The wizard's positive step direction (clockwise / tighten) on the highlighted motors; the coupled motors move the opposite way." />
+                            <RadioButton
+                                Margin="10,0,0,0"
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="Negative direction"
+                                Content="−"
+                                GroupName="HFManualAdjustDirection"
+                                IsChecked="{Binding NegativeDirection, Mode=TwoWay}"
+                                ToolTip="The opposite of the wizard's positive step direction on the highlighted motors." />
+                        </WrapPanel>
+
+                        <WrapPanel Margin="0,6,0,0">
+                            <TextBlock VerticalAlignment="Center" Text="Amount" ToolTip="{Binding AmountTooltip}" />
+                            <TextBox
+                                MinWidth="60"
+                                Margin="8,0,0,0"
+                                VerticalAlignment="Center"
+                                AutomationProperties.Name="Move amount in device steps"
+                                Text="{Binding AmountText, UpdateSourceTrigger=LostFocus}"
+                                ToolTip="{Binding AmountTooltip}" />
+                            <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" Text="steps" />
+                            <TextBlock
+                                Margin="8,0,0,0"
+                                VerticalAlignment="Center"
+                                FontStyle="Italic"
+                                Opacity="0.6"
+                                Text="{Binding AmountMicronsHint}" />
+                        </WrapPanel>
+
+                        <!--  Nothing picked yet: no preview, no Send.  -->
+                        <TextBlock Margin="0,8,0,0" Opacity="0.6" Text="{Binding NoSelectionText}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding PreviewVisible}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+
+                        <!--  Preview: what this click will do, before it is clicked. There is no undo, so the
+                              consequence has to be unmistakable here.  -->
+                        <Border
+                            Margin="0,8,0,0"
+                            Padding="6"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="3">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding PreviewVisible}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <StackPanel>
+                                <!--  Kind badge + semantic line, with the wire command demoted to an
+                                      auditability chip on the right (same hierarchy as the approval dialog).  -->
+                                <DockPanel>
+                                    <Border
+                                        Margin="0,0,6,0"
+                                        Padding="5,1"
+                                        DockPanel.Dock="Left"
+                                        BorderBrush="{StaticResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="2">
+                                        <TextBlock FontSize="10" Text="{Binding PreviewKindLabel}" />
+                                    </Border>
+                                    <TextBlock
+                                        Margin="6,0,0,0"
+                                        DockPanel.Dock="Right"
+                                        FontFamily="Consolas"
+                                        FontSize="10"
+                                        Opacity="0.55"
+                                        Text="{Binding PreviewWireCommand}"
+                                        ToolTip="{Binding PreviewWireCommandTooltip}" />
+                                    <TextBlock FontWeight="SemiBold" Text="{Binding PreviewSemanticText}" TextWrapping="Wrap" />
+                                </DockPanel>
+
+                                <!--  Predicted end positions for ALL FOUR motors, in the same 2×2 layout as the
+                                      live grid above — this is what makes the mechanical coupling (clicking TR
+                                      also moves BL) visible before every send.  -->
+                                <ItemsControl Margin="0,6,0,0" HorizontalAlignment="Left" MinWidth="280" ItemsSource="{Binding PreviewCells}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <UniformGrid Columns="2" Rows="2" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="1" Padding="5,3" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                                                <StackPanel ToolTip="{Binding Tooltip}">
+                                                    <TextBlock FontSize="10" Opacity="0.7" Text="{Binding Heading}" />
+                                                    <TextBlock Text="{Binding ValueText}">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
+                                                                <Setter Property="Opacity" Value="0.6" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsMoving}" Value="True">
+                                                                        <Setter Property="Opacity" Value="1.0" />
+                                                                        <Setter Property="FontWeight" Value="Bold" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                    <!--  Limit state is a TEXT tag, never colour alone.  -->
+                                                    <TextBlock FontSize="10" Text="{Binding LimitTag}">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                <Setter Property="Foreground" Value="{StaticResource NotificationWarningBrush}" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding HasLimitTag}" Value="True">
+                                                                        <Setter Property="Visibility" Value="Visible" />
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding IsBlocking}" Value="True">
+                                                                        <Setter Property="Foreground" Value="{StaticResource NotificationErrorBrush}" />
+                                                                        <Setter Property="FontWeight" Value="Bold" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <TextBlock Margin="0,6,0,0" Text="{Binding ConsequenceText}" TextWrapping="Wrap" />
+                                <TextBlock
+                                    Margin="0,3,0,0"
+                                    FontSize="10"
+                                    Opacity="0.6"
+                                    Text="{Binding LegendText}"
+                                    TextWrapping="Wrap" />
+
+                                <!--  Positions unknown is advisory here, not blocking: the controller still
+                                      enforces the travel window, just against a possibly-stale estimate.  -->
+                                <TextBlock
+                                    Margin="0,6,0,0"
+                                    Foreground="{StaticResource NotificationWarningBrush}"
+                                    Text="{Binding PositionsUnknownAdvisory}"
+                                    TextWrapping="Wrap">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding PositionsUnknownAdvisoryVisible}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+
+                                <TextBlock
+                                    Margin="0,6,0,0"
+                                    Foreground="{StaticResource NotificationWarningBrush}"
+                                    Text="{Binding SendDisabledReason}"
+                                    TextWrapping="Wrap">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding SendDisabledReasonVisible}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+
+                                <DockPanel Margin="0,6,0,0">
+                                    <Button
+                                        DockPanel.Dock="Right"
+                                        AutomationProperties.Name="Send the previewed move"
+                                        Command="{Binding SendCommand}">
+                                        <TextBlock Margin="12,5" Foreground="{StaticResource ButtonForegroundBrush}" Text="{Binding SendButtonText}" />
+                                    </Button>
+                                    <TextBlock VerticalAlignment="Center" Opacity="0.7" Text="{Binding MoveCountAndDurationText}" />
+                                </DockPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!--  ============================== Target positions ==============================  -->
+                    <StackPanel>
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsTargetPositionsMode}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+
+                        <TextBlock Margin="0,0,0,6" Opacity="0.7" Text="{Binding TargetModeCaption}" TextWrapping="Wrap" />
+
+                        <ItemsControl HorizontalAlignment="Left" MinWidth="300" ItemsSource="{Binding TargetCells}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <UniformGrid Columns="2" Rows="2" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="1" Padding="5,4" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+                                        <StackPanel>
+                                            <TextBlock FontWeight="Bold" Text="{Binding Heading}" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="{Binding WizardScrewCaption}" />
+                                            <TextBlock Margin="0,2,0,0" FontSize="10" Opacity="0.7" Text="{Binding NowText}" />
+                                            <DockPanel Margin="0,3,0,0">
+                                                <TextBlock VerticalAlignment="Center" DockPanel.Dock="Left" Text="Target" />
+                                                <TextBox
+                                                    MinWidth="60"
+                                                    Margin="5,0,0,0"
+                                                    VerticalAlignment="Center"
+                                                    AutomationProperties.Name="{Binding Heading}"
+                                                    Text="{Binding TargetText, UpdateSourceTrigger=LostFocus}">
+                                                    <TextBox.Style>
+                                                        <Style TargetType="TextBox">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding HasError}" Value="True">
+                                                                    <Setter Property="BorderBrush" Value="{StaticResource NotificationErrorBrush}" />
+                                                                    <Setter Property="BorderThickness" Value="2" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBox.Style>
+                                                </TextBox>
+                                            </DockPanel>
+                                            <TextBlock Margin="0,3,0,0" FontWeight="SemiBold" Text="{Binding DeltaText}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasDelta}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <!--  Only present when the request contains twist: the position this
+                                                  motor will actually reach, which is not the one typed above.  -->
+                                            <TextBlock FontSize="10" Foreground="{StaticResource NotificationWarningBrush}" Text="{Binding WillReachText}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding HasWillReach}" Value="True">
+                                                                <Setter Property="Visibility" Value="Visible" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Margin="0,6,0,0" Text="{Binding TargetHintText}" TextWrapping="Wrap">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding TargetHintVisible}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding TargetHintIsError}" Value="True">
+                                            <Setter Property="Foreground" Value="{StaticResource NotificationErrorBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+
+                        <!--  Four numbers, three degrees of freedom: a rigid plane cannot twist.  -->
+                        <Border
+                            Margin="0,6,0,0"
+                            Padding="6"
+                            BorderBrush="{StaticResource NotificationWarningBrush}"
+                            BorderThickness="1"
+                            CornerRadius="3">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding TwistWarningVisible}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <StackPanel>
+                                <TextBlock FontWeight="Bold" Text="{Binding TwistWarningTitle}" />
+                                <TextBlock Margin="0,2,0,0" Text="{Binding TwistWarningBody}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock
+                            Margin="0,6,0,0"
+                            Foreground="{StaticResource NotificationWarningBrush}"
+                            Text="{Binding ReviewDisabledReason}"
+                            TextWrapping="Wrap">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ReviewDisabledReasonVisible}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+
+                        <WrapPanel Margin="0,6,0,0">
+                            <Button
+                                AutomationProperties.Name="Reset targets to the current positions"
+                                Command="{Binding ResetToCurrentCommand}"
+                                ToolTip="Fill every target from the current motor positions.">
+                                <TextBlock Margin="12,5" Foreground="{StaticResource ButtonForegroundBrush}" Text="Reset to current" />
+                            </Button>
+                            <Button
+                                Margin="8,0,0,0"
+                                AutomationProperties.Name="Review the moves these targets require"
+                                Command="{Binding ReviewMovesCommand}"
+                                ToolTip="Decomposes the difference between the targets and the current positions, then opens the move-approval dialog. Nothing is sent until you approve it there.">
+                                <TextBlock Margin="12,5" Foreground="{StaticResource ButtonForegroundBrush}" Text="{Binding ReviewButtonText}" />
+                            </Button>
+                        </WrapPanel>
+                    </StackPanel>
+
+                    <!--  ============================== Status / result ==============================  -->
+                    <DockPanel Margin="0,8,0,0">
+                        <DockPanel.Style>
+                            <Style TargetType="DockPanel">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ProgressVisible}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DockPanel.Style>
+                        <Button
+                            Margin="8,0,0,0"
+                            DockPanel.Dock="Right"
+                            AutomationProperties.Name="Stop after the move now in flight"
+                            Command="{Binding StopCommand}"
+                            ToolTip="{Binding StopButtonTooltip}">
+                            <TextBlock Margin="12,5" Foreground="{StaticResource ButtonForegroundBrush}" Text="{Binding StopButtonText}" />
+                        </Button>
+                        <TextBlock VerticalAlignment="Center" Text="{Binding ProgressText}" TextWrapping="Wrap" />
+                    </DockPanel>
+
+                    <TextBlock Margin="0,8,0,0" FontStyle="Italic" Opacity="0.75" Text="{Binding SuccessText}" TextWrapping="Wrap">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding SuccessVisible}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <!--  Stopped / failed. Stays until dismissed, and the VM keeps the expander open while it is
+                          here, so a failure can never be hidden by a collapse.  -->
+                    <Border Margin="0,8,0,0" Padding="6" BorderThickness="1" CornerRadius="3">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Setter Property="BorderBrush" Value="{StaticResource NotificationWarningBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ResultVisible}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding ResultIsError}" Value="True">
+                                        <Setter Property="BorderBrush" Value="{StaticResource NotificationErrorBrush}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel>
+                            <TextBlock FontWeight="Bold" Text="{Binding ResultTitle}" TextWrapping="Wrap" />
+                            <TextBlock Margin="0,3,0,0" Text="{Binding ResultBody}" TextWrapping="Wrap" />
+                            <Button
+                                Margin="0,6,0,0"
+                                HorizontalAlignment="Left"
+                                AutomationProperties.Name="Dismiss this result"
+                                Command="{Binding DismissResultCommand}">
+                                <TextBlock Margin="12,5" Foreground="{StaticResource ButtonForegroundBrush}" Text="Dismiss" />
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </Expander>
+    </DataTemplate>
+
+    <!--
         Sensor frame outline (10px thick border, EvenOdd) plus three diamond-shaped screw
         indicators at the 0° / 120° / 240° positions of a standard 3-screw tilt adapter.
     -->
@@ -432,6 +995,11 @@
                                 Margin="0,8,0,0"
                                 Content="{Binding}"
                                 ContentTemplate="{StaticResource HF_TiltDevicePositionsGrid}" />
+
+                            <!--  Manual adjustment: hand control of the connected adapter. Sits directly under
+                                  the positions grid because that grid is the shared state both of its modes read
+                                  against, and above the safety limits it enforces. Collapsed by default.  -->
+                            <ContentControl Content="{Binding ManualAdjustment}" ContentTemplate="{StaticResource HF_TiltManualAdjustmentPanel}" />
 
                             <!--  Persisted per-profile device safety limits (project invariant: every
                                   persisted option gets a UI control — these three were deferred here

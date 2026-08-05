@@ -30,6 +30,8 @@ using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
@@ -376,6 +378,25 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 this.tiltDeviceConnectionService.PropertyChanged += TiltDeviceConnectionService_PropertyChanged;
                 this.tiltDeviceConnectionService.IdlePromptRequested += TiltDeviceConnectionService_IdlePromptRequested;
             }
+
+            // Hand control of the connected adapter. Lives in Panel A's connection GroupBox, so it is never on
+            // screen during a wizard run; it still takes the device lease like every other surface, so a run and
+            // a manual move can't interleave. Its approval dialog is the same modal the inspector's Automatic
+            // Adjustment uses, hosted through this VM's window service factory.
+            ManualAdjustment = new TiltAdapterManualAdjustmentVM(
+                tiltAdapterOptions,
+                this.tiltDeviceConnectionService,
+                applicationDispatcher,
+                (replanner, unitMicrons) => TiltDeviceAdjustmentPrompt.ShowAsync(
+                    windowServiceFactory,
+                    replanner,
+                    // Nothing about a hand-typed absolute target is inferred from the calibration, so the
+                    // "assumed backfocus direction" and pitch-mismatch advisories would both be false here.
+                    screwInwardCurvatureSignIsMeasured: true,
+                    pitchMismatchWarning: string.Empty,
+                    // Target mode is gated on known positions, so this can never be true when the dialog opens.
+                    positionsUnknown: false,
+                    unitMicrons: unitMicrons));
 
             // The display-only focuser convention k changes what the mechanical wording and the physical
             // screw angles READ, never what is stored. Refresh exactly those (design §3, site 6).
@@ -1462,6 +1483,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged();
             }
         }
+
+        /// <summary>
+        /// The collapsed-by-default "Manual adjustment" panel in the connection GroupBox: hand control of the
+        /// connected motorized adapter (single generator moves, or absolute target positions decomposed through
+        /// the same planner and approval dialog Automatic Adjustment uses).
+        /// </summary>
+        public TiltAdapterManualAdjustmentVM ManualAdjustment { get; }
 
         // Device presets. Selecting a non-Manual device fills and locks the hardware fields.
         public IReadOnlyList<string> DeviceNames => TiltAdapterDevicePreset.All.Select(p => p.Name).ToList();
