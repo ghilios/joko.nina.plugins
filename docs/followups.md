@@ -1540,12 +1540,15 @@ appears to run and produces nothing.
 **Measured on the reporter's own 61 MP sweep** (`FOCALLEN 40.0`, `XPIXSZ 3.76` → **19.4 arcsec/px**, 4 s, gain
 100, step 250, `FOCPOS 25000` = true focus). Accepted stars per position:
 
-| seed | 23750 | 24000 | 24250 | 24500 | 24750 | **25000** | 25250 | 25500 | 25750 | 26000 | 26250 | J |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| defaults (`MinHFR` 1.2) | 0 | 2 | 2 | 6 | 103 | **0** | 95 | 3 | 1 | 2 | 0 | **0** |
-| `MinHFR` 0.3 (first fix) | 0 | 2 | 2 | 6 | 103 | **14** | 95 | 3 | 1 | 2 | 0 | **0** |
-| + `Sensitivity` 0 | — | — | — | — | — | — | — | — | — | — | — | **0** |
-| + `NoiseClippingMultiplier` 1.0 | \multicolumn — min observed **3511** | | | | | | | | | | | **0.2477** |
+| seed | 23750 | 24000 | 24250 | 24500 | 24750 | **25000** | 25250 | 25500 | 25750 | 26000 | 26250 | min | `J` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| defaults (`MinHFR` 1.2) | 0 | 2 | 2 | 6 | 103 | **0** | 95 | 3 | 1 | 2 | 0 | 0 | **0** |
+| `MinHFR` 0.3 (first fix) | 0 | 2 | 2 | 6 | 103 | **14** | 95 | 3 | 1 | 2 | 0 | 0 | **0** |
+| + `Sensitivity` → 0 | — | — | — | — | — | — | — | — | — | — | — | 0 | **0** |
+| + `NoiseClippingMultiplier` → 1.0 | — | — | — | — | — | — | — | — | — | — | — | **3511** | **0.2477** |
+
+(The last two rows are reported by their minimum because the point is the `NHard` floor, which is what `J`
+turns on; the per-position detail is in `D:\hf_w5\user40mm\*/optimize_summary.txt`.)
 
 Two things that only measurement would have given: **`MinHFR` is real but not sufficient** (0 → 14 stars at
 focus, still unscorable), and **the binding gate is `NoiseClippingMultiplier`, not `Sensitivity`** — relaxing the
