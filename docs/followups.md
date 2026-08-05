@@ -253,6 +253,28 @@ Also measured: with the F23 marginal-SNR term enabled, **D12 S6 converges** (3 r
 shipping does not (4 rounds, final 80, not converged). So the objective fix helps this loop even though it
 fails its own precision gates.
 
+> **The "fails its own precision gates" half is REFUTED, re-scored at `/5` (2026-08-05, wave 5).** This was the
+> single clause [F36](#f36--which-pre-wave-2-entries-actually-rested-on-the-broken-precision-metric-audited-and-it-is-none-of-them)
+> left open across F1–F8/F18/F21/F25/F26. Arm (a)'s landings scored with `golden eval` (which applies the `/5`
+> `TruthProtection` repair), against the control arm `H_A` on the same three datasets — the three arm (a) was
+> recorded as failing the ≥ 0.90 precision gate on:
+>
+> | dataset | control `H_A` | **arm (a)** | arm (a) as recorded at `/3` |
+> |---|---|---|---|
+> | `D09_c14_3800mm` | 0.958 | **1.000** | 0.451 |
+> | `D12_c14_585_afbin2` | 1.000 | **1.000** | 0.653 |
+> | `D15_cdk20_3454mm_e47` | 0.968 | **1.000** | 0.531 |
+>
+> **Arm (a) clears the gate on all three, and beats the control on two of them.** The gate failure was entirely
+> an artifact of the pre-[F31](#f31--synthetic-bank-precision-is-not-exact-the-golden-omits-real-stars-and-they-score-as-false-positives)
+> metric. What the term actually cost is **recall** — 0.983 → 0.932 on D09, 0.942 → 0.900 on D12, 0.965 → 0.917
+> on D15 — the same inversion F31 found: both mechanisms were suppressing *real detections*, not junk.
+>
+> So F26's convergence result stands **and** its caveat does not: the marginal-SNR term helped this loop without
+> failing any precision gate. It remains "won't fix as written" under [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)
+> on F31's grounds — a precision defect one thirtieth the size of the artifact that hid it does not justify a
+> term — and this clause is now closed rather than unverified. Reproduce: `D:\hf_w5\f26\run.sh`.
+
 **Status revision.** The one-round deferral cost is real and worth the guard below; the "indefinitely" in this
 entry's title is not supported by re-measurement and should be read as "for at least one round, unbounded in
 principle".
@@ -1261,6 +1283,52 @@ derived-looking value that was not derived — either omit the field or mark it 
 itself, not only in `DerivedNotes`. (b) Decide whether the seven `detectionBinning = 2` datasets should be run at
 their expected factor, which is a re-baseline and needs its own arm.
 
+### F40 — The settings handoff shipped in wave 4 had never once been written to disk
+**Status:** Done (wave 5 — backfilled and now exercised) · found 2026-08-05 backfilling it
+
+Wave 4 shipped `hocusfocus_star_detection.json`, the `StarDetectionSettingsExport` envelope that makes a bank
+landing importable by the NINA UI. A filesystem scan of `D:\` and the user profile before the wave-5 backfill
+found **zero files of that name anywhere**.
+
+**It is not a bug in the writer.** `WriteSettingsHandoff` is called from the one `WriteOptimizedSettings` site
+with a non-null `baseOptions`, and the format has unit coverage (`OptimizedLandingExportTests`). The cause is
+ordering: wave 4's own arms — including the `optA` acceptance run on D18/D19/D20 — ran **before** the handoff was
+committed, and no `optimize` pass has run since. Wave 4's write-up says as much in its last line ("the envelope
+appears on the next `optimize` pass over a run"), which is correct and reads much weaker than the headline
+"**Shipped.** Every landing is now stored in a form the app can import and replay with".
+
+**Why it matters, and it generalizes past this file.** A feature can be written, unit-tested, merged, and
+described as shipped while never having *executed* in the environment it exists for. Unit tests prove the mapping;
+they do not prove a file arrives on disk. The distance between "the code that writes it is correct" and "it has
+been written" is exactly one arm that nobody ran.
+
+**Fixed (wave 5):** `TestApp bank-export-settings --runs <bank-root> [--apply]` converts each folder's existing
+`optimized_settings.json` in place, with no optimizer run — so F15 is never touched. **42 landings backfilled
+(20 synthetic + 22 real), 0 failed**, every one round-trip verified through `DiffKnobs` *before* being written.
+That backfill is the format's first end-to-end exercise outside unit tests.
+
+### F41 — A prior wave's control arm is not a control for a later wave's binary
+**Status:** Open (recorded as a standing rule) · found 2026-08-05, twelve minutes into the first wave-5 arm
+
+Wave 5's C0 acceptance criterion was "the feature-OFF landing must be bit-identical to `hf_f23/H_real_A`", the
+wave-1 control arm. On `toml999` it failed across nine knobs — Sensitivity 33.3 → 16.7, StarClip 3.5 → 6.875,
+MaxDistortion 0.10 → 0.45 — which reads as a serious regression in the change under test.
+
+**It is not one, and the same output says so.** `BaselineJ` also differs, **0.99784 → 0.98348**. `BaselineJ` is
+the *current settings*' score: no search is involved in producing it, so a search-side change cannot move it. A
+changed `BaselineJ` can only mean the objective or the detector changed — and between wave 1 and wave 5 they
+changed at least five times (`5115885` marginal-SNR default, `c2db33e` inert-gate fix, `7b5a695` effective gate,
+`238623d` MinHFR seeding/reporting, plus PR #174's bimodal HFR).
+
+**The rule.** An arm directory records what a *particular binary* landed. It is a valid baseline only for
+comparisons against **that same binary**. For "is my change inert", build the **immediate parent commit**; for
+"what did my change do", use **this binary's own feature-OFF arm**. Reusing an older wave's arm silently measures
+every intervening merge and attributes it to the change under test.
+
+**The tell is free and worth checking first.** `BaselineJ` (and any other search-independent quantity) should be
+identical between two arms of the *same* binary. If it is not, the binaries differ and no knob comparison between
+them means anything — check that single number before reading a diff as a regression.
+
 ### F35 — `MinHFR` should be seeded from the sweep WINGS, and neither available HFR statistic can size it
 **Status:** Done (wave 3) · found 2026-08-03 answering "how far can `MinHFR` safely come down?" for
 [F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic)
@@ -1451,12 +1519,19 @@ F26 rests on σ_focus, recall, R², or landed parameter values — and `recallHi
 | F5, F6, F18, F21, F25 | σ_focus, R², curve geometry | unaffected |
 | F7 | σ_focus, and recall "essentially unchanged" | unaffected |
 | F8 | landed Sensitivity/StarClip corners | unaffected — but see below |
-| F26 | binning/convergence, **plus one precision clause** | one clause unverified |
+| F26 | binning/convergence, **plus one precision clause** | ~~one clause unverified~~ → **verified and REFUTED at `/5` (wave 5)** |
 
 **The one genuinely unverified clause.** F26 states that with the F23 marginal-SNR term enabled "D12 S6 converges
 … even though it **fails its own precision gates**." Those gates were the wave-1 `/3` ones, and F23's real
 precision effect turned out to be roughly one fifth of the artifact that hid it. The convergence result stands;
 the "fails its precision gates" half is not evidence until re-scored at `/5`.
+
+> **Closed 2026-08-05 (wave 5): re-scored, and the clause is REFUTED.** Arm (a) scores precision **1.000** on all
+> three datasets it was recorded as failing the ≥ 0.90 gate on (D09, D12, D15), beating the control on two. The
+> full table and what it cost instead (recall) are in [F26](#f26--a-stuck-binning-recommendation-starves-the-step-update-indefinitely).
+> **This audit's own verdict is unchanged** — no entry's conclusion depended on the repaired metric — and the one
+> exposure it identified has now been measured rather than left as a caveat. Cost: six `golden eval` arms, four
+> minutes.
 
 **Two entries are changed by [F33](#f33--the-synthetic-bank-does-not-reproduce-the-real-banks-optimizer-failure-mode)'s
 effective-gate correction instead — a different repair than the one being audited for.**

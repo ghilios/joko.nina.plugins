@@ -158,7 +158,7 @@ built and validated; it must stay INERT at every floor below 0.94.
 
 | # | criterion | scope |
 |---|---|---|
-| **C0** | feature-OFF landings **bit-identical** to the prior arm's (`H_real_A`, `hf_w4/optA`) | all 8. Hard. A miss stops the wave — the plumbing is not inert |
+| **C0** | feature-OFF landings **bit-identical** to the **PARENT COMMIT's binary** (`c97e1a3`, built to `D:\hf_w5\exe_base`) | toml999 + D20. Hard. A miss stops the wave — the plumbing is not inert |
 | **C1** | landing keep% ≥ φ | every BINDING run. Exact; a violation is a bug, not a result |
 | **C2** | median Δrecall@≥12 vs C0 improves from −0.243 to **≥ −0.10** | real BINDING runs |
 | **C3** | median σ_focus(landing)/σ_focus(seed) **≤ 0.60** (unconstrained: 0.320) | real BINDING runs |
@@ -172,6 +172,17 @@ floor recovers more recall but gives back more σ. If no floor clears, ship noth
 **C5 is not a bit-identity claim, on purpose.** A landing can be feasible while a candidate *visited on the way*
 was not; rejecting that candidate legitimately changes the trajectory. So INERT runs are allowed to move, and the
 number that moved is **counted and reported** rather than waved through.
+
+> **C0 was written wrong the first time, and the arm caught it in 12 minutes.** The original criterion compared
+> the feature-OFF landing to `hf_f23/H_real_A` — the WAVE-1 control arm. It failed on `toml999` across nine
+> knobs, which reads as a regression and is not one: **`BaselineJ` differs too (0.99784 → 0.98348)**, and
+> `BaselineJ` is the *current settings*' score, computed with no search at all. A changed `BaselineJ` can only
+> mean the objective or the detector changed — which they did, five times, across waves 2–4 (`5115885`,
+> `c2db33e`, `7b5a695`, `238623d`, plus PR #174).
+>
+> **A prior wave's arm is not a control for this wave's binary.** The only valid inertness baseline is the
+> immediate parent commit, and the only valid baseline for each φ arm is this binary's own feature-OFF arm — which
+> the design already contains. Generalized as [F41](../docs/followups.md).
 
 **Confirmation arm.** At the chosen floor only: full synthetic bank (20) + full real bank (19).
 

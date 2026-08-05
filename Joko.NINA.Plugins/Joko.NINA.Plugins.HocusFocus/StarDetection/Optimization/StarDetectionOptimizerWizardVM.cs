@@ -17,6 +17,7 @@ using NINA.Core.Model.Equipment;
 using NINA.Core.MyMessageBox;
 using NINA.Core.Utility;
 using NINA.Core.Utility.Notification;
+using NINA.Core.Utility.WindowService;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
@@ -810,6 +811,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             BackToSummaryCommand = new RelayCommand(BackToSummary, () => CurrentStep == WizardStep.Review && !IsBusy);
             ReOptimizeCommand = new AsyncRelayCommand(() => ReOptimizeWithLabelsAsync(CancellationToken.None), () => HasLabels && !IsBusy);
             ContinueOptimizationCommand = new AsyncRelayCommand(() => ContinueOptimizationAsync(CancellationToken.None), () => CanContinueOptimization);
+            ImportRunSettingsCommand = new AsyncRelayCommand(ImportRunSettingsAsync, () => CanImportRunSettings);
 
             // Start enables/disables as the per-run paths are filled in (Saved Auto-Focus), so re-evaluate its
             // CanExecute whenever a path is set or the run count changes.
@@ -2358,6 +2360,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// stage to the trajectory. Enabled only while <see cref="CanContinueOptimization"/> (≤ 3 total passes).</summary>
         public AsyncRelayCommand ContinueOptimizationCommand { get; }
 
+        /// <summary>Loads the star-detection settings a previous optimize pass saved beside this run's frames and
+        /// applies them to the current settings, after showing the same diff an Import shows.</summary>
+        public AsyncRelayCommand ImportRunSettingsCommand { get; }
+
         #endregion Commands
 
         /// <summary>
@@ -3131,6 +3137,46 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// "Continue optimizing" round's keep floor is measured against; see the assignment in
         /// <see cref="OptimizeAsync"/> for why a per-round anchor would ratchet.</summary>
         private IReadOnlyList<long> firstPassSeedDetectionTotals;
+
+        private readonly IWindowServiceFactory windowServiceFactory = new WindowServiceFactory();
+
+        /// <summary>The run folder whose saved settings <see cref="ImportRunSettingsCommand"/> would import — the
+        /// first loaded run that actually has a handoff file beside it. Null when no run is loaded or none of them
+        /// carries one (which is the normal case for a run that has never been optimized).</summary>
+        private string RunSettingsSourceFolder {
+            get {
+                var folders = (reoptimizeRunFolders != null && reoptimizeRunFolders.Count > 0)
+                    ? reoptimizeRunFolders
+                    : (IReadOnlyList<string>)loadedRunFolders;
+                foreach (var f in folders) {
+                    if (StarDetectionSettingsIO.ResolveRunFolderSettings(f) != null) {
+                        return f;
+                    }
+                }
+                return null;
+            }
+        }
+
+        /// <summary>True when a loaded run carries saved settings to import. Deliberately a per-call filesystem
+        /// probe rather than cached state: an optimize pass can write the file while the wizard is open.</summary>
+        public bool CanImportRunSettings => !IsBusy && RunSettingsSourceFolder != null;
+
+        /// <summary>
+        /// Applies a run folder's saved settings to the CURRENT settings, on the user's explicit request.
+        ///
+        /// <para>This is the whole reason the wizard does not pick these up automatically. The wizard's baseline —
+        /// what "Current" means, what <c>baselineJ</c> is computed from, and therefore what the headline
+        /// improvement percentage is a percentage OF — is the live profile. Auto-loading a run folder's landing
+        /// would move that anchor with nothing on screen to say it had moved, so the same displayed percentage
+        /// would silently mean something different. Here the user asks, sees the diff, and confirms.</para>
+        /// </summary>
+        private async Task ImportRunSettingsAsync() {
+            var folder = RunSettingsSourceFolder;
+            if (folder == null || starDetectionOptions is not StarDetectionOptions concreteOptions) {
+                return;
+            }
+            await StarDetectionSettingsIO.ImportFromRunFolderAsync(folder, concreteOptions, windowServiceFactory).ConfigureAwait(true);
+        }
 
         /// <summary>Maps the optimizer's internal phase identifiers ("Seed"/"CoarseGrid"/"PatternSearch", which
         /// stay as-is in logs and tests) to plain language for the progress display.</summary>

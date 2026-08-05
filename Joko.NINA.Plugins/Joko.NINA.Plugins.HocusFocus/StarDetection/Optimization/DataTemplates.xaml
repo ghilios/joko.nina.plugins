@@ -25,6 +25,7 @@
     <TextBlock x:Key="SDOpt_Variant_Tooltip" Text="Switch the chart and the summary below between your current settings, the optimized settings, and (after Optimize with feedback) the feedback-optimized settings. Accept applies whichever variant is shown (Current can't be accepted — it's your baseline)." />
     <TextBlock x:Key="SDOpt_DonutDetection_Tooltip" Text="When checked, the optimizer is allowed to recover out-of-focus DONUT stars — heavily defocused stars that appear as hollow rings — which the detector otherwise drops (they fragment or fail the fill-ratio test). It also unlocks diffraction-spike and saturated-bloom suppression so a bright star's rays aren't mistaken for stars. Recommended for telescopes with a central obstruction (Newtonians/SCTs) whose defocused stars become donuts; leave OFF for refractors (defocused stars are filled disks, not rings). Saved to your profile and default OFF. When OFF, star detection is exactly as before." />
     <TextBlock x:Key="SDOpt_Inspection_Tooltip" Text="When checked, the optimizer favors detecting MANY MORE stars spread across the frame, which the aberration inspector needs to measure sensor tilt and field curvature. It does this by trading away a little auto-focus-curve sharpness for star count — but the fit is bounded: settings that make the focus curve noticeably worse than your current settings are penalized, so focus stays usable. Leave OFF to optimize purely for the tightest auto-focus curve (the default). Only applies in Optimize mode; nothing is saved until you Accept." />
+    <TextBlock x:Key="SDOpt_ImportRunSettings_Tooltip" Text="Load the star detection settings a previous optimization saved next to this run's frames, and apply them to your current settings. You are shown exactly what would change before anything is applied. This is never done automatically: your current settings are what the wizard measures its improvement against, so silently replacing them would change what the reported improvement means." />
     <TextBlock x:Key="SDOpt_Continue_Tooltip" Text="Run another optimization pass starting from the settings just found, giving the search a fresh chance to refine further (it resets its step sizes, so it can make larger moves again). Useful when the last pass looks like it stopped just short. Limited to 3 total passes; the Changed parameters table shows the value of each setting after every pass." />
     <TextBlock x:Key="SDOpt_LiveExposure_Tooltip" Text="The exposure for every frame of the sweep, starting from your profile's auto-focus exposure. Make it long enough that stars stay visible out at the defocused ends of the sweep. Narrowband filters usually need a longer exposure to start. After a good result you can adopt this exposure into your profile from the summary." />
     <TextBlock x:Key="SDOpt_LiveSaveFolder_Tooltip" Text="The captured frames are saved here, in a timestamped AutoFocus_… subfolder, then loaded back like a saved run so the optimizer can search them. A folder is required before Start. Choosing one also saves it as your Hocus Focus auto-focus save path." />
@@ -1188,6 +1189,15 @@
                     Content="Continue optimizing"
                     ToolTip="{StaticResource SDOpt_Continue_Tooltip}"
                     Visibility="{Binding ShowSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                <!--  Import this run's saved settings: shown only when a loaded run actually carries a settings
+                      handoff, so it never appears as a dead control on a run that has never been optimized.  -->
+                <Button
+                    Width="150"
+                    Margin="0,0,8,0"
+                    Command="{Binding ImportRunSettingsCommand}"
+                    Content="Use run's settings"
+                    ToolTip="{StaticResource SDOpt_ImportRunSettings_Tooltip}"
+                    Visibility="{Binding CanImportRunSettings, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 <Button
                     Width="90"
                     Margin="0,0,8,0"
