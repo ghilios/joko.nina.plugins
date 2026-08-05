@@ -1531,8 +1531,49 @@ modes. Probing the seed there would quietly convert replay into a seed-gated pat
 saved run whose current settings cannot fit deserves the same rescue. The circularity argument applies equally;
 the counter-argument is that such a run should not have been captured. Not changed as a side effect of this one.
 
-Tests: 4, of which **2 fail** when the probe is removed; the other two are labelled guards (inertness on a
-healthy sweep, and the floor-combination helper).
+**EXTENDED 2026-08-05, same session, after the reporter tried it and it STILL failed.** The first fix was right
+about the circularity and wrong about the bar. Lowering `MinHFR` made the reporter's curve **fittable** but not
+**scorable**: frames still fell under the objective's `NHard` floor, so `J` was identically 0 and the search had
+no gradient. Handing the search that seed is indistinguishable, to the user, from refusing outright — the wizard
+appears to run and produces nothing.
+
+**Measured on the reporter's own 61 MP sweep** (`FOCALLEN 40.0`, `XPIXSZ 3.76` → **19.4 arcsec/px**, 4 s, gain
+100, step 250, `FOCPOS 25000` = true focus). Accepted stars per position:
+
+| seed | 23750 | 24000 | 24250 | 24500 | 24750 | **25000** | 25250 | 25500 | 25750 | 26000 | 26250 | J |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| defaults (`MinHFR` 1.2) | 0 | 2 | 2 | 6 | 103 | **0** | 95 | 3 | 1 | 2 | 0 | **0** |
+| `MinHFR` 0.3 (first fix) | 0 | 2 | 2 | 6 | 103 | **14** | 95 | 3 | 1 | 2 | 0 | **0** |
+| + `Sensitivity` 0 | — | — | — | — | — | — | — | — | — | — | — | **0** |
+| + `NoiseClippingMultiplier` 1.0 | \multicolumn — min observed **3511** | | | | | | | | | | | **0.2477** |
+
+Two things that only measurement would have given: **`MinHFR` is real but not sufficient** (0 → 14 stars at
+focus, still unscorable), and **the binding gate is `NoiseClippingMultiplier`, not `Sensitivity`** — relaxing the
+acceptance gate alone leaves `J` at 0. From the `MinHFR`-only seed, **80 evaluations could not move `J` off 0**;
+from the relaxed seed the optimizer converged immediately (`J` 0.246 → 0.262, min 43 stars).
+
+**So the rescue now walks a LADDER and its bar is SCORABLE, not merely fittable:** `MinHFR` → `SeedFloor`, then
+its search-space lower bound, then `+ Sensitivity` lower, then `+ NoiseClippingMultiplier` lower — least
+aggressive first, every bound read from `OptimizerVariable.CreateCuratedSet` so the guard can never seed the
+search outside what it may reach. Acceptance is `JTotal > 0`, computed with the wizard's own
+`objectiveConstants`, so "the search has something to climb" is decided by the SAME number the search maximizes.
+The winning configuration becomes the fresh pass's **seed**.
+
+**Two false trails worth recording, both killed by checking the instrument rather than the theory.** D01, the
+bank's own 40 mm dataset, looked like the obvious proxy and is not one: its sweep never reaches the 30 px
+candidate size where the defocus-aware distortion relaxation engages, so `--defocus-gates` is **bit-identical**
+there while the reporter's frames are far more defocused. And four probe runs returned **identical** star counts
+across four supposedly different configurations — the profile had `UseAdvanced = False`, so Simple mode was
+ignoring every knob being set. Identical results across different inputs is the tell that the instrument, not
+the subject, is the thing being measured.
+
+**Still open for this rig class.** The bank has no dataset resembling it (40 mm at heavy defocus, signal-starved
+short exposure): D01 is 40 mm but nowhere near that defocus, so nothing regression-tests this population. And the
+step size is its own problem — at 250 the usable band is about one step wide (103 stars at 24750, **0** at 25000,
+95 at 25250), which is [F18](#f18--step-size-is-sized-by-curve-geometry-alone-so-the-sweep-outruns-what-the-detector-can-see).
+
+Tests: 5, of which **3 fail** when the fix is removed (2 for the probe, 1 for the scorable bar); the other two are
+labelled guards (inertness on a healthy sweep, and the floor-combination helper).
 
 ### F35 — `MinHFR` should be seeded from the sweep WINGS, and neither available HFR statistic can size it
 **Status:** Done (wave 3) · found 2026-08-03 answering "how far can `MinHFR` safely come down?" for

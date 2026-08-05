@@ -2472,6 +2472,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // a stale floor would silently re-gate the next one (the wave-3 seed-leak shape).
             MinHfrRescueNotice = null;
             minHfrRescueFloor = null;
+            rescuedSeed = null;
             // A fresh run always uses the PERSISTED factor: any pending optimize-again factor from a previous
             // summary was abandoned when the user came back here.
             pendingDetectionBinning = null;
@@ -2950,8 +2951,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // different product decision than the one this entry is about. Whether replay deserves the same rescue
             // is left open in F43 rather than changed as a side effect.
             if (SourceMode == SourceMode.Live) {
-                var rescue = await TryRescueWithLowerMinHfrAsync(runs, token).ConfigureAwait(true);
-                if (rescue.HasValue) {
+                var rescue = await TryRescueSeedAsync(runs, token).ConfigureAwait(true);
+                if (rescue != null) {
                     return true;
                 }
             }
@@ -2988,41 +2989,113 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <see cref="StarDetectorParams"/> across runs, and an in-place write here would leak the probed gate
         /// into every later run — the wave-3 seed leak, which took a whole bank to the floor off one firing.</para>
         /// </summary>
-        private async Task<double?> TryRescueWithLowerMinHfrAsync(IReadOnlyList<LoadedRun> runs, CancellationToken token) {
+        private async Task<StarDetectorParams> TryRescueSeedAsync(IReadOnlyList<LoadedRun> runs, CancellationToken token) {
             const int MinPositionsForFit = 3;
             if (runs == null || runs.Count == 0 || runs[0]?.Seed == null) {
                 return null;
             }
 
-            var seedMinHfr = runs[0].Seed.MinHFR;
-            foreach (var probe in MinHfrRescueLadder(runs[0].Seed)) {
-                if (!(probe < seedMinHfr)) {
-                    continue; // only ever LOWERS the gate; raising one is never a rescue
-                }
+            foreach (var (probe, label) in SeedRescueLadder(runs[0].Seed)) {
                 token.ThrowIfCancellationRequested();
                 var results = await AnalyzeWithProgressAsync(
-                    runs, r => { var p = r.Seed.Clone(); p.MinHFR = probe; return p; }, token).ConfigureAwait(true);
+                    runs, r => ApplyRescue(r.Seed, probe), token).ConfigureAwait(true);
                 if (!AnyRunIsFittable(results, MinPositionsForFit)) {
                     continue;
                 }
+                // A FITTABLE CURVE IS NOT ENOUGH — it must also be SCORABLE. Measured on a 40 mm f/2 sweep: with
+                // only the MinHFR gate relaxed the curve fits, but frames still fall under the objective's NHard
+                // floor, so J is identically 0 and 80 evaluations cannot move off it (F20's plateau, one axis
+                // out). Handing the search that seed is indistinguishable to the user from refusing outright.
+                if (!(JOfSeedProbe(results) > 0.0)) {
+                    continue;
+                }
 
-                // Carry the rescued gate into the search as the seed, so the optimizer STARTS where a curve
-                // exists instead of merely being allowed to reach it (F35's rationale, triggered by feasibility
-                // rather than by a vertex). OptimizeAsync takes the LOWER of this and F35's own vertex rule.
-                minHfrRescueFloor = probe;
-                Logger.Info($"Star detection optimizer: no usable focus curve at MinHFR " +
-                            $"{seedMinHfr.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}; probing " +
-                            $"{probe.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} makes it " +
-                            "fittable, so the search is seeded there (F43).");
+                minHfrRescueFloor = probe.MinHFR;
+                rescuedSeed = probe;
+                Logger.Info($"Star detection optimizer: the default detection settings could not produce a scorable " +
+                            $"focus curve; rescue probe '{label}' did, so the search is seeded there (F43).");
                 MinHfrRescueNotice =
-                    $"No focus curve could be fitted at the default minimum-HFR gate of {seedMinHfr:0.##} px — the frames " +
-                    $"nearest focus found no stars. The gate was lowered to {probe:0.##} px to get a curve, and the " +
-                    "optimizer started from there. This is normal on short focal lengths, where in-focus stars are " +
-                    "only a pixel or two across.";
+                    $"The default detection settings found no usable focus curve on this sweep — {label}. The optimizer " +
+                    "was started from those relaxed settings instead, and is free to tighten them again. This is normal " +
+                    "on short focal lengths and short exposures, where in-focus stars are only a pixel or two across " +
+                    "and sit close to the noise.";
                 return probe;
             }
             return null;
         }
+
+        /// <summary>Applies a rescue probe's relaxed gates to a CLONE of a run's seed. Never mutates the caller's
+        /// params: callers reuse one <see cref="StarDetectorParams"/> across runs, and an in-place write is the
+        /// wave-3 seed leak, which took a whole bank to the floor off one firing.</summary>
+        private static StarDetectorParams ApplyRescue(StarDetectorParams seed, StarDetectorParams probe) {
+            var p = seed.Clone();
+            p.MinHFR = probe.MinHFR;
+            p.Sensitivity = probe.Sensitivity;
+            p.NoiseClippingMultiplier = probe.NoiseClippingMultiplier;
+            return p;
+        }
+
+        /// <summary>
+        /// The objective of a probe's evaluation, aggregated exactly as the optimizer aggregates it, so "the search
+        /// has something to climb" is decided by the SAME number the search maximizes rather than by a proxy.
+        /// </summary>
+        private double JOfSeedProbe(IReadOnlyList<RunEvaluationResult> results) {
+            if (results == null || results.Count == 0) {
+                return 0.0;
+            }
+            var perRunJ = results.Select(r => OptimizationObjective.JRun(r.Metrics, objectiveConstants)).ToList();
+            return OptimizationObjective.JTotal(perRunJ, objectiveConstants);
+        }
+
+        /// <summary>
+        /// The seed relaxations the rescue tries, LEAST AGGRESSIVE FIRST, each with a plain-language label for the
+        /// notice. Bounds are read from the curated search variables rather than written as constants here, so the
+        /// guard can never admit a rig on settings the optimizer is not allowed to reach — nor refuse one it could
+        /// have rescued because a constant drifted.
+        ///
+        /// <para>The ladder relaxes two DIFFERENT failure modes in order. <b>Size</b> first: at 19 arcsec/px an
+        /// in-focus star is about one pixel, so <c>MinHFR</c> deletes precisely the frames the vertex is fitted
+        /// from. Then <b>signal</b>: on a short exposure the acceptance gate and noise-clipping threshold reject
+        /// nearly everything. Measured on a 40 mm f/2 sweep at 4 s, relaxing size alone moved the in-focus frame
+        /// from 0 stars to 14 — fittable but still unscorable — while also relaxing signal took the whole sweep to
+        /// 20–1413 stars per frame and the optimizer converged immediately.</para>
+        /// </summary>
+        private static IEnumerable<(StarDetectorParams Probe, string Label)> SeedRescueLadder(StarDetectorParams seed) {
+            var vars = OptimizerVariable.CreateCuratedSet(seed);
+            double LowerOfVar(string name, double fallback) =>
+                vars.FirstOrDefault(v => string.Equals(v.Name, name, StringComparison.Ordinal))?.Lower ?? fallback;
+
+            var minHfrLower = Math.Min(MinHfrSeed.SeedFloor, LowerOfVar(nameof(StarDetectorParams.MinHFR), MinHfrSeed.SeedFloor));
+            var sensLower = LowerOfVar(nameof(StarDetectorParams.Sensitivity), 0.0);
+            var noiseClipLower = LowerOfVar(nameof(StarDetectorParams.NoiseClippingMultiplier), seed.NoiseClippingMultiplier);
+
+            StarDetectorParams With(double minHfr, double sens, double noiseClip) {
+                var p = seed.Clone();
+                p.MinHFR = Math.Min(seed.MinHFR, minHfr);
+                p.Sensitivity = Math.Min(seed.Sensitivity, sens);
+                p.NoiseClippingMultiplier = Math.Min(seed.NoiseClippingMultiplier, noiseClip);
+                return p;
+            }
+
+            // 1-2: size only — the smallest intervention that can rescue an undersampled rig.
+            yield return (With(MinHfrSeed.SeedFloor, seed.Sensitivity, seed.NoiseClippingMultiplier),
+                $"the minimum-HFR gate was lowered to {Math.Min(seed.MinHFR, MinHfrSeed.SeedFloor):0.##} px");
+            yield return (With(minHfrLower, seed.Sensitivity, seed.NoiseClippingMultiplier),
+                $"the minimum-HFR gate was lowered to {Math.Min(seed.MinHFR, minHfrLower):0.##} px");
+            // 3: + the acceptance gate, for a signal-starved sweep.
+            yield return (With(minHfrLower, sensLower, seed.NoiseClippingMultiplier),
+                $"the minimum-HFR gate was lowered to {Math.Min(seed.MinHFR, minHfrLower):0.##} px and the star " +
+                $"acceptance gate to {Math.Min(seed.Sensitivity, sensLower):0.##}");
+            // 4: + noise clipping, the last thing standing between a faint sweep and a curve.
+            yield return (With(minHfrLower, sensLower, noiseClipLower),
+                $"the minimum-HFR gate was lowered to {Math.Min(seed.MinHFR, minHfrLower):0.##} px, the star " +
+                $"acceptance gate to {Math.Min(seed.Sensitivity, sensLower):0.##} and noise clipping to " +
+                $"{Math.Min(seed.NoiseClippingMultiplier, noiseClipLower):0.##}");
+        }
+
+        /// <summary>F43 — the relaxed seed the guard had to fall back on, or null when the sweep was scorable as
+        /// configured. Used as the SEED of a fresh optimization pass, so the search starts somewhere it can climb.</summary>
+        private StarDetectorParams rescuedSeed;
 
         /// <summary>The lower of two optional gate floors, ignoring absent ones. Null only when both are null.</summary>
         internal static double? LowerOf(double? a, double? b) {
@@ -3033,18 +3106,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return a;
             }
             return Math.Min(a.Value, b.Value);
-        }
-
-        /// <summary>The MinHFR values the rescue probe tries, least-aggressive first: F35's seeding constant, then
-        /// the curated search variable's own lower bound (read from the variable set so it cannot drift from what
-        /// the optimizer may actually reach).</summary>
-        private static IEnumerable<double> MinHfrRescueLadder(StarDetectorParams seed) {
-            yield return MinHfrSeed.SeedFloor;
-            var minHfrVar = OptimizerVariable.CreateCuratedSet(seed)
-                .FirstOrDefault(v => string.Equals(v.Name, nameof(StarDetectorParams.MinHFR), StringComparison.Ordinal));
-            if (minHfrVar != null && minHfrVar.Lower < MinHfrSeed.SeedFloor) {
-                yield return minHfrVar.Lower;
-            }
         }
 
         /// <summary>F43 — the MinHFR the guard had to drop to before a curve could be fitted at all, or null when
@@ -3179,7 +3240,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // All runs share the same camera/optics, so the search starts from the first run's seed (or the override).
             // With StartFromCurrentSettings, seed from the current settings (Baseline) to refine them rather than the
             // fully-default params. The warm-start override (feedback path) always wins.
-            var seed = seedOverride ?? (StartFromCurrentSettings ? runs[0].Baseline : runs[0].Seed);
+            // F43 — a fresh pass starts from the RESCUED seed when the guard had to fall back on one: being allowed
+            // to reach those settings is not enough, because the objective is identically zero at the defaults and
+            // the search has no gradient to follow off it (measured: 80 evaluations, no escape).
+            var seed = seedOverride ?? (seedOverride == null && rescuedSeed != null ? rescuedSeed.Clone()
+                : (StartFromCurrentSettings ? runs[0].Baseline : runs[0].Seed));
             // The master donut toggle is a profile option, NOT an optimizer axis: stamp it onto the seed so the
             // seed's early morph-close runs and CreateCuratedSet includes the defocus axes iff the user enabled it
             // (the default Seed carries master=OFF, so without this the donut feature would never be searched when

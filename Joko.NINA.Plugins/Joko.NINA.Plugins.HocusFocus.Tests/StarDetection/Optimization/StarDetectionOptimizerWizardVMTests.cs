@@ -489,7 +489,7 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(vm.ErrorMessage, Is.Null.Or.Empty, "an undersampled rig must not be refused outright");
             Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
             Assert.That(vm.HasMinHfrRescueNotice, Is.True, "lowering the gate is not silent — the user did not choose it");
-            Assert.That(vm.MinHfrRescueNotice, Does.Contain("1.2"), "the notice names the gate that failed");
+            Assert.That(vm.MinHfrRescueNotice, Does.Contain("0.3"), "the notice names the gate the run actually used");
         });
     }
 
@@ -520,6 +520,53 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
             Assert.That(vm.HasMinHfrRescueNotice, Is.False);
             Assert.That(vm.MinHfrRescueNotice, Is.Null.Or.Empty);
+        });
+    }
+
+    // F43 second half. A SIGNAL-STARVED rig: lowering MinHFR alone makes the curve FITTABLE but leaves frames
+    // under the objective's NHard floor, so J is identically zero and the search has nothing to climb. Measured on
+    // a real 40 mm f/2 sweep at 4 s: MinHFR 1.2 -> 0.3 took the in-focus frame from 0 stars to 14, the curve fit,
+    // and 80 evaluations could not move J off 0. Relaxing the acceptance gate as well took the sweep to 20-1413
+    // stars per frame and it converged immediately. So the rescue's bar is SCORABLE, not merely fittable.
+    private static LoadedRun SignalStarvedRun(string id = "starved") {
+        Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect = (image, p, token) => {
+            var pos = (int)image;
+            var hfr = UndersampledHfr(pos);
+            if (hfr <= p.MinHFR) {
+                return Task.FromResult(new FrameDetectionResult { AverageHFR = 0.0, HFRStdDev = 0.05, StarCount = 0, StarCenters = Array.Empty<(double X, double Y)>() });
+            }
+            // Above the size gate the frame yields a curve, but only a couple of stars until the ACCEPTANCE gate
+            // is relaxed too — under the objective's hard floor, so J stays exactly 0.
+            var starved = p.Sensitivity > 1.0;
+            return Task.FromResult(new FrameDetectionResult {
+                AverageHFR = hfr,
+                HFRStdDev = 0.05,
+                StarCount = starved ? 2 : 40,
+                StarCenters = Array.Empty<(double X, double Y)>()
+            });
+        };
+        var data = new RunEvaluationData(id, NineFrames(), detect, NewAlglib(), DefaultFitConfig());
+        var seed = new StarDetectorParams { Sensitivity = 10.0, StarClippingMultiplier = 2.0, MinHFR = 1.2 };
+        var afOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 };
+        return new LoadedRun { Data = data, Seed = seed, AfOptions = afOptions };
+    }
+
+    [Test]
+    public async Task LiveSweep_SignalStarvedRig_RescuesUntilTheSeedIsSCORABLE_NotMerelyFittable() {
+        // Handing the search a seed where J is identically zero is indistinguishable, to the user, from refusing:
+        // the wizard appears to run and produces nothing. The rescue must keep going until the objective the
+        // search maximizes is actually non-zero.
+        var vm = NewLiveVMWithRun(SignalStarvedRun());
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Is.Null.Or.Empty);
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.HasMinHfrRescueNotice, Is.True);
+            Assert.That(vm.Result, Is.Not.Null);
+            Assert.That(vm.Result.SeedJ, Is.GreaterThan(0.0),
+                "the search must be seeded somewhere it can climb, not on the J = 0 plateau");
         });
     }
 
