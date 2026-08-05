@@ -121,9 +121,10 @@ thermal drift of −26.2 focuser steps/min ate 18% of the signal.
 
 ## 5. Design
 
-**γ is measured, persisted, and shown — and the corrected number is presented alongside the current
-one rather than replacing it.** The 7× change is too large to apply silently on the strength of one
-measurement per run.
+**γ is measured, persisted, and used** — the corrected figure is what the apply path acts on. The
+uncorrected figure stays visible for comparison, and the user can override or scale back the move at
+the point of applying. Applying a known-wrong number by default is not a defensible conservatism;
+the honest handling is to apply the corrected value and make the choice visible and adjustable.
 
 1. **Compute γ** in `TiltCalibrationCalculator`, from the drift-corrected AllInward curvature delta,
    as a dimensionless gain (µm of curvature effect per µm of plate travel). NaN when no piston ran.
@@ -136,10 +137,15 @@ measurement per run.
 4. **Manual override.** Let the user enter γ directly, for rigs where the corrector's published
    backfocus tolerance is the best available information (§3), or where they have measured it
    themselves.
-5. **Show both values.** The guidance displays the current (gain = 1) backfocus figure and the
-   gain-corrected figure side by side, labelled with γ and its provenance. The user chooses. This is
-   deliberately not an auto-apply: see §7.
-6. **Default `MeasureCurvatureDuringCalibration` to ON.** It is now the source of three distinct
+5. **Apply the corrected value, with the choice exposed.** The guidance shows the gain-corrected
+   figure as the recommendation and the uncorrected one alongside it for comparison, labelled with γ
+   and its provenance. At the point of applying, the user can override the amount or scale it back —
+   the corrected move is a floor (§6) and iterating is the intended workflow, so a partial apply must
+   be a first-class action rather than a workaround. The detailed UX is specified in §9.
+6. **Hands-off automation follows a pre-set policy.** Automatic Adjustment applies without a user
+   present, so its behaviour is decided in advance in settings rather than at apply time, including
+   what it does when γ is unavailable. See §9.
+7. **Default `MeasureCurvatureDuringCalibration` to ON.** It is now the source of three distinct
    quantities — adapter direction, piston-implied pitch, and γ — and without it most users never get
    an accurate backfocus number. Both optional measurement steps gain explanatory copy stating what
    the extra autofocus runs buy.
@@ -161,14 +167,25 @@ determined even when the extrapolation to zero sag is not.
 
 ## 7. Deliberate decisions
 
-- **Show both values rather than auto-applying.** A 7× change in a recommendation that drives
-  physical hardware adjustment should not switch over silently on one run's measurement.
+- **Apply the corrected value rather than the known-wrong one.** An earlier draft of this design kept
+  the uncorrected figure as what gets applied, on the grounds that a 7× change should not switch over
+  silently. That was reversed: continuing to apply a figure measured to be 7× too small is not
+  caution, it is a known defect left in place. The correct handling is to apply the corrected value,
+  keep the uncorrected one visible for comparison, and make overriding or scaling back a first-class
+  action at apply time (§9).
 - **Sanity band before persistence**, so a bad run cannot poison later runs that rely on the
   persisted value.
 - **γ is reported as a gain, not folded into the pitch.** They are independent quantities measured by
   different parts of the same step, and conflating them would make both harder to debug.
 - **No change to the tilt term.** Gain 1.0 is correct there and is validated by the synthetic
   round-trip test added in PR #178.
+
+## 9. Apply-time UX
+
+Being designed; this section will carry the panel layout, the control for overriding or scaling back
+the move, the out-of-range (spacer-not-adapter) treatment, and the hands-off automation policy and
+its default. Until it lands, §5.5 and §5.6 state the intent and §7 records why the earlier
+"never auto-apply" position was reversed.
 
 ## 8. Open questions
 
