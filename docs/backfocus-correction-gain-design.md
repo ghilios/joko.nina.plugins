@@ -299,3 +299,44 @@ The override control is a checkbox plus an always-visible-but-disabled TextBox d
   spacing; a corrector that leaves residual curvature by design has a non-zero target.
 - Whether γ should eventually be measured at two piston offsets within one calibration, which would
   give the local slope without relying on the drift correction being right.
+
+---
+
+## Appendix: what else the same capture showed
+
+Two findings from the same 2026-08-04 session that belong to the *tilt calibration accuracy* work
+(PR #178), recorded here because that is where the data lives. Neither changes this design.
+
+### The measured final re-baseline did not help on this run
+
+`ReBaseline3` was added on the hypothesis that screw 2's move is contaminated by drift, because it is
+referenced to `ReBaseline2` alone while screw 1 is bracketed by two re-baselines. This run is the
+first captured with it. Recomputing the *same* run with and without the RB3 reference isolates its
+contribution exactly:
+
+| estimator | ratio without RB3 | ratio with RB3 | spread without | spread with |
+|---|---|---|---|---|
+| per-star paraboloid | **1.017** | 1.054 | ±0.018 | ±0.055 |
+| corner-region AF | 1.108 | **1.094** | ±0.107 | ±0.094 |
+
+RB3 contributed essentially nothing, and slightly *degraded* the paraboloid. The run's headline
+improvement over `ghilios_corrected` (move ratio 1.054 against 1.457, estimator disagreement 2.1%
+against 26%, SNR 15.7 against 7.2) came from **run quality, not from RB3**. The drift structure shows
+why: this run's re-baseline steps are 24 and 48 units at 23.7° apart (small, monotonic), where the
+earlier run's were 108 and 86 units at 179° apart (large, reversing).
+
+There is also a design limitation the original argument missed: **RB3's own reading carries the
+hysteresis of undoing the DiagonalB move**, so `mid(ReBaseline2, ReBaseline3)` is not a clean drift
+interpolation when the endpoint has its own settling. The case for interpolation over extrapolation
+assumed clean bracketing endpoints; that assumption is not free.
+
+Verdict: RB3 is cheap insurance that helps on drifty runs and is mildly harmful on clean ones.
+Keeping it default-ON remains defensible, but this dataset does not validate it, and the claim that
+it would fix screw 2 should not be repeated without evidence.
+
+### Field dependence of the frame factor is smaller than previously estimated
+
+Measured drift-immune as the difference between the centre and corner-mean piston slopes (8.700 vs
+8.634 focuser steps per motor step): **0.76%** out to r = 14.43 mm. This supersedes the 3.5% ± 1.3%
+figure derived earlier from separately drift-corrected centre and corner pistons, and it tightens the
+conclusion that field dependence contributes almost nothing to the piston-versus-tilt gap.
