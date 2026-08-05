@@ -1128,6 +1128,53 @@ Three things follow, and the third is the one that changes the plan:
 Reproduce: `D:\hf_w3\f32_dynrange.py` (reads `hf_w2/verify_v5`, `hf_f23/verify_real_H`, and the `H_A` / `B_A`
 / `H_real_A` landings; no detector run).
 
+**SHIPPED 2026-08-05 (wave 5) as an acceptance constraint — and the arms overturn this entry's own framing.**
+`OptimizerSettings.MinDetectionKeepFraction` rejects a candidate keeping less than φ of the SEED's accepted stars
+(min over runs) **ahead of** the `j > bestJ` compare at all three accept sites. `J` is never multiplied or
+re-anchored, so landings stay comparable to every prior arm. Default null; **inertness measured against the
+parent commit with settings pinned: bit-identical**. Multi-pass callers pin round 0's seed totals (at φ=0.5,
+three `--continue-rounds` would otherwise reach 0.125 of where the user started).
+
+**32 optimizations, φ ∈ {0.30, 0.50, 0.75} + a feature-OFF control, one binary, `--settings` pinned
+([F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)).
+`BaselineJ` identical across all four arms of every run ([F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)'s
+tell), so the comparison is valid.**
+
+**The headline is not what this entry predicted: on most binding runs the constraint IMPROVES `J` while keeping
+2–4× more stars.** At φ = 0.75, **5 of 7** binding runs land at a higher `J` than the unconstrained search found:
+
+| run | keep off → φ=0.75 | Δ`J` | σ_focus vs unconstrained |
+|---|---|---|---|
+| `CWhiteFocus` | 0.429 → **1.819** | **+0.00139** | **0.156×** |
+| `uneven` | 0.353 → 0.937 | +0.00165 | 0.785× |
+| `D19_cygnus_deep_shed` | 0.600 → 1.276 | +0.00024 | 0.364× |
+| `toml999` | 0.397 → **1.163** | +0.00054 | 0.959× |
+| `D18_m24_deep_shed` | 0.511 → **1.819** | +0.00009 | 1.337× |
+| `muggsie` | 0.612 → 0.805 | −0.00234 | 1.676× |
+| `mccomiskey` | 0.095 → 0.771 | −0.03097 | 2.812× |
+
+**A constrained maximum cannot exceed an unconstrained GLOBAL maximum**, so this proves the unconstrained search
+**was not finding the global optimum**. The shedding corner is substantially a **greedy trap**, not the rational
+purchase this entry and wave 4 concluded it was — the mechanism `RevertNeutralAxes` already documents, one level
+up: Phase A grids Sensitivity × StarClip with Sensitivity as the OUTER loop, the winning StarClip is discovered
+in a shedding row, and strict `j > bestJ` freezes it there. **"It is genuinely buying a much better fit with the
+stars it discards" is true relative to the baseline and false as a claim about the best available trade.**
+
+**Inertness measured 12 times, 9 bit-identical** — D20 at all three floors, D19 and muggsie at two each, toml999
+and uneven at φ=0.30. The 3 that changed are the pre-registered caveat (a landing can be feasible while a
+candidate *visited on the way* was not); two changed for the better, one by −0.0001 of `J`.
+
+**Exact recall on the synthetic arms: precision 1.000 and FP 0 at every floor** — every star won back is real.
+D18 recall@high 0.607 → **0.945** at φ=0.50; D19 0.968 → 0.984 with **2×** the detections at φ=0.75; **D20
+identical to the last detection at all four arms**. Note φ=0.75 **overshoots on D18** — its effective gate
+collapses to 0.234, the Sensitivity-floor pathology reached from the other side.
+
+**Recommended floor: φ = 0.50**, by the rule fixed in advance (*the smallest φ meeting the criteria*). φ=0.30
+does not address the defect (only `mccomiskey` binds, and it pays). **Adoption still needs the confirmation arm**
+— both full banks plus `bank-verify` for real-bank recall, since the efficacy criterion could only be evaluated
+by keep-% proxy here. Ships default OFF until then. Reproduce: `D:\hf_w5\f32_arms.sh`,
+`D:\hf_w5\scorecard.py`, `D:\hf_w5\score_f32_synth.sh`.
+
 ### F33 — ~~The synthetic bank does not reproduce the real bank's optimizer failure mode~~ → it does now
 **Status:** Done (part 1 wave 3, part 2 wave 4) · found 2026-08-03 re-reading the wave-1 arms side by side
 

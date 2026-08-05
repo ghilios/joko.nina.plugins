@@ -4,15 +4,15 @@ Plan: [`plans/synthetic-af-bank-followups-wave5-plan.md`](../plans/synthetic-af-
 Wave 4: [`docs/synthetic-af-bank-followups-wave4-results.md`](synthetic-af-bank-followups-wave4-results.md).
 Register: [`docs/followups.md`](followups.md).
 
-*The question: bound what `J` may spend. Three of the four items answered; the fourth's mechanism is shipped
-inert and its arms are running. Two of the answers are "no", and the two most expensive findings are about
-measurement rather than about the detector.*
+*The question: bound what `J` may spend. All four items answered. Two of the answers are "no", the biggest one
+inverts the premise it was built on, and the two most expensive findings are about measurement rather than about
+the detector.*
 
 ## Headline
 
 | what | result |
 |---|---|
-| F32 — bound the trade | **Shipped, default OFF, and proven inert** — bit-identical to the parent commit under pinned settings. Arms running |
+| F32 — bound the trade | **Shipped default OFF, proven inert — and the arms overturn the entry's own framing:** on 5 of 7 binding runs the constraint IMPROVES `J` while keeping 2–4× more stars |
 | F24 — the master's two silent defaults | **Answered: do NOT neutralize them.** The wave-3 conclusion came from 2 datasets and fails on 20 |
 | F26 — the one clause left on the `/3` metric | **Verified and REFUTED** in four minutes. Arm (a) scores precision **1.000** where it was recorded at 0.451–0.653 |
 | Backfill decision | **Shipped** — 42 landings converted in place, no re-run, F15 never touched |
@@ -75,8 +75,111 @@ the wave-5 binary with no floor, **settings pinned to one file**, on `D05_tec140
 | `c97e1a3` | 0.999293 → 0.999693 | 234 | — |
 | wave 5, no floor | 0.999293 → 0.999693 | 234 | **bit-identical** |
 
-Adoption — turning the floor on by default — is deliberately a **separate commit after the arms**. The screening
-arms (φ ∈ {0.30, 0.50, 0.75} plus a feature-OFF control, over 5 real shedders + D18/D19/D20) are running.
+### The screening arms, and the result that overturns this entry's own framing
+
+32 optimizations: φ ∈ {0.30, 0.50, 0.75} plus a feature-OFF control, over 5 real shedders and D18/D19/D20, one
+binary, `--settings` pinned (F42). **`BaselineJ` is identical across all four arms of every run** — the F41 tell,
+confirming the comparison is valid before any knob is read.
+
+**The control arm's own keep fractions**, now recorded on every landing, and they reproduce wave 4 independently
+on a different binary (D18 48.8% → 0.511, D19 59.2% → 0.600, D20 94.8% → 0.948):
+
+| run | keep, unconstrained | binds at 0.75 | 0.50 | 0.30 |
+|---|---|---|---|---|
+| `mccomiskey` | **0.095** | ✓ | ✓ | ✓ |
+| `uneven` | 0.353 | ✓ | ✓ | — |
+| `toml999` | 0.397 | ✓ | ✓ | — |
+| `CWhiteFocus` | 0.429 | ✓ | ✓ | — |
+| `D18_m24_deep_shed` | 0.511 | ✓ | — | — |
+| `D19_cygnus_deep_shed` | 0.600 | ✓ | — | — |
+| `muggsie` | 0.612 | ✓ | — | — |
+| **`D20` (control)** | **0.948** | — | — | — |
+
+**THE HEADLINE: on most binding runs the constraint IMPROVES `J` while keeping 2–4× more stars.** At φ = 0.75:
+
+| run | keep off → φ=0.75 | Δ`J` | σ_focus vs unconstrained |
+|---|---|---|---|
+| `CWhiteFocus` | 0.429 → **1.819** | **+0.00139** | **0.156×** |
+| `uneven` | 0.353 → 0.937 | +0.00165 | 0.785× |
+| `D19_cygnus_deep_shed` | 0.600 → 1.276 | +0.00024 | 0.364× |
+| `toml999` | 0.397 → **1.163** | +0.00054 | 0.959× |
+| `D18_m24_deep_shed` | 0.511 → **1.819** | +0.00009 | 1.337× |
+| `muggsie` | 0.612 → 0.805 | −0.00234 | 1.676× |
+| `mccomiskey` | 0.095 → 0.771 | −0.03097 | 2.812× |
+
+**5 of 7 binding runs land at a HIGHER `J` than the unconstrained search found**, with more stars and (on 4 of 5)
+a tighter fit. `CWhiteFocus` is the clearest: σ_focus 1.578 → **0.246** while keeping 1.819× the seed's stars
+instead of 0.429×.
+
+**A constrained maximum cannot exceed an unconstrained GLOBAL maximum.** So this is not the constraint being
+free — it is proof that **the unconstrained search was not finding the global optimum**. The shedding corner is
+substantially a **greedy trap**, not the rational purchase F32 and wave 4 concluded it was. The mechanism is the
+one `RevertNeutralAxes` already documents, one level up: Phase A grids Sensitivity × StarClip with Sensitivity
+as the OUTER loop, the winning StarClip is first discovered in a shedding row, and strict `j > bestJ` freezes it
+there. The floor prunes that branch early and the search explores a genuinely better region.
+
+**This corrects wave 4 and F32's own text.** "The optimizer is behaving rationally — it is genuinely buying a
+much better fit with the stars it discards" is true *relative to the baseline* and false as a claim about the
+best available trade. On 5 of 7 runs it could have had both.
+
+### Inertness, measured twelve times rather than argued
+
+Across the 12 (run, floor) pairs where the floor does **not** bind, **9 land bit-identical** to the control —
+including **D20 at all three floors**, exactly as the wave-4 control was designed to behave:
+
+| pair | result |
+|---|---|
+| D20 × {0.75, 0.50, 0.30} | **bit-identical** ×3 |
+| D19 × {0.50, 0.30} | **bit-identical** ×2 |
+| muggsie × {0.50, 0.30} | **bit-identical** ×2 |
+| toml999, uneven × {0.30} | **bit-identical** ×2 |
+| CWhiteFocus × {0.30}, D18 × {0.50, 0.30} | changed (see below) |
+
+The three that changed are **the pre-registered C5 caveat happening**, not a failure: a landing can be feasible
+while a candidate *visited on the way* was not, and rejecting that candidate legitimately changes the trajectory.
+Two of the three (D18) changed for the **better** (`J` +0.000076, recall@high 0.607 → **0.945**); one
+(`CWhiteFocus`) is −0.0001 of `J`. Counted and reported rather than waved through, which is why C5 was written
+as a bound rather than as bit-identity.
+
+### Exact recall on the synthetic arms — precision 1.000, FP 0, everywhere
+
+| dataset | arm | recall@high | recall@all | TP | FP | precision |
+|---|---|---|---|---|---|---|
+| `D18_m24_deep_shed` | off | 0.607 | 0.168 | 13936 | 0 | 1.000 |
+| | φ=0.75 | 0.622 | **0.402** | **33319** | 0 | 1.000 |
+| | **φ=0.50** | **0.945** | 0.346 | 28676 | 0 | 1.000 |
+| `D19_cygnus_deep_shed` | off | 0.968 | 0.433 | 5492 | 0 | 1.000 |
+| | φ=0.75 | **0.984** | **0.864** | **10963** | 0 | 1.000 |
+| **`D20` (control)** | **all four arms** | **0.960** | **0.905** | **9073** | 0 | 1.000 |
+
+**D20 is identical to the last detection at every floor** — the control earning its keep for the second wave
+running. **C4 passes decisively**: not one false positive appears at any floor, so every star the constraint wins
+back is a real one.
+
+Note φ=0.75 **overshoots on D18**: its effective gate collapses to 0.234, which admits masses of faint stars
+(TP 33319) while *losing* high-tier ones relative to φ=0.50 (recall@high 0.622 vs 0.945). A floor set too high
+can push the search into the opposite corner — the Sensitivity-floor pathology F23/F33 describe, reached from
+the other side.
+
+### Verdict against the pre-registered criteria
+
+| # | criterion | result |
+|---|---|---|
+| C0 | inert vs the parent commit | **PASS** — bit-identical, settings pinned |
+| C1 | landing keep ≥ φ on every binding run | **PASS** at all three floors |
+| C2 | efficacy on real binding runs | **not evaluable as written** — needs real-bank recall (`bank-verify`), not run. Keep% is the proxy: median 0.397 → 1.163 at φ=0.75 |
+| C4 | precision ≥ 0.99, synthetic | **PASS** — 1.000, FP 0, every arm |
+| C5 | control and inert runs do not degrade | **PASS** — D20 identical ×3; 9/12 inert pairs bit-identical; the 3 exceptions are +, +, −0.0001 |
+| C6 | ≤ 25% of real runs collapse to no improvement | **PASS** — none did |
+
+**Recommended floor: φ = 0.50**, by the pre-registered rule (*the smallest φ meeting the criteria*). φ = 0.30
+does not address the defect — only `mccomiskey` binds and it pays. φ = 0.50 improves `J` on 3 of 4 binding runs,
+leaves all four inert runs untouched (3 of 4 bit-identical), and produces the single largest measured recall
+gain (D18 recall@high 0.607 → **0.945**) without φ=0.75's gate collapse.
+
+**Adoption still needs the confirmation arm** — both full banks at φ = 0.50, plus `bank-verify` for real-bank
+recall so C2 can be evaluated as written rather than by proxy. The constraint ships **default OFF** until then,
+so nothing in this wave depends on that verdict.
 
 ## F24 — answered, and the answer is no
 
@@ -195,6 +298,12 @@ different telescopes" — and the bootstrap path reintroduces it while the build
 run from one build directory stays internally valid; every cross-directory comparison was not.
 
 ## Lessons
+
+**0. A constraint that makes the objective GO UP is not a constraint — it is a bug report about the search.**
+The whole wave was designed around bounding a trade. On 5 of 7 binding runs there was no trade to bound: the
+unconstrained search was simply stuck, and pruning the shedding branch let it find a better optimum with more
+stars. The arm was built to measure a cost and measured a defect instead, which only became visible because `J`
+was left untouched and therefore stayed comparable.
 
 **1. `BaselineJ` is a free control, and it should be checked before any knob diff.** It is search-independent, so
 two arms of the same binary must agree on it. When they do not, the binaries differ and no comparison between
