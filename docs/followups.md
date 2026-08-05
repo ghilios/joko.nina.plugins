@@ -1461,6 +1461,56 @@ a settings file is created rather than loaded, since that is the moment an arm s
 its predecessor. Consider defaulting the path to a fixed per-user location rather than `AppContext.BaseDirectory`,
 so a new build directory inherits instead of bootstrapping.
 
+### F43 — The optimizer wizard refuses to start unless the DEFAULT settings already produce a usable curve
+**Status:** Open · found 2026-08-05 from a user report on a 40 mm rig
+
+`SeedFitIsUsableAsync` (`StarDetectionOptimizerWizardVM.cs:2869`, called at `:2541`) evaluates the **default seed
+params** once and refuses to optimize unless some run yields a finite σ(focus) over ≥ 3 positions. On a Live
+sweep it retries exactly one way — widening the focus-recovery exemption to drop starless *outermost* positions —
+and then errors out with *"The captured sweep does not produce a usable focus curve at the default detection
+settings."*
+
+**This is circular.** The tool exists to find settings that build a usable curve, and it declines to run unless
+the settings it has not optimized yet already build one. The guard tests **one point** in a search space the
+optimizer is free to explore; `MinHFR` alone spans [0.1, 5.0] against a default of 1.2.
+
+**Measured on `D01_ultrawide_40mm`** — the bank's own 40 mm rig, `golden eval --params default`, per-frame
+accepted stars across the sweep:
+
+| focuser | 5964 | 5973 | 5982 | 5991 | **6000 (focus)** | 6009 | 6018 | 6027 | 6036 |
+|---|---|---|---|---|---|---|---|---|---|
+| `MinHFR = 1.2` (default) | 816 | 1670 | 1773 | 11 | **0** | 5 | 1748 | 1672 | 815 |
+| `MinHFR = 0.30` (F35 floor) | 816 | 1670 | 2463 | 204 | **5** | 187 | 2469 | 1672 | 815 |
+| `MinHFR = 0.10` (search floor) | 816 | 1670 | 2463 | 208 | **6** | 190 | 2469 | 1672 | 815 |
+
+The wings detect thousands of stars; the **core of the curve is empty**. That is F20's signature — rejections
+concentrated on the INNER frames — and at 40 mm it is expected: in-focus stars are ~1 px, so the `MinHFR` gate
+removes precisely the frames the vertex is fitted from.
+
+**And `MinHFR` is the ONLY axis that rescues it.** `MinimumStarBoundingBoxSize` 5 → 3 changes nothing (still 0 at
+focus); `StructureLayers` 4 → 2 makes it strictly worse (0 at *both* central positions). So the single knob that
+un-blocks this rig class is the one the guard's refusal prevents the search from ever touching.
+
+**Why [F35](#f35--minhfr-should-be-seeded-from-the-sweep-wings-and-neither-available-hfr-statistic-can-size-it)
+does not already cover this.** F35's `MinHfrSeed` is applied inside `OptimizeAsync` (`:3076`) — **after** this
+guard — and its trigger is `BestFit.Minimum.Y <= MinHFR`, i.e. it needs a **fitted vertex**. When the gate has
+destroyed the fit there is no vertex, `seedFitVertexHfr` is NaN, and the rule correctly declines. So F35 rescues
+"the vertex sits under the gate" (D01/D02 headless, which still fit) and **not** "the gate destroyed the fit",
+which is the strictly worse case and the one users hit.
+
+**The error message's own advice is unreachable too.** It suggests "the recommended detection binning" — but that
+recommendation is derived from a fitted in-focus HFR ([F39](#f39--the-harness-records-a-detection-binning-the-run-never-applied-and-7-datasets-have-never-run-at-theirs)),
+which does not exist for exactly these runs. The remedy offered requires the thing whose absence caused the
+error.
+
+**Next step.** Before refusing, probe a **rescue configuration** rather than only widening the recovery
+exemption: re-evaluate with `MinHFR` lowered to `MinHfrSeed.SeedFloor` (and, if still unfittable, to the
+variable's lower bound). If a rescue probe yields a fittable curve, proceed **and carry that lowered gate into
+the search as the seed** — the same mechanism `OptimizerSettings.MinHfrSeedFloor` already implements, triggered
+by *feasibility* instead of by a vertex. Keep the refusal only for sweeps that no probed configuration can fit,
+which is the case the guard was actually written for. Note the rescue is thin on D01 (6 stars at focus, against
+`NHard = 3`), so the probe must gate on the fit being determinable, not on the counts being comfortable.
+
 ### F35 — `MinHFR` should be seeded from the sweep WINGS, and neither available HFR statistic can size it
 **Status:** Done (wave 3) · found 2026-08-03 answering "how far can `MinHFR` safely come down?" for
 [F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic)
