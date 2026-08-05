@@ -2,18 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Stop the Aberration Inspector's backfocus guidance understating the required move by ~7×. Measure the backfocus correction gain γ from the calibration run's own AllInward piston, persist it, and present the gain-corrected move **alongside** today's figure rather than replacing it.
+**Goal:** Stop the Aberration Inspector's backfocus guidance understating the required move by ~7×. Measure the backfocus correction gain γ from the calibration run's own AllInward piston, persist it, and **apply** the gain-corrected move — with the uncorrected figure kept visible for comparison and the amount adjustable at the point of applying.
 
-**Architecture:** γ is computed in `TiltCalibrationCalculator` (pure, shared by wizard and TestApp) from the drift-corrected AllInward curvature delta, sanity-banded, and surfaced on `TiltCalibrationResult` + metadata. `TiltAdapterOptions` persists the last accepted γ with its provenance and offers a manual override. `TiltScrewGeometry` gains a gain-aware backfocus overload; the existing gain-1.0 path is untouched so both numbers can be shown. Guidance renders both.
+**Architecture:** γ is computed in `TiltCalibrationCalculator` (pure, shared by wizard and TestApp) from the drift-corrected AllInward curvature delta, sanity-banded, and surfaced on `TiltCalibrationResult` + metadata. `TiltAdapterOptions` persists the last accepted γ with its provenance and offers a manual override. `TiltScrewGeometry` gains a gain-aware backfocus overload; the existing gain-1.0 path is untouched so the comparison figure stays computable. The corrected figure owns the guidance table, and the approval dialog carries a preset selector for applying less than all of it.
 
 **Tech Stack:** C# / .NET 8 (WPF plugin), NUnit 4.4 (`dotnet.exe test` via WSL interop), Newtonsoft JSON metadata.
 
-**Read first (execution session):** `docs/backfocus-correction-gain-design.md` (the spec — §2 for the mechanism, §4 for the measurement and its validation, §5 for the design, §7 for what must not be "simplified"), `docs/tilt-calibration-pitch-nonlinearity-design.md` §4 and §8 (the compounding curvature under-read), `.claude/docs/mvvm-patterns.md`, `.claude/docs/options-system.md`, `.claude/docs/wpf-xaml.md`, `.claude/docs/documentation-style.md`.
+**Read first (execution session):** `docs/backfocus-correction-gain-design.md` (the spec — §2 for the mechanism, §4 for the measurement and its validation, §5 for the design, §7 for what must not be "simplified", §8 for the apply-time UX), `docs/tilt-calibration-pitch-nonlinearity-design.md` §4 and §8 (the compounding curvature under-read), `.claude/docs/mvvm-patterns.md`, `.claude/docs/options-system.md`, `.claude/docs/wpf-xaml.md`, `.claude/docs/documentation-style.md`.
 
 **Locked decisions (from the investigation — do not relitigate mid-execution):**
-- γ is **shown alongside** the current figure, never silently substituted. A 7× change to a number that drives physical hardware adjustment does not switch over on one run's measurement.
-- **Automation keeps today's behaviour.** T14 Automatic Adjustment and any hands-off apply path continue to use the gain-1.0 value in this plan. Changing what automation applies is a separate, deliberate decision.
-- Sanity band γ ∈ **[0.05, 0.5]**. Outside it, γ is treated as unmeasured and is **not** persisted.
+- **The corrected figure is what gets applied.** It owns the guidance table's Backfocus and Total rows; the uncorrected figure appears as a single comparison line beneath, never as a parallel column (two per-screw Totals would leave a hand-turning user with no recommendation). Design §8.2.
+- **Automatic Adjustment applies 100% of the same resolved figure**, with **no** new policy setting. `RunAutomaticAdjustmentAsync` always awaits the approval prompt, so the apply-time control covers it. Do **not** add an `AutomationBackfocusPolicy` enum — it would break the single-pipeline property that stops the planner diverging from the approved table. Design §8.5.
+- **Apply-time choice is four fixed presets** in the approval dialog (Corrected / Half / Quarter / Uncorrected), default Corrected, **never persisted**. Design §8.3.
+- **Out-of-range is judged in millimetres of plate travel, not the per-command cap** — 1.0 mm fixed advisory threshold, never blocking. The cap is a chunk size the planner already satisfies. Design §8.4.
+- Sanity band for a **measured** γ is **[0.05, 0.5]**; outside it γ is treated as unmeasured and is **not** persisted. The **manual override** range is **[0.05, 1.0]**, with 1.0 documented as restoring legacy behaviour — a measurement band and a user assertion are different things.
 - γ is drift-corrected against **mid(Baseline, ReBaseline1)** — the same reference `PistonImpliedMicronsPerStep` already uses. Uncorrected it reads 59% high; this is not optional.
 - γ is a **dimensionless gain** (µm of curvature effect per µm of plate travel), reported separately from the pitch. Do not fold it into `unitMicrons`.
 - The **tilt** term keeps gain 1.0. It is correct there and is locked by the synthetic round-trip test from PR #178.
@@ -75,9 +77,9 @@ Baseline curvature effect at r=55 mm −268.6 µm; ReBaseline1 −223.7; mid = �
 
 **Files:** Modify `Interfaces/ITiltAdapterOptions.cs`, `TiltAdapterWizard/TiltAdapterOptions.cs`, `TiltAdapterWizard/DataTemplates.xaml`; Test `Tests/TiltAdapterWizard/TiltAdapterOptionsTests.cs`
 
-- [ ] **Step 3.1:** Add `LastMeasuredBackfocusGain` (double, default NaN) and `BackfocusGainOverride` (double, default NaN) following the `LastMeasuredStepperStepSizeMicrons` accessor pattern verbatim.
+- [ ] **Step 3.1:** Add `LastMeasuredBackfocusGain` (double, default NaN), `BackfocusGainOverrideEnabled` (bool, default false) and `BackfocusGainOverride` (double, default NaN), following the `LastMeasuredStepperStepSizeMicrons` accessor pattern verbatim. Use an explicit enabled flag rather than a NaN sentinel — the UI is a checkbox plus an always-visible-but-disabled TextBox (design §8.6), which keeps `DataTemplates.xaml` converter-free.
 - [ ] **Step 3.2:** Add a resolver — override, else last-measured, else NaN — returning both the value and a provenance enum (`Manual`, `MeasuredThisRun`, `Persisted`, `Unavailable`). Unit-test each branch.
-- [ ] **Step 3.3:** UI: a numeric override field in the wizard's hardware section, next to the measured-pitch controls, with the file's established `BasedOn="{StaticResource StandardTextBlock}"` pattern (see the THEME HAZARD note at the top of `DataTemplates.xaml`).
+- [ ] **Step 3.3:** UI: checkbox + numeric override field in the wizard's hardware section, next to the measured-pitch controls, enabled via `Style` + `DataTrigger` on the bool. Range 0.05–1.0. Every local `TextBlock.Style` must carry `BasedOn="{StaticResource StandardTextBlock}"` (THEME HAZARD note at the top of `DataTemplates.xaml`). Caption per design §8.6.
 - [ ] **Step 3.4:** `RunCalibrationMath` writes `LastMeasuredBackfocusGain` only when the computed γ is non-NaN (i.e. passed the sanity band).
 - [ ] **Step 3.5: Run** options + wizard filters → green. **Commit** — `feat(tilt): persist the backfocus gain with provenance and a manual override`
 
@@ -88,13 +90,24 @@ Baseline curvature effect at r=55 mm −268.6 µm; ReBaseline1 −223.7; mid = �
 **Files:** Modify `AutoFocus/InspectorVM.cs`, the tilt-guidance VM and its DataTemplates; Test `Tests/AutoFocus/InspectorVMBehavioralTests.cs`
 
 - [ ] **Step 4.1: Read** `ComputePerScrewTargets` and how `Screw*BackfocusAmount` reaches the guidance table, before designing the presentation.
-- [ ] **Step 4.2:** Compute both backfocus figures. Surface the gain-corrected one as a **single** value (per Step 2.1) with a label carrying γ and its provenance, e.g. *"Backfocus (gain-corrected, γ = 0.140 measured): 974 steps"*. Keep the existing per-screw column exactly as it is.
+- [ ] **Step 4.2:** The **corrected** figure populates the existing Backfocus and Total rows. Add one comparison line beneath the table: `Backfocus is gain-corrected: γ = 0.140 (measured) · uncorrected: +137 steps`. Do **not** add a parallel per-screw column — design §8.2 explains why.
 - [ ] **Step 4.3:** When γ is unavailable, show only today's figure and label it a **lower bound** — do not silently imply it is the answer.
-- [ ] **Step 4.4:** Add a note when the gain-corrected move exceeds `TiltDeviceMaxStepsPerCommand` or plausible adapter travel, stating that a spacer change is indicated rather than an adapter move. On the reference rig this fires: 974 steps ≈ 1.75 mm against a 200-step per-command cap.
+- [ ] **Step 4.4:** Add the spacer advisory when the corrected move is **≥ 1.0 mm of plate travel** (fixed constant). Do **not** trigger on `TiltDeviceMaxStepsPerCommand` — that cap is a chunk size `TiltMovePlanner.ApplyCap` already satisfies, and firing on it would cry wolf. Advisory only, never blocking; the existing `TiltDeviceMaxExcursionSteps` limit stays the sole blocker. Text per design §8.4. On the reference rig this fires at 1.75 mm.
 - [ ] **Step 4.5: Write VM tests:** both figures present with a measured γ; lower-bound labelling with no γ; the spacer note firing past the cap.
 - [ ] **Step 4.6: Run** inspector + wizard filters → green. **Commit** — `feat(inspector): show the gain-corrected backfocus move alongside the uncorrected one`
 
 ---
+
+### Task 4b: Apply-time preset selector in the approval dialog
+
+**Files:** Modify `TiltAdapterDevices/Prompt/TiltDeviceAdjustmentPromptVM.cs`, `TiltDeviceAdjustmentPromptControl.xaml`, `TiltDeviceAdjustmentChoice.cs`, and the replanner path through `InspectorVM.BuildPlanPreview` / `TiltDevicePlanPreviewBuilder.cs`; Test `Tests/TiltAdapterDevices/Prompt/*`
+
+- [ ] **Step 4b.1: Read** how `ApplyTilt`/`ApplyBackfocus` re-invoke the replanner today, so the preset follows the same WYSIWYG contract — the move list must always match the selection.
+- [ ] **Step 4b.2:** Add the four-preset ComboBox beside the Backfocus checkbox (design §8.3), default Corrected, recomputed per invocation and never persisted. Carry the chosen scale on `TiltDeviceAdjustmentChoice`.
+- [ ] **Step 4b.3:** Collapse the ComboBox when γ is unavailable, showing the lower-bound caption instead.
+- [ ] **Step 4b.4:** Make the spacer advisory in the dialog track the **selected** preset, not the full corrected figure.
+- [ ] **Step 4b.5: Write tests:** each preset produces the expected scaled move list; the choice reaches the planner; the advisory follows the selection; γ-unavailable collapses the control.
+- [ ] **Step 4b.6: Run** the prompt + inspector filters → green. **Commit** — `feat(tilt): choose how much of the backfocus correction to apply`
 
 ### Task 5: Metadata and TestApp
 
@@ -134,7 +147,8 @@ Baseline curvature effect at r=55 mm −268.6 µm; ReBaseline1 −223.7; mid = �
 
 ### Task 8: Documentation
 
-- [ ] **Step 8.1:** In `tilt-adapter-wizard.md` and the inspector's backfocus documentation, explain that plate travel and curvature change are **not** one-for-one, that the ratio is rig-specific and measured, and how to read the two figures.
+- [ ] **Step 8.1:** In `tilt-adapter-wizard.md` and the inspector's backfocus documentation, explain that plate travel and curvature change are **not** one-for-one, that the ratio is rig-specific and measured, and how to read the corrected figure and its comparison line.
+- [ ] **Step 8.1b:** Add a tooltip/manual note to the **"Backfocus Error"** readout stating it is focal-surface sag, **not** plate travel, and that γ is the conversion. After this change users will see "Backfocus Error: 364 µm" a few rows above a 1.75 mm move instruction and will reasonably ask why they differ. Also update `motorized-tilt-adapter.md` (~line 96) for the new amount selector, and `tilt-adapter-wizard.md` (~line 111) whose "reads it as a spacing error and derives a backfocus correction" wording encodes the 1:1 assumption.
 - [ ] **Step 8.2:** State plainly that the recommendation remains a **floor** until the vertex-estimator work lands, because the curvature magnitude is separately under-read (design doc §6). Cross-reference `tilt-calibration-pitch-nonlinearity-design.md` §4/§8.
 - [ ] **Step 8.3:** Mark the design doc's §5 items implemented with commit refs.
 - [ ] **Step 8.4: Commit** — `docs(tilt): explain the backfocus correction gain and how to read both figures`
@@ -177,8 +191,8 @@ work lands). Do not restore those phrasings.
 
 ## Self-review notes (kept for the executor)
 
-- Spec coverage: §5.1 → Task 1; §5.2 → Task 1 (band) + Task 3 (persistence gate); §5.3 → Task 3; §5.4 → Task 3; §5.5 → Task 4; §5.6 → Task 6.
+- Spec coverage: §5.1 → Task 1; §5.2 → Task 1 (band) + Task 3 (persistence gate); §5.3 → Task 3; §5.4 → Task 3; §5.5 → Tasks 4 + 4b; §5.6 → Task 4b; §5.7 → Task 6; §8.2 → Task 4; §8.3 → Task 4b; §8.4 → Tasks 4.4 + 4b.4; §8.5 → Task 4b (explicitly by adding nothing); §8.6 → Task 3.
 - Type flow: `BackfocusCorrectionGain` is introduced on `TiltCalibrationResult` (Task 1), persisted via options (Task 3), consumed by `TiltScrewGeometry`'s new overload (Task 2) through the guidance (Task 4), serialized (Task 5).
-- Deliberate deviations an executor must not "fix": both figures are shown (no auto-apply); automation keeps gain 1.0; the tilt term keeps gain 1.0; γ stays separate from `unitMicrons`.
+- Deliberate deviations an executor must not "fix": the corrected figure owns the table and one comparison line sits beneath it (not a second column); automation adds no policy enum; the tilt term keeps gain 1.0; γ stays separate from `unitMicrons`; the override band is wider than the measurement band on purpose.
 - Steps 1.1, 2.1 and 4.1 are read-before-write checks: the curvature-effect plumbing into `TiltCalibrationInputs`, the per-screw-identical claim, and the guidance rendering path were reasoned about but not read line by line during planning.
 - Highest-risk task is 6: flipping a default changes the flow length and will break tests that assume 4 steps. Budget for that rather than being surprised by it.

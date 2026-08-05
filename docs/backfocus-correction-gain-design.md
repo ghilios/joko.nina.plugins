@@ -1,6 +1,6 @@
 # Backfocus Correction Gain: Why the Recommended Move Is ~7× Too Small
 
-**Status:** design, not yet implemented. Companion plan: `plans/backfocus-correction-gain-plan.md`.
+**Status:** design, not yet implemented. §8 (apply-time UX) reflects a UX design pass. Companion plan: `plans/backfocus-correction-gain-plan.md`.
 
 **Datasets:** `D:\TiltCalibrationDebug\WithExtraBaseline` (7-step calibration, schema 3) and
 `D:\TiltCalibrationDebug\Minus_{100..500}` (five aberration-inspector runs at cumulative piston
@@ -141,10 +141,10 @@ the honest handling is to apply the corrected value and make the choice visible 
    figure as the recommendation and the uncorrected one alongside it for comparison, labelled with γ
    and its provenance. At the point of applying, the user can override the amount or scale it back —
    the corrected move is a floor (§6) and iterating is the intended workflow, so a partial apply must
-   be a first-class action rather than a workaround. The detailed UX is specified in §9.
+   be a first-class action rather than a workaround. The detailed UX is specified in §8.
 6. **Hands-off automation follows a pre-set policy.** Automatic Adjustment applies without a user
    present, so its behaviour is decided in advance in settings rather than at apply time, including
-   what it does when γ is unavailable. See §9.
+   what it does when γ is unavailable. See §8.5.
 7. **Default `MeasureCurvatureDuringCalibration` to ON.** It is now the source of three distinct
    quantities — adapter direction, piston-implied pitch, and γ — and without it most users never get
    an accurate backfocus number. Both optional measurement steps gain explanatory copy stating what
@@ -172,7 +172,7 @@ determined even when the extrapolation to zero sag is not.
   silently. That was reversed: continuing to apply a figure measured to be 7× too small is not
   caution, it is a known defect left in place. The correct handling is to apply the corrected value,
   keep the uncorrected one visible for comparison, and make overriding or scaling back a first-class
-  action at apply time (§9).
+  action at apply time (§8).
 - **Sanity band before persistence**, so a bad run cannot poison later runs that rely on the
   persisted value.
 - **γ is reported as a gain, not folded into the pitch.** They are independent quantities measured by
@@ -180,14 +180,117 @@ determined even when the extrapolation to zero sag is not.
 - **No change to the tilt term.** Gain 1.0 is correct there and is validated by the synthetic
   round-trip test added in PR #178.
 
-## 9. Apply-time UX
+## 8. Apply-time UX
 
-Being designed; this section will carry the panel layout, the control for overriding or scaling back
-the move, the out-of-range (spacer-not-adapter) treatment, and the hands-off automation policy and
-its default. Until it lands, §5.5 and §5.6 state the intent and §7 records why the earlier
-"never auto-apply" position was reversed.
+### 8.1 The three apply surfaces, and the invariant between them
 
-## 8. Open questions
+- **The Tilt Adapter Guidance table.** For a hand-turned adapter *the table is the apply surface* —
+  the user's hands execute it. There is no software control to attach a choice to.
+- **Automatic Adjustment (T14).** `RunAutomaticAdjustmentAsync` unconditionally awaits
+  `showAdjustmentPromptAsync` — **there is always an approval dialog**. This corrects a premise in
+  the brief that produced this design: there is no unattended apply path today.
+- **The Manual Adjustment pad.** Raw user-typed steps, not guidance-driven. Untouched.
+
+`BuildPerScrewTargets` was deliberately written so the planner "can never diverge from the guidance
+table the user actually approved". **That single-pipeline property is a safety feature and this
+design preserves it**: there is one resolved backfocus figure, and both the table and the planner use
+it. The apply-time *choice* therefore lives only where software sends moves — the approval dialog.
+
+### 8.2 The corrected figure owns the table
+
+The Backfocus and Total rows show the **gain-corrected** amounts. The uncorrected figure appears as a
+single comparison line beneath the table, **not** as a parallel column: two per-screw Totals would
+leave a manual user with two instructions and no recommendation. This resolves an ambiguity in §5.5,
+whose wording permitted the worse layout.
+
+```
+  Backfocus  +974 steps  +974 steps  +974 steps  +974 steps
+  Total      +992 steps  +967 steps  +956 steps  +981 steps
+  Backfocus is gain-corrected: γ = 0.140 (measured) · uncorrected: +137 steps
+```
+
+When γ is unavailable the table shows the uncorrected figure and the line reads: *"Backfocus is a
+lower bound: the gain is unmeasured, and plate travel rarely changes curvature 1:1 — the real move is
+usually several times larger. Run a calibration with Measure direction on to measure it."*
+
+### 8.3 The apply-time control
+
+The approval dialog's Apply row gains an amount selector beside the Backfocus checkbox — a ComboBox
+of four fixed presets, recomputed per invocation and **never persisted** (a remembered scale-back
+would silently degrade every later session):
+
+```
+Apply  [x] Tilt correction  [x] Backfocus correction  [Corrected · +974 steps ▾]  γ = 0.140 (measured)
+                                                       │ Half · +487 steps
+                                                       │ Quarter · +244 steps
+                                                       │ Uncorrected · +137 steps (gain 1.0)
+```
+
+Default is Corrected. Changing the selection re-invokes the replanner so the move list stays WYSIWYG,
+honouring the contract `ApplyTilt`/`ApplyBackfocus` already keep. With γ unavailable the ComboBox
+collapses to `+137 steps (lower bound — gain unmeasured)`.
+
+**Presets rather than a percentage or free step entry.** A bare percentage hides the physical number
+being approved; free entry duplicates the Manual Adjustment pad, which already exists for arbitrary
+amounts; presets make the choice auditable as one token in the log. "Uncorrected" is included as an
+honestly-labelled continuity option, not disguised as a percentage. Because the corrected figure is a
+floor (§6), partial application is the *intended* workflow — Half and Quarter are normal iteration
+granularity, not expressions of distrust.
+
+### 8.4 Out of range means a spacer, not a bigger command
+
+The per-command cap is **not** the right trigger: 974 steps against a 200-step cap simply means the
+planner emits five chunked commands, which `TiltMovePlanner.ApplyCap` already handles correctly. The
+quantity a human can act on is **common-mode plate travel in millimetres**, with a fixed **1.0 mm**
+advisory threshold (a constant, not an option — it needs no per-rig tuning).
+
+The advisory is **never blocking**. It appears under the guidance table and, tracking the selected
+preset, in the dialog. The existing hard travel limit (`TiltDeviceMaxExcursionSteps`) remains the only
+thing that stops Proceed. Text:
+
+> The corrected backfocus move is about {0:0.00} mm of plate travel — more than a tilt adapter is
+> meant to take up. Change the camera spacing by about that amount (in the direction the Backfocus
+> arrows show) and keep the adapter for the remaining trim. The corrected figure is a lower bound, so
+> re-measure after adjusting.
+
+γ applies to spacers identically: the §2 mechanism is spacing → refocus → magnification, however the
+spacing changes.
+
+### 8.5 Automation policy: deliberately no new setting
+
+**Automatic Adjustment applies 100% of the same resolved figure the guidance table shows.** There is
+no `AutomationBackfocusPolicy` enum, and one must not be added later — it would break the
+single-pipeline invariant in §8.1, letting the table say one thing and the hardware do another.
+
+Full application is right because the corrected figure is a floor (§6): the magnitude it converts is
+itself under-read, so even 100% under-shoots in expectation. Overshoot could only come from a
+mis-measured γ, which the sanity band caps, the AllInward/sweep cross-validation supports (2.1%
+agreement), and the excursion limit physically bounds. Defaulting automation to Half would rebuild
+the same defect at 2× instead of 7×.
+
+When γ is unavailable, automation applies the uncorrected figure labelled a lower bound — today's
+behaviour. Skipping backfocus entirely would regress unmeasured rigs, and under-moving is
+directionally safe: each cycle re-measures, so gain-1 application still converges, just slowly.
+
+**The escape hatch is the γ override, with its range widened to [0.05, 1.0].** The *measurement* band
+stays [0.05, 0.5] — that band encodes "γ ≈ 1 is physically implausible as a measurement". A manual
+override is a user assertion, not a measurement, and capping it at 0.5 would leave no way to request
+legacy behaviour. Override = 1.0 exactly reproduces pre-change behaviour and is documented as such.
+
+### 8.6 Provenance
+
+One short parenthetical wherever γ appears; the mechanism lives in tooltips. The inspector says
+`measured` or `manual override` (it cannot distinguish this run from an earlier one and should not
+pretend to). The wizard's results panel shows a self-labelling row in the `PistonPitchDisplay`
+pattern, **including the rejected case** — silently treating an out-of-band γ as unmeasured is right
+for persistence but confusing as display:
+
+> Backfocus gain: rejected (measured 0.62, outside 0.05–0.5) — not saved; guidance keeps the previous value.
+
+The override control is a checkbox plus an always-visible-but-disabled TextBox driven by a
+`DataTrigger`, keeping `TiltAdapterWizard/DataTemplates.xaml` converter-free per its THEME HAZARD note.
+
+## 9. Open questions
 
 - Whether γ is stable across focuser position. It is measured near the calibration focus; the
   required correction may be millimetres away, where m — and therefore γ — differs. The measured 1.3%
