@@ -1329,6 +1329,47 @@ every intervening merge and attributes it to the change under test.
 identical between two arms of the *same* binary. If it is not, the binaries differ and no knob comparison between
 them means anything — check that single number before reading a diff as a regression.
 
+### F42 — Every build directory silently gets its OWN detector settings, and the run instructions require a new one per arm
+**Status:** Open · found 2026-08-05 chasing a `BaselineJ` gap that turned out not to be the code under test
+
+`HarnessSettingsStore.DefaultPath()` is `Path.Combine(AppContext.BaseDirectory, "harness_settings.json")` — the
+file sits **next to the exe** — and `ResolveAt` **bootstraps one from the live NINA profile** when it is absent.
+Meanwhile the AF-bank run instructions say to build each arm to a separate `-o` directory, because the exe is
+file-locked while a run is in progress.
+
+Those two facts compose into a silent confound: **every new build directory bootstraps a fresh settings file from
+whatever the profile happens to hold at that moment**, so two arms built minutes apart can run different
+detectors. Measured across three wave-5 build dirs:
+
+| option | `exe2` | `exe_base` |
+|---|---|---|
+| `LocallyAdaptiveBinarization` | True | **False** |
+| `ModelPSF` | True | **False** |
+| `UseOptimizedSettings` | False | **True** |
+| `DetectionDebugMode` | False | **True** |
+| `PixelSizeMicrons` / `FocalLengthMm` | 3.8 / **NaN** | 3.76 / 688.0 |
+
+`UseOptimizedSettings = True` alone changes what `BuildStarDetectorParams` returns for the BASELINE — the "before"
+every improvement is measured against. `LocallyAdaptiveBinarization` changes candidate formation outright. Each
+bootstrap also stamps a differently-named profile snapshot (`Default-2026-08-05T10:54:36`), which is the visible
+tell in the run's own log: *"Settings: … (exported … from profile 'Default-…')"*.
+
+**The irony is the point.** This store exists precisely to stop profile state leaking into runs — its own comment
+says "a profile-sourced seed is mutable machine state nothing records, and `TryLoad("")` picks whichever profile
+is ACTIVE — two runs of the same data minutes apart were seeded from different telescopes." The *bootstrap* path
+reintroduces exactly that, and the build-to-a-separate-directory workflow guarantees it fires.
+
+**What it does and does not invalidate.** An arm set run from ONE build directory is internally valid — every arm
+shares the file, so a flag remains the only difference (this is true of wave 5's own F32 and F24 arms). What is
+invalid is any comparison ACROSS build directories, which is every cross-wave and every
+before/after-a-code-change comparison — the ones [F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)
+is about. The two findings are the same hazard from two directions.
+
+**Next step.** Pass `--settings <one fixed path>` on every arm, and make the bootstrap loud: print a WARNING when
+a settings file is created rather than loaded, since that is the moment an arm silently stops being comparable to
+its predecessor. Consider defaulting the path to a fixed per-user location rather than `AppContext.BaseDirectory`,
+so a new build directory inherits instead of bootstrapping.
+
 ### F35 — `MinHFR` should be seeded from the sweep WINGS, and neither available HFR statistic can size it
 **Status:** Done (wave 3) · found 2026-08-03 answering "how far can `MinHFR` safely come down?" for
 [F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic)
