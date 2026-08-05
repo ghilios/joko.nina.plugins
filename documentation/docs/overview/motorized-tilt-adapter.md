@@ -119,6 +119,67 @@ before sending; there is no automatic undo.
     offers to revert, sending the inverse of each move in reverse order. A failure partway through
     a plan brings the same revert offer.
 
+## Manual adjustment
+
+Automatic Adjustment corrects a tilt the plugin has just measured. When you want to move the adapter
+yourself — to lift motors away from 0, to dial in backfocus, to apply a correction you worked out
+elsewhere, or to finish an adjustment that stopped partway — open **Manual adjustment** in the
+**Motorized Device Connection** section, directly under the motor positions. It is collapsed by
+default, and its header line says what it last did.
+
+Unlike Automatic Adjustment, it needs no measurement and no calibration: it drives the hardware
+directly, so it works as soon as the device is connected.
+
+Every move here is physical and is stored in the adapter's EEPROM. There is no automatic undo.
+
+### Single move
+
+Pick what to move on the 3×3 pad, which is laid out the way the sensor is imaged:
+
+|  |  |  |
+|---|---|---|
+| **TL** | **Top** | **TR** |
+| **Left** | **All** | **Right** |
+| **BL** | **Bottom** | **BR** |
+
+The four corners tilt along a diagonal, the four edges tilt one side against the other, and **All**
+moves every motor together — a backfocus change, not a tilt. Each is a single command to the device.
+
+Set **Direction** (`+` is the wizard's positive step direction; `−` is its opposite) and **Amount**
+in steps, and the preview below shows exactly what the click will do: which motors move and by how
+much, where all four will end up, how much of the travel window that leaves, and the change in
+microns. Because the adapter's corners are mechanically coupled, choosing `TR` also moves `BL` — the
+preview always shows both, so the coupling is visible before you send anything.
+
+**Send** issues the move. Nothing else changes, so repeating the same nudge is one more click. An
+amount larger than **Max steps per command** is sent as several commands in the same direction, and
+the button says how many.
+
+A move that would carry a motor outside the travel window is refused before anything is sent, and
+the panel names the motor and suggests the fix — usually an `All +` move to lift everything first.
+Positions that end near either end of the window are tagged **near 0** or **near max**; those are
+advisories, not refusals.
+
+### Target positions
+
+Switch **Mode** to **Target positions** to say where each motor should end up rather than how far to
+move it. The four boxes are filled in from the current positions; edit the ones you want to change
+and the panel shows the difference per corner and how many moves it will take.
+
+**Review moves…** decomposes the difference and opens the same **Review motor commands** dialog that
+[Automatic Adjustment](#automatic-adjustment) uses, with the same move list, residuals and warnings.
+Nothing is sent until you approve it there.
+
+!!! note "Four numbers, three degrees of freedom"
+    A tilt adapter can tilt the sensor plane and change its spacing, but it cannot **twist** it — no
+    rigid plane can. Most sets of four hand-typed positions ask for a little twist, and that part
+    simply cannot happen. When the request contains a whole step of twist or more, the panel says so
+    before you open the dialog and each corner shows the position it will actually reach.
+
+If a plan stops partway — a failed command, or **Stop after this move** — the moves already sent
+stay applied. Because the targets are absolute, pressing **Review moves…** again once the positions
+have re-synced re-plans from wherever the motors actually are, which finishes the remainder.
+
 ## Safety limits
 
 Three persisted settings in the **Motorized Device Connection** section, under **Safety Limits**,
@@ -150,9 +211,9 @@ The approval dialog shows the bias as its own move and warns that it is present.
 
 The bias is not free. Moving all four screws together *is* a backfocus change, so it shifts your
 backfocus by the bias amount, and that shift is included in the residuals the dialog reports. To
-avoid it, give the motors room to work before adjusting, so corrections have travel underneath
-them: raise the motors away from zero in the vendor's app, or apply a positive backfocus move of
-your own.
+avoid it, give the motors room to work before adjusting, so corrections have travel underneath them:
+send an `All` `+` move from [Manual adjustment](#manual-adjustment), or raise the motors away from
+zero in the vendor's app.
 
 ## The Simulator port
 

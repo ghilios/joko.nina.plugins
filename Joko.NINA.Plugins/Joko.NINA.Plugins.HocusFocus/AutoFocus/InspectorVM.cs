@@ -2480,14 +2480,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         /// <summary>
-        /// Builds one replanner invocation's preview: plans the moves for the given group toggles, then asks
-        /// the controller (via the interface — never a downcast) to order them for minimal peak excursion so
-        /// the approval dialog shows the EXACT execution order (WYSIWYG). A TiltDeviceLimitException from the
-        /// ordering call means either a single move exceeds the per-command cap or every ordering would
-        /// exceed the max excursion — surfaced as a blocking preview (unordered moves shown, matching the
-        /// design doc) rather than propagated, so the dialog can display it instead of crashing. Residuals,
-        /// twist, and the time estimate are unaffected by ordering, so they carry over unchanged from the
-        /// original plan.
+        /// Builds one replanner invocation's preview. The implementation lives in
+        /// <see cref="TiltDevicePlanPreviewBuilder.Build"/> because the wizard's Manual Adjustment panel drives
+        /// the device from a target vector too, and the two surfaces must mean exactly the same thing by "the
+        /// plan"; this stays as the Automatic Adjustment call site's name for it.
         /// </summary>
         internal static TiltDevicePlanPreview BuildPlanPreview(
             IReadOnlyList<double> sPerScrew,
@@ -2496,41 +2492,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             double unitMicrons,
             int maxStepsPerCommand,
             ITiltMotionController controller) {
-            var plan = TiltMovePlanner.Plan(sPerScrew, includeTilt, includeBackfocus, unitMicrons, maxStepsPerCommand);
-            try {
-                var ordered = controller.OrderForMinimalPeakExcursion(plan.Moves);
-                // The controller may PREPEND a backfocus bias so a differential tilt correction never drives a
-                // motor below 0. That bias is a genuine piston -- it shifts backfocus -- so the residual has to
-                // be recomputed from what will actually be sent. Carrying the unbiased plan's residual here
-                // would silently under-report the very backfocus error the bias introduces.
-                var applied = new double[4];
-                foreach (var move in ordered) {
-                    for (int i = 0; i < 4; ++i) {
-                        applied[i] += move.PerCornerSteps[i];
-                    }
-                }
-                var residual = new double[4];
-                for (int i = 0; i < 4; ++i) {
-                    residual[i] = (applied[i] - sPerScrew[i]) * unitMicrons;
-                }
-
-                // The bias is the uniform surplus the controller added on top of what was planned; it lands
-                // equally on all four corners (it is a piston), so the smallest per-corner surplus is it.
-                var planned = new double[4];
-                foreach (var move in plan.Moves) {
-                    for (int i = 0; i < 4; ++i) {
-                        planned[i] += move.PerCornerSteps[i];
-                    }
-                }
-                int biasSteps = (int)Math.Round(Enumerable.Range(0, 4).Min(i => applied[i] - planned[i]));
-                // A prepended bias also adds real execution time; scale the estimate by the per-move rate the
-                // planner used rather than carrying a move count that no longer matches.
-                double perMoveSeconds = plan.Moves.Count > 0 ? plan.EstimatedSeconds / plan.Moves.Count : 0.0;
-                var orderedPlan = new TiltAdapterMovePlan(ordered, residual, plan.TwistResidualSteps, ordered.Count * perMoveSeconds, Math.Max(0, biasSteps));
-                return new TiltDevicePlanPreview(orderedPlan, hardLimitViolated: false, limitWarning: string.Empty);
-            } catch (TiltDeviceLimitException ex) {
-                return new TiltDevicePlanPreview(plan, hardLimitViolated: true, limitWarning: ex.Message);
-            }
+            return TiltDevicePlanPreviewBuilder.Build(sPerScrew, includeTilt, includeBackfocus, unitMicrons, maxStepsPerCommand, controller);
         }
 
         private async Task RunAutomaticAdjustmentAsync() {
