@@ -1140,6 +1140,17 @@
                     Text="{Binding RecoveryWidenedNotice}"
                     TextWrapping="Wrap"
                     Visibility="{Binding HasRecoveryWidenedNotice, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+
+                <!--  F43. Also not an error: the sweep could not be fitted at the default minimum-HFR gate, so the
+                      gate was lowered to obtain a curve and the search was seeded there. Shown because the wizard is
+                      then reporting results from a gate the user did not choose — and on a short focal length that
+                      gate is the single setting they most need to know about.  -->
+                <TextBlock
+                    Margin="0,8,0,0"
+                    Foreground="{StaticResource NotificationWarningBrush}"
+                    Text="{Binding MinHfrRescueNotice}"
+                    TextWrapping="Wrap"
+                    Visibility="{Binding HasMinHfrRescueNotice, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
             </StackPanel>
 
             <!--  Footer: navigation. Exactly one step's buttons show at a time; while busy only Cancel shows.  -->

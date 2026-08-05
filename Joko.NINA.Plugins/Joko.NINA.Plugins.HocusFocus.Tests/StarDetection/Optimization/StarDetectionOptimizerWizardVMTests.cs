@@ -169,6 +169,41 @@ public class StarDetectionOptimizerWizardVMTests {
         return new LoadedRun { Data = data, Seed = seed, AfOptions = afOptions };
     }
 
+    // F43. An UNDERSAMPLED SHORT-FOCAL-LENGTH rig in miniature. Measured on the bank's 40 mm dataset
+    // (D01_ultrawide_40mm), the in-focus frame yields ZERO stars at the shipped MinHFR of 1.2 while the defocused
+    // wings yield ~1700 each -- MinHFR rejects SMALL stars, and in-focus stars are the smallest there are. Same
+    // shape here: a shallow curve (in-focus HFR 0.8 px) whose inner SEVEN positions all sit under a 1.2 gate,
+    // leaving 2 usable positions against the 3 a hyperbola needs. Lowering the gate restores all nine, which is
+    // exactly the axis the wizard used to refuse to let the search reach.
+    private const double UndersampledHyperbolaA = 0.8;   // in-focus HFR, px — smaller than the shipped 1.2 gate
+
+    private const double UndersampledHyperbolaB = 400.0; // shallow, so the gate empties the CORE not just the vertex
+
+    private static double UndersampledHfr(int pos) {
+        var dx = (pos - HyperbolaP0) / UndersampledHyperbolaB;
+        return Math.Sqrt(UndersampledHyperbolaA * UndersampledHyperbolaA + dx * dx);
+    }
+
+    private static LoadedRun UndersampledRun(string id = "undersampled", double seedMinHfr = 1.2) {
+        Func<object, StarDetectorParams, CancellationToken, Task<FrameDetectionResult>> detect = (image, p, token) => {
+            var pos = (int)image;
+            var hfr = UndersampledHfr(pos);
+            // The gate the detector applies: stars at or below MinHFR are rejected, so a frame whose stars are all
+            // under it reports none at all — the F20 collapse, concentrated on the INNER frames.
+            var gated = hfr <= p.MinHFR;
+            return Task.FromResult(new FrameDetectionResult {
+                AverageHFR = gated ? 0.0 : hfr,
+                HFRStdDev = 0.05,
+                StarCount = gated ? 0 : 20,
+                StarCenters = Array.Empty<(double X, double Y)>()
+            });
+        };
+        var data = new RunEvaluationData(id, NineFrames(), detect, NewAlglib(), DefaultFitConfig());
+        var seed = new StarDetectorParams { Sensitivity = 2.0, StarClippingMultiplier = 2.0, MinHFR = seedMinHfr };
+        var afOptions = new AutoFocusEngineOptions { AutoFocusStepSize = DefaultStepSize, AutoFocusInitialOffsetSteps = 4 };
+        return new LoadedRun { Data = data, Seed = seed, AfOptions = afOptions };
+    }
+
     // A run where detection finds stars ONLY at low Sensitivity: the optimizer SEED (2) yields a clean hyperbola,
     // but the displayed BASELINE / current settings (8) are effectively blind (no stars, so no curve). This isolates
     // which params the seed guard evaluates — the Live sweep must gate on the seed, not the failing current settings.
@@ -422,6 +457,82 @@ public class StarDetectionOptimizerWizardVMTests {
             Assert.That(vm.CurrentStep, Is.Not.EqualTo(WizardStep.Summary), "the guard must block the summary");
             Assert.That(vm.ErrorMessage, Is.Not.Null.And.Not.Empty, "a degenerate seed must surface a user-facing error");
             Assert.That(vm.Summary, Is.Null);
+        });
+    }
+
+    // ---- F43: the guard must not require the DEFAULT settings to already work --------------------------------
+    //
+    // LIVE only, deliberately. Replay gates on the user's CURRENT settings because a saved run exists only because
+    // those settings could already focus (see SeedGuard_ReplayMode_GatesOnBaseline), and a live sweep is the
+    // opposite case: the current settings may detect nothing, which is precisely why the user is here.
+
+    private static StarDetectionOptimizerWizardVM NewLiveVMWithRun(LoadedRun run) {
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(run), isCameraConnected: () => true, isFocuserConnected: () => true,
+            autoFocusEngine: engine, frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        return vm;
+    }
+
+    [Test]
+    public async Task LiveSweep_UndersampledRig_LowersTheMinHfrGateInsteadOfRefusing() {
+        // THE DEFECT. At the shipped MinHFR of 1.2 this sweep leaves 2 usable positions against the 3 a hyperbola
+        // needs, so the guard refused with "does not produce a usable focus curve at the default detection
+        // settings" — circular, since finding settings that DO produce one is the whole job. The starless
+        // positions are INTERIOR, so widening the focus-recovery exemption cannot rescue it either.
+        var vm = NewLiveVMWithRun(UndersampledRun());
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.ErrorMessage, Is.Null.Or.Empty, "an undersampled rig must not be refused outright");
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.HasMinHfrRescueNotice, Is.True, "lowering the gate is not silent — the user did not choose it");
+            Assert.That(vm.MinHfrRescueNotice, Does.Contain("1.2"), "the notice names the gate that failed");
+        });
+    }
+
+    [Test]
+    public async Task LiveSweep_UndersampledRig_SeedsTheSearchAtTheRescuedGate() {
+        // Being ALLOWED to reach a lower gate is not enough: per F20 the objective is identically zero across the
+        // neighbourhood of the default, so no single-axis step improves anything and the search never gets there on
+        // its own. The rescued gate must become the SEED — F35's rationale, triggered by feasibility rather than by
+        // a fitted vertex (which cannot exist once the gate has destroyed the fit).
+        var vm = NewLiveVMWithRun(UndersampledRun());
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.That(vm.Result, Is.Not.Null);
+        Assert.That(vm.Result.BestParams.MinHFR, Is.LessThanOrEqualTo(MinHfrSeed.SeedFloor),
+            "the search must START at the rescued gate, not merely be permitted to reach it");
+    }
+
+    [Test]
+    public async Task LiveSweep_RunThatFitsAtTheDefaults_IsNotProbedAndSaysNothing() {
+        // Inertness: the rescue is a LAST RESORT reached only after the normal guard fails. A healthy sweep must be
+        // untouched by it, and must not be handed a warning about a gate that was never moved.
+        var vm = NewLiveVMWithRun(GoodRun());
+
+        await vm.StartAsync(CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary));
+            Assert.That(vm.HasMinHfrRescueNotice, Is.False);
+            Assert.That(vm.MinHfrRescueNotice, Is.Null.Or.Empty);
+        });
+    }
+
+    [Test]
+    public void LowerOf_TakesTheLowerFloorAndIgnoresAbsentOnes() {
+        // F35's vertex rule and F43's rescue probe can both produce a floor, and both only ever LOWER the gate, so
+        // the minimum is the one that actually admitted stars. Either being absent must leave the other intact.
+        Assert.Multiple(() => {
+            Assert.That(StarDetectionOptimizerWizardVM.LowerOf(0.3, 0.1), Is.EqualTo(0.1));
+            Assert.That(StarDetectionOptimizerWizardVM.LowerOf(0.1, 0.3), Is.EqualTo(0.1));
+            Assert.That(StarDetectionOptimizerWizardVM.LowerOf(null, 0.3), Is.EqualTo(0.3));
+            Assert.That(StarDetectionOptimizerWizardVM.LowerOf(0.3, null), Is.EqualTo(0.3));
+            Assert.That(StarDetectionOptimizerWizardVM.LowerOf(null, null), Is.Null);
         });
     }
 

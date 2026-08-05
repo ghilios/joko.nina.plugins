@@ -1462,7 +1462,8 @@ its predecessor. Consider defaulting the path to a fixed per-user location rathe
 so a new build directory inherits instead of bootstrapping.
 
 ### F43 — The optimizer wizard refuses to start unless the DEFAULT settings already produce a usable curve
-**Status:** Open · found 2026-08-05 from a user report on a 40 mm rig
+**Status:** **Done (wave 5)** for the Live path; the replay case is left open below · found 2026-08-05 from a
+user report on a 40 mm rig
 
 `SeedFitIsUsableAsync` (`StarDetectionOptimizerWizardVM.cs:2869`, called at `:2541`) evaluates the **default seed
 params** once and refuses to optimize unless some run yields a finite σ(focus) over ≥ 3 positions. On a Live
@@ -1503,13 +1504,35 @@ recommendation is derived from a fitted in-focus HFR ([F39](#f39--the-harness-re
 which does not exist for exactly these runs. The remedy offered requires the thing whose absence caused the
 error.
 
-**Next step.** Before refusing, probe a **rescue configuration** rather than only widening the recovery
-exemption: re-evaluate with `MinHFR` lowered to `MinHfrSeed.SeedFloor` (and, if still unfittable, to the
-variable's lower bound). If a rescue probe yields a fittable curve, proceed **and carry that lowered gate into
-the search as the seed** — the same mechanism `OptimizerSettings.MinHfrSeedFloor` already implements, triggered
-by *feasibility* instead of by a vertex. Keep the refusal only for sweeps that no probed configuration can fit,
-which is the case the guard was actually written for. Note the rescue is thin on D01 (6 stars at focus, against
-`NHard = 3`), so the probe must gate on the fit being determinable, not on the counts being comfortable.
+**FIXED 2026-08-05 (wave 5).** Before refusing, `TryRescueWithLowerMinHfrAsync` probes a **lowered gate** —
+`MinHfrSeed.SeedFloor`, then the curated variable's own `Lower` bound, least-aggressive first. The ladder is read
+from `OptimizerVariable.CreateCuratedSet` rather than written as constants, so the guard can never admit a rig on
+a gate the search is not allowed to reach, nor refuse one it could have rescued because a constant drifted. If a
+probe makes the curve fittable, the run proceeds **and the rescued gate becomes the seed** via the existing
+`OptimizerSettings.MinHfrSeedFloor` — F35's mechanism, triggered by *feasibility* instead of by a vertex.
+`OptimizeAsync` takes the **lower** of the two floors, since both only ever lower the gate and either may be
+absent.
+
+The rescue is **not silent**: `MinHfrRescueNotice` tells the user which gate failed and what it was lowered to,
+because the wizard is then reporting results from a gate they did not choose — and on a short focal length that
+is the setting they most need to know about.
+
+Three things the fix deliberately does **not** do. It does not relax the bar to "the counts look healthy": the
+probe asks only whether a curve is *determinable*, because the rescue is genuinely thin on the rigs it exists for
+(6 stars on D01's in-focus frame against `NHard = 3`) and any richer bar re-rejects exactly that population —
+raising the counts from there is the search's job. It does not mutate the caller's seed (probes run on a clone;
+callers reuse one `StarDetectorParams`, and an in-place write is the wave-3 seed leak). And it does not remove
+the refusal: a sweep no probed gate can fit is still refused, which is what the guard was written for.
+
+**LIVE only, and the replay case is left open on purpose.** Replay gates on the user's CURRENT settings because a
+saved run exists only because those settings could already focus — a decision locked by
+`SeedGuard_ReplayMode_GatesOnBaseline`, which caught a first version of this fix that extended the probe to both
+modes. Probing the seed there would quietly convert replay into a seed-gated path. **Open question:** whether a
+saved run whose current settings cannot fit deserves the same rescue. The circularity argument applies equally;
+the counter-argument is that such a run should not have been captured. Not changed as a side effect of this one.
+
+Tests: 4, of which **2 fail** when the probe is removed; the other two are labelled guards (inertness on a
+healthy sweep, and the floor-combination helper).
 
 ### F35 — `MinHFR` should be seeded from the sweep WINGS, and neither available HFR statistic can size it
 **Status:** Done (wave 3) · found 2026-08-03 answering "how far can `MinHFR` safely come down?" for

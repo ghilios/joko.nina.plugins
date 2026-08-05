@@ -2468,6 +2468,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             ErrorMessage = null;
             // Belongs to the run that raised it, so a fresh Start clears it alongside the error.
             RecoveryWidenedNotice = null;
+            // Same ownership for the F43 rescue: both the notice and the floor it reports describe THIS sweep, and
+            // a stale floor would silently re-gate the next one (the wave-3 seed-leak shape).
+            MinHfrRescueNotice = null;
+            minHfrRescueFloor = null;
             // A fresh run always uses the PERSISTED factor: any pending optimize-again factor from a previous
             // summary was abandoned when the user came back here.
             pendingDetectionBinning = null;
@@ -2927,6 +2931,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
             }
 
+            // F43 — LAST RESORT BEFORE REFUSING: probe a LOWERED MinHFR gate.
+            //
+            // Refusing here because the DEFAULT settings cannot build a curve is circular: this wizard exists to
+            // find settings that can, and the guard was testing exactly one point of a space in which MinHFR alone
+            // spans [0.1, 5.0] against a default of 1.2. On an undersampled short-focal-length rig the gate deletes
+            // precisely the frames the vertex is fitted from -- measured on the bank's 40 mm dataset, the in-focus
+            // frame yields ZERO stars at 1.2 while the wings yield ~1700 each, and lowering the gate is the ONLY
+            // axis that recovers it (MinimumStarBoundingBoxSize changes nothing; fewer StructureLayers is worse).
+            //
+            // F35's seeding does not reach this case. It runs INSIDE OptimizeAsync -- after this guard -- and
+            // triggers off BestFit.Minimum.Y, a fitted vertex that by definition does not exist once the gate has
+            // destroyed the fit. F35 handles "the vertex sits under the gate"; this handles "the gate destroyed
+            // the vertex", which is the strictly worse case and the one users hit.
+            // LIVE ONLY, like the recovery widening above. Replay gates on the user's CURRENT settings on purpose:
+            // a saved run exists because those settings could already focus, and SeedGuard_ReplayMode_GatesOnBaseline
+            // locks that. Probing the SEED there would quietly convert replay into a seed-gated path, which is a
+            // different product decision than the one this entry is about. Whether replay deserves the same rescue
+            // is left open in F43 rather than changed as a side effect.
+            if (SourceMode == SourceMode.Live) {
+                var rescue = await TryRescueWithLowerMinHfrAsync(runs, token).ConfigureAwait(true);
+                if (rescue.HasValue) {
+                    return true;
+                }
+            }
+
             ErrorMessage = SourceMode == SourceMode.Live
                 ? "The captured sweep does not produce a usable focus curve at the default detection settings, and " +
                   "excluding its outermost positions does not help. Frames without stars in the middle of the sweep, " +
@@ -2938,6 +2967,109 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             CurrentStep = WizardStep.SelectSource;
             return false;
         }
+
+        /// <summary>
+        /// F43 — re-runs the fit guard with <see cref="StarDetectorParams.MinHFR"/> lowered, and returns the first
+        /// value that makes the sweep fittable (null when none does, i.e. the refusal stands).
+        ///
+        /// <para><b>The ladder is read from the SEARCH SPACE, not written here.</b> It probes
+        /// <see cref="MinHfrSeed.SeedFloor"/> and then the curated variable's own lower bound, so the guard can
+        /// never admit a rig on a gate the optimizer is not allowed to reach — and never refuses one it could have
+        /// rescued because a constant drifted. Ordered least-aggressive first, so a run rescued at 0.30 is not
+        /// dragged to 0.10 for no reason.</para>
+        ///
+        /// <para><b>Determinability only.</b> The probe asks the same question the guard always asked — "is a
+        /// curve determinable at all" — and not "are the counts comfortable". The rescue is genuinely thin on the
+        /// rigs it exists for (6 stars on the in-focus frame of the 40 mm dataset, against NHard = 3), so any
+        /// richer bar would re-reject exactly the population this is for. Moving the counts up from there is the
+        /// SEARCH's job, which is the whole point of letting it start.</para>
+        ///
+        /// <para>Probes are evaluated on a CLONE of each run's seed. Callers reuse one
+        /// <see cref="StarDetectorParams"/> across runs, and an in-place write here would leak the probed gate
+        /// into every later run — the wave-3 seed leak, which took a whole bank to the floor off one firing.</para>
+        /// </summary>
+        private async Task<double?> TryRescueWithLowerMinHfrAsync(IReadOnlyList<LoadedRun> runs, CancellationToken token) {
+            const int MinPositionsForFit = 3;
+            if (runs == null || runs.Count == 0 || runs[0]?.Seed == null) {
+                return null;
+            }
+
+            var seedMinHfr = runs[0].Seed.MinHFR;
+            foreach (var probe in MinHfrRescueLadder(runs[0].Seed)) {
+                if (!(probe < seedMinHfr)) {
+                    continue; // only ever LOWERS the gate; raising one is never a rescue
+                }
+                token.ThrowIfCancellationRequested();
+                var results = await AnalyzeWithProgressAsync(
+                    runs, r => { var p = r.Seed.Clone(); p.MinHFR = probe; return p; }, token).ConfigureAwait(true);
+                if (!AnyRunIsFittable(results, MinPositionsForFit)) {
+                    continue;
+                }
+
+                // Carry the rescued gate into the search as the seed, so the optimizer STARTS where a curve
+                // exists instead of merely being allowed to reach it (F35's rationale, triggered by feasibility
+                // rather than by a vertex). OptimizeAsync takes the LOWER of this and F35's own vertex rule.
+                minHfrRescueFloor = probe;
+                Logger.Info($"Star detection optimizer: no usable focus curve at MinHFR " +
+                            $"{seedMinHfr.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)}; probing " +
+                            $"{probe.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} makes it " +
+                            "fittable, so the search is seeded there (F43).");
+                MinHfrRescueNotice =
+                    $"No focus curve could be fitted at the default minimum-HFR gate of {seedMinHfr:0.##} px — the frames " +
+                    $"nearest focus found no stars. The gate was lowered to {probe:0.##} px to get a curve, and the " +
+                    "optimizer started from there. This is normal on short focal lengths, where in-focus stars are " +
+                    "only a pixel or two across.";
+                return probe;
+            }
+            return null;
+        }
+
+        /// <summary>The lower of two optional gate floors, ignoring absent ones. Null only when both are null.</summary>
+        internal static double? LowerOf(double? a, double? b) {
+            if (!a.HasValue) {
+                return b;
+            }
+            if (!b.HasValue) {
+                return a;
+            }
+            return Math.Min(a.Value, b.Value);
+        }
+
+        /// <summary>The MinHFR values the rescue probe tries, least-aggressive first: F35's seeding constant, then
+        /// the curated search variable's own lower bound (read from the variable set so it cannot drift from what
+        /// the optimizer may actually reach).</summary>
+        private static IEnumerable<double> MinHfrRescueLadder(StarDetectorParams seed) {
+            yield return MinHfrSeed.SeedFloor;
+            var minHfrVar = OptimizerVariable.CreateCuratedSet(seed)
+                .FirstOrDefault(v => string.Equals(v.Name, nameof(StarDetectorParams.MinHFR), StringComparison.Ordinal));
+            if (minHfrVar != null && minHfrVar.Lower < MinHfrSeed.SeedFloor) {
+                yield return minHfrVar.Lower;
+            }
+        }
+
+        /// <summary>F43 — the MinHFR the guard had to drop to before a curve could be fitted at all, or null when
+        /// the sweep fitted without help. Read by <see cref="OptimizeAsync"/> as a seed floor.</summary>
+        private double? minHfrRescueFloor;
+
+        private string minHfrRescueNotice;
+
+        /// <summary>
+        /// Set when the guard had to lower the MinHFR gate to obtain a focus curve at all (F43). NOT an error —
+        /// the run proceeds — but it must be visible: the wizard is reporting results from a gate the user did not
+        /// choose, and on a short-focal-length rig that gate is the setting they most need to know about.
+        /// </summary>
+        public string MinHfrRescueNotice {
+            get => minHfrRescueNotice;
+            private set {
+                if (minHfrRescueNotice != value) {
+                    minHfrRescueNotice = value;
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(HasMinHfrRescueNotice));
+                }
+            }
+        }
+
+        public bool HasMinHfrRescueNotice => !string.IsNullOrEmpty(MinHfrRescueNotice);
 
         /// <summary>
         /// Whether ANY run yields a determinable focus curve: a finite σ(focus) backed by ≥
@@ -3072,8 +3204,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             //
             // Assigned unconditionally, including to null, for the same reason MaxEvaluations is re-applied above:
             // optimizerSettings is a reused field and a value from a prior pass must never leak into this one.
+            //
+            // F43 adds a SECOND source for the same floor: the guard may have had to lower the gate just to obtain
+            // a curve at all, in which case there was no vertex for the rule above to read. Take the LOWER of the
+            // two — both only ever lower the gate, so the minimum is the one that actually admitted stars, and
+            // either being absent leaves the other unchanged.
             optimizerSettings.MinHfrSeedFloor = seedOverride == null
-                ? MinHfrSeed.Resolve(seedFitVertexHfr, seed.MinHFR, seed.DetectionBinning)
+                ? LowerOf(MinHfrSeed.Resolve(seedFitVertexHfr, seed.MinHFR, seed.DetectionBinning), minHfrRescueFloor)
                 : null;
 
             // F32 — pin the keep floor's baseline to the FRESH pass's seed, so a chain of "Continue optimizing"
