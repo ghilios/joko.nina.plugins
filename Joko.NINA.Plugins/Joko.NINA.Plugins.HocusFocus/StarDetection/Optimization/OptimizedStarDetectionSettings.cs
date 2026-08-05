@@ -83,10 +83,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double? MinDetectionKeepFraction { get; set; }
 
         /// <summary>
-        /// F32 — what this landing actually kept: accepted stars as a fraction of the seed's, MIN over runs. Null
-        /// when no floor was in force. Reported, never scored — it is the number that makes a landing's COST
-        /// legible next to its ΔJ, where the whole finding is that ΔJ alone hides it (a median ΔJ of +0.0125
-        /// bought with a median 0.243 of recall).
+        /// F32 — what this landing actually kept: accepted stars as a fraction of the SEED's, MIN over runs.
+        /// Reported, never scored.
+        ///
+        /// <para><b>Written whether or not a floor was in force</b>, unlike
+        /// <see cref="MinDetectionKeepFraction"/>. It costs nothing (the counts are already in hand) and it is
+        /// precisely the "keep%" F32 had to reconstruct by hand from stored landings across two waves. An
+        /// UNCONSTRAINED landing is exactly where this number is most needed: it is what says whether a floor
+        /// would have bound, so a control arm can be classified without re-running it. Null only when the
+        /// evaluator reported no star counts to measure.</para>
         /// </summary>
         [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
         public double? LandingDetectionKeepFraction { get; set; }
@@ -312,9 +317,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RecommendedOffsetSteps = recommendedOffsetSteps,
                 Provenance = provenance?.Clone(),
                 MinDetectionKeepFraction = minDetectionKeepFraction,
-                // Only meaningful alongside a floor, and NaN is not a number a JSON reader should have to handle.
-                LandingDetectionKeepFraction = minDetectionKeepFraction.HasValue
-                    && landingDetectionKeepFraction is double lk && double.IsFinite(lk) ? lk : (double?)null
+                // Recorded whenever it is measurable, floor or no floor — see the property doc. NaN is filtered
+                // because it is not a number a JSON reader should have to handle.
+                LandingDetectionKeepFraction =
+                    landingDetectionKeepFraction is double lk && double.IsFinite(lk) ? lk : (double?)null
             };
         }
     }

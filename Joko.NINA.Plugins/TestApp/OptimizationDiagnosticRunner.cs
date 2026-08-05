@@ -710,12 +710,18 @@ namespace TestApp {
             }
             Console.WriteLine($"Optimization complete: currentJ={F(baselineJ)} -> bestJ={F(result.BestJ)} ({(result.BestJ > baselineJ ? "improved over current" : "no improvement over current")}), evals={result.Evaluations}");
 
-            // F32 — what the landing SPENT, next to what it gained. Printed only when a floor is in force, and it
-            // distinguishes "the constraint never bound" (0 rejections) from "the constraint held the search
-            // back" (>0): a landing that simply never wanted to shed is a different result from a bounded one.
+            // F32 — what the landing SPENT, next to what it gained. Printed ALWAYS, because an unconstrained run
+            // is exactly where this number decides something: it says whether a floor would have bound, so a
+            // control arm can be classified without re-running it. F32 spent two waves reconstructing this
+            // quantity by hand from stored landings.
+            if (double.IsFinite(result.LandingKeepFraction)) {
+                Console.WriteLine($"  detections kept vs seed (F32): {F(result.LandingKeepFraction)} (min over runs)");
+            }
+            // The floor line additionally distinguishes "the constraint never bound" (0 rejections) from "the
+            // constraint held the search back" (>0): a landing that never wanted to shed is a different result
+            // from a bounded one, and they are indistinguishable from the landing alone.
             if (settings.MinDetectionKeepFraction is double keepFloor) {
-                Console.WriteLine($"  keep floor (F32): {F(keepFloor)}; landing kept {F(result.LandingKeepFraction)} of the seed's stars (min over runs), " +
-                    $"{result.CandidatesRejectedByKeepFloor} candidate(s) rejected as infeasible");
+                Console.WriteLine($"  keep floor (F32): {F(keepFloor)}; {result.CandidatesRejectedByKeepFloor} candidate(s) rejected as infeasible");
             }
 
             // Cache-health + wall-clock readout (the early-context build:reuse ratio is the direct measure of how much

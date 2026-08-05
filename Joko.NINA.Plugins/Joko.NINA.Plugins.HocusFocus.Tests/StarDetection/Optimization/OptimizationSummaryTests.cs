@@ -507,19 +507,45 @@ public class OptimizedLandingExportTests {
         });
     }
 
-    /// <summary>An unconstrained landing must serialize byte-identically to one written before the keep floor
-    /// existed — the property that lets the same binary be its own control arm on disk as well as in memory.</summary>
+    /// <summary>
+    /// An unconstrained landing records NO floor — there was none — but DOES record what it kept.
+    ///
+    /// <para>The asymmetry is deliberate and was corrected mid-wave. Gating both fields on the floor made the
+    /// control arm unable to report its own keep fraction, which is the exact number that decides whether a floor
+    /// would have bound on that run: the control could not be classified without re-running it. F32 spent two
+    /// waves reconstructing this quantity by hand from stored landings, which is the argument for storing it.</para>
+    /// </summary>
     [Test]
-    public void UnconstrainedLanding_OmitsTheKeepFloorFieldsEntirely() {
+    public void UnconstrainedLanding_RecordsWhatItKeptButNoFloor() {
         var dto = OptimizedStarDetectionSettings.FromParams(
             new StarDetectorParams(), runCount: 1, baselineJ: 0.9, finalJ: 0.95,
-            recommendedStepSize: 50, recommendedOffsetSteps: 4);
+            recommendedStepSize: 50, recommendedOffsetSteps: 4,
+            provenance: null, minDetectionKeepFraction: null, landingDetectionKeepFraction: 0.62);
 
         var json = Newtonsoft.Json.JsonConvert.SerializeObject(dto);
 
         Assert.Multiple(() => {
-            Assert.That(json, Does.Not.Contain("MinDetectionKeepFraction"));
+            Assert.That(json, Does.Not.Contain("MinDetectionKeepFraction"), "no floor was in force");
+            Assert.That(json, Does.Contain("LandingDetectionKeepFraction"), "what it kept is measurable either way");
+            Assert.That(dto.LandingDetectionKeepFraction, Is.EqualTo(0.62));
+        });
+    }
+
+    /// <summary>An unmeasurable keep fraction is omitted rather than written as NaN — no JSON reader should have
+    /// to handle a NaN, and an absent field already reads correctly as "there was nothing to measure".</summary>
+    [Test]
+    public void UnmeasurableKeepFraction_IsOmittedRatherThanWrittenAsNaN() {
+        var dto = OptimizedStarDetectionSettings.FromParams(
+            new StarDetectorParams(), runCount: 1, baselineJ: 0.9, finalJ: 0.95,
+            recommendedStepSize: 50, recommendedOffsetSteps: 4,
+            provenance: null, minDetectionKeepFraction: 0.5, landingDetectionKeepFraction: double.NaN);
+
+        var json = Newtonsoft.Json.JsonConvert.SerializeObject(dto);
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("MinDetectionKeepFraction"), "the floor WAS in force and must be recorded");
             Assert.That(json, Does.Not.Contain("LandingDetectionKeepFraction"));
+            Assert.That(json, Does.Not.Contain("NaN"));
         });
     }
 }

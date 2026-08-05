@@ -508,6 +508,46 @@ donut heuristic did not flag, or making the objective pay for recall. Both are b
 [F33](#f33--the-synthetic-bank-does-not-reproduce-the-real-banks-optimizer-failure-mode) they must be scored on
 **both** banks. Reproduce: `D:\hf_w3\run_f24_arms.sh` and `run_f24_arms2.sh`.
 
+**ANSWERED 2026-08-05 (wave 5): do NOT default them to neutral. The wave-3 conclusion was drawn from two
+datasets and does not generalize to twenty.** Five arms × all 20 synthetic datasets, `golden eval` at default
+shared params with the master forced on, ~55 min total and **no code change** — the overrides already exist
+(`GoldenEvalRunner.cs:461-479`). Precision is **1.000 on every arm and every dataset**.
+
+**First, wave 3 reproduces exactly.** D16 masterOFF 0.821 → shipping 0.793, and `boost0` restores 0.821; D04
+0.762 → 0.723, and `close1` restores 0.758. Neutralizing **both** recovers master-OFF recall on **19 of 20**
+datasets (D07 exceeds it). The mechanism claim is confirmed, and now on the whole bank.
+
+**But the master's two mechanisms are not a uniform cost — they are a rig-dependent trade:**
+
+| direction | datasets | Δrecall (masterOFF − shipping) |
+|---|---|---|
+| master **HURTS** recall | 12 — D01–D05, D07, D10, D13, D16, D18, D19, D20 | +0.007 … **+0.067** |
+| master **HELPS** recall | **3 — D06, D09, D14** | −0.005 … **−0.067** |
+| no effect | 5 — D08, D11, D12, D15, D17 | 0.000 |
+
+On all three of the datasets where it helps, `boost0` gives the gain back **exactly** (boost0 = masterOFF to
+3 dp), so **the +2 structure boost is what buys it** and the morph-close is inert there. And the three are
+`D06_sparse_1000mm`, `D09_c14_3800mm`, `D14_cdk14_2563mm_e47` — long focal length and sparse, i.e. **large
+defocused stars**, which is precisely what a coarser wavelet residual exists to preserve. The story is coherent
+in both directions: the boost saves big defocused stars from the subtraction and erases small-star structure, so
+it helps where stars are large and hurts where they are small and well sampled.
+
+**So the pre-registered criterion FAILS** (recall Δ ≥ −0.005 on *every* dataset): both-neutral costs
+**−0.067 on D09**, −0.024 on D06 and −0.005 on D14. A blanket default change takes recall away from exactly the
+rigs the feature was built for.
+
+**What the fix actually is.** Not a default — a *condition*. The knob wants to depend on star size, and the
+optimizer can already reach it (`DefocusAwareStructure` is a curated axis, and flipping it on makes
+`StructureLayerBoost` settable, so `DefocusAwareStructure=true, boost=0` is a reachable neutral point). It never
+goes there because `J` does not pay for recall — which is [F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains),
+and F32's constraint is the general form of this fix.
+
+**Note the keep floor does NOT dissolve this.** The seed has the master OFF, and the master's own cost is
+≤ 0.067 of recall — a candidate flipping it on stays feasible at any floor ≤ 0.9. F32 bounds catastrophic
+shedding; it does not price a 4% one. The two entries are independent.
+
+Reproduce: `D:\hf_w5\f24_arms.sh`, analysed by `D:\hf_w5\analyze_f24.py`.
+
 ### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
 **Status:** Open · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
 
