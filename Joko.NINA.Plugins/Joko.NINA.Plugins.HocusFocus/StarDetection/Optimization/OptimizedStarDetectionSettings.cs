@@ -189,6 +189,35 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
+        /// <summary>
+        /// The curated axes whose VALUE on <paramref name="flatOptions"/> differs from this landing's — empty means
+        /// the landing survived a round trip through a settings file intact.
+        ///
+        /// <para>Routes through the same <see cref="KnobProperties"/> enumeration as
+        /// <see cref="ApplyToFlatOptions"/> and <see cref="UnmappedKnobs"/>, so a newly added axis is covered by
+        /// all three at once and none of them can silently stop checking one. An axis that does not exist on the
+        /// target at all is reported here too — a missing knob and a wrong knob are the same defect to a reader
+        /// who imports the file.</para>
+        /// </summary>
+        public System.Collections.Generic.IReadOnlyList<string> DiffKnobs(object flatOptions) {
+            if (flatOptions == null) {
+                throw new ArgumentNullException(nameof(flatOptions));
+            }
+            var targetType = flatOptions.GetType();
+            var diffs = new System.Collections.Generic.List<string>();
+            foreach (var source in KnobProperties()) {
+                var target = targetType.GetProperty(source.Name);
+                if (target == null || !target.CanRead || target.PropertyType != source.PropertyType) {
+                    diffs.Add(source.Name + " (unmapped)");
+                    continue;
+                }
+                if (!Equals(source.GetValue(this), target.GetValue(flatOptions))) {
+                    diffs.Add($"{source.Name} ({source.GetValue(this)} != {target.GetValue(flatOptions)})");
+                }
+            }
+            return diffs;
+        }
+
         /// <summary>The curated axes that would NOT land on <paramref name="flatOptionsType"/> — empty is the
         /// invariant; anything else means a landing does not fully round-trip into a settings file.</summary>
         public static System.Collections.Generic.IReadOnlyList<string> UnmappedKnobs(Type flatOptionsType) {

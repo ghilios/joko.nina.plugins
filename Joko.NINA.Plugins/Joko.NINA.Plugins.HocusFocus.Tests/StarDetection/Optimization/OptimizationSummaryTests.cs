@@ -457,4 +457,69 @@ public class OptimizedLandingExportTests {
             Assert.That(reloaded.StarDetection.UseOptimizedSettings, Is.True);
         });
     }
+
+    /// <summary>
+    /// The check <c>bank-export-settings</c> runs before it writes anything, exercised here on a landing with
+    /// EVERY curated axis moved off its default. <see cref="OptimizedStarDetectionSettings.UnmappedKnobs"/> proves
+    /// each axis has somewhere to land; this proves each axis's VALUE actually arrives — a property that would
+    /// pass the mapping check and still be wrong if a knob were written to the nested block only.
+    /// </summary>
+    [Test]
+    public void DiffKnobs_IsEmptyAfterAFullRoundTrip_WithEveryAxisMovedOffItsDefault() {
+        var landing = new OptimizedStarDetectionSettings {
+            BrightnessSensitivity = 17.67, StarClippingMultiplier = 2.0, NoiseClippingMultiplier = 3.875,
+            StarPeakResponse = 0.68, MaxDistortion = 0.26, MinHFR = 0.7, StarCenterTolerance = 0.275,
+            StructureLayers = 6, NoiseReductionRadius = 4, MinStarBoundingBoxSize = 7,
+            HotpixelThresholdingEnabled = true, HotpixelThreshold = 0.002,
+            DefocusAwareGates = true, DefocusDistortionSizeReference = 28.75, DefocusDistortionMinFactor = 0.3,
+            DefocusCenteringToleranceFactor = 2.5, DefocusAwareStructure = true, StructureLayerBoost = 3,
+            DefocusAwareDonutDetection = true, DonutMorphCloseSize = 7, LocallyAdaptiveBinarization = true,
+            AdaptiveNoiseBlockSize = 64, DonutMinAnnularityHoleFraction = 0.2, DonutMaxStreakEccentricity = 1.5,
+            DonutSaturationBloomRadius = 3.0
+        };
+
+        var reloaded = StarDetectionSettingsExport.Deserialize(
+            StarDetectionSettingsExport.FromOptimizedLanding(new StarDetectionSettingsSnapshot(), landing).Serialize());
+
+        var diffs = landing.DiffKnobs(reloaded.StarDetection);
+        Assert.That(diffs, Is.Empty, "curated axes that did not survive the round trip: " + string.Join(", ", diffs));
+    }
+
+    /// <summary>
+    /// The F32 bookkeeping fields describe the SEARCH (which candidates were eligible), not the detector, so they
+    /// must be registered as non-knobs. An unregistered one would be hunted for as a live option property, and
+    /// <see cref="OptimizedStarDetectionSettings.UnmappedKnobs"/> would start failing for a field that has no
+    /// business being on the options object at all.
+    /// </summary>
+    [Test]
+    public void KeepFloorBookkeepingIsNotTreatedAsADetectorKnob() {
+        var landing = Landing();
+        landing.MinDetectionKeepFraction = 0.5;
+        landing.LandingDetectionKeepFraction = 0.63;
+
+        var snapshot = new StarDetectionSettingsSnapshot();
+        landing.ApplyToFlatOptions(snapshot);
+
+        Assert.Multiple(() => {
+            Assert.That(OptimizedStarDetectionSettings.UnmappedKnobs(typeof(StarDetectionSettingsSnapshot)), Is.Empty);
+            Assert.That(landing.DiffKnobs(snapshot), Is.Empty,
+                "the keep-floor fields must not participate in the knob mapping at all");
+        });
+    }
+
+    /// <summary>An unconstrained landing must serialize byte-identically to one written before the keep floor
+    /// existed — the property that lets the same binary be its own control arm on disk as well as in memory.</summary>
+    [Test]
+    public void UnconstrainedLanding_OmitsTheKeepFloorFieldsEntirely() {
+        var dto = OptimizedStarDetectionSettings.FromParams(
+            new StarDetectorParams(), runCount: 1, baselineJ: 0.9, finalJ: 0.95,
+            recommendedStepSize: 50, recommendedOffsetSteps: 4);
+
+        var json = Newtonsoft.Json.JsonConvert.SerializeObject(dto);
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Not.Contain("MinDetectionKeepFraction"));
+            Assert.That(json, Does.Not.Contain("LandingDetectionKeepFraction"));
+        });
+    }
 }
