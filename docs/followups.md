@@ -394,7 +394,9 @@ now measure exactly the quantity the real one cannot. Related: [F4](#f4--the-obj
 is the same shape of gap (a term the objective omits), and [F11](#f11--precision-is-a-lower-bound-on-runs-whose-faint-tier-was-budget-truncated--re-run-these-with-more-montages) is why this went unseen.
 
 ### F24 — ~~Donut detection costs precision even where donuts exist, and badly where they do not~~ → it costs RECALL where it is not needed
-**Status:** Open, **restated** (2026-08-03, wave 2 — the precision claim is refuted; a recall claim replaces it) · found 2026-08-02 on the synthetic AF bank
+**Status:** Open — **remaining step ANSWERED (wave 5): do NOT neutralize the master's two defaults**; the fix is
+a condition on star size, which routes into [F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains).
+Previously **restated** (2026-08-03, wave 2 — the precision claim is refuted; a recall claim replaces it) · found 2026-08-02 on the synthetic AF bank
 
 Config B (donut-aware detection forced on) reduced precision on **every** dataset where it was
 measurable, including the datasets that genuinely have donuts, and most sharply on the ε=0 control that
@@ -1066,7 +1068,9 @@ fail in two directions — biased, then saturated — which is why `precisionNul
 precision figure rather than being something a reader has to think to ask for.
 
 ### F32 — `J` is saturated near 1.0, so the optimizer trades enormous recall for numerically trivial gains
-**Status:** Open · found 2026-08-03 re-reading the wave-1 real-bank control arm
+**Status:** Open — **mechanism shipped default OFF (wave 5)**; adoption pending the confirmation arm. The
+entry's own premise is corrected below: on 5 of 7 binding runs there was no trade to bound, the search was
+merely stuck · found 2026-08-03 re-reading the wave-1 real-bank control arm
 
 The objective's landings are not close calls. Across the 17 scorable real-bank runs, `optimize --per-run` gives
 up a **median 0.243 of recall@SNR≥12** to gain a **median ΔJ of +0.0125** — and the worst cases are far starker
