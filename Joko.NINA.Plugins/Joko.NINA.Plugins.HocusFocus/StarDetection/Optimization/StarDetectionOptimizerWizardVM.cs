@@ -3069,6 +3069,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             optimizerSettings.MinHfrSeedFloor = seedOverride == null
                 ? MinHfrSeed.Resolve(seedFitVertexHfr, seed.MinHFR, seed.DetectionBinning)
                 : null;
+
+            // F32 — pin the keep floor's baseline to the FRESH pass's seed, so a chain of "Continue optimizing"
+            // rounds cannot ratchet through it. Every non-fresh path re-seeds from somewhere the previous pass
+            // arrived at (Continue from the prior best, the feedback path from GateRecommender's analytic
+            // recommendation); measuring the floor against THAT would let each round shed another (1 - floor) of
+            // what remains -- at a floor of 0.5, three rounds reach 0.125 of where the user actually started.
+            // The floor means "of the stars you had when you pressed Start", so it must keep referring there.
+            //
+            // Assigned unconditionally, including to null, for the same reason MinHfrSeedFloor above is: this is
+            // a reused settings object and a value from a prior pass must never leak into a fresh one.
+            //
+            // Guarded on run COUNT because the non-fresh paths re-load their runs: a mismatched list would pair
+            // run i's baseline with a different run's counts, which is worse than not constraining at all.
+            optimizerSettings.DetectionKeepBaselineTotals =
+                seedOverride != null && firstPassSeedDetectionTotals != null && firstPassSeedDetectionTotals.Count == runs.Count
+                    ? firstPassSeedDetectionTotals
+                    : null;
+
             var variables = variablesOverride ?? OptimizerVariable.CreateCuratedSet(seed);
             var evaluator = RunEvaluationData.CreateEvaluator(runs.Select(r => r.Data).ToList());
 
@@ -3094,13 +3112,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var optimizer = new StarDetectionOptimizer(objectiveConstants);
             IsOptimizing = true;
             try {
-                return await Task.Run(
+                var result = await Task.Run(
                     () => optimizer.OptimizeAsync(seed, variables, evaluator, optimizerSettings, progress, token),
                     token).ConfigureAwait(true);
+                if (seedOverride == null) {
+                    // A FRESH pass defines where the user started; every later round measures its keep floor
+                    // against this. Captured even when no floor is in force, so turning one on is a one-line
+                    // change that cannot forget the anchor.
+                    firstPassSeedDetectionTotals = result.SeedRunDetectionTotals;
+                }
+                return result;
             } finally {
                 IsOptimizing = false;
             }
         }
+
+        /// <summary>F32 — per-run seed star totals of the most recent FRESH optimization pass. The anchor every
+        /// "Continue optimizing" round's keep floor is measured against; see the assignment in
+        /// <see cref="OptimizeAsync"/> for why a per-round anchor would ratchet.</summary>
+        private IReadOnlyList<long> firstPassSeedDetectionTotals;
 
         /// <summary>Maps the optimizer's internal phase identifiers ("Seed"/"CoarseGrid"/"PatternSearch", which
         /// stay as-is in logs and tests) to plain language for the progress display.</summary>

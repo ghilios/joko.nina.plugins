@@ -143,6 +143,19 @@ namespace TestApp {
                 }
             }
 
+            // F32 — --keep-floor <f>: reject any candidate that keeps less than fraction f of the SEED's accepted
+            // stars (min over runs), as a feasibility test AHEAD of the j > bestJ compare. Absent (the default)
+            // leaves the search bit-identical, so this binary is its own control: the same exe with no flag
+            // reproduces the unconstrained arm exactly.
+            double? keepFloor = null;
+            var keepFloorArg = DiagnosticUtil.GetArg(args, "--keep-floor");
+            if (!string.IsNullOrWhiteSpace(keepFloorArg)) {
+                if (!double.TryParse(keepFloorArg, NumberStyles.Float, CultureInfo.InvariantCulture, out var kf) || kf <= 0.0 || kf > 1.0) {
+                    throw new ArgumentException($"--keep-floor: '{keepFloorArg}' must be a fraction in (0, 1]");
+                }
+                keepFloor = kf;
+            }
+
             var labelsDir = DiagnosticUtil.GetArg(args, "--labels");
 
             // --per-run is a valueless flag: optimize each discovered run INDEPENDENTLY (one optimization, one
@@ -326,8 +339,12 @@ namespace TestApp {
                 AnnotateAll = annotateAll,
                 Inspection = inspection,
                 LegacyObjective = legacyObjective,
-                ContinueRounds = continueRounds
+                ContinueRounds = continueRounds,
+                KeepFloor = keepFloor
             };
+            if (keepFloor is double kfv) {
+                Console.WriteLine($"--keep-floor: candidates keeping < {F(kfv)} of the seed's accepted stars (min over runs) are rejected as infeasible; J is unmodified");
+            }
             if (inspection) {
                 Console.WriteLine("--inspection: aberration-inspection objective (favor more stars, fit bounded vs current σ)");
             }
@@ -369,6 +386,7 @@ namespace TestApp {
             public bool Inspection;     // --inspection: use the aberration-inspection objective
             public bool LegacyObjective; // --legacy-objective: zero the HFR-outlier penalty + coverage reward (A/B "before")
             public int ContinueRounds;  // --continue-rounds: extra chained passes after the first (0-2)
+            public double? KeepFloor;   // --keep-floor: F32 detection-keep feasibility floor (null = unconstrained)
 
             // F30: which invocation is producing these landings. Stamped onto every optimized_settings.json this
             // run writes, so a bank folder full of prepasses from different arms stops being ambiguous.
@@ -573,6 +591,7 @@ namespace TestApp {
             if (ctx.MaxEvals.HasValue) {
                 settings.MaxEvaluations = ctx.MaxEvals.Value;
             }
+            settings.MinDetectionKeepFraction = ctx.KeepFloor;   // F32; null => unconstrained, bit-identical
 
             var variables = ctx.Variables;
 
@@ -664,6 +683,14 @@ namespace TestApp {
             // move the search had earned.
             settings.MinHfrSeedFloor = null;
 
+            // F32 — the OPPOSITE treatment for the keep floor, and deliberately so. MinHfrSeedFloor is a start
+            // condition; the keep floor is a bound, and a bound measured against each round's OWN seed compounds:
+            // at 0.5, two continue rounds permit 0.25 of where the user actually started. Pin round 0's seed
+            // totals so every later round is still measured against the original.
+            if (settings.MinDetectionKeepFraction.HasValue && result.SeedRunDetectionTotals != null) {
+                settings.DetectionKeepBaselineTotals = result.SeedRunDetectionTotals;
+            }
+
             // --continue-rounds: chain additional passes, each re-seeded from the prior best with a FRESH curated set
             // (resets the pattern-search step scale, so it can make larger moves again — the point of "Continue").
             // Mirrors the wizard's Continue button (latest replaces Optimized); per-round J reported. Never regresses
@@ -682,6 +709,14 @@ namespace TestApp {
                 Console.WriteLine($"Per-round J: {string.Join(" -> ", roundBestJ.Select(F))}");
             }
             Console.WriteLine($"Optimization complete: currentJ={F(baselineJ)} -> bestJ={F(result.BestJ)} ({(result.BestJ > baselineJ ? "improved over current" : "no improvement over current")}), evals={result.Evaluations}");
+
+            // F32 — what the landing SPENT, next to what it gained. Printed only when a floor is in force, and it
+            // distinguishes "the constraint never bound" (0 rejections) from "the constraint held the search
+            // back" (>0): a landing that simply never wanted to shed is a different result from a bounded one.
+            if (settings.MinDetectionKeepFraction is double keepFloor) {
+                Console.WriteLine($"  keep floor (F32): {F(keepFloor)}; landing kept {F(result.LandingKeepFraction)} of the seed's stars (min over runs), " +
+                    $"{result.CandidatesRejectedByKeepFloor} candidate(s) rejected as infeasible");
+            }
 
             // Cache-health + wall-clock readout (the early-context build:reuse ratio is the direct measure of how much
             // per-frame early work the staged search / context cache avoids; see the performance-design doc).
@@ -729,7 +764,7 @@ namespace TestApp {
             // recommended step (StepSizeRecommender, exactly as BuildAggregateRow computes it); the single --out copy
             // uses the representative (first) run's step in joint mode (see WriteOptimizedSettings).
             WriteOptimizedSettings(targetDir, loadedRuns, perRunBest, result, baselineJ, focuserMaxStep, ctx.Provenance,
-                ctx.StarDetectionOptions);
+                ctx.StarDetectionOptions, ctx.KeepFloor);
 
             await WriteAnnotatedFrames(targetDir, loadedRuns, result.BestParams, ctx.Detector,
                 ctx.MeasurementAverage, ctx.HighSigmaOutlierRejection, ctx.LowSigmaOutlierRejection, ctx.AnnotateAll).ConfigureAwait(false);
@@ -802,14 +837,15 @@ namespace TestApp {
         private static void WriteOptimizedSettings(
             string targetDir, List<LoadedHarnessRun> loadedRuns, List<RunEvaluationResult> perRunBest,
             OptimizationResult result, double baselineJ, int? focuserMaxStep, OptimizerProvenance provenance = null,
-            StarDetectionOptions baseOptions = null) {
+            StarDetectionOptions baseOptions = null, double? keepFloor = null) {
             // Per-run source-folder copies: each run's frame directory gets the winner snapshot with its OWN step.
             for (int i = 0; i < loadedRuns.Count; i++) {
                 var run = loadedRuns[i];
                 try {
                     var rec = StepSizeRecommender.Recommend(perRunBest[i].BestFit, run.StepSize, focuserMaxStep);
                     var dto = OptimizedStarDetectionSettings.FromParams(
-                        result.BestParams, loadedRuns.Count, baselineJ, result.BestJ, rec.StepSize, rec.OffsetSteps, provenance);
+                        result.BestParams, loadedRuns.Count, baselineJ, result.BestJ, rec.StepSize, rec.OffsetSteps, provenance,
+                        keepFloor, result.LandingKeepFraction);
                     var json = JsonConvert.SerializeObject(dto);
 
                     // The run's source folder is the directory holding its frames (each run's frames live together).
@@ -837,7 +873,8 @@ namespace TestApp {
                 try {
                     var rec = StepSizeRecommender.Recommend(perRunBest[0].BestFit, representative.StepSize, focuserMaxStep);
                     var dto = OptimizedStarDetectionSettings.FromParams(
-                        result.BestParams, loadedRuns.Count, baselineJ, result.BestJ, rec.StepSize, rec.OffsetSteps, provenance);
+                        result.BestParams, loadedRuns.Count, baselineJ, result.BestJ, rec.StepSize, rec.OffsetSteps, provenance,
+                        keepFloor, result.LandingKeepFraction);
                     var json = JsonConvert.SerializeObject(dto);
                     var outPath = Path.Combine(targetDir, "optimized_settings.json");
                     File.WriteAllText(outPath, json);

@@ -119,20 +119,24 @@ records nothing.
 **T1.6 — `TestApp optimize --keep-floor <f>`.** Arm selection by flag on one binary, per the F23 pattern.
 
 **T1.7 — tests, counted by what they DISCRIMINATE.** Wave 4's lesson 2: the first F38 coverage was five tests of
-which exactly one failed on revert. Every test below is checked by reverting the fix and confirming the failure:
+which exactly one failed on revert. **Measured** by neutralizing the feasibility test at all three accept sites
+and re-running: **8 of 12 fail, 4 pass either way.** The four are kept and labelled as guards, not counted:
 
-| # | asserts | fails without the fix? |
-|---|---|---|
-| 1 | floor null ⇒ landing bit-identical to no-floor on a synthetic evaluator | no — inertness guard, expected to pass either way, kept deliberately and **not counted** |
-| 2 | a candidate with better `J` but keep below the floor is REJECTED; the search lands elsewhere | **yes** |
-| 3 | the same candidate is ACCEPTED when the floor is lowered beneath its keep | **yes** |
-| 4 | a run whose seed total is 0 exempts that run rather than rejecting everything | **yes** |
-| 5 | min-over-runs: one collapsed run rejects the candidate even when the pooled total rises | **yes** |
-| 6 | 3-round continue chain cannot fall below φ of the ORIGINAL seed | **yes** |
-| 7 | `RevertNeutralAxes` will not accept an infeasible pull-back | **yes** |
-| 8 | `J` reported for a landing is bit-identical to the unconstrained `J` at the same θ | **yes** (guards "never a multiplier") |
+| test | discriminates? |
+|---|---|
+| `Floor_RejectsALandingThatShedsBelowIt` | **yes** |
+| `Floor_IsMinOverRuns_NotThePooledTotal` | **yes** |
+| `Floor_DoesNotRatchetAcrossContinueRounds` | **yes** |
+| `Floor_SeedIsAlwaysFeasible` | **yes** |
+| `Floor_LandingAlwaysSatisfiesTheFloor` (×4 floors) | **yes** ×4 |
+| `NoFloor_IsBitIdenticalToTheUnconstrainedSearch` | no — the inertness guard that lets one binary be its own control arm |
+| `Floor_AcceptsTheSameCandidatesWhenLoweredBeneathThem` | no — a floor beneath everything visited is inert by construction |
+| `Floor_DoesNotAlterJ` | no — guards "never a multiplier", which the revert does not break |
+| `Floor_ExemptsARunWhoseSeedDetectedNothing` | no — an unconstrained search also moves off a zero-star seed |
 
-Test 1 is listed as a non-discriminating guard on purpose, so the count of discriminating tests is 7, not 8.
+The fixture itself is the load-bearing part: raising `Sensitivity` both tightens σ and sheds stars, so the
+**unconstrained** search lands at keep **0.10** — the defect reproduced in miniature. Without that precondition
+(asserted in the tests) a passing floor test would prove nothing.
 
 ### 1.4 The arms
 

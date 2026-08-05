@@ -70,6 +70,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public int RecommendedOffsetSteps { get; set; }
 
         /// <summary>
+        /// F32 — the detection-keep floor that was IN FORCE while this landing was searched, or null when the
+        /// search was unconstrained. Bookkeeping about the run, not a detector knob: it changes which candidates
+        /// were eligible, never what the detector does with the ones recorded here.
+        ///
+        /// <para>Recorded because F39's complaint generalizes — a file that records settings a run did not use is
+        /// worse than one that records nothing, and the converse holds too: a landing produced under a constraint
+        /// is not comparable to one produced without, and nothing else in this file would say so. Omitted from the
+        /// JSON when null, so an unconstrained landing stays byte-identical to before this field existed.</para>
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public double? MinDetectionKeepFraction { get; set; }
+
+        /// <summary>
+        /// F32 — what this landing actually kept: accepted stars as a fraction of the seed's, MIN over runs. Null
+        /// when no floor was in force. Reported, never scored — it is the number that makes a landing's COST
+        /// legible next to its ΔJ, where the whole finding is that ΔJ alone hides it (a median ΔJ of +0.0125
+        /// bought with a median 0.243 of recall).
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public double? LandingDetectionKeepFraction { get; set; }
+
+        /// <summary>
         /// The gate this landing ACTUALLY enforces — <c>max(BrightnessSensitivity, StarPeakResponse ×
         /// effective StarClippingMultiplier)</c> (followup F33). Derived, get-only: it adds no state, so it needs
         /// no schema bump and is computed for every landing already on disk when one is read back.
@@ -138,7 +160,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal) {
                 nameof(SchemaVersion), nameof(CreatedAtUtc), nameof(RunCount), nameof(BaselineJ), nameof(FinalJ),
                 nameof(RecommendedStepSize), nameof(RecommendedOffsetSteps), nameof(Provenance),
-                nameof(EffectiveSensitivityGate)
+                nameof(EffectiveSensitivityGate),
+                // F32 — describe the SEARCH that produced this landing (which candidates were eligible), not the
+                // detector. Registering them here is load-bearing: the DTO→options mapping is by reflected name,
+                // so an unregistered bookkeeping field would be hunted for as a live knob.
+                nameof(MinDetectionKeepFraction), nameof(LandingDetectionKeepFraction)
             };
 
         /// <summary>
@@ -204,9 +230,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// for a snapshot that CAPTURES live settings rather than reporting an optimizer result — the tilt
         /// wizard's <c>CaptureDetectionSettings</c> is exactly that, and stamping a producer on it would be a
         /// lie.</param>
+        /// <param name="minDetectionKeepFraction">F32 — the keep floor in force during the search, or null when
+        /// unconstrained. Optional so every existing caller (and every snapshot that captures live settings
+        /// rather than an optimizer result) keeps writing byte-identical files.</param>
+        /// <param name="landingDetectionKeepFraction">F32 — what the landing kept, min over runs. Pass null
+        /// whenever <paramref name="minDetectionKeepFraction"/> is null; a keep fraction with no floor beside it
+        /// would read as a constraint that was never applied.</param>
         public static OptimizedStarDetectionSettings FromParams(
             StarDetectorParams p, int runCount, double baselineJ, double finalJ, int recommendedStepSize, int recommendedOffsetSteps,
-            OptimizerProvenance provenance = null) {
+            OptimizerProvenance provenance = null,
+            double? minDetectionKeepFraction = null, double? landingDetectionKeepFraction = null) {
             if (p == null) {
                 throw new ArgumentNullException(nameof(p));
             }
@@ -248,7 +281,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 FinalJ = finalJ,
                 RecommendedStepSize = recommendedStepSize,
                 RecommendedOffsetSteps = recommendedOffsetSteps,
-                Provenance = provenance?.Clone()
+                Provenance = provenance?.Clone(),
+                MinDetectionKeepFraction = minDetectionKeepFraction,
+                // Only meaningful alongside a floor, and NaN is not a number a JSON reader should have to handle.
+                LandingDetectionKeepFraction = minDetectionKeepFraction.HasValue
+                    && landingDetectionKeepFraction is double lk && double.IsFinite(lk) ? lk : (double?)null
             };
         }
     }
