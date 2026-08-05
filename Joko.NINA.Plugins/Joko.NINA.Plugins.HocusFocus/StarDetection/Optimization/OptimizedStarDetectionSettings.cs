@@ -223,6 +223,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             return diffs;
         }
 
+        /// <summary>
+        /// The names of the curated detector axes on this DTO — everything that is NOT run bookkeeping.
+        ///
+        /// <para>Exposed so that consumers which must cover "every knob" enumerate from THIS list rather than
+        /// keeping their own copy of the exclusions. A second copy drifts: the tilt replay overlay's coverage
+        /// guard kept its own <c>metadataOnly</c> set and started failing the moment two bookkeeping fields were
+        /// added here, reporting them as unapplied detector knobs. One list, checked by everyone.</para>
+        /// </summary>
+        public static System.Collections.Generic.IReadOnlyList<string> CuratedKnobNames { get; } =
+            KnobPropertyNames();
+
+        private static string[] KnobPropertyNames() {
+            var names = new System.Collections.Generic.List<string>();
+            foreach (var p in KnobProperties()) {
+                names.Add(p.Name);
+            }
+            return names.ToArray();
+        }
+
         /// <summary>The curated axes that would NOT land on <paramref name="flatOptionsType"/> — empty is the
         /// invariant; anything else means a landing does not fully round-trip into a settings file.</summary>
         public static System.Collections.Generic.IReadOnlyList<string> UnmappedKnobs(Type flatOptionsType) {
@@ -237,7 +256,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         private static System.Collections.Generic.IEnumerable<System.Reflection.PropertyInfo> KnobProperties() {
-            foreach (var p in typeof(OptimizedStarDetectionSettings).GetProperties()) {
+            // INSTANCE properties only. GetProperties() with no flags also returns STATIC ones, and a static
+            // member is by definition not a per-landing detector knob — CuratedKnobNames itself was picked up as
+            // one the moment it was added, and reported as an axis with no matching option property.
+            const System.Reflection.BindingFlags flags =
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance;
+            foreach (var p in typeof(OptimizedStarDetectionSettings).GetProperties(flags)) {
                 if (p.CanRead && !NonKnobFields.Contains(p.Name)) {
                     yield return p;
                 }
