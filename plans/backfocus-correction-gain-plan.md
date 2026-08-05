@@ -111,8 +111,12 @@ Baseline curvature effect at r=55 mm −268.6 µm; ReBaseline1 −223.7; mid = �
 **Files:** Modify `TiltAdapterWizard/TiltAdapterOptions.cs`, `TiltAdapterWizard/DataTemplates.xaml`, `documentation/docs/overview/tilt-adapter-wizard.md`
 
 - [ ] **Step 6.1:** Flip `MeasureCurvatureDuringCalibration` default to `true`. Update every test that assumed the 4-step default flow — expect several; check `GetMeasurementSteps` callers and the `NextStep_*` walks.
-- [ ] **Step 6.2:** Apply the tooltip strings and manual passage drafted for this task (they explain what the extra autofocus runs buy for **Measure direction** and **Measure final re-baseline**). Do not write fresh copy without reading `.claude/docs/documentation-style.md`.
-- [ ] **Step 6.3:** Update any remaining step-count prose made stale by the new default (`motorized-tilt-adapter.md` was corrected once already for the ReBaseline3 default — check it again).
+- [ ] **Step 6.2:** Apply the tooltip strings and manual passage from **Appendix A** below (already drafted against the house style guide). Use them as written — two lines were corrected after drafting to match this plan's locked decisions, and reverting to the originals would reintroduce claims the design explicitly rejects.
+- [ ] **Step 6.3:** Reword the three places that assume a default-OFF **Measure direction**, all identified during drafting:
+  - `documentation/docs/overview/tilt-adapter-wizard.md` ~line 203 — the measured-pitch admonition says "Measure direction is **off by default**, so a default run shows neither this line nor its warning".
+  - `documentation/docs/overview/tilt-adapter-wizard.md` ~line 67 — the calibration-loop paragraph's "To measure it, turn on **Measure direction**" framing.
+  - `TiltAdapterWizard/DataTemplates.xaml` — the italic caption beside the checkbox, "Turn on if you don't know how your adapter behaves, or to verify the setting above".
+  Also re-check `motorized-tilt-adapter.md`, which was corrected once already for the ReBaseline3 default.
 - [ ] **Step 6.4: Run** the full wizard filter → green. `mkdocs build --strict` clean. **Commit** — `feat(tilt): measure direction by default, and explain what the extra runs buy`
 
 ---
@@ -142,6 +146,32 @@ Baseline curvature effect at r=55 mm −268.6 µm; ReBaseline1 −223.7; mid = �
 - [ ] **Step 9.1:** Full suite: `dotnet.exe test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo`. All green (`SendAsync_WritesOnABackgroundThread` may flake — re-run in isolation before dismissing).
 - [ ] **Step 9.2:** Re-run the TestApp tilt replay against `D:\TiltCalibrationDebug\WithExtraBaseline` from the final tree; confirm γ prints as 0.140 and the implied move as ~974 steps.
 - [ ] **Step 9.3:** Push branch, open PR to `develop` titled "Backfocus correction gain: stop understating the required move by 7×". Body explains the gain-1.0 defect, the mechanism, the measurement and its independent validation, and states explicitly that automation behaviour is unchanged. End with the standard generated-with footer.
+
+---
+
+## Appendix A: drafted copy for Task 6
+
+Written against `.claude/docs/documentation-style.md`. **Two sentences were corrected after drafting**
+to match this plan's locked decisions — the original draft said the guidance figures "are scaled by"
+γ (this plan shows both figures instead of scaling) and that the measurement "is what makes the
+recommended backfocus move trustworthy" (per design §6 it remains a floor until the vertex-estimator
+work lands). Do not restore those phrasings.
+
+### Tooltip — Measure direction (`MeasureCurvatureDuringCalibration`)
+
+> Adds two steps (an all-screws move and a return to baseline) so the calibration measures which way a clockwise turn moves the adapter instead of assuming it. The same steps measure how much the field curvature actually changes when the plate moves, which sets the scale of the backfocus recommendation, and give an independent µm/step estimate that cross-checks the tilt-derived pitch.
+
+### Tooltip — Measure final re-baseline (`MeasureFinalRebaseline`)
+
+> Adds one measurement after the screw 2 move is undone, so that move is bracketed by re-baselines on both sides just as screw 1's is. Steady drift between steps then cancels out of both screw readings. On a thermally stable run it changes little; it is cheap insurance, not a guaranteed improvement.
+
+### Manual passage — `documentation/docs/overview/tilt-adapter-wizard.md`, Measurement section
+
+> Two settings in the **Measurement** section add autofocus runs in exchange for measuring what a minimal calibration has to assume. Both are on by default; turn either off to shorten the run. **Measure direction** adds two steps: every screw is moved the same amount in the same direction, then returned to baseline. An all-screws move is pure piston (the plate shifts without tilting), so the change in mean best-focus position tells the wizard which way a clockwise turn, or a positive step on motorized adapters, moves the plate, and guidance reports the direction as measured instead of "(assumed)". The same steps yield the **Piston-implied** pitch, a second estimate of the adapter's effective µm/step that involves no tilt fit and no screw radius, so it cross-checks the tilt-derived value.
+>
+> The same all-screws move also calibrates the backfocus recommendation, and this is the strongest reason to leave the setting on. Moving the plate does not change the measured field curvature one-for-one: the ratio is set by the optical design, and it varies from rig to rig. On one measured rig only about 14% of the plate motion showed up as curvature change, so a recommendation that treated the two as equal would have understated the required move by roughly a factor of seven. The all-screws step measures the ratio directly on your rig, and guidance reports the corrected move alongside the uncorrected one so you can see the difference the measurement makes. Treat the corrected figure as a lower bound and re-measure after adjusting: the curvature it is derived from is itself under-reported, so the move required is usually a little larger again.
+>
+> **Measure final re-baseline** adds one step at the end. The core sequence brackets screw 1's move with baseline measurements on both sides, but screw 2's move ends the run with a one-sided reference. This setting measures the position restored after the screw 2 move is undone instead of assuming it, so both screw moves are referenced to the midpoint of the re-baselines around them and steady drift between steps cancels out of the readings. On a run with real settling between steps that matters; on a clean, thermally stable run it makes little difference. One extra autofocus run is cheap insurance, not a guaranteed improvement.
 
 ---
 
