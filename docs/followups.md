@@ -652,8 +652,9 @@ Reproduce: `D:\hf_w5\f24_arms.sh`, analysed by `D:\hf_w5\analyze_f24.py`.
 > D06/D09/D14 — none of which was ever suspect — and is untouched.
 
 ### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
-**Status:** **Done — working as intended, as a stated position** (2026-08-06, wave 7); one pre-registered arm can
-still reopen it · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
+**Status:** **OPEN — the wave-7 "working as intended" position was REFUTED by its own pre-registered test**
+(2026-08-06). A rich field gains 44% of σ_focus from 8× the derived exposure, and the block is never even
+surfaced there · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
 
 `ExposureRecommender`'s `S_now` is the median, across non-recovery frames, of each frame's
 **`NTarget`-th-brightest** accepted-star SNR, with `NTarget = 20`. Any reasonably wide field contains 20 stars
@@ -720,12 +721,51 @@ than a fixed rank.
    and the product already says so for the adjacent signal (`FlatRejectedCount` is documented as *"narrow the
    sweep, never expose longer"*).
 
-**What can still refute this, pre-registered and NOT yet run.** The position makes a claim about the world: *a
-field that already carries 20 bright stars gains nothing material from more exposure*. **Arm E** tests it —
-`D16_esprit550_ha3` (this entry's own poster child) and `D02_rich_135mm` rendered at 0.5/1/2/4/8 s, fixed detector
-settings, σ_focus per rung. **Rule fixed in advance: if any longer rung improves σ_focus by more than 20% relative
-to the derived-exposure rung on either dataset, this entry REOPENS.** The instrument shipped in wave 7
-(`exposureSecondsOverride` on the dataset spec); the arm is owed.
+**What can still refute this, pre-registered.** The position makes a claim about the world: *a field that already
+carries 20 bright stars gains nothing material from more exposure*. **Arm E** tests it — `D16_esprit550_ha3` (this
+entry's own poster child) and `D02_rich_135mm` rendered at 0.5/1/2/4/8 s, fixed detector settings, σ_focus per
+rung. **Rule fixed in advance: if any longer rung improves σ_focus by more than 20% relative to the
+derived-exposure rung on either dataset, this entry REOPENS.**
+
+> ## THE RULE FIRED. THE "no change" POSITION ABOVE IS REFUTED, AND THIS ENTRY IS OPEN AGAIN (2026-08-06, wave 7).
+>
+> `D02_rich_135mm` — a **rich** wide field, 2746 stars still above the gate at the sweep's outermost frame, whose
+> derived exposure is the **0.5 s clamp floor**:
+>
+> | exposure | σ_focus (current) | σ_focus (optimized) | J best | min stars/frame |
+> |---|---|---|---|---|
+> | **0.5 s (derived)** | 0.23211 | **0.10927** | 0.99633 | 23 |
+> | 1 s | 0.19828 | 0.09125 (+16.5%) | 0.99720 | 34 |
+> | 2 s | 0.18119 | 0.09482 (+13.2%) | 0.99708 | 58 |
+> | 4 s | 0.16754 | **0.08182 (+25.1%)** | 0.99770 | 63 |
+> | 8 s | 0.15238 | **0.06109 (+44.1%)** | 0.99853 | 37 |
+>
+> σ_focus improves **monotonically** on the current-settings column and by **44% at 8×** on the optimized one.
+> A rich field demonstrably DOES gain from more exposure, and the shipped recommender says nothing about it.
+>
+> **And the diagnosis is sharper than this entry's own framing.** `SensitivityIsAtFloor` is **False at every
+> rung** — the landed Sensitivity is 9–49, nowhere near the floor — so the exposure block is **never surfaced at
+> all** on this dataset. The `NTarget = 20` statistic is not merely answering the wrong question here; on this
+> population it is **never evaluated**, because the block's TRIGGER (`OptimizationSummary.HasLowStarSignal`,
+> `Sensitivity <= 1.0`) gates it out first. The gap is upstream of the statistic.
+>
+> **The 20-star derivation is NOT uniformly wrong, which matters for the fix.** `D16_esprit550_ha3` — the
+> narrowband case this entry opens with — has its σ_focus MINIMUM exactly at its derived 2 s (0.06423), and gets
+> **worse** at 4 s (0.12034) and 8 s (0.14828). So the derivation nails D16 and under-serves D02. The
+> distinguishing feature is that **D02's derived exposure sits at the `MinExposureSeconds = 0.5 s` clamp floor** —
+> the arithmetic asked for less than the minimum, i.e. it saturated and carried no information — while D16's is a
+> free solution inside the band.
+>
+> **The confound, declared before the arm ran and still true:** more exposure adds stars AND measures the existing
+> ones better; this arm cannot separate them. It does not need to. The question was *"should a rich field ever
+> earn an exposure recommendation?"* and the answer is **yes**.
+>
+> **Next step, and it is not "change NTarget".** (a) The trigger, not the statistic, is what silences this
+> population — decide whether the exposure block should also fire when the landed Sensitivity is healthy but
+> σ_focus is poor, or when the derived exposure saturated at a clamp. (b) A recommendation whose arithmetic hits
+> either clamp should report that it saturated rather than reporting the clamp as an answer. (c) Re-check
+> `MinExposureSeconds = 0.5 s`: on `D02` it is the binding constraint and it is 16× below what the fit wants.
+> Reproduce: `D:\hf_w7\remaining_arms.sh` (Arm E), scored by `D:\hf_w7\score_armE.py`.
 
 ### F20 — Below `MinHFR` the autofocus objective collapses to exactly zero, with no diagnostic
 **Status:** Done (parts 1 and 2) · found 2026-08-02 running `optimize --per-run` over the

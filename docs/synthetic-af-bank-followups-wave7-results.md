@@ -1,4 +1,4 @@
-# Synthetic AF bank — followups wave 7 (results, in progress)
+# Synthetic AF bank — followups wave 7 (results)
 
 Design: [`docs/synthetic-af-bank-followups-wave7-design.md`](synthetic-af-bank-followups-wave7-design.md).
 Plan: [`plans/synthetic-af-bank-followups-wave7-plan.md`](../plans/synthetic-af-bank-followups-wave7-plan.md).
@@ -6,22 +6,22 @@ Wave 6: [`docs/synthetic-af-bank-followups-wave6-results.md`](synthetic-af-bank-
 Register: [`docs/followups.md`](followups.md).
 
 *The wave's premise was that F18, F19 and F39(b) each move the bank's expected optima and so must share one
-re-baseline. Two of the three turned out not to need one at all — and the cheapest arm on the board settled the
-axis the bank has never exercised.*
+re-baseline. **None of the three did.** Nothing in this wave re-rendered a frame — and the two pre-registered
+falsification rules both fired, one of them against this wave's own stated decision.*
 
 ## Status of this document
 
-**Partial.** The code, the decision and the cheap arm are done; the two expensive arms (F19's exposure ladder,
-F18's σ_focus arms) and the re-render are specified, wired and **not yet run**. Every section says which.
+**Complete for every arm that ran.** Two arms returned results that contradict what this wave set out believing,
+and both are reported as they landed.
 
 | item | state |
 |---|---|
-| **F19** — the exposure statistic | **Decided: no change.** Position stated (design §1); its pre-registered falsification arm is specified and NOT run |
-| **F18** — detectability-bounded step size | **Shipped behind two flags**, 6 discriminating unit tests. The bank σ_focus arms are wired and NOT run |
-| **F39(b)** — the binning axis | **Measured. The cheap arm answered it**: recall rises on all seven, precision stays 1.000. `optimize` side wired, NOT run |
+| **F19** — the exposure statistic | **Decided "no change", then REFUTED by its own pre-registered arm.** A rich field gains **44% of σ_focus at 8×** the derived exposure, and the block is never even surfaced there. **F19 is OPEN again**, with a sharper diagnosis than it started with |
+| **F18** — detectability-bounded step size | **Mechanism shipped behind flags, DEFAULT OFF.** The arms ran; arm D passes its rule **vacuously** (identical to control on 26/28 cells) and arm S is rejected. The bank cannot exercise this defect |
+| **F39(b)** — the binning axis | **Measured**: recall rises on all seven, precision stays 1.000. `optimize` half running |
 | **AF chart starting position** | **Done**, 4 discriminating tests, 2 guards |
-| The re-render | **Not needed for F19 or F39(b)** (measured, not assumed). Still owed for F18 |
-| F32's confirmation arm | **Untouched, deliberately** — see design §0 and "What this wave did NOT disturb" |
+| The re-render | **NOT NEEDED FOR ANY OF THE THREE** — measured, not assumed |
+| F32's confirmation arm | **Untouched** — no frame moved, so it stays comparable with wave 5's φ table today |
 
 ## Headline
 
@@ -30,8 +30,9 @@ F18's σ_focus arms) and the re-render are specified, wired and **not yet run**.
 | F39(b) | **The bank's binning axis works and had never been switched on.** Overall recall rises on **7 of 7** (+0.087 … +0.146), precision is **1.000 at both factors**, and the mechanism is unambiguous: `LowSensitivity` false negatives collapse **184 → 4** on the worst case |
 | …and its cost | **Measured, not glossed:** recall@**high** FALLS on 4 of 7 (−0.018 … −0.066). Binning trades linear resolution for SNR, and the price lands on the bright tier via the shape/size/structure gates. **Filed as a new followup** |
 | F39(b)'s re-render | **Not required** — the frames' exposures were *already derived at binning 2* (`expectedOptimal.exposureDefinition` says so verbatim). Honouring the factor **removes** an inconsistency rather than creating one |
-| F19 | **Closed as a stated position, not an accident.** The named alternative — a faint-end statistic — is **pinned by the gate**: in the only band where the advice is surfaced, the faintest accepted star's SNR sits at `InertSensitivityBound` (1.5 at defaults) regardless of exposure, so `(10/1.5)² = 44` saturates the 4× cap on every run, forever |
-| F18 | Shipped as `min(W_3x, max(W_detect, floor))`, with the **floor as the mirror of the existing widening cap** — the recommender bounded how far one run may widen and had no bound on how far it may narrow |
+| **F19 — the wave's own decision, overturned by its own test** | Argued from mechanism that no change was needed, wrote the falsification rule down first, ran it, and **the rule fired**: `D02_rich_135mm` gains **+44.1% of σ_focus at 8×** its derived exposure. **The diagnosis is sharper than F19's**: the block is gated out by its TRIGGER (`Sensitivity ≤ 1.0`, false at every rung) before any statistic is computed |
+| F18 | Mechanism shipped as `min(W_3x, max(W_detect, floor))` — but the arms returned a **null**: identical to control on **26 of 28** cells, **0** improved. Flag stays **default OFF**; the bank cannot reproduce this defect |
+| Both re-render questions | **Answered "no" by measurement.** `W_detect*` is not observed on any of the 20 datasets, and `detectionBinning` never enters a render input. **Zero frames re-rendered this wave** |
 | The AF chart | The report **already** carried `InitialFocusPoint`; the defect was purely the render. The collapse was a **guard**, so the fix reads the loaded run's own report rather than deleting it |
 
 ---
@@ -113,7 +114,52 @@ regression assertion that becomes possible for the first time.
 
 ---
 
-## F19 — the exposure statistic: decided, no change
+## F19 — decided "no change", then REFUTED by its own pre-registered test
+
+**The rule fired against the decision. F19 is open again.** Arm E: `D16_esprit550_ha3` and `D02_rich_135mm`
+rendered at 0.5/1/2/4/8 s, fixed detector settings, σ_focus per rung. The rule, fixed before the arm ran: *any
+longer rung improving σ_focus by more than 20% relative to the derived-exposure rung, on either dataset, refutes
+the position.*
+
+**`D02_rich_135mm` — a rich wide field (2746 stars still above the gate at the sweep's outermost frame), derived
+exposure at the 0.5 s clamp floor:**
+
+| exposure | σ_focus (current settings) | σ_focus (optimized) | J best | min stars/frame |
+|---|---|---|---|---|
+| **0.5 s (derived)** | 0.23211 | **0.10927** | 0.99633 | 23 |
+| 1 s | 0.19828 | 0.09125 (+16.5%) | 0.99720 | 34 |
+| 2 s | 0.18119 | 0.09482 (+13.2%) | 0.99708 | 58 |
+| 4 s | 0.16754 | **0.08182 (+25.1%)** | 0.99770 | 63 |
+| 8 s | 0.15238 | **0.06109 (+44.1%)** | 0.99853 | 37 |
+
+σ_focus improves **monotonically** on the current-settings column and by **44% at 8×** on the optimized one. A rich
+field demonstrably does gain from more exposure.
+
+**And the diagnosis is sharper than F19's own framing — the gap is upstream of the statistic.**
+`SensitivityIsAtFloor` is **false at every rung** (landed Sensitivity 9–49), so the exposure block is **never
+surfaced at all** on this dataset. The `NTarget = 20` statistic is not answering the wrong question here; on this
+population it is **never evaluated**, because the block's TRIGGER (`HasLowStarSignal`, `Sensitivity ≤ 1.0`) gates
+it out first. The mechanism argument below is sound about the statistic and irrelevant to the population that
+actually loses.
+
+**The derivation is NOT uniformly wrong, which is what makes the fix tractable.** `D16_esprit550_ha3` — the
+narrowband case F19 opens with — has its σ_focus **minimum exactly at its derived 2 s** (0.06423) and gets *worse*
+at 4 s (0.12034) and 8 s (0.14828). The derivation nails D16 and under-serves D02. The distinguishing feature:
+**D02's derived exposure sits at the `MinExposureSeconds = 0.5 s` clamp floor** — the arithmetic asked for less
+than the minimum, i.e. it saturated and carried no information — while D16's is a free solution inside its band.
+
+**The confound, declared before the arm ran and still true:** more exposure adds stars *and* measures the existing
+ones better; this arm cannot separate them. It does not need to. The question was *"should a rich field ever earn
+an exposure recommendation?"*, and the answer is **yes**.
+
+**Lesson, and the reason the arm existed at all:** the "no change" position was argued from mechanism, and the
+mechanism argument was *correct about what it addressed* — it just addressed the wrong thing. Only the
+measurement found that. Writing the falsification rule down before running it is what made the result readable as
+a refutation rather than as a number to be explained away.
+
+---
+
+### The superseded position, kept for the record
 
 Full reasoning in [design §1](synthetic-af-bank-followups-wave7-design.md). Three legs, and the second is the one
 that decides it:

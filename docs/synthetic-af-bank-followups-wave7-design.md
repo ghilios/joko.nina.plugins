@@ -53,7 +53,16 @@ applied to frames instead of to binaries.
 F19 asks for a decision, not a patch: *is `NTarget = 20` the right population for the exposure question, or should
 it be a faint-end statistic?* The entry is explicit that the answer must be a position rather than an accident.
 
-### The position
+### The position — STATED HERE, THEN REFUTED BY ITS OWN TEST (see the banner)
+
+> ## ⚠ SUPERSEDED. §1.4's pre-registered arm RAN and the rule FIRED: on `D02_rich_135mm` a rich field gains
+> **44% of σ_focus at 8× the derived exposure**, and the exposure block is **never surfaced there at all**
+> (`SensitivityIsAtFloor` false at every rung). **F19 is OPEN again.** The reasoning in §1.1–1.3 is left in place
+> unedited, because what it got right and what it got wrong are both worth reading: legs 1 and 2 remain sound as
+> arguments *against the specific faint-end statistic F19 named*, but the CONCLUSION they were used to support —
+> that no change is needed — does not survive contact with the measurement. The gap turned out to be **upstream of
+> the statistic**: the block's TRIGGER gates this population out before any statistic is computed. Full numbers and
+> the sharpened next step are in [F19](followups.md#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one).
 
 **`NTarget = 20` stays. F19 closes as "working as intended", with the reasoning stated below and one pre-registered
 test that can still refute it (§1.4).** The half of F19's complaint that is a real defect — "a rig can be told
