@@ -1578,6 +1578,54 @@ step size is its own problem — at 250 the usable band is about one step wide (
 Tests: 5, of which **3 fail** when the fix is removed (2 for the probe, 1 for the scorable bar); the other two are
 labelled guards (inertness on a healthy sweep, and the floor-combination helper).
 
+### F44 — The synthetic camera queries the catalog for at most ONE CELL, so a wide field is rendered starless outside a small central patch
+**Status:** Open · found 2026-08-05 from a user report: "why is only a portion of the sensor getting rendered with stars?"
+
+`StarFieldCompositor` computes the field correctly — `DiagonalFovDegrees × 1.05` — and hands it to
+`AstapCatalogReader.Query`, which calls `AstapCellGeometry.FindAreas`. That method does two things which are
+right for ASTAP and wrong for a renderer:
+
+1. **It clamps the field**: `var fov = Math.Min(fovRadians, MaxFovRadians(partitioning))`, where `MaxFovRadians`
+   is **5.142857°** (1476-cell) or **9.53°** (290-cell) — i.e. exactly one cell width.
+2. **It then samples only the FOUR CORNERS** of that clamped box and returns the ≤4 cells they fall in. Its own
+   summary says so: *"the 1–4 cells whose union covers the square field of view"*.
+
+Both are a faithful port of ASTAP's `find_areas` (the doc comment says "reference behavior"), and both are
+correct **for plate-solving**, where fields are a few degrees and 4 corner cells genuinely cover them. They are
+not correct for rendering a wide field.
+
+**Measured on the reporting rig** (9576 × 6388 at 3.76 µm, `FOCALLEN 40.0`):
+
+| quantity | value |
+|---|---|
+| frame | **48.5° × 33.4°** |
+| diagonal FOV the compositor requests | **59.67°** |
+| what `FindAreas` clamps it to | **5.142857°** |
+| clamp factor | **11.6×** |
+| union of the ≤4 selected cells | at most ~10.3° × 10.3° |
+
+So the catalog is queried over roughly a 10° patch of a 48.5° × 33.4° frame, and everything outside it renders
+**starless** — which is exactly the bounded rectangle of stars the reporter saw, sitting in an otherwise empty
+(noise-only) sensor.
+
+**Why nothing caught it.** The compositor warns only when the query returns **no** stars
+(`StarFieldCompositor.cs:303`); a partially-covered field returns plenty, so no warning fires and the frame looks
+plausible. And the synthetic AF bank never exercises it: its widest row, `D01_ultrawide_40mm`, is 40 mm but on a
+**much smaller sensor**, so its field stays near the cap. Every bank dataset happens to sit inside one cell.
+
+**Consequences beyond the missing stars.** The rendered field is not just sparse but *spatially truncated*, so
+anything that reads position — the aberration inspector's sensor model, tilt calibration, region-based AF, the
+golden-set geometry — sees a synthetic frame whose stars occupy one corner-ish patch of the sensor. Any result
+derived from a wide-field simulator frame is suspect until this is fixed.
+
+**Next step.** Enumerate **every** cell intersecting the requested field instead of the four corners of a clamped
+box, and drop the clamp on the render path (keep `FindAreas` as-is if anything still needs the ASTAP-compatible
+behavior — it is a faithful port and worth keeping honest under its own name). The pieces already exist:
+`AreaForCoordinates` maps a coordinate to a cell, and the per-star angular filter in `QueryCells` already uses
+the **unclamped** FOV, so it will correctly trim the extra stars a wider cell sweep pulls in. Watch the RA
+wrap and the pole cells, which is where a naive lat/long tiling breaks, and add a wide-field bank row (or a unit
+test at 40 mm on a full-frame sensor) so the population is covered.
+
 ### F35 — `MinHFR` should be seeded from the sweep WINGS, and neither available HFR statistic can size it
 **Status:** Done (wave 3) · found 2026-08-03 answering "how far can `MinHFR` safely come down?" for
 [F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic)
