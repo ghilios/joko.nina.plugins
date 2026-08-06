@@ -7,6 +7,8 @@ known-correct answer. Design: [`docs/synthetic-af-bank-design.md`](synthetic-af-
 Plan: [`plans/synthetic-af-bank-plan.md`](../plans/synthetic-af-bank-plan.md). Expected bands:
 [`docs/synthetic-af-bank-expectations.json`](synthetic-af-bank-expectations.json).
 
+> **`D01` numbers on this page predate the [F44](followups.md) catalog fix** and were measured on a spatially truncated field (half the sensor rendered starless). The corrected values are in [`docs/synthetic-af-bank-followups-wave6-results.md`](synthetic-af-bank-followups-wave6-results.md); the conclusions here survive the re-baseline. `D02` was re-checked and its frames are bit-identical, so its numbers stand as written.
+
 *The question this bank was built to answer: **precision on the real bank is a lower bound, and the
 optimizer's recommendations have never been checked for convergence — what do they look like when the
 right answer is known by construction?***

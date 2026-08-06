@@ -11,8 +11,12 @@
 #endregion "copyright"
 
 using NINA.Image.ImageData;
+using NINA.Profile.Interfaces;
+using NSubstitute;
 using NUnit.Framework;
+using System;
 using System.Collections.Generic;
+using System.IO;
 using TestApp;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.Harness;
@@ -125,5 +129,123 @@ public class HarnessSettingsStoreTests {
             Assert.That(double.IsNaN(scale), Is.True);
             Assert.That(source, Does.Contain("unavailable"));
         });
+    }
+
+    // ---- F42: a new build directory must INHERIT settings, not bootstrap its own ---------------------------
+
+    [Test]
+    public void DefaultPath_UsesAFileDeliberatelyPlacedBesideTheExe() {
+        // Back-compat, and the escape hatch: an arm directory that already carries its own file keeps using it.
+        var chosen = HarnessSettingsStore.ResolveDefaultPath(
+            besideExe: @"D:\arm3\harness_settings.json",
+            shared: @"C:\Users\x\AppData\Local\HocusFocusHarness\harness_settings.json",
+            exists: p => p == @"D:\arm3\harness_settings.json");
+        Assert.That(chosen, Is.EqualTo(@"D:\arm3\harness_settings.json"));
+    }
+
+    [Test]
+    public void DefaultPath_FallsBackToThePerUserFile_SoANewBuildDirectoryInherits() {
+        // F42's actual defect: the bank run instructions require a fresh -o directory per arm (the exe is
+        // file-locked during a run), and the old "always beside the exe" default meant every one of them
+        // bootstrapped its OWN detector settings from whatever the live profile held at that moment. Two arms
+        // built minutes apart then differed in UseOptimizedSettings / LocallyAdaptiveBinarization and no
+        // comparison between them meant anything.
+        var chosen = HarnessSettingsStore.ResolveDefaultPath(
+            besideExe: @"D:\arm4\harness_settings.json",
+            shared: @"C:\Users\x\AppData\Local\HocusFocusHarness\harness_settings.json",
+            exists: _ => false);
+        Assert.That(chosen, Is.EqualTo(@"C:\Users\x\AppData\Local\HocusFocusHarness\harness_settings.json"));
+    }
+
+    // ---- F42/F43: a Simple-mode settings file silently ignores its own advanced knobs ----------------------
+
+    [Test]
+    public void SimpleModePresetOverrides_NamesTheKnobsThePresetsOverwrite() {
+        // With UseAdvanced=False, StarDetectionOptions recomputes the advanced knobs from the Simple_* presets,
+        // so these recorded values never reach the detector. Wave 5 lost four probe runs to exactly this: the
+        // configurations differed on paper and returned identical star counts.
+        var overrides = HarnessSettingsStore.SimpleModePresetOverrides(
+            new Dictionary<string, string> {
+                ["UseAdvanced"] = "False",
+                ["NoiseClippingMultiplier"] = "1",
+                ["StarClippingMultiplier"] = "9.5",
+                ["MinHFR"] = "0.1",
+            },
+            Substitute.For<IProfileService>());
+        Assert.Multiple(() => {
+            Assert.That(overrides.Count, Is.EqualTo(3));
+            Assert.That(string.Join("|", overrides), Does.Contain("MinHFR"));
+            Assert.That(string.Join("|", overrides), Does.Contain("NoiseClippingMultiplier"));
+            Assert.That(string.Join("|", overrides), Does.Contain("StarClippingMultiplier"));
+        });
+    }
+
+    [Test]
+    public void SimpleModePresetOverrides_IsSilentInAdvancedMode() {
+        // The mirror image, and the reason the warning is conditional: in Advanced mode the file IS the detector.
+        var overrides = HarnessSettingsStore.SimpleModePresetOverrides(
+            new Dictionary<string, string> {
+                ["UseAdvanced"] = "True",
+                ["NoiseClippingMultiplier"] = "1",
+                ["MinHFR"] = "0.1",
+            },
+            Substitute.For<IProfileService>());
+        Assert.That(overrides, Is.Empty);
+    }
+
+    // ---- F39: a per-run file must not present an inherited binning as a derived one -----------------------
+
+    private static (string Path, string Json) ResolveForRunInTempDir(double inFocusHfr) {
+        var dir = Path.Combine(Path.GetTempPath(), "hf_harness_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try {
+            var baseSettings = new HarnessSettingsStore.Resolved {
+                Accessor = new HarnessSettingsStore.FileOptionsAccessor(
+                    new Dictionary<string, string> { ["DetectionBinning"] = "Bin2" }),
+                PixelSizeMicrons = 3.76,
+                FocalLengthMm = 585.0,
+            };
+            var resolved = HarnessSettingsStore.ResolveForRun(dir, baseSettings, Meta(3.76, 585.0), inFocusHfr);
+            return (resolved.Path, File.ReadAllText(resolved.Path));
+        } finally {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Test]
+    public void ResolveForRun_MarksAnInheritedDetectionBinningAsKeptFromBase() {
+        // F39's defect in one line: EVERY synthetic-bank file says "DetectionBinning": "Bin2" and not one of them
+        // derived it — no bank folder has the autofocus_report_Region0.json the derivation needs, so all of them
+        // inherited it from a profile export while looking exactly like the derived case.
+        var (_, json) = ResolveForRunInTempDir(inFocusHfr: double.NaN);
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain(HarnessSettingsStore.DetectionBinningKeptFromBase));
+            Assert.That(json, Does.Not.Contain(HarnessSettingsStore.DetectionBinningDerived));
+        });
+    }
+
+    [Test]
+    public void ResolveForRun_MarksAMeasuredDetectionBinningAsDerived() {
+        var (_, json) = ResolveForRunInTempDir(inFocusHfr: 8.0);
+        Assert.That(json, Does.Contain(HarnessSettingsStore.DetectionBinningDerived));
+    }
+
+    [Test]
+    public void SimpleModePresetOverrides_IsEmptyWhenTheFileAgreesWithThePresets() {
+        // The wave-5 pinned file's case: its advanced values coincide with the Typical presets, so no wave-5 arm
+        // was invalidated. The hazard is real but did not fire, and the diff has to be able to say so.
+        var overrides = HarnessSettingsStore.SimpleModePresetOverrides(
+            new Dictionary<string, string> {
+                ["UseAdvanced"] = "False",
+                ["Simple_NoiseLevel"] = "Typical",
+                ["Simple_PixelScale"] = "Typical",
+                ["Simple_FocusRange"] = "Typical",
+                ["NoiseClippingMultiplier"] = "4",
+                ["StarClippingMultiplier"] = "2",
+                ["StructureLayers"] = "4",
+                ["MinHFR"] = "1.2",
+            },
+            Substitute.For<IProfileService>());
+        Assert.That(overrides, Is.Empty);
     }
 }

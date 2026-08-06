@@ -8,6 +8,8 @@ See [F27](followups.md).
 Baseline: [`docs/synthetic-af-bank-baseline.json`](synthetic-af-bank-baseline.json), transcribed from
 [`docs/synthetic-af-bank-baseline-results.md`](synthetic-af-bank-baseline-results.md).
 
+> **`D01` numbers on this page predate the [F44](followups.md) catalog fix** and were measured on a spatially truncated field (half the sensor rendered starless). The corrected values are in [`docs/synthetic-af-bank-followups-wave6-results.md`](synthetic-af-bank-followups-wave6-results.md); the conclusions here survive the re-baseline. `D02` was re-checked and its frames are bit-identical, so its numbers stand as written.
+
 *The question: the objective rewards star count and fit quality with no penalty for a false positive, so
 the optimizer drives `BrightnessSensitivity` to its 0.0 floor and config-A precision collapses to 0.451.
 Two candidate costs were implemented — a proxy term in `J`, and a hard floor on the searchable range.

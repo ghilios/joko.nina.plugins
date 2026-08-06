@@ -156,6 +156,13 @@ namespace TestApp {
                 keepFloor = kf;
             }
 
+            // F35 — --no-min-hfr-seed: skip the MinHFR seeding rule entirely, so the pre-F35 behaviour is reachable
+            // from THIS binary. Without it the only way to produce an F35 control arm is to build the pre-F35
+            // commit, which is precisely the cross-binary comparison F41 says is not a comparison: every merge in
+            // between rides along and is attributed to the seeding rule. Same shape as --keep-floor above — absent,
+            // the run is bit-identical to before this flag existed, so one exe is both arms.
+            bool noMinHfrSeed = DiagnosticUtil.HasFlag(args, "--no-min-hfr-seed");
+
             var labelsDir = DiagnosticUtil.GetArg(args, "--labels");
 
             // --per-run is a valueless flag: optimize each discovered run INDEPENDENTLY (one optimization, one
@@ -340,8 +347,12 @@ namespace TestApp {
                 Inspection = inspection,
                 LegacyObjective = legacyObjective,
                 ContinueRounds = continueRounds,
-                KeepFloor = keepFloor
+                KeepFloor = keepFloor,
+                NoMinHfrSeed = noMinHfrSeed
             };
+            if (noMinHfrSeed) {
+                Console.WriteLine("--no-min-hfr-seed: F35 MinHFR seeding DISABLED (pre-F35 control arm)");
+            }
             if (keepFloor is double kfv) {
                 Console.WriteLine($"--keep-floor: candidates keeping < {F(kfv)} of the seed's accepted stars (min over runs) are rejected as infeasible; J is unmodified");
             }
@@ -387,6 +398,7 @@ namespace TestApp {
             public bool LegacyObjective; // --legacy-objective: zero the HFR-outlier penalty + coverage reward (A/B "before")
             public int ContinueRounds;  // --continue-rounds: extra chained passes after the first (0-2)
             public double? KeepFloor;   // --keep-floor: F32 detection-keep feasibility floor (null = unconstrained)
+            public bool NoMinHfrSeed;   // --no-min-hfr-seed: F35 seeding off, so this binary can produce its own control
 
             // F30: which invocation is producing these landings. Stamped onto every optimized_settings.json this
             // run writes, so a bank folder full of prepasses from different arms stops being ambiguous.
@@ -666,10 +678,19 @@ namespace TestApp {
             // perRunBaseline (built above, before the objective was even finalized) already holds the fits, so the
             // trigger statistic costs nothing extra here. Run 0 is the representative run, matching the wizard.
             // The seeded value is reported below so a landing never silently differs from its recorded seed.
-            settings.MinHfrSeedFloor = MinHfrSeed.Resolve(
-                perRunBaseline.Count > 0 ? (perRunBaseline[0].BestFit?.Minimum.Y ?? double.NaN) : double.NaN,
-                ctx.Seed.MinHFR,
-                ctx.Seed.DetectionBinning);
+            settings.MinHfrSeedFloor = ctx.NoMinHfrSeed
+                ? null
+                : MinHfrSeed.Resolve(
+                    perRunBaseline.Count > 0 ? (perRunBaseline[0].BestFit?.Minimum.Y ?? double.NaN) : double.NaN,
+                    ctx.Seed.MinHFR,
+                    ctx.Seed.DetectionBinning);
+            if (ctx.NoMinHfrSeed) {
+                // Say it per run, not only once at startup: an arm's log is read run by run, and "the seed did not
+                // fire" and "the seed was switched off" are different facts that must not look alike.
+                Console.WriteLine($"  MinHFR seed (F35): SUPPRESSED by --no-min-hfr-seed (fitted vertex HFR "
+                    + $"{F(perRunBaseline.Count > 0 ? (perRunBaseline[0].BestFit?.Minimum.Y ?? double.NaN) : double.NaN)} px, "
+                    + $"gate {F(ctx.Seed.MinHFR)})");
+            }
             if (settings.MinHfrSeedFloor is double seededMinHfr) {
                 Console.WriteLine($"  MinHFR seed (F35): fitted vertex HFR {F(perRunBaseline[0].BestFit?.Minimum.Y ?? double.NaN)} px "
                     + $"is at or below the gate {F(ctx.Seed.MinHFR)}; seeding MinHFR -> {F(seededMinHfr)}");

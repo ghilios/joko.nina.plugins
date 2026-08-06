@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using Newtonsoft.Json;
+using NINA.Core.Utility;
 using NINA.Plugin.Interfaces;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
@@ -41,8 +42,17 @@ namespace TestApp {
     /// </summary>
     internal static class HarnessSettingsStore {
 
-        /// <summary>Default file name, resolved next to the TestApp executable so it travels with the harness.</summary>
+        /// <summary>Default file name.</summary>
         public const string DefaultFileName = "harness_settings.json";
+
+        /// <summary>Folder under the user's local app data holding the SHARED harness settings — see <see cref="DefaultPath"/>.</summary>
+        public const string SharedFolderName = "HocusFocusHarness";
+
+        /// <summary><see cref="HarnessSettingsFile.DetectionBinningSource"/> when the run's own fit produced it.</summary>
+        public const string DetectionBinningDerived = "derived-from-in-focus-hfr";
+
+        /// <summary><see cref="HarnessSettingsFile.DetectionBinningSource"/> when it was inherited, not derived (F39).</summary>
+        public const string DetectionBinningKeptFromBase = "kept-from-base";
 
         /// <summary>Serialized form: the raw plugin option key/value bag plus the pixel-scale inputs.</summary>
         internal sealed class HarnessSettingsFile {
@@ -66,6 +76,21 @@ namespace TestApp {
 
             /// <summary>How a per-dataset file's derived values were arrived at, so the file explains itself.</summary>
             public string DerivedNotes { get; set; }
+
+            /// <summary>
+            /// Where this file's <c>DetectionBinning</c> came from — <c>derived-from-in-focus-hfr</c> or
+            /// <c>kept-from-base</c> (F39).
+            ///
+            /// <para>Every synthetic-bank file records <c>Bin2</c>, and not one of those runs derived it: the
+            /// derivation needs a fitted in-focus HFR from an <c>autofocus_report_Region0.json</c> that no bank
+            /// folder has, so all of them silently inherited the value from a profile export. A field that LOOKS
+            /// derived and is not is worse than an absent one, and <see cref="DerivedNotes"/> saying so in prose is
+            /// not something a reader diffs. This makes the provenance a value.</para>
+            ///
+            /// <para>Note the separate half of F39, deliberately NOT addressed here: the headless runners discard
+            /// <see cref="ResolveForRun"/>'s result, so this key is not what the run detected at either way.</para>
+            /// </summary>
+            public string DetectionBinningSource { get; set; }
         }
 
         /// <summary>
@@ -337,9 +362,14 @@ namespace TestApp {
                 var factor = NINA.Joko.Plugins.HocusFocus.Utility.DetectionBinningResolver.RecommendFromHfr(inFocusHfrPixels);
                 var setting = NINA.Joko.Plugins.HocusFocus.Utility.DetectionBinningResolver.ToSetting(factor);
                 options["DetectionBinning"] = setting.ToString();
+                file.DetectionBinningSource = DetectionBinningDerived;
                 notes.Add($"DetectionBinning={setting} from in-focus HFR {inFocusHfrPixels:0.00}px " +
                     $"(target {NINA.Joko.Plugins.HocusFocus.Utility.DetectionBinningResolver.TargetHfrPixels:0.0}px)");
             } else {
+                // F39 — say it as a FIELD, not only in prose. Every synthetic-bank file took this branch and every
+                // one of them reads "Bin2" next to sixteen genuinely-exported values, which is indistinguishable
+                // from a derivation on inspection.
+                file.DetectionBinningSource = DetectionBinningKeptFromBase;
                 notes.Add("DetectionBinning kept from base (no fitted in-focus HFR for this dataset)");
             }
             notes.Add(file.PixelSizeMicrons > 0 && file.FocalLengthMm > 0
@@ -377,9 +407,35 @@ namespace TestApp {
             }
         }
 
-        /// <summary>Default settings path: next to the TestApp executable.</summary>
-        public static string DefaultPath() =>
+        /// <summary>The settings file beside the TestApp executable — where the default used to live outright.</summary>
+        public static string BesideExePath() =>
             Path.Combine(AppContext.BaseDirectory ?? Directory.GetCurrentDirectory(), DefaultFileName);
+
+        /// <summary>The per-user SHARED settings file, which every build directory resolves to alike.</summary>
+        public static string SharedDefaultPath() =>
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                SharedFolderName, DefaultFileName);
+
+        /// <summary>
+        /// Default settings path when no <c>--settings</c> is given.
+        ///
+        /// <para><b>F42.</b> This used to be "next to the exe", unconditionally. The AF-bank run instructions
+        /// require each arm to be built to its own <c>-o</c> directory (the exe is file-locked while a run is in
+        /// progress), and an absent file is BOOTSTRAPPED from the live NINA profile — so every new build directory
+        /// silently got its own detector, and two arms built minutes apart could differ in
+        /// <c>UseOptimizedSettings</c>, <c>LocallyAdaptiveBinarization</c> and the pixel-scale inputs. That is a
+        /// confound the workflow GUARANTEES rather than merely permits.</para>
+        ///
+        /// <para>So the per-user file is now the default, and a fresh build directory INHERITS it instead of
+        /// bootstrapping a new one. A file deliberately placed beside the exe still wins, so an existing arm
+        /// directory keeps behaving exactly as it did.</para>
+        /// </summary>
+        public static string DefaultPath() => ResolveDefaultPath(BesideExePath(), SharedDefaultPath(), File.Exists);
+
+        /// <summary>The <see cref="DefaultPath"/> decision as a pure function, so it is testable without a filesystem.</summary>
+        internal static string ResolveDefaultPath(string besideExe, string shared, Func<string, bool> exists) =>
+            exists(besideExe) ? besideExe : shared;
 
         /// <summary>
         /// Resolves the harness settings for this run. Order: <c>--settings &lt;path&gt;</c>, else the default
@@ -411,6 +467,7 @@ namespace TestApp {
                 var loaded = JsonConvert.DeserializeObject<HarnessSettingsFile>(File.ReadAllText(path))
                     ?? new HarnessSettingsFile();
                 Console.WriteLine($"Settings: {path} (exported {loaded.ExportedAtUtc:u} from profile '{loaded.ExportedFromProfile}')");
+                WarnIfSimpleModeOverridesTheFile(loaded, path, profileService);
                 return new Resolved {
                     Accessor = new FileOptionsAccessor(loaded.Options),
                     PixelSizeMicrons = loaded.PixelSizeMicrons,
@@ -425,7 +482,21 @@ namespace TestApp {
             }
 
             var file = ExportFromProfile(profileService, activeProfile);
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir)) {
+                Directory.CreateDirectory(dir);
+            }
             File.WriteAllText(path, JsonConvert.SerializeObject(file, Formatting.Indented));
+            // F42 — this is the exact moment an arm silently stops being comparable to its predecessor: the values
+            // come from whatever the ACTIVE profile happens to hold right now, and nothing else records that. Loud
+            // on stderr, not an informational line in a log nobody reads until the numbers disagree.
+            Console.Error.WriteLine(
+                $"WARNING: no harness settings file existed, so one was BOOTSTRAPPED at {path} from the live NINA " +
+                $"profile '{activeProfile?.Name}'. These values are whatever that profile holds right now — this run " +
+                "is NOT comparable to any earlier arm that used a different file. Pass --settings <path> to pin one " +
+                "file across every arm of a comparison.");
+            Logger.Warning($"HarnessSettingsStore bootstrapped {path} from profile '{activeProfile?.Name}'; " +
+                "cross-arm comparability is not guaranteed unless --settings pins one file.");
             Console.WriteLine($"Settings: bootstrapped {path} from profile '{activeProfile?.Name}'. " +
                 "Later runs read this file; the profile is not consulted for settings again.");
             return new Resolved {
@@ -435,6 +506,66 @@ namespace TestApp {
                 Path = path,
                 WasBootstrapped = true
             };
+        }
+
+        /// <summary>
+        /// Warns when a pinned settings file records advanced detector knobs the options class will simply
+        /// overwrite.
+        ///
+        /// <para><b>Why.</b> <c>StarDetectionOptions.InitializeOptions</c> ends in <c>ConfigureSimpleSettings()</c>,
+        /// which — when <c>UseAdvanced</c> is false — calls <c>DerivePresetSettings()</c> and recomputes roughly
+        /// sixteen advanced knobs (<c>NoiseClippingMultiplier</c>, <c>StarClippingMultiplier</c>,
+        /// <c>StructureLayers</c>, <c>BrightnessSensitivity</c>, <c>MinHFR</c>, <c>MaxDistortion</c>, …) from the
+        /// three <c>Simple_*</c> presets. So an arm that edits one of those keys in its settings file changes
+        /// nothing, and the run looks entirely ordinary — this is the wave-5 probe set where four supposedly
+        /// different configurations returned IDENTICAL star counts.</para>
+        ///
+        /// <para>The overridden keys are MEASURED rather than listed as constants: the file's own bag is handed to a
+        /// throwaway options instance and diffed afterwards, so this can never drift from what the class actually
+        /// does. Never throws — a diagnostic must not abort a run.</para>
+        /// </summary>
+        internal static IReadOnlyList<string> SimpleModePresetOverrides(
+                IDictionary<string, string> options, IProfileService profileService) {
+            var empty = Array.Empty<string>();
+            if (options == null || options.Count == 0) {
+                return empty;
+            }
+            if (options.TryGetValue("UseAdvanced", out var ua) && bool.TryParse(ua, out var advanced) && advanced) {
+                return empty;   // Advanced mode: the file's values are used verbatim.
+            }
+            try {
+                var probe = new Dictionary<string, string>(options, StringComparer.Ordinal);
+                _ = new NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectionOptions(
+                    profileService, new FileOptionsAccessor(probe));
+                var changed = new List<string>();
+                foreach (var kv in options) {
+                    if (probe.TryGetValue(kv.Key, out var after) && !string.Equals(after, kv.Value, StringComparison.Ordinal)) {
+                        changed.Add($"{kv.Key} {kv.Value}→{after}");
+                    }
+                }
+                changed.Sort(StringComparer.Ordinal);
+                return changed;
+            } catch (Exception) {
+                return empty;
+            }
+        }
+
+        private static void WarnIfSimpleModeOverridesTheFile(
+                HarnessSettingsFile loaded, string path, IProfileService profileService) {
+            if (loaded?.Options == null
+                || (loaded.Options.TryGetValue("UseAdvanced", out var ua) && bool.TryParse(ua, out var adv) && adv)) {
+                return;
+            }
+            var overridden = SimpleModePresetOverrides(loaded.Options, profileService);
+            var detail = overridden.Count > 0
+                ? $" Overwritten by the presets: {string.Join(", ", overridden)}."
+                : " (Its recorded values happen to agree with the presets, so nothing changes — but an EDIT to one of them would not take effect.)";
+            Console.Error.WriteLine(
+                "WARNING: " + path + " has UseAdvanced=False, so Simple-mode presets recompute the advanced detector " +
+                "knobs from Simple_NoiseLevel/Simple_PixelScale/Simple_FocusRange and editing them in this file " +
+                "has NO effect." + detail + " Set \"UseAdvanced\": \"True\" to make this file's advanced knobs binding.");
+            Logger.Warning($"Harness settings {path}: UseAdvanced=False; Simple-mode presets override "
+                + $"{overridden.Count} recorded advanced knob(s).");
         }
 
         /// <summary>
