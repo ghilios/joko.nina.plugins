@@ -4,6 +4,8 @@ Plan: [`plans/synthetic-af-bank-followups-wave3-plan.md`](../plans/synthetic-af-
 Wave 2: [`docs/synthetic-af-bank-followups-wave2-results.md`](synthetic-af-bank-followups-wave2-results.md).
 Register: [`docs/followups.md`](followups.md).
 
+> **`D01` numbers on this page predate the [F44](followups.md) catalog fix** and were measured on a spatially truncated field (half the sensor rendered starless). The corrected values are in [`docs/synthetic-af-bank-followups-wave6-results.md`](synthetic-af-bank-followups-wave6-results.md); the conclusions here survive the re-baseline. `D02` was re-checked and its frames are bit-identical, so its numbers stand as written.
+
 *The question: ship F20's real fix (F35), re-score F24 against recall, and measure the objective's dynamic range
 on both banks before anyone proposes a new term for it.*
 
