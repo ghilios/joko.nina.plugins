@@ -298,6 +298,43 @@ public class HocusFocusVMChartReloadTests {
     }
 
     [Test]
+    public void CoreLoadChart_OwnRun_AfterVisitingAForeignRun_StillShowsItsOwnInfoRows() {
+        // FIELD REPORT 2026-08-06: "I just ran an autofocus which showed the before->after position. Then I
+        // switched to an older AF run and back, and it only shows the latest."
+        //
+        // CoreLoadChart_SameRunReload_PreservesLiveInfoFields covers the watcher re-loading the just-written chart
+        // IMMEDIATELY, and passes -- because the live fields are still intact at that point. It does not cover a
+        // ROUND TRIP. Once a foreign chart has been loaded, the live fields have already been overwritten with that
+        // run's values; coming back to this VM's own run then takes the "same run" branch and re-populates nothing,
+        // so whatever the foreign visit left behind stays on screen.
+        var vm = BuildVM();
+        SeedLiveRunState(vm, new[] { 4900, 4950, 5000, 5050, 5100 });
+        var ownTimestamp = new DateTime(2026, 8, 6, 18, 11, 17, 525);
+        vm.MarkReportGenerated(ownTimestamp);
+
+        // The live run's own report is on disk exactly as GenerateReport writes it.
+        WriteReport(ownTimestamp, initialPosition: 5000, initialHfr: 1.79, finalHfr: 1.85);
+        // An older run the user can pick from the chart list. Deliberately given DIFFERENT values, so a stale
+        // reading and a correct one cannot be confused.
+        var foreignTimestamp = new DateTime(2026, 7, 27, 10, 42, 13, 104);
+        WriteReport(foreignTimestamp, initialPosition: 4986, initialHfr: 4.46, finalHfr: 4.47);
+
+        // 1. Switch to the older run.
+        SimulateCoreLoadChart(vm, WellCenteredSweep(), new DataPoint(4986, 4.4), foreignTimestamp);
+        Assert.That(vm.InitialFocuserPosition, Is.EqualTo(4986), "sanity: the foreign visit renders the foreign run");
+
+        // 2. Switch back to the run this VM produced.
+        SimulateCoreLoadChart(vm, WellCenteredSweep(), new DataPoint(5000, 2.0), ownTimestamp);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.InitialFocuserPosition, Is.EqualTo(5000),
+                "returning to this VM's own run must show ITS starting position, not a collapsed row and not the foreign run's");
+            Assert.That(vm.InitialHFR, Is.EqualTo(1.79).Within(1e-9));
+            Assert.That(vm.FinalHFR, Is.EqualTo(1.85).Within(1e-9));
+        });
+    }
+
+    [Test]
     public void CoreLoadChart_FarPoints_ExcludedByFocusWindowAndPrunedFromFitAndDisplay() {
         var vm = BuildVM();
 
