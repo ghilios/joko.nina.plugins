@@ -18,11 +18,11 @@ Results so far: [`docs/synthetic-af-bank-followups-wave7-results.md`](../docs/sy
 | 1 — AF chart starting position | **done** — 4 discriminating tests, 2 guards, both revert-checked |
 | 2 — F19 instrument + decision | **decision DONE (no change)**; `exposureSecondsOverride` shipped; **Arm E NOT run** |
 | 3 — F18 recommender + flags | **done** — 6 discriminating, 3 guards, revert-checked; wired into the wizard and `synth-validate` |
-| 4 — F18 bank-derivation twin | **not started** |
+| 4 — F18 bank-derivation twin | **done** — `DeriveDetectableHalfWidth`, one flag driving both the target and the recommender; the pre-registered instrument check caught a real defect in the rule (see results) |
 | 5 — F39(b) flags | **done** — `golden eval --detection-binning`, `optimize --apply-run-detection-binning`, 4 tests |
 | 6 — F39(b) arms | **arm G1 done and decisive** (see results); **arm G2 + the F38 assertion NOT run** |
-| 7 — dry-run diff + re-render | **not started.** Confirmed unnecessary for F19 and F39(b); still owed for F18 |
-| 8 — F18 σ_focus arms C/D/S | **not started** (flags exist, so this is now a script) |
+| 7 — dry-run diff + re-render | **diff done; re-render NOT NEEDED.** `W_detect*` is NOT OBSERVED on all 20 datasets at their derived exposures, so `step*` is unchanged everywhere. **No dataset in the bank is re-rendered by this wave** |
+| 8 — F18 σ_focus arms C/D/S | **running** — `D:\hf_w7\f18_arms.sh`, scored by `D:\hf_w7\score_f18.py`. Scenario set extended to S3/S6 because the Step-7 diff proved the bound cannot bind at the derived exposures |
 | 9 — write-up | results doc + `followups.md` **done for what has run** |
 | 10 — ship | PR opened |
 

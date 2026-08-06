@@ -150,6 +150,51 @@ spec, mirroring the three existing pins); the arm has not been run.
 
 ---
 
+## F18's analytic twin (Step 4), and the bug the pre-registered instrument check caught
+
+`step*` is the target the bank's A1/A3 assertions walk the recommender toward — and A3 compares against
+`step_behavioral`, the recommender's fixed point on the **noiseless** truth curve, which carries no star counts and
+so cannot observe detectability at all. A recommender bounded by detectability scored against a target that still
+says geometry is right would report the intended change as a regression. So `SynthBankDerivations.DeriveDetectableHalfWidth`
+is the analytic twin, and **one flag drives the rule in both places** (`--step-detect-bound` on `synth-bank` and
+`synth-validate`), leaving arm C bit-identical to `develop`.
+
+### The instrument check fired, and it was right
+
+The design's rule 4 said: *"if arm D's `W_detect` equals the sampled half-span on most datasets, it is reporting
+the sweep's edge rather than detectability, and the arm is void until that is explained."* The first dry-run
+returned `W_detect* = 4 × step*` — the sampled half-span — on **all twenty** datasets.
+
+That was a real defect in the rule as first implemented, not a quirk of the bank. **`W_detect` is bounded above by
+the sampled half-span by construction** — it is the outermost SAMPLED position that cleared `NHard`, so it can
+never report a distance the sweep did not visit. When no frame falls below the floor, returning the sweep's own
+edge turns `min(W_3x, W_detect)` into *"never recommend a sweep wider than the one you just took"* on every healthy
+run. That is a cap on **widening** — a different rule entirely, and one the recommender already has in
+`MaxHalfWidthSampledHalfSpanMultiple = 1.5`.
+
+**Fixed: no starved frame ⇒ NaN ⇒ no bound.** The same "unmeasurable is not zero" principle the too-few-frames
+guard already applied, at the other end. Two new tests, one per side of the rule.
+
+### And the corrected rule says the wave needs no re-render at all
+
+With the fix, `--dry-run` over all 20 datasets reports **NOT OBSERVED on every one**: `step*` is unchanged
+everywhere, so **F18 forces no re-render either.** All three of this wave's items now need none, and F32's
+confirmation arm is untouched by measurement rather than by promise.
+
+The verdict is believable because it is reported with its margin — the edge-frame star count against the floor of 3:
+
+| headroom at the sweep edge | datasets |
+|---|---|
+| **3** (at the floor) | `D16_esprit550_ha3` |
+| 6–13 | `D09`, `D10`, `D13`, `D17`, `D15`, `D08`, `D06`, `D11`, `D12` |
+| 35–2746 | `D14`, `D07`, `D05`, `D03`, `D04`, `D18`, `D19`, `D20`, `D01`, `D02` |
+
+**This is itself a finding about the bank.** The exposure derivation picks an exposure putting `NTarget = 20` stars
+over the gate on the median frame, and on these fields that implies ≥ 3 at the edge. So **the bank at its derived
+exposures cannot exercise F18's defect** — F18's evidence came from a real 3800 mm rig at 14 s whose wings went
+starless, which is not a rig at the bank's derived exposure. The arms therefore have to include the **starved**
+scenarios (S3, exposure ×0.25; S6, step and exposure both ×0.25) or arm D measures nothing by construction.
+
 ## F18 — shipped behind two flags; the arms are wired and owed
 
 `min(W_3x, max(W_detect, floor))`, where `W_detect` is the outermost non-recovery frame that still detected `NHard`
