@@ -99,6 +99,40 @@ The bank's exposures for these seven **were already derived assuming binning 2**
 offsetSteps / exposure). So part (b) does not introduce a configuration — it removes an inconsistency, and the
 frames do not move. That is what took F39(b) out of the shared re-baseline entirely.
 
+### Arm G2 — and it is the largest effect in the wave
+
+`optimize --per-run` on the seven, with and without `--apply-run-detection-binning`, one binary, `--settings`
+pinned. **σ_focus improves at binning 2 on 7 of 7 datasets**, by 17% to 95%:
+
+| dataset | `J` bin1 → **bin2** | σ_focus bin1 → **bin2** | σ improvement | min stars/frame 1 → 2 |
+|---|---|---|---|---|
+| `D17_cdk14_oiii5` | 0.97854 → **0.99518** | 2.64723 → **0.12033** | **+95.5%** | 9 → 11 |
+| `D15_cdk20_3454mm_e47` | 0.99519 → 0.99518 | 0.73796 → **0.05577** | **+92.4%** | 11 → 9 |
+| `D09_c14_3800mm` | 0.99182 → **0.99505** | 2.40151 → **0.20483** | **+91.5%** | 8 → 13 |
+| `D10_rc16_3250mm_sparse` | 0.97880 → **0.99351** | 2.39831 → **0.45592** | **+81.0%** | 8 → 11 |
+| `D12_c14_585_afbin2` | 0.98653 → **0.99631** | 3.88174 → **0.95750** | **+75.3%** | 8 → 10 |
+| `D08_c11_2800mm` | 0.99466 → **0.99685** | 1.06022 → **0.53243** | **+49.8%** | 11 → 25 |
+| `D14_cdk14_2563mm_e47` | 0.99886 → 0.99860 | 0.26950 → **0.22277** | **+17.3%** | 45 → 65 |
+
+`J` improves on 6 of 7 (`D14` is flat at −0.0003). **σ_focus is what autofocus is FOR**, and on `D17` it moves
+from 2.65 focuser steps of uncertainty to 0.12 — a factor of 22.
+
+**What this says about the bank.** Seven datasets have been scored for their whole existence at a detection
+binning their own physics says is wrong, and it cost between a sixth and nineteen twentieths of their focus
+precision. Every prior wave's number on these seven is internally valid (the factor was a uniform 1 across all
+arms, so A/B comparisons hold) but it was measured on a configuration the bank did not intend.
+
+**[F15](followups.md#f15--optimize---per-run-overwrites-each-runs-stored-settings), recorded not discovered.**
+`optimize --per-run` rewrites `optimized_settings.json` into each run folder. The arms were ordered so the
+**status-quo binning-1 arm runs LAST**, so the bank's folders still hold their pre-wave configuration — re-baselining
+seven datasets on the strength of a decision nobody has taken would be exactly the silent drift this rule exists to
+prevent. Verified from the files: `Provenance.CommandLine` in `D08`/`D17` reads `--out D:\hf_w7\g2\bin1\…`
+([F30](followups.md#f30--a-stored-optimized_settingsjson-does-not-say-which-config-produced-it) doing its job).
+
+**The adoption decision is NOT taken here.** The evidence says binning 2 is dramatically better for these seven,
+and acting on it means re-baselining them — which is a wave of its own, with its own before/after, on a bank
+nobody is simultaneously re-rendering. What this wave delivers is the measurement and the flag.
+
 ### What shipped
 
 - `golden eval --detection-binning N` (with the `PixelScale × factor` the detector applies).
@@ -415,7 +449,7 @@ This is the second time this wave that reading a stored number cost a minute and
 
 ## Verification
 
-- Full suite green: **3652** passed, 0 failed (develop was 3635 → **+17**).
+- Full suite green: **3661** passed, 0 failed (develop was 3635 → **+26**).
 - Discriminating counts, each confirmed by neutralizing the change and re-running:
   - **F18: 6 discriminating / 3 guards** — neutralizing `MeasureMaxUsefulHalfSpan` and `ResolvePointsPerSide`
     fails exactly those 6.
@@ -425,6 +459,10 @@ This is the second time this wave that reading a stored number cost a minute and
     over the dataset's derived value, and the fallback test fails if the fallback stops naming itself. The
     no-source default and `ApplyFactor`'s PixelScale carry are **guards** — the latter characterizes product code
     that already existed, and is here because the whole flag depends on it.
+  - **F38's bank population: 3 discriminating / 5 guards.** Reverting the captured-vs-binned division fails the
+    three in-window cases; the out-of-window case and the four real bank HFRs pass either way and are labelled
+    guards. This is the assertion F38's fix has never been able to run, because until wave 7 no harness run had
+    `DetectionBinning > 1`.
 - Per [F37](followups.md#f37--the-ci-test-host-crashes-natively-accessviolationexception-aborting-2000-tests-with-zero-failures),
   a red CI check is checked against the native test-host crash — verify the test COUNT — before being read as a
   regression.

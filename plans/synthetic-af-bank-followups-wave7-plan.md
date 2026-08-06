@@ -16,19 +16,22 @@ Results so far: [`docs/synthetic-af-bank-followups-wave7-results.md`](../docs/sy
 |---|---|
 | 0 — branch + pinned settings | **done** (`D:\hf_w7\pinned_settings.json`; the `UseAdvanced=False` warning reports **0** overridden knobs, so the file is clean) |
 | 1 — AF chart starting position | **done** — 4 discriminating tests, 2 guards, both revert-checked |
-| 2 — F19 instrument + decision | **decision DONE (no change)**; `exposureSecondsOverride` shipped; **Arm E NOT run** |
+| 2 — F19 instrument + decision | **DONE, and the decision was OVERTURNED.** Arm E ran and the pre-registered rule fired: `D02` gains **+44.1% σ_focus at 8×**. F19 is **OPEN** with a sharper diagnosis (the block's TRIGGER, not the statistic) |
 | 3 — F18 recommender + flags | **done** — 6 discriminating, 3 guards, revert-checked; wired into the wizard and `synth-validate` |
 | 4 — F18 bank-derivation twin | **done** — `DeriveDetectableHalfWidth`, one flag driving both the target and the recommender; the pre-registered instrument check caught a real defect in the rule (see results) |
 | 5 — F39(b) flags | **done** — `golden eval --detection-binning`, `optimize --apply-run-detection-binning`, 4 tests |
-| 6 — F39(b) arms | **arm G1 done and decisive** (see results); **arm G2 + the F38 assertion NOT run** |
+| 6 — F39(b) arms | **DONE.** G1: recall up 7/7. **G2: σ_focus up 17–95% on 7/7** — the wave's largest effect. F38 bank assertion added (3 discriminating / 5 guards). Adoption re-baseline deliberately NOT taken |
 | 7 — dry-run diff + re-render | **diff done; re-render NOT NEEDED.** `W_detect*` is NOT OBSERVED on all 20 datasets at their derived exposures, so `step*` is unchanged everywhere. **No dataset in the bank is re-rendered by this wave** |
-| 8 — F18 σ_focus arms C/D/S | **running** — `D:\hf_w7\f18_arms.sh`, scored by `D:\hf_w7\score_f18.py`. Scenario set extended to S3/S6 because the Step-7 diff proved the bound cannot bind at the derived exposures |
-| 9 — write-up | results doc + `followups.md` **done for what has run** |
-| 10 — ship | PR opened |
+| 8 — F18 σ_focus arms C/D/S | **DONE, and the result is a NULL.** Arm D identical to control on 26/28 cells, 0 improved; rule fires vacuously. Arm S rejected (F48). Flag stays **default OFF** |
+| 9 — write-up | **done** — results doc, F18/F19/F39 updated, F46/F47/F48 filed |
+| 10 — ship | PR #183, suite **3661** green |
 
-**Because Step 2 closed F19 as "no change" and Step 6 showed F39(b) needs no re-render, the wave's re-render
-footprint is F18's alone** — and nothing has re-rendered a frame yet, so F32's confirmation arm is still runnable
-against wave 5's φ table exactly as it stands.
+**NO DATASET IN THE BANK WAS RE-RENDERED BY THIS WAVE.** All three items were expected to force one; measurement
+said none did. F32's confirmation arm is therefore runnable against wave 5's φ table exactly as it stands.
+
+**Both pre-registered rules fired, and one fired against this wave.** F19'''s "no change" position was refuted by
+its own arm, and F18'''s acceptance rule passed vacuously. Neither outcome was the expected one, and both are
+reported as they landed.
 
 ---
 

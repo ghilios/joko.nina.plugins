@@ -1609,8 +1609,9 @@ effectively doubling `MinHFR` in captured pixels). `golden eval`'s false-negativ
 separately as [F46](#f46--detection-binning-buys-faint-stars-and-quietly-sells-bright-ones-to-the-shapesize-gates).
 
 ### F39 — The harness records a detection binning the run never applied, and 7 datasets have never run at theirs
-**Status:** Open — part (a) done (wave 6); **part (b) MEASURED (wave 7, and it needed no re-render)**; the
-`optimize` half of part (b) still owed · found 2026-08-04 checking whether the banks differ in binning
+**Status:** Open — part (a) done (wave 6); **part (b) MEASURED IN FULL (wave 7, and it needed no re-render):
+recall up on 7/7 AND σ_focus up 17–95% on 7/7**; the adoption re-baseline is a wave of its own · found 2026-08-04
+checking whether the banks differ in binning
 
 Every `harness_settings.json` in the synthetic bank says `"DetectionBinning": "Bin2"`; every real run says
 `Bin1`. That looks like a systematic difference between the banks that could explain F33 outright. **It is not,
@@ -1701,9 +1702,38 @@ per-run file shadow the `--settings` every arm pins, F42); and
 `synthetic_meta.json` value over the settings file's (`kept-from-base`, part (a)'s field) and **prints which
 source it used**. 4 tests.
 
-**Still owed:** the `optimize --per-run` arm at the new factor (σ_focus / R² / `FinalJ` / landings), and the
-[F38](#f38--the-minhfr-seed-trigger-compares-a-captured-pixel-vertex-against-a-binned-pixel-gate) bank regression
-assertion this finally makes possible — that population has never existed in the bank until now.
+**ARM G2 — `optimize --per-run` with and without the flag. This is the largest effect in wave 7.**
+**σ_focus improves at binning 2 on 7 of 7 datasets, by 17% to 95%:**
+
+| dataset | `J` bin1 → **bin2** | σ_focus bin1 → **bin2** | σ improvement |
+|---|---|---|---|
+| `D17_cdk14_oiii5` | 0.97854 → **0.99518** | 2.64723 → **0.12033** | **+95.5%** |
+| `D15_cdk20_3454mm_e47` | 0.99519 → 0.99518 | 0.73796 → **0.05577** | **+92.4%** |
+| `D09_c14_3800mm` | 0.99182 → **0.99505** | 2.40151 → **0.20483** | **+91.5%** |
+| `D10_rc16_3250mm_sparse` | 0.97880 → **0.99351** | 2.39831 → **0.45592** | **+81.0%** |
+| `D12_c14_585_afbin2` | 0.98653 → **0.99631** | 3.88174 → **0.95750** | **+75.3%** |
+| `D08_c11_2800mm` | 0.99466 → **0.99685** | 1.06022 → **0.53243** | **+49.8%** |
+| `D14_cdk14_2563mm_e47` | 0.99886 → 0.99860 | 0.26950 → **0.22277** | **+17.3%** |
+
+`J` improves on 6 of 7 (`D14` flat at −0.0003). **σ_focus is what autofocus is for**, and on `D17` it goes from
+2.65 focuser steps of uncertainty to 0.12 — a factor of 22. Seven datasets have been scored for their entire
+existence at a factor their own physics says is wrong, and it cost between a sixth and nineteen twentieths of
+their focus precision. Prior waves' numbers on these seven stay internally valid (the factor was a uniform 1
+across every arm) but were measured on a configuration the bank did not intend.
+
+**[F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings) handled deliberately:** the arms were
+ordered so the **status-quo binning-1 arm ran LAST**, so the bank's run folders still hold their pre-wave
+landings. Verified from the files — `Provenance.CommandLine` reads `--out D:\hf_w7\g2\bin1\…`
+([F30](#f30--a-stored-optimized_settingsjson-does-not-say-which-config-produced-it) doing its job). Re-baselining
+seven datasets on a decision nobody has taken is exactly the silent drift that rule exists to prevent.
+
+**The adoption decision is NOT taken here.** Acting on this means re-baselining the seven, which is a wave of its
+own with its own before/after on a bank nobody is simultaneously re-rendering. What wave 7 delivers is the
+measurement and the flag.
+
+**Still owed:** the [F38](#f38--the-minhfr-seed-trigger-compares-a-captured-pixel-vertex-against-a-binned-pixel-gate)
+bank regression assertion this finally makes possible — that population has never existed in the bank until now —
+and the adoption re-baseline above.
 
 ### F40 — The settings handoff shipped in wave 4 had never once been written to disk
 **Status:** Done (wave 5 — backfilled and now exercised) · found 2026-08-05 backfilling it
