@@ -184,6 +184,16 @@ namespace TestApp {
                 return;
             }
 
+            // Settings-handoff backfill: `TestApp bank-export-settings --runs <bank-root> [--apply]`. Converts each
+            // run folder's existing optimized_settings.json into the NINA-importable
+            // hocusfocus_star_detection.json envelope IN PLACE, with no optimizer run — so folders landed before
+            // that handoff shipped become importable without a re-optimize pass, which per F15 would rewrite every
+            // run's stored settings and re-baseline the bank as a side effect.
+            if (args.Length > 0 && args[0].Equals("bank-export-settings", StringComparison.OrdinalIgnoreCase)) {
+                BankExportSettingsRunner.Run(args);
+                return;
+            }
+
             // Synthetic AF-bank generator: `TestApp synth-bank --spec <json> --out <bank-root> ...`. Renders the
             // checked-in dataset matrix (TestApp/SynthBank/synthetic-bank-spec.json) into a fresh on-disk bank via
             // the real simulator, with exact per-star ground truth (docs/synthetic-af-bank-design.md, workstream G).

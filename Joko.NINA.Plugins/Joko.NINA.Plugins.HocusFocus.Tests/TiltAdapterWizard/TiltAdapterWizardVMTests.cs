@@ -1401,21 +1401,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             // reapplied by the tilt replay overlay. A knob present in the DTO but missing from OverlayOptimizedSettings
             // silently leaks the live-profile value on replay — the LocallyAdaptiveBinarization / AdaptiveNoiseBlockSize
             // regression that made a replayed calibration disagree with the run it was captured from.
-            var metadataOnly = new HashSet<string> {
-                nameof(OptimizedStarDetectionSettings.CreatedAtUtc),
-                nameof(OptimizedStarDetectionSettings.RunCount),
-                nameof(OptimizedStarDetectionSettings.BaselineJ),
-                nameof(OptimizedStarDetectionSettings.FinalJ),
-                nameof(OptimizedStarDetectionSettings.RecommendedStepSize),
-                nameof(OptimizedStarDetectionSettings.RecommendedOffsetSteps),
-                nameof(OptimizedStarDetectionSettings.SchemaVersion),
-                // F30 provenance: records WHICH INVOCATION produced the landing. Metadata, not a knob — nothing
-                // applies it to StarDetectorParams, and the replay overlay must not try to.
-                nameof(OptimizedStarDetectionSettings.Provenance),
-            };
+            // The knob/bookkeeping split comes from the DTO itself, NOT from a second copy of the exclusion list
+            // kept here. This test used to own that copy, and it drifted the moment two bookkeeping fields were
+            // added to the DTO (F32's keep floor): they were reported as detector knobs the overlay had failed to
+            // apply. A coverage guard that keeps its own idea of what it is covering guards the wrong set.
+            var curatedNames = new HashSet<string>(OptimizedStarDetectionSettings.CuratedKnobNames);
             var curatedKnobs = typeof(OptimizedStarDetectionSettings)
                 .GetProperties(BindingFlags.Public | BindingFlags.Instance)
-                .Where(p => p.CanRead && p.CanWrite && !metadataOnly.Contains(p.Name))
+                .Where(p => p.CanRead && p.CanWrite && curatedNames.Contains(p.Name))
                 .ToList();
             Assert.That(curatedKnobs, Is.Not.Empty, "Expected OptimizedStarDetectionSettings to expose curated knobs");
 

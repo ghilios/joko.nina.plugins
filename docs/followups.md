@@ -253,6 +253,28 @@ Also measured: with the F23 marginal-SNR term enabled, **D12 S6 converges** (3 r
 shipping does not (4 rounds, final 80, not converged). So the objective fix helps this loop even though it
 fails its own precision gates.
 
+> **The "fails its own precision gates" half is REFUTED, re-scored at `/5` (2026-08-05, wave 5).** This was the
+> single clause [F36](#f36--which-pre-wave-2-entries-actually-rested-on-the-broken-precision-metric-audited-and-it-is-none-of-them)
+> left open across F1–F8/F18/F21/F25/F26. Arm (a)'s landings scored with `golden eval` (which applies the `/5`
+> `TruthProtection` repair), against the control arm `H_A` on the same three datasets — the three arm (a) was
+> recorded as failing the ≥ 0.90 precision gate on:
+>
+> | dataset | control `H_A` | **arm (a)** | arm (a) as recorded at `/3` |
+> |---|---|---|---|
+> | `D09_c14_3800mm` | 0.958 | **1.000** | 0.451 |
+> | `D12_c14_585_afbin2` | 1.000 | **1.000** | 0.653 |
+> | `D15_cdk20_3454mm_e47` | 0.968 | **1.000** | 0.531 |
+>
+> **Arm (a) clears the gate on all three, and beats the control on two of them.** The gate failure was entirely
+> an artifact of the pre-[F31](#f31--synthetic-bank-precision-is-not-exact-the-golden-omits-real-stars-and-they-score-as-false-positives)
+> metric. What the term actually cost is **recall** — 0.983 → 0.932 on D09, 0.942 → 0.900 on D12, 0.965 → 0.917
+> on D15 — the same inversion F31 found: both mechanisms were suppressing *real detections*, not junk.
+>
+> So F26's convergence result stands **and** its caveat does not: the marginal-SNR term helped this loop without
+> failing any precision gate. It remains "won't fix as written" under [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)
+> on F31's grounds — a precision defect one thirtieth the size of the artifact that hid it does not justify a
+> term — and this clause is now closed rather than unverified. Reproduce: `D:\hf_w5\f26\run.sh`.
+
 **Status revision.** The one-round deferral cost is real and worth the guard below; the "indefinitely" in this
 entry's title is not supported by re-measurement and should be read as "for at least one round, unbounded in
 principle".
@@ -372,7 +394,9 @@ now measure exactly the quantity the real one cannot. Related: [F4](#f4--the-obj
 is the same shape of gap (a term the objective omits), and [F11](#f11--precision-is-a-lower-bound-on-runs-whose-faint-tier-was-budget-truncated--re-run-these-with-more-montages) is why this went unseen.
 
 ### F24 — ~~Donut detection costs precision even where donuts exist, and badly where they do not~~ → it costs RECALL where it is not needed
-**Status:** Open, **restated** (2026-08-03, wave 2 — the precision claim is refuted; a recall claim replaces it) · found 2026-08-02 on the synthetic AF bank
+**Status:** Open — **remaining step ANSWERED (wave 5): do NOT neutralize the master's two defaults**; the fix is
+a condition on star size, which routes into [F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains).
+Previously **restated** (2026-08-03, wave 2 — the precision claim is refuted; a recall claim replaces it) · found 2026-08-02 on the synthetic AF bank
 
 Config B (donut-aware detection forced on) reduced precision on **every** dataset where it was
 measurable, including the datasets that genuinely have donuts, and most sharply on the ε=0 control that
@@ -485,6 +509,46 @@ for recall. **This is not a missing knob; it is a saturated objective, measured 
 donut heuristic did not flag, or making the objective pay for recall. Both are behaviour changes, so per
 [F33](#f33--the-synthetic-bank-does-not-reproduce-the-real-banks-optimizer-failure-mode) they must be scored on
 **both** banks. Reproduce: `D:\hf_w3\run_f24_arms.sh` and `run_f24_arms2.sh`.
+
+**ANSWERED 2026-08-05 (wave 5): do NOT default them to neutral. The wave-3 conclusion was drawn from two
+datasets and does not generalize to twenty.** Five arms × all 20 synthetic datasets, `golden eval` at default
+shared params with the master forced on, ~55 min total and **no code change** — the overrides already exist
+(`GoldenEvalRunner.cs:461-479`). Precision is **1.000 on every arm and every dataset**.
+
+**First, wave 3 reproduces exactly.** D16 masterOFF 0.821 → shipping 0.793, and `boost0` restores 0.821; D04
+0.762 → 0.723, and `close1` restores 0.758. Neutralizing **both** recovers master-OFF recall on **19 of 20**
+datasets (D07 exceeds it). The mechanism claim is confirmed, and now on the whole bank.
+
+**But the master's two mechanisms are not a uniform cost — they are a rig-dependent trade:**
+
+| direction | datasets | Δrecall (masterOFF − shipping) |
+|---|---|---|
+| master **HURTS** recall | 12 — D01–D05, D07, D10, D13, D16, D18, D19, D20 | +0.007 … **+0.067** |
+| master **HELPS** recall | **3 — D06, D09, D14** | −0.005 … **−0.067** |
+| no effect | 5 — D08, D11, D12, D15, D17 | 0.000 |
+
+On all three of the datasets where it helps, `boost0` gives the gain back **exactly** (boost0 = masterOFF to
+3 dp), so **the +2 structure boost is what buys it** and the morph-close is inert there. And the three are
+`D06_sparse_1000mm`, `D09_c14_3800mm`, `D14_cdk14_2563mm_e47` — long focal length and sparse, i.e. **large
+defocused stars**, which is precisely what a coarser wavelet residual exists to preserve. The story is coherent
+in both directions: the boost saves big defocused stars from the subtraction and erases small-star structure, so
+it helps where stars are large and hurts where they are small and well sampled.
+
+**So the pre-registered criterion FAILS** (recall Δ ≥ −0.005 on *every* dataset): both-neutral costs
+**−0.067 on D09**, −0.024 on D06 and −0.005 on D14. A blanket default change takes recall away from exactly the
+rigs the feature was built for.
+
+**What the fix actually is.** Not a default — a *condition*. The knob wants to depend on star size, and the
+optimizer can already reach it (`DefocusAwareStructure` is a curated axis, and flipping it on makes
+`StructureLayerBoost` settable, so `DefocusAwareStructure=true, boost=0` is a reachable neutral point). It never
+goes there because `J` does not pay for recall — which is [F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains),
+and F32's constraint is the general form of this fix.
+
+**Note the keep floor does NOT dissolve this.** The seed has the master OFF, and the master's own cost is
+≤ 0.067 of recall — a candidate flipping it on stays feasible at any floor ≤ 0.9. F32 bounds catastrophic
+shedding; it does not price a 4% one. The two entries are independent.
+
+Reproduce: `D:\hf_w5\f24_arms.sh`, analysed by `D:\hf_w5\analyze_f24.py`.
 
 ### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
 **Status:** Open · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
@@ -1004,7 +1068,9 @@ fail in two directions — biased, then saturated — which is why `precisionNul
 precision figure rather than being something a reader has to think to ask for.
 
 ### F32 — `J` is saturated near 1.0, so the optimizer trades enormous recall for numerically trivial gains
-**Status:** Open · found 2026-08-03 re-reading the wave-1 real-bank control arm
+**Status:** Open — **mechanism shipped default OFF (wave 5)**; adoption pending the confirmation arm. The
+entry's own premise is corrected below: on 5 of 7 binding runs there was no trade to bound, the search was
+merely stuck · found 2026-08-03 re-reading the wave-1 real-bank control arm
 
 The objective's landings are not close calls. Across the 17 scorable real-bank runs, `optimize --per-run` gives
 up a **median 0.243 of recall@SNR≥12** to gain a **median ΔJ of +0.0125** — and the worst cases are far starker
@@ -1065,6 +1131,53 @@ Three things follow, and the third is the one that changes the plan:
 
 Reproduce: `D:\hf_w3\f32_dynrange.py` (reads `hf_w2/verify_v5`, `hf_f23/verify_real_H`, and the `H_A` / `B_A`
 / `H_real_A` landings; no detector run).
+
+**SHIPPED 2026-08-05 (wave 5) as an acceptance constraint — and the arms overturn this entry's own framing.**
+`OptimizerSettings.MinDetectionKeepFraction` rejects a candidate keeping less than φ of the SEED's accepted stars
+(min over runs) **ahead of** the `j > bestJ` compare at all three accept sites. `J` is never multiplied or
+re-anchored, so landings stay comparable to every prior arm. Default null; **inertness measured against the
+parent commit with settings pinned: bit-identical**. Multi-pass callers pin round 0's seed totals (at φ=0.5,
+three `--continue-rounds` would otherwise reach 0.125 of where the user started).
+
+**32 optimizations, φ ∈ {0.30, 0.50, 0.75} + a feature-OFF control, one binary, `--settings` pinned
+([F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)).
+`BaselineJ` identical across all four arms of every run ([F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)'s
+tell), so the comparison is valid.**
+
+**The headline is not what this entry predicted: on most binding runs the constraint IMPROVES `J` while keeping
+2–4× more stars.** At φ = 0.75, **5 of 7** binding runs land at a higher `J` than the unconstrained search found:
+
+| run | keep off → φ=0.75 | Δ`J` | σ_focus vs unconstrained |
+|---|---|---|---|
+| `CWhiteFocus` | 0.429 → **1.819** | **+0.00139** | **0.156×** |
+| `uneven` | 0.353 → 0.937 | +0.00165 | 0.785× |
+| `D19_cygnus_deep_shed` | 0.600 → 1.276 | +0.00024 | 0.364× |
+| `toml999` | 0.397 → **1.163** | +0.00054 | 0.959× |
+| `D18_m24_deep_shed` | 0.511 → **1.819** | +0.00009 | 1.337× |
+| `muggsie` | 0.612 → 0.805 | −0.00234 | 1.676× |
+| `mccomiskey` | 0.095 → 0.771 | −0.03097 | 2.812× |
+
+**A constrained maximum cannot exceed an unconstrained GLOBAL maximum**, so this proves the unconstrained search
+**was not finding the global optimum**. The shedding corner is substantially a **greedy trap**, not the rational
+purchase this entry and wave 4 concluded it was — the mechanism `RevertNeutralAxes` already documents, one level
+up: Phase A grids Sensitivity × StarClip with Sensitivity as the OUTER loop, the winning StarClip is discovered
+in a shedding row, and strict `j > bestJ` freezes it there. **"It is genuinely buying a much better fit with the
+stars it discards" is true relative to the baseline and false as a claim about the best available trade.**
+
+**Inertness measured 12 times, 9 bit-identical** — D20 at all three floors, D19 and muggsie at two each, toml999
+and uneven at φ=0.30. The 3 that changed are the pre-registered caveat (a landing can be feasible while a
+candidate *visited on the way* was not); two changed for the better, one by −0.0001 of `J`.
+
+**Exact recall on the synthetic arms: precision 1.000 and FP 0 at every floor** — every star won back is real.
+D18 recall@high 0.607 → **0.945** at φ=0.50; D19 0.968 → 0.984 with **2×** the detections at φ=0.75; **D20
+identical to the last detection at all four arms**. Note φ=0.75 **overshoots on D18** — its effective gate
+collapses to 0.234, the Sensitivity-floor pathology reached from the other side.
+
+**Recommended floor: φ = 0.50**, by the rule fixed in advance (*the smallest φ meeting the criteria*). φ=0.30
+does not address the defect (only `mccomiskey` binds, and it pays). **Adoption still needs the confirmation arm**
+— both full banks plus `bank-verify` for real-bank recall, since the efficacy criterion could only be evaluated
+by keep-% proxy here. Ships default OFF until then. Reproduce: `D:\hf_w5\f32_arms.sh`,
+`D:\hf_w5\scorecard.py`, `D:\hf_w5\score_f32_synth.sh`.
 
 ### F33 — ~~The synthetic bank does not reproduce the real bank's optimizer failure mode~~ → it does now
 **Status:** Done (part 1 wave 3, part 2 wave 4) · found 2026-08-03 re-reading the wave-1 arms side by side
@@ -1261,6 +1374,316 @@ derived-looking value that was not derived — either omit the field or mark it 
 itself, not only in `DerivedNotes`. (b) Decide whether the seven `detectionBinning = 2` datasets should be run at
 their expected factor, which is a re-baseline and needs its own arm.
 
+### F40 — The settings handoff shipped in wave 4 had never once been written to disk
+**Status:** Done (wave 5 — backfilled and now exercised) · found 2026-08-05 backfilling it
+
+Wave 4 shipped `hocusfocus_star_detection.json`, the `StarDetectionSettingsExport` envelope that makes a bank
+landing importable by the NINA UI. A filesystem scan of `D:\` and the user profile before the wave-5 backfill
+found **zero files of that name anywhere**.
+
+**It is not a bug in the writer.** `WriteSettingsHandoff` is called from the one `WriteOptimizedSettings` site
+with a non-null `baseOptions`, and the format has unit coverage (`OptimizedLandingExportTests`). The cause is
+ordering: wave 4's own arms — including the `optA` acceptance run on D18/D19/D20 — ran **before** the handoff was
+committed, and no `optimize` pass has run since. Wave 4's write-up says as much in its last line ("the envelope
+appears on the next `optimize` pass over a run"), which is correct and reads much weaker than the headline
+"**Shipped.** Every landing is now stored in a form the app can import and replay with".
+
+**Why it matters, and it generalizes past this file.** A feature can be written, unit-tested, merged, and
+described as shipped while never having *executed* in the environment it exists for. Unit tests prove the mapping;
+they do not prove a file arrives on disk. The distance between "the code that writes it is correct" and "it has
+been written" is exactly one arm that nobody ran.
+
+**Fixed (wave 5):** `TestApp bank-export-settings --runs <bank-root> [--apply]` converts each folder's existing
+`optimized_settings.json` in place, with no optimizer run — so F15 is never touched. **42 landings backfilled
+(20 synthetic + 22 real), 0 failed**, every one round-trip verified through `DiffKnobs` *before* being written.
+That backfill is the format's first end-to-end exercise outside unit tests.
+
+### F41 — A prior wave's control arm is not a control for a later wave's binary
+**Status:** Open (recorded as a standing rule) · found 2026-08-05, twelve minutes into the first wave-5 arm
+
+Wave 5's C0 acceptance criterion was "the feature-OFF landing must be bit-identical to `hf_f23/H_real_A`", the
+wave-1 control arm. On `toml999` it failed across nine knobs — Sensitivity 33.3 → 16.7, StarClip 3.5 → 6.875,
+MaxDistortion 0.10 → 0.45 — which reads as a serious regression in the change under test.
+
+**It is not one, and the same output says so.** `BaselineJ` also differs, **0.99784 → 0.98348**. `BaselineJ` is
+the *current settings*' score: no search is involved in producing it, so a search-side change cannot move it. A
+changed `BaselineJ` can only mean the objective or the detector changed — and between wave 1 and wave 5 they
+changed at least five times (`5115885` marginal-SNR default, `c2db33e` inert-gate fix, `7b5a695` effective gate,
+`238623d` MinHFR seeding/reporting, plus PR #174's bimodal HFR).
+
+**The rule.** An arm directory records what a *particular binary* landed. It is a valid baseline only for
+comparisons against **that same binary**. For "is my change inert", build the **immediate parent commit**; for
+"what did my change do", use **this binary's own feature-OFF arm**. Reusing an older wave's arm silently measures
+every intervening merge and attributes it to the change under test.
+
+**The tell is free and worth checking first.** `BaselineJ` (and any other search-independent quantity) should be
+identical between two arms of the *same* binary. If it is not, the binaries differ and no knob comparison between
+them means anything — check that single number before reading a diff as a regression.
+
+### F42 — Every build directory silently gets its OWN detector settings, and the run instructions require a new one per arm
+**Status:** Open · found 2026-08-05 chasing a `BaselineJ` gap that turned out not to be the code under test
+
+`HarnessSettingsStore.DefaultPath()` is `Path.Combine(AppContext.BaseDirectory, "harness_settings.json")` — the
+file sits **next to the exe** — and `ResolveAt` **bootstraps one from the live NINA profile** when it is absent.
+Meanwhile the AF-bank run instructions say to build each arm to a separate `-o` directory, because the exe is
+file-locked while a run is in progress.
+
+Those two facts compose into a silent confound: **every new build directory bootstraps a fresh settings file from
+whatever the profile happens to hold at that moment**, so two arms built minutes apart can run different
+detectors. Measured across three wave-5 build dirs:
+
+| option | `exe2` | `exe_base` |
+|---|---|---|
+| `LocallyAdaptiveBinarization` | True | **False** |
+| `ModelPSF` | True | **False** |
+| `UseOptimizedSettings` | False | **True** |
+| `DetectionDebugMode` | False | **True** |
+| `PixelSizeMicrons` / `FocalLengthMm` | 3.8 / **NaN** | 3.76 / 688.0 |
+
+`UseOptimizedSettings = True` alone changes what `BuildStarDetectorParams` returns for the BASELINE — the "before"
+every improvement is measured against. `LocallyAdaptiveBinarization` changes candidate formation outright. Each
+bootstrap also stamps a differently-named profile snapshot (`Default-2026-08-05T10:54:36`), which is the visible
+tell in the run's own log: *"Settings: … (exported … from profile 'Default-…')"*.
+
+**The irony is the point.** This store exists precisely to stop profile state leaking into runs — its own comment
+says "a profile-sourced seed is mutable machine state nothing records, and `TryLoad("")` picks whichever profile
+is ACTIVE — two runs of the same data minutes apart were seeded from different telescopes." The *bootstrap* path
+reintroduces exactly that, and the build-to-a-separate-directory workflow guarantees it fires.
+
+**What it does and does not invalidate.** An arm set run from ONE build directory is internally valid — every arm
+shares the file, so a flag remains the only difference (this is true of wave 5's own F32 and F24 arms). What is
+invalid is any comparison ACROSS build directories, which is every cross-wave and every
+before/after-a-code-change comparison — the ones [F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)
+is about. The two findings are the same hazard from two directions.
+
+**Next step.** Pass `--settings <one fixed path>` on every arm, and make the bootstrap loud: print a WARNING when
+a settings file is created rather than loaded, since that is the moment an arm silently stops being comparable to
+its predecessor. Consider defaulting the path to a fixed per-user location rather than `AppContext.BaseDirectory`,
+so a new build directory inherits instead of bootstrapping.
+
+### F43 — The optimizer wizard refuses to start unless the DEFAULT settings already produce a usable curve
+**Status:** **Done (wave 5)** for the Live path; the replay case is left open below · found 2026-08-05 from a
+user report on a 40 mm rig
+
+`SeedFitIsUsableAsync` (`StarDetectionOptimizerWizardVM.cs:2869`, called at `:2541`) evaluates the **default seed
+params** once and refuses to optimize unless some run yields a finite σ(focus) over ≥ 3 positions. On a Live
+sweep it retries exactly one way — widening the focus-recovery exemption to drop starless *outermost* positions —
+and then errors out with *"The captured sweep does not produce a usable focus curve at the default detection
+settings."*
+
+**This is circular.** The tool exists to find settings that build a usable curve, and it declines to run unless
+the settings it has not optimized yet already build one. The guard tests **one point** in a search space the
+optimizer is free to explore; `MinHFR` alone spans [0.1, 5.0] against a default of 1.2.
+
+**Measured on `D01_ultrawide_40mm`** — the bank's own 40 mm rig, `golden eval --params default`, per-frame
+accepted stars across the sweep:
+
+| focuser | 5964 | 5973 | 5982 | 5991 | **6000 (focus)** | 6009 | 6018 | 6027 | 6036 |
+|---|---|---|---|---|---|---|---|---|---|
+| `MinHFR = 1.2` (default) | 816 | 1670 | 1773 | 11 | **0** | 5 | 1748 | 1672 | 815 |
+| `MinHFR = 0.30` (F35 floor) | 816 | 1670 | 2463 | 204 | **5** | 187 | 2469 | 1672 | 815 |
+| `MinHFR = 0.10` (search floor) | 816 | 1670 | 2463 | 208 | **6** | 190 | 2469 | 1672 | 815 |
+
+The wings detect thousands of stars; the **core of the curve is empty**. That is F20's signature — rejections
+concentrated on the INNER frames — and at 40 mm it is expected: in-focus stars are ~1 px, so the `MinHFR` gate
+removes precisely the frames the vertex is fitted from.
+
+**And `MinHFR` is the ONLY axis that rescues it.** `MinimumStarBoundingBoxSize` 5 → 3 changes nothing (still 0 at
+focus); `StructureLayers` 4 → 2 makes it strictly worse (0 at *both* central positions). So the single knob that
+un-blocks this rig class is the one the guard's refusal prevents the search from ever touching.
+
+**Why [F35](#f35--minhfr-should-be-seeded-from-the-sweep-wings-and-neither-available-hfr-statistic-can-size-it)
+does not already cover this.** F35's `MinHfrSeed` is applied inside `OptimizeAsync` (`:3076`) — **after** this
+guard — and its trigger is `BestFit.Minimum.Y <= MinHFR`, i.e. it needs a **fitted vertex**. When the gate has
+destroyed the fit there is no vertex, `seedFitVertexHfr` is NaN, and the rule correctly declines. So F35 rescues
+"the vertex sits under the gate" (D01/D02 headless, which still fit) and **not** "the gate destroyed the fit",
+which is the strictly worse case and the one users hit.
+
+**The error message's own advice is unreachable too.** It suggests "the recommended detection binning" — but that
+recommendation is derived from a fitted in-focus HFR ([F39](#f39--the-harness-records-a-detection-binning-the-run-never-applied-and-7-datasets-have-never-run-at-theirs)),
+which does not exist for exactly these runs. The remedy offered requires the thing whose absence caused the
+error.
+
+**FIXED 2026-08-05 (wave 5).** Before refusing, `TryRescueWithLowerMinHfrAsync` probes a **lowered gate** —
+`MinHfrSeed.SeedFloor`, then the curated variable's own `Lower` bound, least-aggressive first. The ladder is read
+from `OptimizerVariable.CreateCuratedSet` rather than written as constants, so the guard can never admit a rig on
+a gate the search is not allowed to reach, nor refuse one it could have rescued because a constant drifted. If a
+probe makes the curve fittable, the run proceeds **and the rescued gate becomes the seed** via the existing
+`OptimizerSettings.MinHfrSeedFloor` — F35's mechanism, triggered by *feasibility* instead of by a vertex.
+`OptimizeAsync` takes the **lower** of the two floors, since both only ever lower the gate and either may be
+absent.
+
+The rescue is **not silent**: `MinHfrRescueNotice` tells the user which gate failed and what it was lowered to,
+because the wizard is then reporting results from a gate they did not choose — and on a short focal length that
+is the setting they most need to know about.
+
+Three things the fix deliberately does **not** do. It does not relax the bar to "the counts look healthy": the
+probe asks only whether a curve is *determinable*, because the rescue is genuinely thin on the rigs it exists for
+(6 stars on D01's in-focus frame against `NHard = 3`) and any richer bar re-rejects exactly that population —
+raising the counts from there is the search's job. It does not mutate the caller's seed (probes run on a clone;
+callers reuse one `StarDetectorParams`, and an in-place write is the wave-3 seed leak). And it does not remove
+the refusal: a sweep no probed gate can fit is still refused, which is what the guard was written for.
+
+**LIVE only, and the replay case is left open on purpose.** Replay gates on the user's CURRENT settings because a
+saved run exists only because those settings could already focus — a decision locked by
+`SeedGuard_ReplayMode_GatesOnBaseline`, which caught a first version of this fix that extended the probe to both
+modes. Probing the seed there would quietly convert replay into a seed-gated path. **Open question:** whether a
+saved run whose current settings cannot fit deserves the same rescue. The circularity argument applies equally;
+the counter-argument is that such a run should not have been captured. Not changed as a side effect of this one.
+
+**EXTENDED 2026-08-05, same session, after the reporter tried it and it STILL failed.** The first fix was right
+about the circularity and wrong about the bar. Lowering `MinHFR` made the reporter's curve **fittable** but not
+**scorable**: frames still fell under the objective's `NHard` floor, so `J` was identically 0 and the search had
+no gradient. Handing the search that seed is indistinguishable, to the user, from refusing outright — the wizard
+appears to run and produces nothing.
+
+**Measured on the reporter's own 61 MP sweep** (`FOCALLEN 40.0`, `XPIXSZ 3.76` → **19.4 arcsec/px**, 4 s, gain
+100, step 250, `FOCPOS 25000` = true focus). Accepted stars per position:
+
+| seed | 23750 | 24000 | 24250 | 24500 | 24750 | **25000** | 25250 | 25500 | 25750 | 26000 | 26250 | min | `J` |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| defaults (`MinHFR` 1.2) | 0 | 2 | 2 | 6 | 103 | **0** | 95 | 3 | 1 | 2 | 0 | 0 | **0** |
+| `MinHFR` 0.3 (first fix) | 0 | 2 | 2 | 6 | 103 | **14** | 95 | 3 | 1 | 2 | 0 | 0 | **0** |
+| + `Sensitivity` → 0 | — | — | — | — | — | — | — | — | — | — | — | 0 | **0** |
+| + `NoiseClippingMultiplier` → 1.0 | — | — | — | — | — | — | — | — | — | — | — | **3511** | **0.2477** |
+
+(The last two rows are reported by their minimum because the point is the `NHard` floor, which is what `J`
+turns on; the per-position detail is in `D:\hf_w5\user40mm\*/optimize_summary.txt`.)
+
+Two things that only measurement would have given: **`MinHFR` is real but not sufficient** (0 → 14 stars at
+focus, still unscorable), and **the binding gate is `NoiseClippingMultiplier`, not `Sensitivity`** — relaxing the
+acceptance gate alone leaves `J` at 0. From the `MinHFR`-only seed, **80 evaluations could not move `J` off 0**;
+from the relaxed seed the optimizer converged immediately (`J` 0.246 → 0.262, min 43 stars).
+
+**So the rescue now walks a LADDER and its bar is SCORABLE, not merely fittable:** `MinHFR` → `SeedFloor`, then
+its search-space lower bound, then `+ Sensitivity` lower, then `+ NoiseClippingMultiplier` lower — least
+aggressive first, every bound read from `OptimizerVariable.CreateCuratedSet` so the guard can never seed the
+search outside what it may reach. Acceptance is `JTotal > 0`, computed with the wizard's own
+`objectiveConstants`, so "the search has something to climb" is decided by the SAME number the search maximizes.
+The winning configuration becomes the fresh pass's **seed**.
+
+**Two false trails worth recording, both killed by checking the instrument rather than the theory.** D01, the
+bank's own 40 mm dataset, looked like the obvious proxy and is not one: its sweep never reaches the 30 px
+candidate size where the defocus-aware distortion relaxation engages, so `--defocus-gates` is **bit-identical**
+there while the reporter's frames are far more defocused. And four probe runs returned **identical** star counts
+across four supposedly different configurations — the profile had `UseAdvanced = False`, so Simple mode was
+ignoring every knob being set. Identical results across different inputs is the tell that the instrument, not
+the subject, is the thing being measured.
+
+**Still open for this rig class.** The bank has no dataset resembling it (40 mm at heavy defocus, signal-starved
+short exposure): D01 is 40 mm but nowhere near that defocus, so nothing regression-tests this population. And the
+step size is its own problem — at 250 the usable band is about one step wide (103 stars at 24750, **0** at 25000,
+95 at 25250), which is [F18](#f18--step-size-is-sized-by-curve-geometry-alone-so-the-sweep-outruns-what-the-detector-can-see).
+
+Tests: 5, of which **3 fail** when the fix is removed (2 for the probe, 1 for the scorable bar); the other two are
+labelled guards (inertness on a healthy sweep, and the floor-combination helper).
+
+### F44 — The synthetic camera queries the catalog for at most ONE CELL, so a wide field is rendered starless outside a small central patch
+**Status:** **Code FIXED (wave 5)**; `D01`/`D02` still marked **SUSPECT** and awaiting re-baseline next wave ·
+found 2026-08-05 from a user report: "why is only a portion of the sensor getting rendered with stars?"
+
+`StarFieldCompositor` computes the field correctly — `DiagonalFovDegrees × 1.05` — and hands it to
+`AstapCatalogReader.Query`, which calls `AstapCellGeometry.FindAreas`. That method does two things which are
+right for ASTAP and wrong for a renderer:
+
+1. **It clamps the field**: `var fov = Math.Min(fovRadians, MaxFovRadians(partitioning))`, where `MaxFovRadians`
+   is **5.142857°** (1476-cell) or **9.53°** (290-cell) — i.e. exactly one cell width.
+2. **It then samples only the FOUR CORNERS** of that clamped box and returns the ≤4 cells they fall in. Its own
+   summary says so: *"the 1–4 cells whose union covers the square field of view"*.
+
+Both are a faithful port of ASTAP's `find_areas` (the doc comment says "reference behavior"), and both are
+correct **for plate-solving**, where fields are a few degrees and 4 corner cells genuinely cover them. They are
+not correct for rendering a wide field.
+
+**Measured on the reporting rig** (9576 × 6388 at 3.76 µm, `FOCALLEN 40.0`):
+
+| quantity | value |
+|---|---|
+| frame | **48.5° × 33.4°** |
+| diagonal FOV the compositor requests | **59.67°** |
+| what `FindAreas` clamps it to | **5.142857°** |
+| clamp factor | **11.6×** |
+| union of the ≤4 selected cells | at most ~10.3° × 10.3° |
+
+So the catalog is queried over roughly a 10° patch of a 48.5° × 33.4° frame, and everything outside it renders
+**starless** — which is exactly the bounded rectangle of stars the reporter saw, sitting in an otherwise empty
+(noise-only) sensor.
+
+**Why nothing caught it.** The compositor warns only when the query returns **no** stars
+(`StarFieldCompositor.cs:303`); a partially-covered field returns plenty, so no warning fires and the frame looks
+plausible. **The bank does exercise it — on two rows — and nothing checked.** `D01_ultrawide_40mm`'s own spec
+description even names the hazard: *"capped at mag<=10.5 so the ~39deg diagonal FOV catalog query (design risk
+R5) stays tractable"*. R5 was recorded as a **tractability** risk (too many stars); the actual failure was the
+opposite — the query silently returns too few, over too small a patch.
+
+### Affected bank datasets — SUSPECT, refresh required
+
+Diagonal FOV × 1.05 against the cap, computed over all 20 rows (sensor dimensions from `SensorRegistry`,
+binning applied). The verdict is the same under either partitioning (5.14° or 9.53°):
+
+| dataset | sensor | FL | diagonal FOV | requested | × over the 5.14° cap | status |
+|---|---|---|---|---|---|---|
+| **`D01_ultrawide_40mm`** | IMX571 | 40 mm | **38.91°** | 40.85° | **7.9×** | **SUSPECT — refresh** |
+| **`D02_rich_135mm`** | IMX571 | 135 mm | **11.95°** | 12.55° | **2.4×** | **SUSPECT — refresh** |
+| `D03_redcat_250mm` (next widest) | IMX533 | 250 mm | 3.66° | 3.85° | 0.7× | ok |
+| the remaining 17 | — | ≥ 250 mm | ≤ 2.94° | ≤ 3.09° | ≤ 0.6× | ok |
+
+**Only D01 and D02 are affected**, and both must be **re-rendered in the next wave** once the query is fixed.
+Everything from D03 down sits comfortably inside one cell and is unaffected.
+
+**What this does and does not invalidate on those two rows.** The stars that ARE rendered are rendered correctly
+— right PSF, right defocus, right photometry — so results about **gate thresholds and HFR-versus-focus behaviour**
+survive. What does not survive is anything reading **counts, recall, precision, or position**: the field is
+spatially truncated, so star totals are low by an unknown factor and the surviving stars occupy one patch of the
+sensor.
+
+Specifically at risk, and to be re-checked after the refresh:
+
+- **[F35](#f35--minhfr-should-be-seeded-from-the-sweep-wings-and-neither-available-hfr-statistic-can-size-it)'s
+  headline validation rests on exactly these two rows** — "D01 and D02 go from `FinalJ` exactly 0 to a real
+  landing". The *mechanism* (the `MinHFR` gate zeroing an undersampled rig's fit, and seeding rescuing it) is a
+  threshold result and should hold; the `FinalJ` values and star counts are measured on a truncated field.
+- **[F43](#f43--the-optimizer-wizard-refuses-to-start-unless-the-default-settings-already-produce-a-usable-curve)**
+  cites D01's per-frame counts (0 stars at focus, ~1700 in the wings). Its conclusion was independently confirmed
+  on the reporter's own real 40 mm frames, so it stands, but the D01 figures are indicative rather than exact.
+- The **wave-5 [F24](#f24--donut-detection-costs-precision-even-where-donuts-exist-and-badly-where-they-do-not--it-costs-recall-where-it-is-not-needed)
+  arms** covered all 20 datasets; the D01 and D02 rows of that table are suspect. The verdict is unaffected — it
+  turned on D06/D09/D14, none of which are.
+- Any **sensor-model, tilt, or region-based** result derived from D01/D02, since those read star *position*.
+
+**Consequences beyond the missing stars.** The rendered field is not just sparse but *spatially truncated*, so
+anything that reads position — the aberration inspector's sensor model, tilt calibration, region-based AF, the
+golden-set geometry — sees a synthetic frame whose stars occupy one corner-ish patch of the sensor. Any result
+derived from a wide-field simulator frame is suspect until this is fixed.
+
+**FIXED 2026-08-05 (wave 5).** `AstapCellGeometry.FindAreasCovering` enumerates **every** cell intersecting a
+cone of the requested radius, walking the band table directly: per dec band, the RA half-span comes from the
+spherical law of cosines evaluated at both band edges and at the cone centre, padded by one whole cell each side.
+`AstapCatalogReader.Query` uses it **only when the field exceeds the cap** — below it the two agree by
+construction (a box at most one cell across touches at most four cells, and its corners hit all four), so every
+existing narrow-field result stays bit-identical and `FindAreas` remains an untouched, honest ASTAP port.
+
+**Measured on `D01_ultrawide_40mm`, re-rendered:**
+
+| | truth stars on frame | x extent | y extent | sensor grid occupancy |
+|---|---|---|---|---|
+| before | 8107 | 431 – 5921 | **741 – 2965** | **125/256 (49%)** |
+| after | **19212** | −1 – 6249 | **0 – 4176** | **256/256 (100%)** |
+
+Half the sensor was empty; it now fills edge to edge with 2.4× the stars.
+
+Tests: an independent brute-force oracle (dense sphere sampling, no shared code with the routine under test)
+asserts no cell inside the cone goes unqueried, across six pointings including RA-wrap and both poles, on both
+partitionings; plus whole-sky, filename-encoding and supersets-the-reference checks. A `touchesPole` fast path
+was written, measured against those tests, found to change nothing (`MaxRaHalfSpan` already returns π there) and
+**removed** rather than left as an untested branch.
+
+**Still outstanding: the two suspect rows have NOT been re-baselined.** `D01`/`D02` must be re-rendered and every
+number derived from them re-measured in the next wave — the re-render above went to a scratch directory purely to
+verify the fix, deliberately **not** into the bank, since re-baselining mid-wave is what
+[F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings) and wave 3 warn against. The `suspect`
+marker stays in the spec until that happens, and `synth-bank` prints it on every run that selects those rows.
+
 ### F35 — `MinHFR` should be seeded from the sweep WINGS, and neither available HFR statistic can size it
 **Status:** Done (wave 3) · found 2026-08-03 answering "how far can `MinHFR` safely come down?" for
 [F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic)
@@ -1451,12 +1874,19 @@ F26 rests on σ_focus, recall, R², or landed parameter values — and `recallHi
 | F5, F6, F18, F21, F25 | σ_focus, R², curve geometry | unaffected |
 | F7 | σ_focus, and recall "essentially unchanged" | unaffected |
 | F8 | landed Sensitivity/StarClip corners | unaffected — but see below |
-| F26 | binning/convergence, **plus one precision clause** | one clause unverified |
+| F26 | binning/convergence, **plus one precision clause** | ~~one clause unverified~~ → **verified and REFUTED at `/5` (wave 5)** |
 
 **The one genuinely unverified clause.** F26 states that with the F23 marginal-SNR term enabled "D12 S6 converges
 … even though it **fails its own precision gates**." Those gates were the wave-1 `/3` ones, and F23's real
 precision effect turned out to be roughly one fifth of the artifact that hid it. The convergence result stands;
 the "fails its precision gates" half is not evidence until re-scored at `/5`.
+
+> **Closed 2026-08-05 (wave 5): re-scored, and the clause is REFUTED.** Arm (a) scores precision **1.000** on all
+> three datasets it was recorded as failing the ≥ 0.90 gate on (D09, D12, D15), beating the control on two. The
+> full table and what it cost instead (recall) are in [F26](#f26--a-stuck-binning-recommendation-starves-the-step-update-indefinitely).
+> **This audit's own verdict is unchanged** — no entry's conclusion depended on the repaired metric — and the one
+> exposure it identified has now been measured rather than left as a caveat. Cost: six `golden eval` arms, four
+> minutes.
 
 **Two entries are changed by [F33](#f33--the-synthetic-bank-does-not-reproduce-the-real-banks-optimizer-failure-mode)'s
 effective-gate correction instead — a different repair than the one being audited for.**

@@ -54,6 +54,74 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <c>synth-validate</c> and <c>tilt</c>, neither of which fits a curve before optimizing.</para>
         /// </summary>
         public double? MinHfrSeedFloor { get; set; }
+
+        /// <summary>
+        /// F32 — the smallest fraction of the SEED's accepted-star count a candidate may keep and still be
+        /// eligible to win. Null (the default) leaves every caller bit-identical.
+        ///
+        /// <para><b>Why this is a constraint and not a term.</b> The optimizer is not mis-scoring: on the real
+        /// bank σ_focus improves on 10 of 10 star-shedding runs (median ratio 0.320) and R² on 9 of 10 — it is
+        /// genuinely buying a better fit with the stars it discards. What is missing is a bound on the PRICE.
+        /// Measured, the trade is 5.7:1 by construction: <see cref="OptimizationObjective.SStars"/> hard-clamps
+        /// at nMin ≥ 8 / nMedian ≥ 20 (a starvation detector, not a star-count reward), so the only unsaturating
+        /// star term is the tie-breaker's 0.6·nMean/(nMean+20) at Wtie = 0.02 — worth at most 0.012 of J across
+        /// the entire range from zero stars to infinite stars, while a 10% σ tightening buys +0.0037. Halving
+        /// 300 stars to 150 costs 0.00066. Real landings gave up a median 0.243 of recall for a median ΔJ of
+        /// +0.0125; `toml999` gave up 46 points of recall for two ten-thousandths of J.</para>
+        ///
+        /// <para><b>Why not the two alternatives.</b> RESCALING J is provably a no-op for the search — a monotone
+        /// transform preserves the argmax, so every landing would be identical; it buys human legibility and not
+        /// one different decision. RAISING <c>Wtie</c> has already lost this fight once: it was raised 1e-3 → 0.02
+        /// specifically to out-vote this corner (see <see cref="ObjectiveConstants"/>), calibrated against a
+        /// plateau σ-wiggle of ≲4e-3, and the real shedders' σ gains are far larger.</para>
+        ///
+        /// <para><b>Applied as a feasibility REJECTION, never as a multiplier on J.</b> An infeasible candidate is
+        /// discarded ahead of the <c>j &gt; bestJ</c> compare, so every reported BaselineJ/FinalJ/SeedJ/BestJ
+        /// keeps the numeric meaning it has in every prior arm and landings stay directly comparable. Scaling J
+        /// instead would silently re-anchor the whole measurement history.</para>
+        ///
+        /// <para>The seed is feasible by construction (keep = 1.0), so the feasible set is never empty and the
+        /// never-regress floor is preserved: worst case the search returns the seed.</para>
+        /// </summary>
+        public double? MinDetectionKeepFraction { get; set; }
+
+        /// <summary>
+        /// F32 — the per-run accepted-star totals the keep fraction is measured against. Null (the default) means
+        /// "use this call's own seed evaluation", which is correct for a single-pass optimization.
+        ///
+        /// <para><b>It exists to close the multi-pass ratchet.</b> Both multi-pass callers re-invoke
+        /// <see cref="StarDetectionOptimizer.OptimizeAsync"/> with <c>seed = the previous pass's best</c> — TestApp's
+        /// <c>--continue-rounds</c> and the wizard's Continue button. A cap measured against EACH CALL's own seed
+        /// therefore compounds: at a floor of 0.5, two continue rounds permit 0.25 of the original, three permit
+        /// 0.125. That is the constraint paid in installments. Multi-pass callers capture
+        /// <see cref="OptimizationResult.SeedRunDetectionTotals"/> from the FIRST pass and pass it here for every
+        /// later round, so the floor always refers to where the user actually started.</para>
+        /// </summary>
+        public IReadOnlyList<long> DetectionKeepBaselineTotals { get; set; }
+    }
+
+    /// <summary>
+    /// One evaluated candidate: its objective value, whether it satisfies the F32 detection-keep floor, and the
+    /// keep fraction itself.
+    ///
+    /// <para><b><see cref="J"/> is the unmodified objective</b> — identical with and without a floor in force.
+    /// Feasibility is carried alongside it, never folded into it, so a landing's J stays comparable to every
+    /// landing produced before the constraint existed.</para>
+    /// </summary>
+    public readonly struct CandidateEvaluation {
+
+        public CandidateEvaluation(double j, bool feasible, double keepFraction) {
+            J = j;
+            Feasible = feasible;
+            KeepFraction = keepFraction;
+        }
+
+        public double J { get; }
+
+        public bool Feasible { get; }
+
+        /// <summary>Accepted stars kept relative to the baseline, MIN over runs. NaN when unmeasurable.</summary>
+        public double KeepFraction { get; }
     }
 
     /// <summary>Progress payload emitted during <see cref="StarDetectionOptimizer.OptimizeAsync"/>.</summary>
@@ -79,6 +147,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public int Evaluations { get; set; }
         public bool ImprovedOverSeed { get; set; }
         public IReadOnlyList<(string Name, double SeedValue, double BestValue)> ChangedVariables { get; set; }
+
+        /// <summary>F32 — per-run accepted-star totals of the SEED evaluation, in run order. A multi-pass caller
+        /// captures this from its FIRST pass and feeds it back through
+        /// <see cref="OptimizerSettings.DetectionKeepBaselineTotals"/> so the keep floor cannot ratchet.</summary>
+        public IReadOnlyList<long> SeedRunDetectionTotals { get; set; }
+
+        /// <summary>F32 — the winning candidate's keep fraction (MIN over runs) against the baseline totals. NaN
+        /// only when the evaluator reported no star counts to measure. Reported, never scored: it is the number
+        /// that makes a landing's cost legible next to its ΔJ, and it is measured whether or not a floor is in
+        /// force — the counts are already in hand, and this is exactly the "keep%" F32 computes by hand from
+        /// stored landings.</summary>
+        public double LandingKeepFraction { get; set; } = double.NaN;
+
+        /// <summary>F32 — how many evaluated candidates the keep floor rejected. Zero with no floor in force, and
+        /// zero WITH a floor means the constraint never bound — worth distinguishing, because a landing that
+        /// simply never wanted to shed is a different result from one the constraint held back.</summary>
+        public int CandidatesRejectedByKeepFloor { get; set; }
     }
 
     /// <summary>
@@ -150,8 +235,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 theta0[i] = variables[i].Quantize(variables[i].Read(seed));
             }
 
-            // Seed evaluation; this is the initial incumbent and the never-regress floor.
-            var seedJ = await ctx.EvalJ(theta0).ConfigureAwait(false);
+            // Seed evaluation; this is the initial incumbent and the never-regress floor. isSeed: true also
+            // establishes the F32 keep-fraction baseline (unless the caller supplied one). It is passed
+            // EXPLICITLY rather than inferred from "the first EvalJ call is θ0 by construction": that inference
+            // is true today and is exactly the kind of implicit call-order coupling that produced the wave-3
+            // seed leak, where one run's genuine firing silently re-gated the other sixteen.
+            var seedJ = (await ctx.EvalJ(theta0, isSeed: true).ConfigureAwait(false)).J;
             var bestTheta = (double[])theta0.Clone();
             var bestJ = seedJ;
 
@@ -183,7 +272,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 SeedJ = seedJ,
                 Evaluations = ctx.Evaluations,
                 ImprovedOverSeed = bestJ > seedJ,
-                ChangedVariables = changed
+                ChangedVariables = changed,
+                SeedRunDetectionTotals = ctx.BaselineRunTotals,
+                LandingKeepFraction = ctx.KeepFractionFor(bestTheta),
+                CandidatesRejectedByKeepFloor = ctx.CandidatesRejectedByKeepFloor
             };
         }
 
@@ -215,6 +307,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // re-evaluating, and without threading a second value through every search stage.
             private readonly Dictionary<string, double> memoSigma = new Dictionary<string, double>(StringComparer.Ordinal);
 
+            // F32 keep fraction of every evaluated candidate, keyed exactly like memo. Filled alongside J on a
+            // cache miss (free — the counts are already in the metrics).
+            private readonly Dictionary<string, double> memoKeep = new Dictionary<string, double>(StringComparer.Ordinal);
+
+            // F32 — per-run accepted-star totals the keep fraction is measured against. Seeded either from the
+            // caller (a multi-pass round pinning its FIRST pass's seed) or from this search's own seed evaluation.
+            private IReadOnlyList<long> baselineRunTotals;
+
+            // This search's OWN seed totals, always recorded even when the baseline came from the caller, so a
+            // multi-pass caller can still see where each round started.
+            private IReadOnlyList<long> seedRunTotals;
+
             // Phase-B staging partition (T14): the curated axes split into EARLY (members of
             // StarDetector.EarlyCacheKeyProperties — each move both rebuilds AND evicts the per-frame early
             // DetectionContext, a ~1.65s full detection) and LATE (everything else, including the synthetic
@@ -241,6 +345,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 this.settings = settings;
                 this.progress = progress;
                 this.token = token;
+                this.baselineRunTotals = settings.DetectionKeepBaselineTotals;
 
                 var early = new List<int>();
                 var late = new List<int>();
@@ -268,13 +373,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             /// Memoized objective. Materializes params, keys on <see cref="StarDetector.ComputeCacheKey"/>, and
             /// only invokes the evaluator on a cache MISS (incrementing the eval counter then). J is the
             /// multi-run aggregate <see cref="OptimizationObjective.JTotal"/> over per-run J. Honors cancellation.
+            ///
+            /// <para>Returns the F32 keep fraction and feasibility alongside J. <b>J itself is never modified by
+            /// the constraint</b> — the caller rejects an infeasible candidate ahead of its own compare, so the
+            /// numbers this returns are identical with and without a floor in force.</para>
+            ///
+            /// <para><paramref name="isSeed"/> establishes the keep-fraction baseline from this evaluation (and
+            /// makes it unconditionally feasible). Exactly one call per search passes it.</para>
             /// </summary>
-            public async Task<double> EvalJ(double[] theta) {
+            public async Task<CandidateEvaluation> EvalJ(double[] theta, bool isSeed = false) {
                 token.ThrowIfCancellationRequested();
                 var p = Materialize(theta);
                 var key = StarDetector.ComputeCacheKey(p);
                 if (memo.TryGetValue(key, out var cached)) {
-                    return cached;
+                    return Judge(cached, memoKeep.TryGetValue(key, out var k) ? k : double.NaN, isSeed);
                 }
 
                 var runMetrics = await evaluator(p, token).ConfigureAwait(false);
@@ -290,10 +402,105 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     j = OptimizationObjective.JTotal(perRunJ, owner.constants);
                 }
 
+                if (isSeed && baselineRunTotals == null) {
+                    // The caller may have supplied a baseline (multi-pass ratchet guard); only derive one here
+                    // when it did not. Either way the seed's own totals are reported back so a multi-pass caller
+                    // has something to supply on its NEXT round.
+                    baselineRunTotals = RunTotals(runMetrics);
+                }
+                if (isSeed) {
+                    seedRunTotals = RunTotals(runMetrics);
+                }
+
                 memo[key] = j;
                 memoSigma[key] = MeanFiniteSigmaFocus(runMetrics);
-                return j;
+                memoKeep[key] = KeepFraction(runMetrics);
+                return Judge(j, memoKeep[key], isSeed);
             }
+
+            /// <summary>Applies the F32 floor to an already-computed (J, keep) pair. The seed is feasible by
+            /// construction — it is the never-regress floor, and a search whose starting point is infeasible has
+            /// no feasible set at all.</summary>
+            private CandidateEvaluation Judge(double j, double keep, bool isSeed) {
+                if (isSeed || !(settings.MinDetectionKeepFraction is double floor)) {
+                    return new CandidateEvaluation(j, true, keep);
+                }
+                // NaN keep => no baseline to measure against (no run reported counts); do not reject on absence
+                // of evidence, which would silently freeze the search at the seed for any evaluator that does not
+                // populate FrameStarCounts (synth-validate and tilt both go through this engine).
+                var feasible = !double.IsFinite(keep) || keep >= floor;
+                if (!feasible) {
+                    CandidatesRejectedByKeepFloor++;
+                }
+                return new CandidateEvaluation(j, feasible, keep);
+            }
+
+            /// <summary>Per-run accepted-star totals, in run order. Null when the evaluator reported nothing.</summary>
+            private static IReadOnlyList<long> RunTotals(IReadOnlyList<RunEvaluationMetrics> runMetrics) {
+                if (runMetrics == null || runMetrics.Count == 0) {
+                    return null;
+                }
+                var totals = new long[runMetrics.Count];
+                for (var i = 0; i < runMetrics.Count; i++) {
+                    var counts = runMetrics[i]?.FrameStarCounts;
+                    long sum = 0;
+                    if (counts != null) {
+                        foreach (var c in counts) {
+                            sum += c;
+                        }
+                    }
+                    totals[i] = sum;
+                }
+                return totals;
+            }
+
+            /// <summary>
+            /// The F32 keep fraction: MIN over runs of (candidate total ÷ baseline total). NaN when there is no
+            /// baseline or no metrics to measure.
+            ///
+            /// <para><b>Min over runs, not the pooled sum.</b> Pooling lets one dense run's gains mask another
+            /// being gutted. For the headless one-run-per-call case the two are identical, so no bank measurement
+            /// turns on the choice; it only bites in the wizard's N&gt;1 blend, where min is the safer reading.</para>
+            ///
+            /// <para><b>A run whose baseline total is 0 is EXEMPT</b> (contributes keep 1.0), because the ratio is
+            /// undefined and rejecting on it would re-gate exactly the F20/F35 population — a rig whose seed
+            /// legitimately detects nothing is the case the MinHFR seeding exists to rescue, and it must be free
+            /// to climb from zero.</para>
+            /// </summary>
+            private double KeepFraction(IReadOnlyList<RunEvaluationMetrics> runMetrics) {
+                var baseline = baselineRunTotals;
+                if (baseline == null || runMetrics == null || runMetrics.Count == 0) {
+                    return double.NaN;
+                }
+                var candidate = RunTotals(runMetrics);
+                if (candidate == null) {
+                    return double.NaN;
+                }
+                var n = Math.Min(baseline.Count, candidate.Count);
+                if (n == 0) {
+                    return double.NaN;
+                }
+                var worst = double.PositiveInfinity;
+                for (var i = 0; i < n; i++) {
+                    if (baseline[i] <= 0) {
+                        continue; // undefined ratio => exempt, see the remarks above
+                    }
+                    var keep = (double)candidate[i] / baseline[i];
+                    if (keep < worst) {
+                        worst = keep;
+                    }
+                }
+                return double.IsPositiveInfinity(worst) ? 1.0 : worst;
+            }
+
+            /// <summary>The memoized keep fraction of an already-evaluated point. NaN if never evaluated.</summary>
+            public double KeepFractionFor(double[] theta) =>
+                memoKeep.TryGetValue(StarDetector.ComputeCacheKey(Materialize(theta)), out var k) ? k : double.NaN;
+
+            /// <summary>Per-run seed totals, for a multi-pass caller to feed back as the next round's baseline.</summary>
+            public IReadOnlyList<long> BaselineRunTotals => seedRunTotals;
+
+            public int CandidatesRejectedByKeepFloor { get; private set; }
 
             /// <summary>Mean σ over the runs that produced a finite focus σ; NaN when none did. Mirrors the wizard's
             /// baseline/best σ aggregation so the reported σ is directly comparable to the summary's.</summary>
@@ -352,9 +559,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                         if (axisB >= 0) {
                             candidate[axisB] = variables[axisB].Quantize(GridValue(variables[axisB], ib, levels));
                         }
-                        var j = await EvalJ(candidate).ConfigureAwait(false);
-                        if (j > bestJ) {
-                            bestJ = j;
+                        var eval = await EvalJ(candidate).ConfigureAwait(false);
+                        if (eval.Feasible && eval.J > bestJ) {
+                            bestJ = eval.J;
                             bestTheta = candidate;
                         }
                     }
@@ -419,10 +626,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                         }
                         var candidate = (double[])bestTheta.Clone();
                         candidate[i] = value;
-                        var j = await EvalJ(candidate).ConfigureAwait(false);
-                        if (j >= bestJ) {
+                        // The feasibility test applies here too. Pulling BACK toward the seed usually RAISES the
+                        // star count, so this site rarely rejects — but "usually" is not "always" (a seed-ward
+                        // move on one axis can tighten a different gate), and one uniform rule at all three
+                        // accept sites is a single invariant instead of three separate arguments.
+                        var eval = await EvalJ(candidate).ConfigureAwait(false);
+                        if (eval.Feasible && eval.J >= bestJ) {
                             bestTheta = candidate;
-                            bestJ = j;
+                            bestJ = eval.J;
                             moved = true;
                             break; // most seed-ward neutral point for this axis; go to the next axis
                         }
@@ -529,9 +740,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                             if (candidate == null) {
                                 continue; // move produced no change (e.g. already at bound, or boolean no-op)
                             }
-                            var j = await EvalJ(candidate).ConfigureAwait(false);
-                            if (j > improvedJ) {
-                                improvedJ = j;
+                            var eval = await EvalJ(candidate).ConfigureAwait(false);
+                            if (eval.Feasible && eval.J > improvedJ) {
+                                improvedJ = eval.J;
                                 improvedTheta = candidate;
                             }
                         }

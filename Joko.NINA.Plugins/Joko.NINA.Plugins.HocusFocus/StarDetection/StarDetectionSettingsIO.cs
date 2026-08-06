@@ -160,6 +160,90 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
+        /// <summary>The settings handoff a completed optimize pass leaves beside a run's frames. Deliberately NOT
+        /// <c>optimized_settings.json</c>: that name is matched exactly by the bank readers, which deserialize it
+        /// as a bare <c>OptimizedStarDetectionSettings</c>, and handing them this envelope would bind every
+        /// curated knob to its CLR default and score a different detector with no error and no warning.</summary>
+        internal const string RunFolderSettingsFileName = "hocusfocus_star_detection.json";
+
+        /// <summary>
+        /// Loads the settings handoff sitting beside a loaded run's frames and — after the same diff confirmation
+        /// an Import shows — applies it to the current settings.
+        ///
+        /// <para><b>Explicitly user-initiated, never automatic.</b> Picking this up on load would silently
+        /// redefine "Current": the wizard's baseline is the live profile, and <c>baselineJ</c> plus the headline
+        /// improvement percentage are both measured against it. A run folder quietly becoming the baseline would
+        /// change what that percentage MEANS with nothing on screen to say so — the wave-3 seed-leak shape, where
+        /// a value read back from a run folder silently moved results. So the user presses this, and sees the diff
+        /// before anything changes.</para>
+        /// </summary>
+        public static Task ImportFromRunFolderAsync(
+                string runFolder, StarDetectionOptions options, IWindowServiceFactory windowServiceFactory) {
+            return ImportFromRunFolderAsync(runFolder, options,
+                (rows, summary) => ImportStarDetectionPreview.ShowAsync(windowServiceFactory, new ImportStarDetectionPreviewVM(rows, summary)));
+        }
+
+        /// <summary>Delegate-injected core of the import-from-run-folder flow (unit-test seam — no WPF dialog).</summary>
+        internal static async Task ImportFromRunFolderAsync(
+                string runFolder,
+                StarDetectionOptions options,
+                Func<IReadOnlyList<StarDetectionSettingDiffRow>, string, Task<bool>> confirmDiff) {
+            if (string.IsNullOrWhiteSpace(runFolder) || options == null) {
+                return;
+            }
+            try {
+                var path = ResolveRunFolderSettings(runFolder);
+                if (path == null) {
+                    Notification.ShowInformation(
+                        $"No saved star detection settings found for this run. They are written by an optimize pass as {RunFolderSettingsFileName}.");
+                    return;
+                }
+                if (!StarDetectionSettingsExport.TryLoad(path, out var export, out var error)) {
+                    Logger.Warning($"Could not import star detection settings from {path}: {error}");
+                    Notification.ShowError($"Could not import this run's star detection settings: {error}");
+                    return;
+                }
+
+                var diff = StarDetectionSettingsDiff.BuildDiff(options, export.StarDetection);
+                if (diff.Count == 0) {
+                    Notification.ShowInformation("This run's settings match the current settings; nothing to change.");
+                    return;
+                }
+
+                var apply = await confirmDiff(diff, BuildSourceSummary(export) + $"  ·  from {Path.GetFileName(runFolder)}");
+                if (!apply) {
+                    return;
+                }
+
+                options.ApplyImportedSnapshot(export.StarDetection);
+                Logger.Info($"Imported star detection settings from run folder {path} ({diff.Count} setting(s) changed)");
+                Notification.ShowInformation($"Imported this run's star detection settings ({diff.Count} changed)");
+            } catch (Exception ex) {
+                Logger.Error(ex, $"Failed to import star detection settings from run folder '{runFolder}'");
+                Notification.ShowError($"Failed to import this run's star detection settings: {ex.Message}");
+            }
+        }
+
+        /// <summary>The handoff path for a run folder, or null when there is none. Checks the frame folder first
+        /// and then its parent, mirroring the AF-replay metadata convention (folder before run root) — an
+        /// <c>optimize --per-run</c> pass writes beside the frames, a joint pass writes at the run root.</summary>
+        internal static string ResolveRunFolderSettings(string runFolder) {
+            if (string.IsNullOrWhiteSpace(runFolder)) {
+                return null;
+            }
+            var candidates = new List<string> { Path.Combine(runFolder, RunFolderSettingsFileName) };
+            var parent = Path.GetDirectoryName(runFolder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (!string.IsNullOrEmpty(parent)) {
+                candidates.Add(Path.Combine(parent, RunFolderSettingsFileName));
+            }
+            foreach (var c in candidates) {
+                if (File.Exists(c)) {
+                    return c;
+                }
+            }
+            return null;
+        }
+
         private static string BuildSourceSummary(StarDetectionSettingsExport export) {
             var when = export.CreatedAtUtc == default(DateTime)
                 ? "unknown time"

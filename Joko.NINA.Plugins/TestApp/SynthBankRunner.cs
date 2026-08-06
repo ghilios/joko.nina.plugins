@@ -193,6 +193,14 @@ namespace TestApp.SynthBank {
                 $"{selected.Count}/{spec.Datasets.Count} dataset(s) out={outRoot} " +
                 $"dryRun={dryRun} overwrite={overwrite} verify={verify}");
 
+            // F44 — say it up front, once, for every selected row that is marked known-bad. A dataset whose frames
+            // must be re-rendered is indistinguishable from a good one on disk, and the numbers it produces look
+            // entirely ordinary, so the warning has to come from the spec rather than from the reader remembering.
+            foreach (var suspectRow in selected.Where(d => !string.IsNullOrWhiteSpace(d.Suspect))) {
+                Console.Error.WriteLine($"[{suspectRow.Id}] SUSPECT: {suspectRow.Suspect}");
+                Logger.Warning($"synth-bank: dataset '{suspectRow.Id}' is marked suspect: {suspectRow.Suspect}");
+            }
+
             int generated = 0, skipped = 0, dryRunCount = 0, failed = 0;
             foreach (var dataset in selected) {
                 try {

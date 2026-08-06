@@ -70,6 +70,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public int RecommendedOffsetSteps { get; set; }
 
         /// <summary>
+        /// F32 — the detection-keep floor that was IN FORCE while this landing was searched, or null when the
+        /// search was unconstrained. Bookkeeping about the run, not a detector knob: it changes which candidates
+        /// were eligible, never what the detector does with the ones recorded here.
+        ///
+        /// <para>Recorded because F39's complaint generalizes — a file that records settings a run did not use is
+        /// worse than one that records nothing, and the converse holds too: a landing produced under a constraint
+        /// is not comparable to one produced without, and nothing else in this file would say so. Omitted from the
+        /// JSON when null, so an unconstrained landing stays byte-identical to before this field existed.</para>
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public double? MinDetectionKeepFraction { get; set; }
+
+        /// <summary>
+        /// F32 — what this landing actually kept: accepted stars as a fraction of the SEED's, MIN over runs.
+        /// Reported, never scored.
+        ///
+        /// <para><b>Written whether or not a floor was in force</b>, unlike
+        /// <see cref="MinDetectionKeepFraction"/>. It costs nothing (the counts are already in hand) and it is
+        /// precisely the "keep%" F32 had to reconstruct by hand from stored landings across two waves. An
+        /// UNCONSTRAINED landing is exactly where this number is most needed: it is what says whether a floor
+        /// would have bound, so a control arm can be classified without re-running it. Null only when the
+        /// evaluator reported no star counts to measure.</para>
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public double? LandingDetectionKeepFraction { get; set; }
+
+        /// <summary>
         /// The gate this landing ACTUALLY enforces — <c>max(BrightnessSensitivity, StarPeakResponse ×
         /// effective StarClippingMultiplier)</c> (followup F33). Derived, get-only: it adds no state, so it needs
         /// no schema bump and is computed for every landing already on disk when one is read back.
@@ -138,7 +165,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal) {
                 nameof(SchemaVersion), nameof(CreatedAtUtc), nameof(RunCount), nameof(BaselineJ), nameof(FinalJ),
                 nameof(RecommendedStepSize), nameof(RecommendedOffsetSteps), nameof(Provenance),
-                nameof(EffectiveSensitivityGate)
+                nameof(EffectiveSensitivityGate),
+                // F32 — describe the SEARCH that produced this landing (which candidates were eligible), not the
+                // detector. Registering them here is load-bearing: the DTO→options mapping is by reflected name,
+                // so an unregistered bookkeeping field would be hunted for as a live knob.
+                nameof(MinDetectionKeepFraction), nameof(LandingDetectionKeepFraction)
             };
 
         /// <summary>
@@ -163,6 +194,54 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
+        /// <summary>
+        /// The curated axes whose VALUE on <paramref name="flatOptions"/> differs from this landing's — empty means
+        /// the landing survived a round trip through a settings file intact.
+        ///
+        /// <para>Routes through the same <see cref="KnobProperties"/> enumeration as
+        /// <see cref="ApplyToFlatOptions"/> and <see cref="UnmappedKnobs"/>, so a newly added axis is covered by
+        /// all three at once and none of them can silently stop checking one. An axis that does not exist on the
+        /// target at all is reported here too — a missing knob and a wrong knob are the same defect to a reader
+        /// who imports the file.</para>
+        /// </summary>
+        public System.Collections.Generic.IReadOnlyList<string> DiffKnobs(object flatOptions) {
+            if (flatOptions == null) {
+                throw new ArgumentNullException(nameof(flatOptions));
+            }
+            var targetType = flatOptions.GetType();
+            var diffs = new System.Collections.Generic.List<string>();
+            foreach (var source in KnobProperties()) {
+                var target = targetType.GetProperty(source.Name);
+                if (target == null || !target.CanRead || target.PropertyType != source.PropertyType) {
+                    diffs.Add(source.Name + " (unmapped)");
+                    continue;
+                }
+                if (!Equals(source.GetValue(this), target.GetValue(flatOptions))) {
+                    diffs.Add($"{source.Name} ({source.GetValue(this)} != {target.GetValue(flatOptions)})");
+                }
+            }
+            return diffs;
+        }
+
+        /// <summary>
+        /// The names of the curated detector axes on this DTO — everything that is NOT run bookkeeping.
+        ///
+        /// <para>Exposed so that consumers which must cover "every knob" enumerate from THIS list rather than
+        /// keeping their own copy of the exclusions. A second copy drifts: the tilt replay overlay's coverage
+        /// guard kept its own <c>metadataOnly</c> set and started failing the moment two bookkeeping fields were
+        /// added here, reporting them as unapplied detector knobs. One list, checked by everyone.</para>
+        /// </summary>
+        public static System.Collections.Generic.IReadOnlyList<string> CuratedKnobNames { get; } =
+            KnobPropertyNames();
+
+        private static string[] KnobPropertyNames() {
+            var names = new System.Collections.Generic.List<string>();
+            foreach (var p in KnobProperties()) {
+                names.Add(p.Name);
+            }
+            return names.ToArray();
+        }
+
         /// <summary>The curated axes that would NOT land on <paramref name="flatOptionsType"/> — empty is the
         /// invariant; anything else means a landing does not fully round-trip into a settings file.</summary>
         public static System.Collections.Generic.IReadOnlyList<string> UnmappedKnobs(Type flatOptionsType) {
@@ -177,7 +256,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         private static System.Collections.Generic.IEnumerable<System.Reflection.PropertyInfo> KnobProperties() {
-            foreach (var p in typeof(OptimizedStarDetectionSettings).GetProperties()) {
+            // INSTANCE properties only. GetProperties() with no flags also returns STATIC ones, and a static
+            // member is by definition not a per-landing detector knob — CuratedKnobNames itself was picked up as
+            // one the moment it was added, and reported as an axis with no matching option property.
+            const System.Reflection.BindingFlags flags =
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance;
+            foreach (var p in typeof(OptimizedStarDetectionSettings).GetProperties(flags)) {
                 if (p.CanRead && !NonKnobFields.Contains(p.Name)) {
                     yield return p;
                 }
@@ -204,9 +288,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// for a snapshot that CAPTURES live settings rather than reporting an optimizer result — the tilt
         /// wizard's <c>CaptureDetectionSettings</c> is exactly that, and stamping a producer on it would be a
         /// lie.</param>
+        /// <param name="minDetectionKeepFraction">F32 — the keep floor in force during the search, or null when
+        /// unconstrained. Optional so every existing caller (and every snapshot that captures live settings
+        /// rather than an optimizer result) keeps writing byte-identical files.</param>
+        /// <param name="landingDetectionKeepFraction">F32 — what the landing kept, min over runs. Pass null
+        /// whenever <paramref name="minDetectionKeepFraction"/> is null; a keep fraction with no floor beside it
+        /// would read as a constraint that was never applied.</param>
         public static OptimizedStarDetectionSettings FromParams(
             StarDetectorParams p, int runCount, double baselineJ, double finalJ, int recommendedStepSize, int recommendedOffsetSteps,
-            OptimizerProvenance provenance = null) {
+            OptimizerProvenance provenance = null,
+            double? minDetectionKeepFraction = null, double? landingDetectionKeepFraction = null) {
             if (p == null) {
                 throw new ArgumentNullException(nameof(p));
             }
@@ -248,7 +339,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 FinalJ = finalJ,
                 RecommendedStepSize = recommendedStepSize,
                 RecommendedOffsetSteps = recommendedOffsetSteps,
-                Provenance = provenance?.Clone()
+                Provenance = provenance?.Clone(),
+                MinDetectionKeepFraction = minDetectionKeepFraction,
+                // Recorded whenever it is measurable, floor or no floor — see the property doc. NaN is filtered
+                // because it is not a number a JSON reader should have to handle.
+                LandingDetectionKeepFraction =
+                    landingDetectionKeepFraction is double lk && double.IsFinite(lk) ? lk : (double?)null
             };
         }
     }

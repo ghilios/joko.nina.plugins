@@ -457,4 +457,95 @@ public class OptimizedLandingExportTests {
             Assert.That(reloaded.StarDetection.UseOptimizedSettings, Is.True);
         });
     }
+
+    /// <summary>
+    /// The check <c>bank-export-settings</c> runs before it writes anything, exercised here on a landing with
+    /// EVERY curated axis moved off its default. <see cref="OptimizedStarDetectionSettings.UnmappedKnobs"/> proves
+    /// each axis has somewhere to land; this proves each axis's VALUE actually arrives — a property that would
+    /// pass the mapping check and still be wrong if a knob were written to the nested block only.
+    /// </summary>
+    [Test]
+    public void DiffKnobs_IsEmptyAfterAFullRoundTrip_WithEveryAxisMovedOffItsDefault() {
+        var landing = new OptimizedStarDetectionSettings {
+            BrightnessSensitivity = 17.67, StarClippingMultiplier = 2.0, NoiseClippingMultiplier = 3.875,
+            StarPeakResponse = 0.68, MaxDistortion = 0.26, MinHFR = 0.7, StarCenterTolerance = 0.275,
+            StructureLayers = 6, NoiseReductionRadius = 4, MinStarBoundingBoxSize = 7,
+            HotpixelThresholdingEnabled = true, HotpixelThreshold = 0.002,
+            DefocusAwareGates = true, DefocusDistortionSizeReference = 28.75, DefocusDistortionMinFactor = 0.3,
+            DefocusCenteringToleranceFactor = 2.5, DefocusAwareStructure = true, StructureLayerBoost = 3,
+            DefocusAwareDonutDetection = true, DonutMorphCloseSize = 7, LocallyAdaptiveBinarization = true,
+            AdaptiveNoiseBlockSize = 64, DonutMinAnnularityHoleFraction = 0.2, DonutMaxStreakEccentricity = 1.5,
+            DonutSaturationBloomRadius = 3.0
+        };
+
+        var reloaded = StarDetectionSettingsExport.Deserialize(
+            StarDetectionSettingsExport.FromOptimizedLanding(new StarDetectionSettingsSnapshot(), landing).Serialize());
+
+        var diffs = landing.DiffKnobs(reloaded.StarDetection);
+        Assert.That(diffs, Is.Empty, "curated axes that did not survive the round trip: " + string.Join(", ", diffs));
+    }
+
+    /// <summary>
+    /// The F32 bookkeeping fields describe the SEARCH (which candidates were eligible), not the detector, so they
+    /// must be registered as non-knobs. An unregistered one would be hunted for as a live option property, and
+    /// <see cref="OptimizedStarDetectionSettings.UnmappedKnobs"/> would start failing for a field that has no
+    /// business being on the options object at all.
+    /// </summary>
+    [Test]
+    public void KeepFloorBookkeepingIsNotTreatedAsADetectorKnob() {
+        var landing = Landing();
+        landing.MinDetectionKeepFraction = 0.5;
+        landing.LandingDetectionKeepFraction = 0.63;
+
+        var snapshot = new StarDetectionSettingsSnapshot();
+        landing.ApplyToFlatOptions(snapshot);
+
+        Assert.Multiple(() => {
+            Assert.That(OptimizedStarDetectionSettings.UnmappedKnobs(typeof(StarDetectionSettingsSnapshot)), Is.Empty);
+            Assert.That(landing.DiffKnobs(snapshot), Is.Empty,
+                "the keep-floor fields must not participate in the knob mapping at all");
+        });
+    }
+
+    /// <summary>
+    /// An unconstrained landing records NO floor — there was none — but DOES record what it kept.
+    ///
+    /// <para>The asymmetry is deliberate and was corrected mid-wave. Gating both fields on the floor made the
+    /// control arm unable to report its own keep fraction, which is the exact number that decides whether a floor
+    /// would have bound on that run: the control could not be classified without re-running it. F32 spent two
+    /// waves reconstructing this quantity by hand from stored landings, which is the argument for storing it.</para>
+    /// </summary>
+    [Test]
+    public void UnconstrainedLanding_RecordsWhatItKeptButNoFloor() {
+        var dto = OptimizedStarDetectionSettings.FromParams(
+            new StarDetectorParams(), runCount: 1, baselineJ: 0.9, finalJ: 0.95,
+            recommendedStepSize: 50, recommendedOffsetSteps: 4,
+            provenance: null, minDetectionKeepFraction: null, landingDetectionKeepFraction: 0.62);
+
+        var json = Newtonsoft.Json.JsonConvert.SerializeObject(dto);
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Not.Contain("MinDetectionKeepFraction"), "no floor was in force");
+            Assert.That(json, Does.Contain("LandingDetectionKeepFraction"), "what it kept is measurable either way");
+            Assert.That(dto.LandingDetectionKeepFraction, Is.EqualTo(0.62));
+        });
+    }
+
+    /// <summary>An unmeasurable keep fraction is omitted rather than written as NaN — no JSON reader should have
+    /// to handle a NaN, and an absent field already reads correctly as "there was nothing to measure".</summary>
+    [Test]
+    public void UnmeasurableKeepFraction_IsOmittedRatherThanWrittenAsNaN() {
+        var dto = OptimizedStarDetectionSettings.FromParams(
+            new StarDetectorParams(), runCount: 1, baselineJ: 0.9, finalJ: 0.95,
+            recommendedStepSize: 50, recommendedOffsetSteps: 4,
+            provenance: null, minDetectionKeepFraction: 0.5, landingDetectionKeepFraction: double.NaN);
+
+        var json = Newtonsoft.Json.JsonConvert.SerializeObject(dto);
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("MinDetectionKeepFraction"), "the floor WAS in force and must be recorded");
+            Assert.That(json, Does.Not.Contain("LandingDetectionKeepFraction"));
+            Assert.That(json, Does.Not.Contain("NaN"));
+        });
+    }
 }

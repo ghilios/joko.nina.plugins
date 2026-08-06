@@ -76,7 +76,15 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Catalog {
                 throw new ArgumentOutOfRangeException(nameof(fovDeg), fovDeg, "FOV must be positive.");
             }
 
-            var cells = AstapCellGeometry.FindAreas(raRad, decRad, fovRad, db.Partitioning);
+            // F44 — a field WIDER THAN ONE CELL cannot be covered by find_areas: that routine clamps the field to
+            // one cell and samples only its four corners, so a 57° render field came back as a ~10° patch and the
+            // rest of the sensor rendered starless. Below the cap the two agree by construction (a box at most one
+            // cell across touches at most four cells, and its corners hit all of them), so small fields keep the
+            // byte-accurate reference path and every existing result is unchanged.
+            var maxFov = AstapCellGeometry.MaxFovRadians(db.Partitioning);
+            var cells = fovRad > maxFov
+                ? AstapCellGeometry.FindAreasCovering(raRad, decRad, fovRad, db.Partitioning)
+                : AstapCellGeometry.FindAreas(raRad, decRad, fovRad, db.Partitioning);
             return QueryCells(cells, db, raRad, decRad, fovRad, limitingMagnitude);
         }
 
