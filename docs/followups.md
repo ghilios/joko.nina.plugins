@@ -1220,7 +1220,8 @@ check passing this cleanly is what makes the rest of the table readable.
 **Three findings, and they are not the same finding.**
 
 1. **The greedy trap is CONFIRMED as a fact, not an inference.** With no constraint whatsoever, simply restarting
-   improves `J` on **5 of 8** runs. A converged global optimum cannot be improved by re-seeding from itself, so
+   improves `J` on **5 of the 7 binding runs** (all but `muggsie` and `D19`; the `D20` control moves 2×10⁻⁶,
+   i.e. not at all). A converged global optimum cannot be improved by re-seeding from itself, so
    round 0 demonstrably was not one. This is the same phenomenon as
    [F8](#f8--optimizer-landings-are-not-reproducible-across-invocations) — a landing is a property of the
    trajectory, not of the objective.

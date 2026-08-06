@@ -175,8 +175,9 @@ changes are inert when their flags are absent.
 | **`D20` control** | 0.999766 | 0.999768 | +0.000002 | 0.999766 | 0 | — |
 
 **The greedy trap is now a fact rather than an inference:** with no constraint at all, restarting improves `J` on
-**5 of 8** runs, and a converged global optimum cannot be improved by re-seeding from itself. That is the same
-phenomenon as [F8](followups.md) — a landing is a property of the trajectory, not of the objective.
+**5 of the 7 binding runs** (all but `muggsie` and `D19`; the `D20` control moves 2×10⁻⁶, i.e. not at all), and a
+converged global optimum cannot be improved by re-seeding from itself. That is the same phenomenon as
+[F8](followups.md) — a landing is a property of the trajectory, not of the objective.
 
 **But restarting is not a substitute for the floor.** On the five runs where the floor helped, restarts recover
 **0–36% (median 13.8%)**. A restart changes the trajectory; the floor changes the feasible set and reaches a
