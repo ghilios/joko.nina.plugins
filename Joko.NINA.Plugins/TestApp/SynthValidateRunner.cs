@@ -97,8 +97,13 @@ namespace TestApp.SynthBank {
         private static void PrintUsage() {
             Console.Error.WriteLine(
                 "Usage: TestApp synth-validate --spec <json> --out <dir> [--datasets id1,id2] [--scenarios S0,S1,...] " +
-                "[--max-rounds 4] [--max-evals N] [--catalog <path>] [--profile-id <guid>]");
+                "[--max-rounds 4] [--max-evals N] [--catalog <path>] [--profile-id <guid>] " +
+                "[--step-detect-bound] [--step-size-for-executed-sweep] [--step-recovery-steps N]");
             Console.Error.WriteLine($"  --out defaults to {DefaultOutRoot} and MUST be outside the bank root ({KnownBankRoot}).");
+            Console.Error.WriteLine("  F18 arms: --step-detect-bound bounds the step half-width by the outermost frame that still");
+            Console.Error.WriteLine("            detected NHard stars; --step-size-for-executed-sweep additionally sizes the step for");
+            Console.Error.WriteLine("            offset+recovery points per side (--step-recovery-steps, default 1). Absent => the");
+            Console.Error.WriteLine("            driver is bit-identical to the pre-F18 one, so one binary is both arms.");
         }
 
         private static async Task RunCore(string[] args) {

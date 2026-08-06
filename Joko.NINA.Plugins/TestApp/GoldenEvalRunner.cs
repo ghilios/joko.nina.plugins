@@ -89,7 +89,8 @@ namespace TestApp {
 
             var runsDir = DiagnosticUtil.GetArg(args, "--runs");
             if (string.IsNullOrWhiteSpace(runsDir)) {
-                Console.WriteLine("Usage: TestApp golden eval --runs <dir> [--golden <dir>] [--params current|default|optimized] [--opt-results <dir>] [--match center|iou|both] [--iou 0.3] [--match-radius 0] [--pixel-scale header|profile] [--label <name>] [--annotate] ...");
+                Console.WriteLine("Usage: TestApp golden eval --runs <dir> [--golden <dir>] [--params current|default|optimized] [--opt-results <dir>] [--match center|iou|both] [--iou 0.3] [--match-radius 0] [--pixel-scale header|profile] [--label <name>] [--annotate] [--detection-binning 1|2|3|4] ...");
+                Console.WriteLine("  --detection-binning N: detect at software binning N (PixelScale carries the factor, as the app does).");
                 return;
             }
             var profileId = DiagnosticUtil.GetArg(args, "--profile-id");
