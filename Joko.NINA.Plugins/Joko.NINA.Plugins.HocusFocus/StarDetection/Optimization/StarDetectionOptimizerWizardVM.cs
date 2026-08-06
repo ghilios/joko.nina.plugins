@@ -3464,6 +3464,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var (runExposureSeconds, runExposureIsAssumed) = ResolveRunExposureSeconds(runs[0]);
             ExposureRecommendation exposureAdvice = null, baselineExposureAdvice = null;
             OptimizationCurve currentCurveLocal = null, optimizedCurveLocal = null;
+            // F18 — what the representative run actually DETECTED, per frame, so the step recommendation can be
+            // bounded by detectability and not by curve geometry alone. Same run 0 the fit and the exposure advice
+            // come from; the metrics are already in hand, so this costs no extra evaluation.
+            SweepDetectability representativeDetectability = null;
             for (var i = 0; i < runs.Count; i++) {
                 token.ThrowIfCancellationRequested();
                 var baselineEval = await runs[i].Data.EvaluateAndFitAsync(baseline, token).ConfigureAwait(true);
@@ -3472,6 +3476,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (double.IsFinite(bestEval.Metrics.SigmaFocus)) { bestSigmaSum += bestEval.Metrics.SigmaFocus; bestSigmaCount++; }
                 if (i == 0) {
                     representativeBestFit = bestEval.BestFit;
+                    // The OPTIMIZED variant's counts, matching the fit above: the recommendation describes the
+                    // settings Accept puts into service, so the detectable range must be the one those settings see.
+                    representativeDetectability = new SweepDetectability {
+                        FrameStarCounts = bestEval.Metrics?.FrameStarCounts,
+                        FrameFocuserPositions = bestEval.Metrics?.FrameFocuserPositions,
+                        FrameIsRecovery = bestEval.Metrics?.FrameIsRecovery,
+                        HardFloorStarCount = objectiveConstants.NHard,
+                        RecoveryStepsPerSide = capturedRecoveryStepsPerSide
+                    };
                     // This summary describes the OPTIMIZED variant, so its in-focus HFR comes from the optimized
                     // curve — the one plotted above it and the one Accept puts into service. The current-settings
                     // numbers are carried alongside for BuildCurrentSummary.
@@ -3509,7 +3522,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             var currentStepSize = runs[0].AfOptions?.AutoFocusStepSize ?? DefaultCurrentStepSize;
             var currentOffsetSteps = runs[0].AfOptions?.AutoFocusInitialOffsetSteps ?? DefaultCurrentOffsetSteps;
-            var recommendation = StepSizeRecommender.Recommend(representativeBestFit, currentStepSize, GetFocuserMaxStep());
+            var recommendation = StepSizeRecommender.Recommend(
+                representativeBestFit, currentStepSize, GetFocuserMaxStep(), representativeDetectability);
 
             var summary = new OptimizationSummary {
                 ChangedParameters = changed,

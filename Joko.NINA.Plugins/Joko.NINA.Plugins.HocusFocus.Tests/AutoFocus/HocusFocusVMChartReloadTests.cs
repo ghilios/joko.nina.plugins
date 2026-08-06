@@ -1,3 +1,4 @@
+using Newtonsoft.Json;
 using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Utility;
@@ -13,6 +14,7 @@ using OxyPlot;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus;
@@ -29,6 +31,27 @@ public class HocusFocusVMChartReloadTests {
     private const int StepSize = 25;
     private const int OffsetSteps = 4;
 
+    // A private report directory per test, so the info-row lookup never sees the developer's real
+    // %LOCALAPPDATA%\NINA\AutoFocus (which would make "no report on disk" depend on the machine).
+    private string reportDir;
+
+    [SetUp]
+    public void SetUp() {
+        reportDir = Path.Combine(Path.GetTempPath(), "hf-chart-reload-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(reportDir);
+    }
+
+    [TearDown]
+    public void TearDown() {
+        try {
+            if (reportDir != null && Directory.Exists(reportDir)) {
+                Directory.Delete(reportDir, recursive: true);
+            }
+        } catch (IOException) {
+            // A leaked temp directory must never fail a test run.
+        }
+    }
+
     private static MediatorBundle BundleWithSweepProfile() {
         var bundle = new MediatorBundle();
         bundle.ProfileService.ActiveProfile.FocuserSettings.AutoFocusStepSize.Returns(StepSize);
@@ -36,6 +59,35 @@ public class HocusFocusVMChartReloadTests {
         bundle.AutoFocusOptions.HyperbolicFitModel.Returns(HyperbolicFitModel.Symmetric);
         bundle.AutoFocusOptions.WeightedHyperbolicFitEnabled.Returns(false);
         return bundle;
+    }
+
+    // The VM under test, with its loaded-report lookup pointed at this test's own (initially empty) directory.
+    private HocusFocusVM BuildVM() {
+        var vm = BundleWithSweepProfile().BuildHocusFocusVM();
+        vm.LoadedReportSource = new AutoFocusReportDirectorySource(reportDir);
+        return vm;
+    }
+
+    /// <summary>
+    /// Writes a report the way the product writes one — <see cref="HocusFocusReport"/> serialized by Newtonsoft into
+    /// <c>yyyy-MM-dd--HH-mm-ss--{profileId}.json</c> (<c>HocusFocusVM.GenerateReport</c>) — so these tests exercise
+    /// the real on-disk format rather than a hand-rolled approximation of it. <paramref name="fileNameStamp"/>
+    /// defaults to <paramref name="timestamp"/>; passing a different value reproduces the real case where the
+    /// report's own <c>DateTime.Now</c> and the file name's land on opposite sides of a second boundary.
+    /// </summary>
+    private void WriteReport(DateTime timestamp, double initialPosition, double initialHfr, double finalHfr,
+                             DateTime? fileNameStamp = null) {
+        var report = new HocusFocusReport {
+            Timestamp = timestamp,
+            InitialFocusPoint = new FocusPoint { Position = initialPosition, Value = initialHfr },
+            CalculatedFocusPoint = new FocusPoint { Position = 5000, Value = 2.0 },
+            FinalHFR = finalHfr,
+            Method = AFMethodEnum.STARHFR.ToString(),
+            Fitting = AFCurveFittingEnum.TRENDHYPERBOLIC.ToString(),
+            MeasurePoints = Array.Empty<FocusPoint>()
+        };
+        var name = $"{(fileNameStamp ?? timestamp):yyyy-MM-dd--HH-mm-ss}--90d513b9-bd75-41db-9250-6f7b15b4ba3d.json";
+        File.WriteAllText(Path.Combine(reportDir, name), JsonConvert.SerializeObject(report, Formatting.Indented));
     }
 
     // Seeds the VM the way a completed live run leaves it: every measured point mirrored into the
@@ -92,7 +144,7 @@ public class HocusFocusVMChartReloadTests {
 
     [Test]
     public void CoreLoadChart_ForeignRun_RebuildsMarkerSeriesFromLoadedPoints() {
-        var vm = BundleWithSweepProfile().BuildHocusFocusVM();
+        var vm = BuildVM();
         SeedLiveRunState(vm, new[] { 900, 950, 1000, 1050, 1100 });
         // The live run also excluded one far point, so the hollow overlay and legend gate are non-empty.
         vm.ApplyWindowExclusionToDisplay(new List<AutoFocusRegionPoint> {
@@ -113,9 +165,11 @@ public class HocusFocusVMChartReloadTests {
         });
     }
 
+    // GUARD (passes with and without the loaded-report lookup): with no report on disk there is nothing to render
+    // the loaded run's own values from, so the rows must collapse rather than keep the previous live run's.
     [Test]
-    public void CoreLoadChart_ForeignRun_ResetsLiveOnlyInfoFields() {
-        var vm = BundleWithSweepProfile().BuildHocusFocusVM();
+    public void CoreLoadChart_ForeignRun_NoReportOnDisk_ResetsLiveOnlyInfoFields() {
+        var vm = BuildVM();
         SeedLiveRunState(vm, new[] { 900, 950, 1000, 1050, 1100 });
         vm.MarkReportGenerated(new DateTime(2026, 7, 28, 23, 0, 0));
 
@@ -129,9 +183,10 @@ public class HocusFocusVMChartReloadTests {
         });
     }
 
+    // GUARD: same, on a VM that has never produced a report of its own.
     [Test]
     public void CoreLoadChart_NoLiveRunEver_ResetsLiveOnlyInfoFields() {
-        var vm = BundleWithSweepProfile().BuildHocusFocusVM();
+        var vm = BuildVM();
         SeedLiveRunState(vm, new[] { 900, 950, 1000, 1050, 1100 });
 
         SimulateCoreLoadChart(vm, WellCenteredSweep(), new DataPoint(5000, 2.0), new DateTime(2026, 7, 29, 0, 33, 29));
@@ -143,9 +198,90 @@ public class HocusFocusVMChartReloadTests {
         });
     }
 
+    // DISCRIMINATING: the whole point of the change. Browsing chart history must show the LOADED run's own starting
+    // position and HFRs, which are in its report — not the sentinels the pre-fix guard wrote unconditionally.
+    // Numbers are a real report from disk (2026-08-05--21-47-43--90d513b9….json).
+    [Test]
+    public void CoreLoadChart_ForeignRun_RendersTheLoadedRunsOwnStartingPositionAndHfrs() {
+        var vm = BuildVM();
+        SeedLiveRunState(vm, new[] { 900, 950, 1000, 1050, 1100 });
+        vm.MarkReportGenerated(new DateTime(2026, 7, 28, 23, 0, 0));
+
+        var loadedTimestamp = new DateTime(2026, 8, 5, 21, 47, 43, 829);
+        WriteReport(loadedTimestamp, initialPosition: 25000.0, initialHfr: 0.7029822224498201, finalHfr: 0.70526003548489);
+
+        SimulateCoreLoadChart(vm, WellCenteredSweep(), new DataPoint(24999.996, 0.667), loadedTimestamp);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.InitialFocuserPosition, Is.EqualTo(25000),
+                "browsing chart history must show the loaded run's own starting focuser position");
+            Assert.That(vm.InitialHFR, Is.EqualTo(0.7029822224498201).Within(1e-12));
+            Assert.That(vm.FinalHFR, Is.EqualTo(0.70526003548489).Within(1e-12),
+                "FinalHFR is plugin-only, so it can only come from re-reading the report as a HocusFocusReport");
+        });
+    }
+
+    // DISCRIMINATING: a report that does not record an initial position must collapse THAT row only. Position 0 is
+    // what `new FocusPoint()` deserializes to when the field is absent, so it means "not recorded", not "step 0".
+    [Test]
+    public void CoreLoadChart_ForeignRun_MissingInitialPositionCollapsesOnlyThatRow() {
+        var vm = BuildVM();
+        SeedLiveRunState(vm, new[] { 900, 950, 1000, 1050, 1100 });
+
+        var loadedTimestamp = new DateTime(2026, 8, 5, 21, 47, 43, 829);
+        WriteReport(loadedTimestamp, initialPosition: 0.0, initialHfr: 0.0, finalHfr: 1.23);
+
+        SimulateCoreLoadChart(vm, WellCenteredSweep(), new DataPoint(5000, 2.0), loadedTimestamp);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.InitialFocuserPosition, Is.EqualTo(-1),
+                "an unrecorded initial position must collapse the row, never render as 0");
+            Assert.That(vm.InitialHFR, Is.EqualTo(0.0));
+            Assert.That(vm.FinalHFR, Is.EqualTo(1.23).Within(1e-12),
+                "the values the report DOES carry must still render");
+        });
+    }
+
+    // DISCRIMINATING: the file name only narrows the candidate set; the report's own Timestamp decides. A report
+    // one second away is a DIFFERENT run, and adopting it is exactly the stale-value bug this path guards against.
+    [Test]
+    public void CoreLoadChart_ForeignRun_NearMissTimestampIsNotAdopted() {
+        var vm = BuildVM();
+        SeedLiveRunState(vm, new[] { 900, 950, 1000, 1050, 1100 });
+
+        var loadedTimestamp = new DateTime(2026, 8, 5, 21, 47, 43, 829);
+        // Inside the ±5 s file-name window, so it IS considered — and must still be rejected on content.
+        WriteReport(loadedTimestamp.AddSeconds(2), initialPosition: 25000.0, initialHfr: 0.703, finalHfr: 0.705);
+
+        SimulateCoreLoadChart(vm, WellCenteredSweep(), new DataPoint(5000, 2.0), loadedTimestamp);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.InitialFocuserPosition, Is.EqualTo(-1));
+            Assert.That(vm.InitialHFR, Is.EqualTo(0.0));
+            Assert.That(vm.FinalHFR, Is.EqualTo(0.0));
+        });
+    }
+
+    // DISCRIMINATING (of the lookup, not of the guard): the report's own DateTime.Now and the file name's are two
+    // separate calls with a serialization between them, so they can land on opposite sides of a second boundary.
+    // The ±5 s file-name window exists for exactly this, and the exact content match still identifies the run.
+    [Test]
+    public void CoreLoadChart_ForeignRun_FileNameSecondDiffersFromReportTimestamp_StillFound() {
+        var vm = BuildVM();
+        SeedLiveRunState(vm, new[] { 900, 950, 1000, 1050, 1100 });
+
+        var loadedTimestamp = new DateTime(2026, 8, 5, 21, 47, 43, 992);
+        WriteReport(loadedTimestamp, initialPosition: 25000.0, initialHfr: 0.703, finalHfr: 0.705,
+            fileNameStamp: loadedTimestamp.AddSeconds(1)); // serialization crossed into the next second
+
+        SimulateCoreLoadChart(vm, WellCenteredSweep(), new DataPoint(5000, 2.0), loadedTimestamp);
+
+        Assert.That(vm.InitialFocuserPosition, Is.EqualTo(25000));
+    }
+
     [Test]
     public void CoreLoadChart_SameRunReload_PreservesLiveInfoFields() {
-        var vm = BundleWithSweepProfile().BuildHocusFocusVM();
+        var vm = BuildVM();
         SeedLiveRunState(vm, new[] { 4900, 4950, 5000, 5050, 5100 });
         var reportTimestamp = new DateTime(2026, 7, 29, 0, 33, 29, 804);
         vm.MarkReportGenerated(reportTimestamp);
@@ -163,7 +299,7 @@ public class HocusFocusVMChartReloadTests {
 
     [Test]
     public void CoreLoadChart_FarPoints_ExcludedByFocusWindowAndPrunedFromFitAndDisplay() {
-        var vm = BundleWithSweepProfile().BuildHocusFocusVM();
+        var vm = BuildVM();
 
         // 4850..5150 in 25-step increments: the two points on each fringe sit 125 and 150 from the
         // vertex, outside the ±(4+0.5)*25 = ±112.5 window, so a faithful reload re-derives exactly

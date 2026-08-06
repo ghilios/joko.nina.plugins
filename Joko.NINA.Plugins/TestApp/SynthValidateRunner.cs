@@ -97,8 +97,13 @@ namespace TestApp.SynthBank {
         private static void PrintUsage() {
             Console.Error.WriteLine(
                 "Usage: TestApp synth-validate --spec <json> --out <dir> [--datasets id1,id2] [--scenarios S0,S1,...] " +
-                "[--max-rounds 4] [--max-evals N] [--catalog <path>] [--profile-id <guid>]");
+                "[--max-rounds 4] [--max-evals N] [--catalog <path>] [--profile-id <guid>] " +
+                "[--step-detect-bound] [--step-size-for-executed-sweep] [--step-recovery-steps N]");
             Console.Error.WriteLine($"  --out defaults to {DefaultOutRoot} and MUST be outside the bank root ({KnownBankRoot}).");
+            Console.Error.WriteLine("  F18 arms: --step-detect-bound bounds the step half-width by the outermost frame that still");
+            Console.Error.WriteLine("            detected NHard stars; --step-size-for-executed-sweep additionally sizes the step for");
+            Console.Error.WriteLine("            offset+recovery points per side (--step-recovery-steps, default 1). Absent => the");
+            Console.Error.WriteLine("            driver is bit-identical to the pre-F18 one, so one binary is both arms.");
         }
 
         private static async Task RunCore(string[] args) {
@@ -153,6 +158,22 @@ namespace TestApp.SynthBank {
                 }
                 marginalSnrStrength = ms;
             }
+            // F18 arms. Absent, the driver is bit-identical to the pre-F18 one, so this binary is its own control
+            // (F41). --step-recovery-steps only means anything alongside --step-size-for-executed-sweep.
+            var stepDetectBound = DiagnosticUtil.HasFlag(args, "--step-detect-bound");
+            var stepSizeForExecutedSweep = DiagnosticUtil.HasFlag(args, "--step-size-for-executed-sweep");
+            var stepRecoverySteps = 1;
+            var srsArg = DiagnosticUtil.GetArg(args, "--step-recovery-steps");
+            if (!string.IsNullOrWhiteSpace(srsArg)) {
+                if (!int.TryParse(srsArg, NumberStyles.Integer, CultureInfo.InvariantCulture, out stepRecoverySteps) || stepRecoverySteps < 0) {
+                    throw new ArgumentException($"--step-recovery-steps: '{srsArg}' must be an integer >= 0");
+                }
+            }
+            if (stepDetectBound || stepSizeForExecutedSweep) {
+                Console.WriteLine($"F18 arm: detectBound={stepDetectBound} sizeForExecutedSweep={stepSizeForExecutedSweep}"
+                    + (stepSizeForExecutedSweep ? $" recoveryStepsPerSide={stepRecoverySteps}" : string.Empty));
+            }
+
             var catalogOverride = DiagnosticUtil.GetArg(args, "--catalog");
             var profileId = DiagnosticUtil.GetArg(args, "--profile-id");
 
@@ -231,6 +252,9 @@ namespace TestApp.SynthBank {
 
             var ctx = new SharedContext {
                 MarginalSnrStrength = marginalSnrStrength,
+                StepDetectBound = stepDetectBound,
+                StepSizeForExecutedSweep = stepSizeForExecutedSweep,
+                StepRecoveryStepsPerSide = stepRecoverySteps,
                 ProfileService = profileService,
                 HarnessSettings = harnessSettings,
                 AfOptions = afOptions,
@@ -310,6 +334,18 @@ namespace TestApp.SynthBank {
             /// <summary>F23: override ObjectiveConstants.MarginalSnrStrength for this pass; null ⇒ shipping default
             /// (0, i.e. the term is off and J is bit-identical to the pre-F23 objective).</summary>
             public double? MarginalSnrStrength;
+
+            /// <summary>F18 arm D — <c>--step-detect-bound</c>: bound the step recommendation's half-width by the
+            /// outermost frame that still detected NHard stars. False ⇒ bit-identical to the pre-F18 driver.</summary>
+            public bool StepDetectBound;
+
+            /// <summary>F18 arm S — <c>--step-size-for-executed-sweep</c>: additionally size the step for the points
+            /// the run actually VISITS (offset + recovery per side), not the offset steps alone.</summary>
+            public bool StepSizeForExecutedSweep;
+
+            /// <summary>Focus-recovery steps per side to assume for arm S. Synthetic sweeps carry none, so the arm
+            /// has to be told what the LIVE engine would add; 1 is the shipped default.</summary>
+            public int StepRecoveryStepsPerSide = 1;
         }
 
         /// <summary>Mutable round-to-round state for one (dataset, scenario) run: the bootstrap the NEXT round will
@@ -333,7 +369,10 @@ namespace TestApp.SynthBank {
 
             Prog($"[{dataset.Id}] deriving expected-optimal bootstrap...");
             var model = SynthBankDerivations.BuildDefocusModel(dataset, defaults);
-            var expected = SynthBankDerivations.DeriveExpectedOptimal(dataset, defaults, catalogReader, out var kernelCapGuard, out _, token);
+            // F18: the arm flag drives the bank's TARGET as well as the runtime recommender, so each arm is
+            // internally consistent (see DeriveExpectedOptimal's detectBoundedStep remarks).
+            var expected = SynthBankDerivations.DeriveExpectedOptimal(dataset, defaults, catalogReader, out var kernelCapGuard, out _, token,
+                detectBoundedStep: ctx.StepDetectBound);
 
             // Apply the checked-in spec's *Override fields on top of the physics answer, exactly as
             // SynthBankRunner.ProcessDatasetAsync does for the bank generator -- S0's bootstrap must match what is
@@ -362,7 +401,9 @@ namespace TestApp.SynthBank {
             }
 
             var stepTheory = (double)expected.StepSizeSteps;
-            var stepBehavioral = ComputeStepBehavioral(model, defaults.OffsetSteps, expected.StepSizeSteps, ctx.AlglibAPI);
+            var stepBehavioral = ComputeStepBehavioral(model, defaults.OffsetSteps, expected.StepSizeSteps, ctx.AlglibAPI,
+                ctx.StepDetectBound ? expected.DetectableHalfWidthSteps : double.NaN,
+                ctx.StepSizeForExecutedSweep ? ctx.StepRecoveryStepsPerSide : 0, ctx.StepSizeForExecutedSweep);
             var deltaPct = stepTheory > 0 && double.IsFinite(stepBehavioral) ? (stepBehavioral - stepTheory) / stepTheory : double.NaN;
             Prog($"[{dataset.Id}] step_theory={stepTheory:0.##} step_behavioral={stepBehavioral:0.##} (delta {deltaPct:P1})");
 
@@ -720,9 +761,24 @@ namespace TestApp.SynthBank {
 
             // ---- Recommendations (design step 4) ----
 
-            var stepRec = StepSizeRecommender.Recommend(bestFit, inferredStepSize, focuserMaxStep: null);
+            // F18: hand the recommender what this round actually DETECTED, so the half-width can be bounded by
+            // detectability as well as by curve geometry. Null unless an arm asked for it, so the default driver
+            // is bit-identical.
+            var stepDetectability = (ctx.StepDetectBound || ctx.StepSizeForExecutedSweep)
+                ? new SweepDetectability {
+                    FrameStarCounts = ctx.StepDetectBound ? metrics?.FrameStarCounts : null,
+                    FrameFocuserPositions = ctx.StepDetectBound ? metrics?.FrameFocuserPositions : null,
+                    FrameIsRecovery = metrics?.FrameIsRecovery,
+                    HardFloorStarCount = objectiveConstants.NHard,
+                    RecoveryStepsPerSide = ctx.StepRecoveryStepsPerSide
+                }
+                : null;
+            var stepRec = StepSizeRecommender.Recommend(bestFit, inferredStepSize, focuserMaxStep: null,
+                detectability: stepDetectability, sizeForExecutedSweep: ctx.StepSizeForExecutedSweep);
             round.StepRecommendation = new StepRecommendationSnapshot {
-                StepSize = stepRec.StepSize, OffsetSteps = stepRec.OffsetSteps, HalfWidth = stepRec.HalfWidth, WasCapped = stepRec.WasCapped
+                StepSize = stepRec.StepSize, OffsetSteps = stepRec.OffsetSteps, HalfWidth = stepRec.HalfWidth, WasCapped = stepRec.WasCapped,
+                DetectHalfWidth = stepRec.DetectHalfWidth, MaxUsefulHalfSpan = stepRec.MaxUsefulHalfSpan,
+                WasDetectBounded = stepRec.WasDetectBounded
             };
 
             // Gated EXACTLY as OptimizationDiagnosticRunner.BuildAggregateRow gates it: only when the landed
@@ -1109,7 +1165,16 @@ namespace TestApp.SynthBank {
         /// step_theory, which additionally floors HFR_min at <see cref="SynthBankDerivations.PixelizationFloorPixels"/>
         /// (R2) and never accounts for <see cref="StepSizeRecommender.MaxHalfWidthSampledHalfSpanMultiple"/>'s cap.
         /// </summary>
-        private static double ComputeStepBehavioral(DefocusModel model, int offsetSteps, int seedStep, IAlglibAPI alglibAPI) {
+        /// <param name="detectableHalfWidthSteps">
+        /// F18 — the analytic detectable half-width (<c>SynthBankDerivations.DeriveDetectableHalfWidth</c>), or NaN
+        /// for the control arm. The truth curve carries no star counts, so the fixed point cannot observe
+        /// detectability directly; instead each sampled position is given <c>NHardStars</c> if it lies within this
+        /// half-width and 0 if it does not. That is exactly the discretization the runtime rule performs on a real
+        /// sweep — it takes the outermost SAMPLED position still clearing the floor — so the fixed point A3
+        /// compares against is produced by the same rule as the landing it scores.
+        /// </param>
+        private static double ComputeStepBehavioral(DefocusModel model, int offsetSteps, int seedStep, IAlglibAPI alglibAPI,
+                double detectableHalfWidthSteps = double.NaN, int recoveryStepsPerSide = 0, bool sizeForExecutedSweep = false) {
             var step = Math.Max(1, seedStep);
             var visited = new HashSet<int>();
             const int MaxIterations = 50;
@@ -1139,7 +1204,26 @@ namespace TestApp.SynthBank {
                 if (!fit.Solve()) {
                     return double.NaN;
                 }
-                var rec = StepSizeRecommender.Recommend(fit, step, focuserMaxStep: null);
+                SweepDetectability detectability = null;
+                if (double.IsFinite(detectableHalfWidthSteps) || recoveryStepsPerSide > 0) {
+                    var counts = new int[2 * offsetSteps + 1];
+                    var positions = new int[2 * offsetSteps + 1];
+                    for (var k = -offsetSteps; k <= offsetSteps; k++) {
+                        var idx = k + offsetSteps;
+                        positions[idx] = model.OptimalFocuserPosition + k * step;
+                        counts[idx] = !double.IsFinite(detectableHalfWidthSteps)
+                            ? SynthBankDerivations.NHardStars   // no bound measured: every position counts as usable
+                            : (Math.Abs((double)k * step) <= detectableHalfWidthSteps ? SynthBankDerivations.NHardStars : 0);
+                    }
+                    detectability = new SweepDetectability {
+                        FrameStarCounts = counts,
+                        FrameFocuserPositions = positions,
+                        HardFloorStarCount = SynthBankDerivations.NHardStars,
+                        RecoveryStepsPerSide = recoveryStepsPerSide
+                    };
+                }
+                var rec = StepSizeRecommender.Recommend(fit, step, focuserMaxStep: null,
+                    detectability: detectability, sizeForExecutedSweep: sizeForExecutedSweep);
                 if (rec.StepSize == step) {
                     return step;
                 }

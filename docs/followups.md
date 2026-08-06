@@ -114,7 +114,9 @@ F6 diagonal valley, but it means **a single landing is not evidence** about whic
 and any claim resting on one `optimize` run should be treated as anecdote.
 
 ### F18 — Step size is sized by curve geometry alone, so the sweep outruns what the detector can see
-**Status:** Open · found 2026-08-02 reproducing a 3800 mm sweep that yielded four dead frames
+**Status:** Open — **mechanism shipped behind flags, default OFF (wave 7)**; both open decisions closed; the
+σ_focus arms RAN and returned a **null** — the bank cannot exercise this defect · found 2026-08-02 reproducing a
+3800 mm sweep that yielded four dead frames
 
 `StepSizeRecommender` sets the half-width from the fitted HFR curve: the distance at which HFR reaches
 `HfrThresholdMultiple = 3.0` × its minimum, then `step = W / 3.5` at `DefaultOffsetSteps = 4`. That is a pure
@@ -164,6 +166,76 @@ This changes the shipped recommender for every user, so it wants a design spec p
 as the acceptance metric, not an inline patch. Related: the flat-topped rejections that motivated this are
 surfaced as sweep-geometry evidence by `ExposureRecommendation.FlatRejectedCount` (PR #159).
 
+**DESIGNED AND SHIPPED BEHIND FLAGS 2026-08-06 (wave 7); the σ_focus arms are wired and OWED.** Spec:
+[`docs/synthetic-af-bank-followups-wave7-design.md`](synthetic-af-bank-followups-wave7-design.md) §2.
+
+`StepSizeRecommender.Recommend` takes an optional `SweepDetectability` (per-frame star counts, focuser positions,
+recovery flags, `NHard`) and computes `half_width = min(W_3x, max(W_detect, floor))`. Absent ⇒ **byte-identical**,
+pinned by a test, so one binary is both arms ([F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)).
+On this entry's own 3800 mm run: `min(6221, 5310) = 5310` → step **1517**. *(This entry quotes 1060–1330 for the
+same run; that divides by 4–5, i.e. it is the EXECUTED-sweep figure — arm S gives 5310/4.375 = 1214. Both are unit
+tests now, and separating them is why there are two arms.)*
+
+**The two decisions this entry left open, both closed:**
+
+- **(a) Should focus-recovery steps extend the sweep past the band?** *Yes for the 3× band — that is their purpose,
+  and `JRun` already exempts them from its hard floor — but never past detectability.* Which of the two the SHIPPED
+  default should be is settled by MEASUREMENT: sizing the base step for a conditional path costs **20% of the lever
+  arm on every successful run** (divisor 3.5 → 4.375 at 4 offset + 1 recovery), and that is not obviously worth
+  paying. So the recommendation now reports `MaxUsefulHalfSpan` = the outermost frame that measured anything, and
+  arm S (`--step-size-for-executed-sweep`) is measured against arm D (`--step-detect-bound`) with a rule fixed in
+  advance. **Clamping the engine's recovery-step placement to `MaxUsefulHalfSpan` is engine-side and is NOT done
+  here** — filed as its own followup.
+- **(b) What floor does `W_detect` need?** Two guards. Fewer than `MinFramesForDetectHalfWidth = 3` qualifying
+  non-recovery frames ⇒ `W_detect` is **NaN (no bound), never 0** — a thin run has shown that it did not detect
+  anything out there, not that nothing is detectable, and only the first reading is safe. And
+  `MinHalfWidthSampledHalfSpanMultiple = 0.5`, **the mirror of the existing `MaxHalfWidthSampledHalfSpanMultiple =
+  1.5`**: the recommender has always bounded how far one run may WIDEN and had no bound on how far it may NARROW.
+  At 0.5 the worst one-run shrink is 0.57×, so a pathological run halves the step and converges over runs.
+
+**Acceptance rules, pre-registered.** Arm D ships if median σ_focus over the bank is no worse than the control by
+more than 2%, no dataset regresses more than 20%, and the A3 final-step assertion passes on at least as many cells.
+Arm S ships instead of D only if it beats D by more than 5% median. `BaselineJ` identical across C/D/S before any
+σ is read (F41's free check); and if arm D's `W_detect` equals the sampled half-span on most datasets it is
+reporting the sweep's edge rather than detectability and the arm is void.
+
+**`optimize` deliberately stays on the pre-F18 recommender**, so every F32/F35 arm's reported step remains
+comparable; the arms run through `synth-validate`, which is the recommender's own convergence driver.
+
+**A DEFECT IN THE RULE, caught by this entry's own pre-registered instrument check.** The check said: *if
+`W_detect` equals the sampled half-span on most datasets it is reporting the sweep's edge rather than
+detectability, and the arm is void.* It came back equal on **all 20** datasets. `W_detect` is bounded above by the
+sampled half-span **by construction** — it is the outermost SAMPLED position that cleared `NHard` — so when no
+frame falls below the floor, returning the sweep's own edge turns `min(W_3x, W_detect)` into *"never recommend a
+sweep wider than the one you just took"* on every healthy run. That is a cap on WIDENING, a different rule, and one
+the recommender already has. **Fixed: no starved frame ⇒ NaN ⇒ no bound** — "unmeasurable is not zero", at the
+other end. The first arm run was discarded and re-run on the corrected binary.
+
+**ARMS RUN 2026-08-06 (wave 7). The rule fires for arm D, against arm S — and arm D's pass is VACUOUS.**
+28 (dataset, scenario) cells over `D05`/`D06`/`D09`/`D12`/`D15`/`D16` × S0/S1/S2 (+S3/S6 where applicable), three
+arms, one binary, `--settings` pinned. Round-0 control: **0 violations**. Assertion verdicts **identical across all
+three arms** (Pass 82 / Fail 2; the 2 are in arm C too — pre-existing S2 behaviour, F25/F34).
+
+| rule (fixed in advance) | outcome |
+|---|---|
+| arm D ships if median σ_focus no worse than C by >2%, no dataset worse by >20%, A3 count not reduced | **FIRES** — median ratio 1.0000, 0 worse, counts identical |
+| arm S ships instead of D only if it beats D by >5% median | **DOES NOT FIRE** — median 1.0000, and S is >20% WORSE on 2 cells |
+
+**But arm D is byte-identical to the control on 26 of 28 cells.** The bound bound in exactly ONE cell (`D16` S2),
+whose σ_focus is **NaN** (degenerate fit) — so its only active cell produced no readable acceptance metric.
+**Zero** cells improved. The rule fires because the arm is INERT, not because it is good.
+
+**Consequence: the mechanism ships, the flag stays default OFF.** This entry asked for bank validation with
+σ_focus as the acceptance metric and the bank returned a **null**: at the derived exposures the detectability limit
+is never reached (edge-frame headroom 3–2746 stars against a floor of 3), and this entry's own evidence came from a
+real 3800 mm rig at 14 s whose wings went starless — which no dataset here reproduces. Turning it on for every
+user on a vacuous pass would be reading a null as a green light. **Adoption needs a rig where the defect
+reproduces**, and wave 7 shipped the instrument that identifies one (`StepSizeRecommendation.MaxUsefulHalfSpan`).
+
+**What the bank cannot do, recorded as a property of the bank:** its exposure derivation targets `NTarget = 20`
+stars over the gate on the MEDIAN frame, which on these fields implies ≥ `NHard` at the edge. A dataset that could
+exercise this entry has to be built deliberately — starved on purpose — or borrowed from the real bank.
+
 ### F25 — From a far-too-wide sweep the step recommender widens it further, instead of recovering
 **Status:** Open · found 2026-08-03 running scenario S2 (step ×4) on the synthetic AF bank
 
@@ -207,6 +279,14 @@ and belongs with the three calibration bugs already recorded in
 some floor should either hold the current step or shrink it, never widen it. Reproduce with
 `synth-validate --datasets D05_tec140_1000mm --scenarios S2 --max-rounds 4`. Separately: make "converged" require
 being inside the tolerance band, not merely unchanged.
+
+**Wave 7 bounds the MAGNITUDE and leaves the gap (2026-08-06).**
+[F18](#f18--step-size-is-sized-by-curve-geometry-alone-so-the-sweep-outruns-what-the-detector-can-see)'s
+`W_detect` is measured and can never exceed what the sweep sampled, so `min(W_3x, W_detect)` bounds the 4×→7×
+over-reach on any run whose star counts are populated. That is not this entry's fix: at R² = −0.223 the
+recommender still ANSWERS rather than recognising it has no curve, and a degenerate fit that happens to be bounded
+is still a degenerate fit being trusted. **The fit-quality gate, and the "converged means unchanged" half, are
+both still owed.**
 
 ### F26 — A stuck binning recommendation starves the step update indefinitely
 **Status:** Open · found 2026-08-03 running scenarios S1/S6 on the synthetic AF bank
@@ -282,6 +362,11 @@ principle".
 **Next step.** Bound the deferral: if the binning recommendation has not changed the applied value for N
 consecutive rounds, stop deferring and let the step update proceed. Fixing F22 would also dissolve this, but the
 livelock is worth guarding against independently — any future oscillating recommendation would reproduce it.
+
+**Explicitly NOT covered by wave 7's F18 work (2026-08-06).** F18, F21, F25 and F26 are the same component read
+four ways, and a passing bank must not be read as four entries closed. This one is the wizard's binning-first
+update ORDERING, downstream of [F22](#f22--detection-binning-is-a-hard-threshold-on-a-measurement-that-under-reads-so-boundary-rigs-get-the-wrong-factor),
+not the recommender's arithmetic. Untouched, and the guard above is still owed.
 
 ### F23 — ~~The optimizer objective has no precision term, so it trades precision away for marginal recall~~
 **Status:** **Won't fix as written** (2026-08-03, wave 2 — evidence base void; the real effect is ~1/5 the size and the axis is recall, see F32/F33) · found 2026-08-02
@@ -567,7 +652,9 @@ Reproduce: `D:\hf_w5\f24_arms.sh`, analysed by `D:\hf_w5\analyze_f24.py`.
 > D06/D09/D14 — none of which was ever suspect — and is untouched.
 
 ### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
-**Status:** Open · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
+**Status:** **OPEN — the wave-7 "working as intended" position was REFUTED by its own pre-registered test**
+(2026-08-06). A rich field gains 44% of σ_focus from 8× the derived exposure, and the block is never even
+surfaced there · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
 
 `ExposureRecommender`'s `S_now` is the median, across non-recovery frames, of each frame's
 **`NTarget`-th-brightest** accepted-star SNR, with `NTarget = 20`. Any reasonably wide field contains 20 stars
@@ -581,6 +668,23 @@ luminance. It still derives 0.5 s, because its 2.9° field carries 6835 on-frame
 magnitude ~9. The datasets that do demand a long exposure are the *narrow, sparse* ones — `D10` (0.28° field,
 26 on-frame stars) derives 30 s — and they get there by having few bright stars, not by being photon-starved.
 
+> **These two numbers have DRIFTED and are no longer what the derivation produces (re-measured 2026-08-06, wave 7).**
+> `synth-bank --dry-run` over all 20 datasets on `develop` @ `761b9b1`:
+>
+> | claim as filed | measured today |
+> |---|---|
+> | the 0.5 s floor for **12 of 17** | **8 of 17** (`D01`–`D05`, `D07`, `D13`, `D14`) |
+> | `D16_esprit550_ha3` derives **0.5 s** | **2 s** (band 1.079–3.102 s) |
+>
+> The cause is **not identified** — it lies somewhere between this entry's filing (2026-08-02) and now, and the
+> candidates are [F44](#f44--the-synthetic-camera-queries-the-catalog-for-at-most-one-cell-so-a-wide-field-is-rendered-starless-outside-a-small-central-patch)'s
+> catalog-query fix (which changes on-frame star counts on exactly the wide fields this claim rests on) and the
+> derivation's own move to a median-across-sweep-frames statistic. Recorded rather than chased: the entry's
+> ARGUMENT is unaffected — a 3 nm Hα field 64× down on flux earning 2 s is still "sized by field richness rather
+> than by photon starvation" — but its specific numbers must not be quoted again without re-measuring. It also
+> moves `D16` above the `MeaningfulExposureAboveFloorSeconds` gate, so it now qualifies for scenario S3, which it
+> did not when this entry was written.
+
 **Why it matters.** The knob is sized by field richness rather than by whether the stars the autofocus fit
 actually depends on are above the noise. A long-focal-length rig on a bright field will report "exposure is not
 the limit" while its faint-end stars — the ones that carry the wings of the V-curve — are still noise-dominated.
@@ -592,6 +696,76 @@ genuinely only needs 20 good stars, then the current behaviour is correct and th
 intended" — but that should be a stated position, not an accident of which statistic was nearest to hand. If it
 is not, the candidate is a faint-end statistic (e.g. the SNR at the star count the fit actually consumes) rather
 than a fixed rank.
+
+**DECIDED 2026-08-06 (wave 7): `NTarget = 20` STAYS, and here is the position.** Full reasoning in
+[`docs/synthetic-af-bank-followups-wave7-design.md`](synthetic-af-bank-followups-wave7-design.md) §1. Three legs:
+
+1. **The recommendation inverts the objective's own knee.** `S_stars` saturates at `nMedian >= NTarget`; past 20
+   stars per frame the optimizer stops rewarding star count at all, so an exposure recommendation sized from a
+   fainter population would be buying stars the objective is indifferent to. `Recommend` reads `NTarget` from the
+   caller's `ObjectiveConstants` rather than a literal, so an objective retune moves both together.
+2. **The named alternative is PINNED BY THE GATE and cannot work as a control signal.** "The SNR at the star count
+   the fit actually consumes" is the faintest accepted star's SNR. A candidate is accepted iff its gate statistic
+   exceeds `max(Sensitivity, StarDetector.InertSensitivityBound)`, and this advice is surfaced ONLY when
+   `Sensitivity <= 1.0` (`OptimizationSummary.HasLowStarSignal`) — so the binding bound is the inert one, **1.5**
+   at shipped defaults. A longer exposure does not raise that number; it admits MORE faint stars whose faintest
+   again sits at the bound. `t·(TargetSensitivity/1.5)² = 44·t` therefore saturates `MaxExposureFactor = 4` on
+   every run, forever, and never converges. The measured variable would be a fixed point of the actuator's own
+   gate rather than a measurement of the sky.
+3. **The half of this entry that is a real defect already has its own mechanism, and it post-dates the entry.**
+   PR #159 shipped THREE verdicts, not one: `ExposureIsNotTheLimit`, `StarCountIsTheLimit` (a fixed ×2 PROBE with
+   a stopping rule) and `StarFieldIsExhausted`. The "are there enough stars?" question is answered there, by a
+   probe rather than a formula, precisely because whether more exposure reveals more stars depends on a luminosity
+   function one sweep cannot measure. What is left of this entry — a rich field whose WING frames are starved — is
+   a sweep-geometry defect owned by [F18](#f18--step-size-is-sized-by-curve-geometry-alone-so-the-sweep-outruns-what-the-detector-can-see),
+   and the product already says so for the adjacent signal (`FlatRejectedCount` is documented as *"narrow the
+   sweep, never expose longer"*).
+
+**What can still refute this, pre-registered.** The position makes a claim about the world: *a field that already
+carries 20 bright stars gains nothing material from more exposure*. **Arm E** tests it — `D16_esprit550_ha3` (this
+entry's own poster child) and `D02_rich_135mm` rendered at 0.5/1/2/4/8 s, fixed detector settings, σ_focus per
+rung. **Rule fixed in advance: if any longer rung improves σ_focus by more than 20% relative to the
+derived-exposure rung on either dataset, this entry REOPENS.**
+
+> ## THE RULE FIRED. THE "no change" POSITION ABOVE IS REFUTED, AND THIS ENTRY IS OPEN AGAIN (2026-08-06, wave 7).
+>
+> `D02_rich_135mm` — a **rich** wide field, 2746 stars still above the gate at the sweep's outermost frame, whose
+> derived exposure is the **0.5 s clamp floor**:
+>
+> | exposure | σ_focus (current) | σ_focus (optimized) | J best | min stars/frame |
+> |---|---|---|---|---|
+> | **0.5 s (derived)** | 0.23211 | **0.10927** | 0.99633 | 23 |
+> | 1 s | 0.19828 | 0.09125 (+16.5%) | 0.99720 | 34 |
+> | 2 s | 0.18119 | 0.09482 (+13.2%) | 0.99708 | 58 |
+> | 4 s | 0.16754 | **0.08182 (+25.1%)** | 0.99770 | 63 |
+> | 8 s | 0.15238 | **0.06109 (+44.1%)** | 0.99853 | 37 |
+>
+> σ_focus improves **monotonically** on the current-settings column and by **44% at 8×** on the optimized one.
+> A rich field demonstrably DOES gain from more exposure, and the shipped recommender says nothing about it.
+>
+> **And the diagnosis is sharper than this entry's own framing.** `SensitivityIsAtFloor` is **False at every
+> rung** — the landed Sensitivity is 9–49, nowhere near the floor — so the exposure block is **never surfaced at
+> all** on this dataset. The `NTarget = 20` statistic is not merely answering the wrong question here; on this
+> population it is **never evaluated**, because the block's TRIGGER (`OptimizationSummary.HasLowStarSignal`,
+> `Sensitivity <= 1.0`) gates it out first. The gap is upstream of the statistic.
+>
+> **The 20-star derivation is NOT uniformly wrong, which matters for the fix.** `D16_esprit550_ha3` — the
+> narrowband case this entry opens with — has its σ_focus MINIMUM exactly at its derived 2 s (0.06423), and gets
+> **worse** at 4 s (0.12034) and 8 s (0.14828). So the derivation nails D16 and under-serves D02. The
+> distinguishing feature is that **D02's derived exposure sits at the `MinExposureSeconds = 0.5 s` clamp floor** —
+> the arithmetic asked for less than the minimum, i.e. it saturated and carried no information — while D16's is a
+> free solution inside the band.
+>
+> **The confound, declared before the arm ran and still true:** more exposure adds stars AND measures the existing
+> ones better; this arm cannot separate them. It does not need to. The question was *"should a rich field ever
+> earn an exposure recommendation?"* and the answer is **yes**.
+>
+> **Next step, and it is not "change NTarget".** (a) The trigger, not the statistic, is what silences this
+> population — decide whether the exposure block should also fire when the landed Sensitivity is healthy but
+> σ_focus is poor, or when the derived exposure saturated at a clamp. (b) A recommendation whose arithmetic hits
+> either clamp should report that it saturated rather than reporting the clamp as an answer. (c) Re-check
+> `MinExposureSeconds = 0.5 s`: on `D02` it is the binding constraint and it is 16× below what the fit wants.
+> Reproduce: `D:\hf_w7\remaining_arms.sh` (Arm E), scored by `D:\hf_w7\score_armE.py`.
 
 ### F20 — Below `MinHFR` the autofocus objective collapses to exactly zero, with no diagnostic
 **Status:** Done (parts 1 and 2) · found 2026-08-02 running `optimize --per-run` over the
@@ -750,6 +924,14 @@ converged on, for both rounds of D17. The suspicion is that when the fitted mini
 `3 × min` crossing is found very close to focus and the coarse walk terminates before it reaches the real one —
 but that is a hypothesis, not a diagnosis, and it should be confirmed on the two saved sweeps before any change.
 Reproduce: `synth-validate --datasets D17_cdk14_oiii5 --scenarios S0 --max-rounds 2` (seeds are deterministic).
+
+**Wave 7 bounds this entry's SYMPTOM and does not touch its cause (2026-08-06).**
+[F18](#f18--step-size-is-sized-by-curve-geometry-alone-so-the-sweep-outruns-what-the-detector-can-see)'s
+`MinHalfWidthSampledHalfSpanMultiple = 0.5` caps how far one run may narrow the sweep, so a 143.6 → 12.1 collapse
+can no longer land as a 41 → 3 step in one round. But nothing has diagnosed WHY `FindHalfWidth`'s outward search
+returned 12.1 on a fit at R² = 1.0000, and a bound on a wrong answer is not an explanation. **This entry's own
+next step — instrument `FindHalfWidth` on the two saved `D17` sweeps and confirm or refute the coarse-walk
+hypothesis — is still owed**, and the entry stays Open.
 
 ### F22 — Detection binning is a hard threshold on a measurement that under-reads, so boundary rigs get the wrong factor
 **Status:** Open · found 2026-08-02 running the synthetic bank's S0 control
@@ -1245,6 +1427,20 @@ check passing this cleanly is what makes the rest of the table readable.
 > silently changes with an unrelated flag is worse than an absent one**; the pinning should apply to the readout
 > whether or not a floor is in force. Reproduce: `D:\hf_w6\f32_armR.sh`.
 
+**Wave 7 checked whether it was about to invalidate this arm, and it did not (2026-08-06).** Wave 7's three items
+were expected to share a bank re-baseline, which would have made a confirmation arm on the new frames
+incomparable with wave 5's φ table. Measured instead of assumed: **F19 decided "no change"** (so the exposure axis
+of the derivation does not move) and **F39(b) needed no re-render at all** (the factor is detector-side; the
+frames' exposures were already derived at binning 2). Nothing in wave 7 has re-rendered a frame, so `D18` / `D19`
+/ `D20` — this arm's entire synthetic half — are bit-for-bit what wave 5 and wave 6 measured, and its other five
+runs are on the real bank, which wave 7 never touches. **The arm is runnable and comparable TODAY.**
+
+**When F18's re-render does happen, the rule for this arm is fixed in advance:** the datasets whose `step*` moves
+get their pre-wave frames preserved (`D:\hf_w7\oldframes`, as wave 6 did) and the arm runs on those; an arm run
+on the NEW bank must re-run wave 5's φ arms on that bank rather than compare across it. That is
+[F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary) applied to frames instead of to
+binaries.
+
 ### F33 — ~~The synthetic bank does not reproduce the real bank's optimizer failure mode~~ → it does now
 **Status:** Done (part 1 wave 3, part 2 wave 4) · found 2026-08-03 re-reading the wave-1 arms side by side
 
@@ -1399,9 +1595,25 @@ reverted — the other four asserted behaviour identical with and without it. Wa
 passes either way is worth nothing") applies to a *set* of tests too: count the ones that discriminate, not the
 ones you wrote.
 
+**The BANK can finally exercise this fix (2026-08-06, wave 7).** This entry's population is a run whose
+`DetectionBinning > 1`, and until wave 7 the harness had never produced one —
+[F39](#f39--the-harness-records-a-detection-binning-the-run-never-applied-and-7-datasets-have-never-run-at-theirs)(b)
+was exactly that gap. `optimize --apply-run-detection-binning` now makes the seven `detectionBinning = 2` datasets
+detect at 2, so a bank-level regression assertion for the captured-vs-binned comparison became possible for the
+first time — and **it was added in the same wave**: the whole (1.2, 2.4] silent window at factor 2, plus the four
+real bank in-focus HFRs pinning that honouring the factor did NOT quietly start seeding the entire binning-2
+population. **3 discriminating** (reverting the division fails them) **/ 5 guards**.
+
+**A related hypothesis this entry did NOT explain, checked and refuted.** Wave 7's binning arm shows `recall@high`
+falling on 4 of 7 datasets at factor 2, which looks exactly like this entry's mismatch (a gate in binned space
+effectively doubling `MinHFR` in captured pixels). `golden eval`'s false-negative attribution reports **no
+`TooLowHFR` at all** in any of the fourteen runs: the loss is candidate formation and the shape/size gates. Filed
+separately as [F46](#f46--detection-binning-buys-faint-stars-and-quietly-sells-bright-ones-to-the-shapesize-gates).
+
 ### F39 — The harness records a detection binning the run never applied, and 7 datasets have never run at theirs
-**Status:** Open — **part (a) done (wave 6)**; part (b) (running the 7 `detectionBinning = 2` datasets at their
-expected factor) deliberately deferred to its own wave · found 2026-08-04 checking whether the banks differ in binning
+**Status:** Open — part (a) done (wave 6); **part (b) MEASURED IN FULL (wave 7, and it needed no re-render):
+recall up on 7/7 AND σ_focus up 17–95% on 7/7**; the adoption re-baseline is a wave of its own · found 2026-08-04
+checking whether the banks differ in binning
 
 Every `harness_settings.json` in the synthetic bank says `"DetectionBinning": "Bin2"`; every real run says
 `Bin1`. That looks like a systematic difference between the banks that could explain F33 outright. **It is not,
@@ -1452,6 +1664,125 @@ value of that pass is that **exactly one thing changed** — the star field, wit
 exposure, binning, donut) provably identical. Honouring a per-run binning would have moved a second variable on
 7 other datasets in the same wave, and the two effects could not then be separated. It needs its own arm, with
 its own before/after, on a bank nobody is simultaneously re-rendering.
+
+**PART (b) MEASURED 2026-08-06 (wave 7) — and it needed NO re-render at all.** The premise that it would was
+wrong, and reading one stored field is what showed it. `D08_c11_2800mm`'s own `synthetic_meta.json` says:
+
+> `exposureDefinition`: *"Exposure t solving snr(t) = ... = 10 for the 20th-brightest of 123 on-frame stars ... **at
+> binning=2 (captureBinning=1×detectionBinning=2)**, clamped to [0.5, 30] s"*
+
+The bank's exposures for these seven **were already derived assuming binning 2** while every run scored them at 1,
+and `detectionBinning` enters no render input (`GenerateSweep` takes centre/step/offsetSteps/exposure). Honouring
+the factor therefore REMOVES an inconsistency rather than creating a new configuration.
+
+**Arm G1 — `golden eval --detection-binning 1` vs `2`, `--params default --defocus-donut`, `--match centroid
+--match-radius 12`, `--settings` pinned. 14 evals, ~6 minutes, no optimizer.** (The flag is new; `golden eval`
+already exposed every other detection override, so this was one `Int(...)` line routed through
+`DetectionBinningResolver.ApplyFactor` plus the per-run `PixelScale × factor` the detector itself applies.)
+
+| dataset | recall@all 1 → **2** | recall@high 1 → **2** | precision | `LowSensitivity` FN 1 → **2** | other FN 1 → 2 |
+|---|---|---|---|---|---|
+| `D08_c11_2800mm` | 0.870 → **0.962** | 1.000 → 0.970 | 1.000 / 1.000 | 41 → **3** | 0 → 9 |
+| `D09_c14_3800mm` | 0.761 → **0.906** | 0.978 → **0.989** | 1.000 / 1.000 | 49 → **7** | 7 → 15 |
+| `D10_rc16_3250mm_sparse` | 0.852 → **0.939** | 0.966 → 0.948 | 1.000 / 1.000 | 15 → **1** | 2 → 6 |
+| `D12_c14_585_afbin2` | 0.562 → **0.675** | 0.879 → 0.813 | 1.000 / 1.000 | 114 → **34** | 30 → 73 |
+| `D14_cdk14_2563mm_e47` | 0.841 → **0.987** | 0.984 → **0.992** | 0.999 → **1.000** | 184 → **4** | 6 → 11 |
+| `D15_cdk20_3454mm_e47` | 0.764 → **0.917** | 0.931 → 0.874 | 1.000 / 1.000 | 52 → **0** | 8 → 21 |
+| `D17_cdk14_oiii5` | 0.875 → **0.990** | 1.000 → 1.000 | 1.000 / 1.000 | 26 → **2** | 0 → 0 |
+
+1. **The physics-derived factor is right and the bank can finally say so.** Overall recall improves on **7 of 7**
+   (+0.087 … +0.146) at **zero** precision cost — the single false positive anywhere in the set disappears.
+2. **The mechanism is measured, not inferred.** `golden eval`'s FN attribution names it: `LowSensitivity`
+   rejections collapse (**184 → 4** on `D14`). Binning raises the per-binned-pixel SNR, so the Sensitivity gate
+   stops eating faint stars. Nothing about the gate changed.
+3. **It is not free, and the price lands on the BRIGHT tier** — see the new followup below.
+
+**Shipped:** `golden eval --detection-binning N`; `optimize --apply-run-detection-binning` (opt-in, absent ⇒
+bit-identical, and it applies ONLY the binning — making the whole per-run `Resolved` authoritative would let a
+per-run file shadow the `--settings` every arm pins, F42); and
+`HarnessSettingsStore.ResolveRunDetectionBinningFactor`, which prefers the dataset's physics-derived
+`synthetic_meta.json` value over the settings file's (`kept-from-base`, part (a)'s field) and **prints which
+source it used**. 4 tests.
+
+**ARM G2 — `optimize --per-run` with and without the flag. This is the largest effect in wave 7.**
+**σ_focus improves at binning 2 on 7 of 7 datasets, by 17% to 95%:**
+
+| dataset | `J` bin1 → **bin2** | σ_focus bin1 → **bin2** | σ improvement |
+|---|---|---|---|
+| `D17_cdk14_oiii5` | 0.97854 → **0.99518** | 2.64723 → **0.12033** | **+95.5%** |
+| `D15_cdk20_3454mm_e47` | 0.99519 → 0.99518 | 0.73796 → **0.05577** | **+92.4%** |
+| `D09_c14_3800mm` | 0.99182 → **0.99505** | 2.40151 → **0.20483** | **+91.5%** |
+| `D10_rc16_3250mm_sparse` | 0.97880 → **0.99351** | 2.39831 → **0.45592** | **+81.0%** |
+| `D12_c14_585_afbin2` | 0.98653 → **0.99631** | 3.88174 → **0.95750** | **+75.3%** |
+| `D08_c11_2800mm` | 0.99466 → **0.99685** | 1.06022 → **0.53243** | **+49.8%** |
+| `D14_cdk14_2563mm_e47` | 0.99886 → 0.99860 | 0.26950 → **0.22277** | **+17.3%** |
+
+`J` improves on 6 of 7 (`D14` flat at −0.0003). **σ_focus is what autofocus is for**, and on `D17` it goes from
+2.65 focuser steps of uncertainty to 0.12 — a factor of 22. Seven datasets have been scored for their entire
+existence at a factor their own physics says is wrong, and it cost between a sixth and nineteen twentieths of
+their focus precision. Prior waves' numbers on these seven stay internally valid (the factor was a uniform 1
+across every arm) but were measured on a configuration the bank did not intend.
+
+**[F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings) handled deliberately:** the arms were
+ordered so the **status-quo binning-1 arm ran LAST**, so the bank's run folders still hold their pre-wave
+landings. Verified from the files — `Provenance.CommandLine` reads `--out D:\hf_w7\g2\bin1\…`
+([F30](#f30--a-stored-optimized_settingsjson-does-not-say-which-config-produced-it) doing its job). Re-baselining
+seven datasets on a decision nobody has taken is exactly the silent drift that rule exists to prevent.
+
+**The adoption decision is NOT taken here.** Acting on this means re-baselining the seven, which is a wave of its
+own with its own before/after on a bank nobody is simultaneously re-rendering. What wave 7 delivers is the
+measurement and the flag.
+
+**Still owed: the ADOPTION wave.** Wave 7 delivered the measurement and the flag; it did not take the decision.
+Everything below is what that wave needs, so it does not have to re-derive it.
+
+**1. The decision to take.** Should the seven be scored at their derived factor permanently — i.e. does
+`--apply-run-detection-binning` become the default on the headless path (or the resolved value stop being
+discarded at all)? The evidence says yes on recall and emphatically yes on σ_focus, and the counter-evidence is
+[F46](#f46--detection-binning-buys-faint-stars-and-quietly-sells-bright-ones-to-the-shapesize-gates).
+
+**2. What changes, and what does not.** The frames do NOT move (`detectionBinning` enters no render input — §3.3),
+so **no re-render**, and no `--dry-run` diff is needed to scope one. The **product is not affected either**: the
+live app already applies the user's factor through `ApplyDetectionImageContext`. This is a harness/bank change
+only, on 7 of 20 datasets. The other 13 are binning 1 under either configuration, which makes them a **free
+control — they must come back bit-identical**, and an adoption arm that moves one of them has a fault, not a
+result ([F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)'s shape).
+
+**3. It BREACHES two checked-in expectation bands, and that is the real gate.** Scored against
+[`docs/synthetic-af-bank-expectations.json`](synthetic-af-bank-expectations.json)'s per-class `recallHighMin`
+(both L34 and L47 are 0.90), using wave 7's arm-G1 numbers under config B:
+
+| dataset | class | floor | recall@high bin1 | **bin2** | verdict at bin2 |
+|---|---|---|---|---|---|
+| `D12_c14_585_afbin2` | L34 | 0.90 | 0.879 | **0.813** | **BREACH** (and it already breached at bin1) |
+| `D15_cdk20_3454mm_e47` | L47 | 0.90 | 0.931 | **0.874** | **BREACH** (bin1 was fine) |
+| `D08` / `D09` / `D10` / `D14` / `D17` | — | 0.90 | — | 0.948–1.000 | ok |
+
+That file's own rule is explicit: *"A cell landing outside its band is a FLAG that gets triaged into
+docs/followups.md — it is NEVER fixed by widening the band here."* So **adoption cannot proceed by relaxing the
+band**. Either F46 is understood first and the bright-tier loss is reduced, or the breach is triaged on its
+merits and the band is re-derived with a stated justification — which is a legitimate move (the bands were
+calibrated at binning 1, a configuration the bank did not intend) but a deliberate, separately-argued one.
+
+**Note the direction is not uniform**: overall recall RISES on all seven while `recall@high` falls on four, so a
+re-derivation would tighten some bands and loosen others. Both halves have to be stated.
+
+**4. Ordering, so the adoption arm is the one the bank keeps.**
+[F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings): `optimize --per-run` rewrites
+`optimized_settings.json` into the run folders. Wave 7 ran the status-quo arm LAST on purpose; an adoption wave
+must run it **FIRST** and the binning-2 arm last, then record the mapping in its results doc.
+
+**5. What it does NOT disturb.** `D18`/`D19`/`D20` are not among the seven, so
+[F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains)'s
+confirmation arm is unaffected by this adoption — the question that dominated wave 7's ordering does not recur
+here. Prior waves' A/B comparisons on the seven also stay internally valid (the factor was a uniform 1 across
+every arm of every wave); what changes is that future numbers are not comparable to them, which is
+[F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary) again and wants the usual
+re-run-rather-than-compare-across treatment.
+
+**6. Reproduce the wave-7 measurement it builds on:** `D:\hf_w7\f39b_golden.sh` (arm G1, recall/precision, ~6 min)
+and the G2 block of `D:\hf_w7\remaining_arms.sh` (σ_focus / `J`). Per-dataset outputs in `D:\hf_w7\golden` and
+`D:\hf_w7\g2`.
 
 ### F40 — The settings handoff shipped in wave 4 had never once been written to disk
 **Status:** Done (wave 5 — backfilled and now exercised) · found 2026-08-05 backfilling it
@@ -2194,6 +2525,109 @@ before it is contemplated — the AF-bank σ_focus/R² arms are the instrument.
 `WeightRegularization.Regularize` → `AlglibHyperbolicFitting.Create(…, TiltedHyperbola, pts, stepSize: 15,
 useWeights: true)` → `MathUtility.RejectionTest(pts, fit.Fitting, 0.99, BuildResidualWeights(pts, true))`, then
 `new TrendlineFitting().Calculate(remaining, "STARHFR").Minimum.X`. Run log: `20260805-214043`.
+
+### F46 — Detection binning buys faint stars and quietly sells bright ones to the shape/size gates
+**Status:** Open · found 2026-08-06 (wave 7) running the F39(b) binning arm · **measured with attribution, not inferred**
+
+Scoring the seven `detectionBinning = 2` datasets at their own factor for the first time
+([F39](#f39--the-harness-records-a-detection-binning-the-run-never-applied-and-7-datasets-have-never-run-at-theirs)(b))
+improves overall recall on **all seven** — and moves `recall@high` the WRONG WAY on **four** of them:
+
+| dataset | recall@all 1 → 2 | **recall@high 1 → 2** | non-`LowSensitivity` FN 1 → 2 |
+|---|---|---|---|
+| `D12_c14_585_afbin2` | 0.562 → 0.675 | 0.879 → **0.813** | 30 → **73** |
+| `D15_cdk20_3454mm_e47` | 0.764 → 0.917 | 0.931 → **0.874** | 8 → **21** |
+| `D08_c11_2800mm` | 0.870 → 0.962 | 1.000 → **0.970** | 0 → **9** |
+| `D10_rc16_3250mm_sparse` | 0.852 → 0.939 | 0.966 → **0.948** | 2 → **6** |
+
+**Where they go, from `golden eval`'s own FN attribution.** At factor 1 the misses are almost entirely
+`LowSensitivity` (41 / 49 / 15 / 114 / 184 / 52 / 26 across the seven). At factor 2 those collapse (3 / 7 / 1 / 34
+/ 4 / 0 / 2) and a different set appears that was **absent or near-absent at factor 1**: `NO CANDIDATE (structure
+gap)`, `TooSmall`, `NotCentered`, `OnBorder`, and more `TooDistorted`. That is the trade named exactly: **binning
+buys SNR with linear resolution**, and at half the resolution a compact star can fall out of candidate FORMATION
+or out of a shape gate that is calibrated in pixels.
+
+**Why it matters.** `DetectionBinningResolver` recommends the factor from measured in-focus HFR alone, and its
+whole rationale is that pixel-unit knobs are calibrated for HFR near 3 px. The recommendation is delivered as an
+unqualified improvement, and on `D12` it costs 6.6 points of recall on the brightest tier — the stars the AF fit
+weights most. Nothing in the product tells the user that half of a knob's effect points the other way.
+
+**Not F38.** The obvious explanation is
+[F38](#f38--the-minhfr-seed-trigger-compares-a-captured-pixel-vertex-against-a-binned-pixel-gate)'s space
+mismatch: `MinHFR` gates inside the binned raster, so factor 2 would effectively gate at 2.4 captured px. The
+attribution refutes it — **`TooLowHFR` appears in none of the fourteen runs.**
+
+**This BLOCKS [F39](#f39--the-harness-records-a-detection-binning-the-run-never-applied-and-7-datasets-have-never-run-at-theirs)(b)'s
+adoption wave, which is what raises it from an observation to a gate.** At binning 2 the bright-tier loss puts
+**two datasets below their checked-in `recallHighMin = 0.90` band**: `D12_c14_585_afbin2` at **0.813** (L34) and
+`D15_cdk20_3454mm_e47` at **0.874** (L47). `synthetic-af-bank-expectations.json`'s own rule forbids fixing that by
+widening the band, so adopting the correct binning factor requires either reducing this loss or triaging the
+breach on its merits with a stated re-derivation.
+
+**Next step.** Two separable questions. (a) Are `MinimumStarBoundingBoxSize` and the structure-map layers
+calibrated for the BINNED raster, or are they carrying captured-pixel values into a half-resolution image? They
+are the two knobs whose units the factor changes, and `ApplyFactor` rescales only `PixelScale`. (b) Should the
+binning recommendation be presented with its cost — "+13 points of overall recall, −6.6 on the bright tier" — or
+should the factor be chosen to maximize something that sees both? Cheap to start: re-run the arm with
+`--min-box` swept, which `golden eval` already exposes and which needs no code.
+Reproduce: `D:\hf_w7\f39b_golden.sh`; per-dataset outputs in `D:\hf_w7\golden`.
+
+### F47 — A focus-recovery step can be placed where nothing is detectable, and now there is a number that says so
+**Status:** Open · found 2026-08-06 (wave 7) closing F18's open decision (a)
+
+[F18](#f18--step-size-is-sized-by-curve-geometry-alone-so-the-sweep-outruns-what-the-detector-can-see) measured a
+3800 mm run whose focus-recovery step landed at 8850 — **4.4× the minimum HFR, and past the last position that
+detected anything** (5310). Wave 7 closed F18's decision (a) as *recovery steps may extend past the 3× band —
+that is their purpose, and `JRun` exempts them from its hard floor — but never past detectability*, and shipped
+the measurement half: `StepSizeRecommendation.MaxUsefulHalfSpan`, the outermost non-recovery frame that still
+cleared `NHard`.
+
+**Reported, not enforced.** Nothing clamps where `AutoFocusEngine` places a recovery step. Sizing the base step
+for the recovery path instead was rejected as the default because it costs **20% of the lever arm on every
+successful run** (divisor 3.5 → 4.375 at 4 offset + 1 recovery) to bound a path that only executes when a run has
+already failed — a trade wave 7 settles by measurement rather than by argument.
+
+**Why it matters.** A recovery step beyond `MaxUsefulHalfSpan` buys no measurement at any step size: it is one
+exposure, one focuser move, and a frame that contributes nothing but a starved-frame rejection. On the rig F18
+measured it is where all the flat-topped rejections came from.
+
+**Next step.** Clamp the recovery step's placement to `MaxUsefulHalfSpan` when the value is finite, leaving it
+unchanged when it is not (an unmeasurable bound is absent, never zero — the same rule F18's `W_detect` uses). This
+is engine-side, changes live AF behaviour, and wants its own before/after; it is deliberately not bundled with
+F18's recommender change.
+
+### F48 — The executed-sweep step sizing is BIMODAL (6 cells better, 2 worse), and the median hides both
+**Status:** Open · found 2026-08-06 (wave 7) running F18's arm S · **the pre-registered rule was applied as written and rejected it**
+
+F18's arm S sizes the step for the points the sweep ACTUALLY visits (offset + focus-recovery per side) rather than
+the offset steps alone. Over 26 scorable (dataset, scenario) cells it is:
+
+| vs the control | cells |
+|---|---|
+| **>20% BETTER** | **6** — `D05` S1 0.2296 → **0.0055**, `D15` S1 0.1622 → **0.0471**, `D09` S1 0.0945 → **0.0406**, `D16` S3 0.1332 → **0.0465**, `D06` S1 0.0861 → **0.0154**, `D05`/`D06` others |
+| within ±20% | 18 |
+| **>20% WORSE** | **2** — `D15` S6 0.0457 → 0.0978, `D16` S6 0.0651 → 0.1433 |
+
+**Median ratio: 1.0000.** F18's rule 2 ("arm S ships only if it beats arm D by >5% median") therefore did not
+fire, and arm S does not ship. That verdict stands — the rule was fixed before the arm ran, and a pre-registered
+statistic that turns out to be poorly matched to the data is a lesson for the next rule, not a licence to pick a
+better statistic once the numbers are in.
+
+**But the median is the wrong statistic here and that is worth fixing for next time.** 18 of the 26 ties are
+STRUCTURAL: S0 converges in a single round on most datasets, so only round 0 is ever rendered and no arm can
+differ. A median over a set dominated by forced ties reports "no effect" for a distribution with six clear wins
+and two clear losses in it.
+
+**Why it matters.** The wins are concentrated in the ×0.25-step scenarios (S1), i.e. runs recovering from a
+too-narrow sweep, and the losses in S6 (step AND exposure both wrong). That is a real, structured signal — a
+narrower executed sweep helps when the fit is being rebuilt and hurts when the run is also photon-starved — and
+the median threw it away.
+
+**Next step.** Two separable pieces. (a) Re-score arm S on the cells where the arms CAN differ (more than one
+round rendered), which needs no new runs — the reports are on disk at `D:\hf_w7\f18arms`. (b) For any future
+arm rule, state the statistic over the cells that can move, and say up front how many cells are expected to be
+structural ties; a rule whose denominator is mostly ties cannot fire in either direction.
+Reproduce: `D:\hf_w7\f18_arms.sh`, scored by `D:\hf_w7\score_f18.py`.
 
 ---
 

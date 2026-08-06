@@ -170,4 +170,55 @@ public class MinHfrSeedTests {
     public void SeedFloor_SitsInTheMeasuredSafeBand() {
         Assert.That(MinHfrSeed.SeedFloor, Is.InRange(0.25, 0.35));
     }
+
+    // ---- The bank population this fix has never been able to exercise (F39(b), wave 7) --------------------
+    //
+    // F38's silent window is a CAPTURED vertex in (gate, N x gate]: the gate fires inside the binned raster while
+    // every reported HFR has been scaled back to source pixels, so at factor N a run whose captured vertex sits
+    // anywhere up to N x the gate is really being emptied by TooLowHFR while Resolve, comparing the two spaces
+    // directly, sees "the rig's stars clear the gate" and stays silent.
+    //
+    // Until wave 7 no harness run had DetectionBinning > 1 -- optimize discarded the resolved value (F39) -- so
+    // this window had no test that used the bank's own numbers. `optimize --apply-run-detection-binning` now runs
+    // the seven detectionBinning = 2 datasets at their factor, and these pin the boundary with those datasets'
+    // real in-focus HFRs.
+
+    /// <summary>
+    /// The whole silent window at factor 2, walked with the shipped gate. A captured vertex of 1.3-2.4 px is
+    /// BELOW the effective gate (binned 0.65-1.20 px vs a gate of 1.2) and must seed; the same vertex read
+    /// naively against 1.2 would not. 2.5 px is genuinely above it and must not.
+    /// </summary>
+    [TestCase(1.3, true)]
+    [TestCase(2.0, true)]
+    [TestCase(2.4, true)]   // the exact top of the window: 2.4 / 2 = 1.2 == the gate, and the compare is <=
+    [TestCase(2.5, false)]  // just past it: 1.25 > 1.2
+    public void Resolve_AtBinning2_CoversF38sSilentWindowEndToEnd(double capturedVertexHfr, bool shouldSeed) {
+        var seeded = MinHfrSeed.Resolve(capturedVertexHfr, DefaultGate, detectionBinning: 2);
+        Assert.Multiple(() => {
+            Assert.That(seeded.HasValue, Is.EqualTo(shouldSeed),
+                $"captured {capturedVertexHfr} px is {(shouldSeed ? "inside" : "outside")} the (1.2, 2.4] window at factor 2");
+            // ...and the SAME vertex at factor 1 must answer differently inside the window. That contrast is the
+            // defect: one rig, one measurement, two verdicts, decided by a factor Resolve used to never be told.
+            if (shouldSeed) {
+                Assert.That(MinHfrSeed.Resolve(capturedVertexHfr, DefaultGate, DetectionBinningOff), Is.Null,
+                    "at factor 1 the same captured vertex clears the gate — which is why the factor has to be passed");
+            }
+        });
+    }
+
+    /// <summary>
+    /// The bank's own seven, at the factor wave 7 finally ran them at. Each dataset's measured in-focus HFR is in
+    /// CAPTURED px (the detector rescales before reporting), so the expectation is whether HFR/2 sits at or below
+    /// the shipped 1.2 px gate. None of these is near the window at the shipped gate — which is the point: this
+    /// pins that honouring the factor did NOT quietly start seeding the whole binning-2 population, and a future
+    /// change that made it do so would have to argue with a real number.
+    /// </summary>
+    [TestCase(4.86)]   // D08_c11_2800mm
+    [TestCase(5.30)]   // D09_c14_3800mm / D14 / D17 class
+    [TestCase(5.07)]   // D12_c14_585_afbin2
+    [TestCase(5.90)]   // D15_cdk20_3454mm_e47
+    public void Resolve_AtBinning2_DoesNotSeedTheBanksBinning2Datasets(double capturedInFocusHfr) {
+        Assert.That(MinHfrSeed.Resolve(capturedInFocusHfr, DefaultGate, detectionBinning: 2), Is.Null,
+            "these rigs' stars clear the gate even in binned space (HFR/2 >= 2.4 px), so the seed must stay silent");
+    }
 }

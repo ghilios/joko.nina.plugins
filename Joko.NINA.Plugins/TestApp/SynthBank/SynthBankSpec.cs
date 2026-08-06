@@ -142,6 +142,16 @@ namespace TestApp.SynthBank {
         [JsonProperty("detectionBinningOverride", NullValueHandling = NullValueHandling.Ignore)] public int? DetectionBinningOverride { get; set; }
         [JsonProperty("donutOverride", NullValueHandling = NullValueHandling.Ignore)] public bool? DonutOverride { get; set; }
 
+        /// <summary>
+        /// Renders this dataset at a pinned exposure instead of the derived one. Added for F19's exposure-ladder
+        /// arm: the question "does a field that already carries 20 bright stars gain anything from more exposure?"
+        /// can only be answered by rendering the SAME field at several exposures and reading σ_focus, and the
+        /// derivation deliberately produces exactly one answer per dataset. Like its three siblings it is a PIN,
+        /// printed when it disagrees with the derivation rather than silently absorbed — a ladder rung is supposed
+        /// to disagree, and the run log has to say by how much.
+        /// </summary>
+        [JsonProperty("exposureSecondsOverride", NullValueHandling = NullValueHandling.Ignore)] public double? ExposureSecondsOverride { get; set; }
+
         /// <summary>Clear aperture diameter D (mm), derived as f/N — never stored independently, so it cannot drift from <see cref="FocalLengthMm"/>/<see cref="FocalRatio"/>.</summary>
         [JsonIgnore] public double ApertureMillimeters => FocalLengthMm / FocalRatio;
     }
@@ -182,6 +192,20 @@ namespace TestApp.SynthBank {
 
         /// <summary>Physics step* (focuser steps), <see cref="SynthBankDerivations.DeriveStepSize"/>.</summary>
         [JsonProperty("stepSizeSteps")] public int StepSizeSteps { get; set; }
+
+        /// <summary>
+        /// F18 — the DETECTABILITY half-width (focuser steps): the largest offset from focus at which at least
+        /// <see cref="SynthBankDerivations.NHardStars"/> truth stars still clear the detector's default gate at
+        /// <see cref="ExposureSeconds"/>. <see cref="double.NaN"/> when the detectability-bounded derivation was
+        /// not requested, or when too few sweep positions qualify to measure it.
+        ///
+        /// <para>Reported UNFLOORED, like the runtime's <c>StepSizeRecommendation.MaxUsefulHalfSpan</c>: it is a
+        /// statement about the rig, not about the recommendation the floor then produces.</para>
+        /// </summary>
+        [JsonProperty("detectableHalfWidthSteps")] public double DetectableHalfWidthSteps { get; set; } = double.NaN;
+
+        /// <summary>Human-readable statement of which rule produced <see cref="StepSizeSteps"/> — geometry alone, or geometry bounded by detectability (F18).</summary>
+        [JsonProperty("stepSizeDefinition")] public string StepSizeDefinition { get; set; }
 
         /// <summary>Fractional tolerance for comparing a measured step size against <see cref="StepSizeSteps"/>.</summary>
         [JsonProperty("stepSizeTolerance")] public double StepSizeTolerance { get; set; } = 0.4;

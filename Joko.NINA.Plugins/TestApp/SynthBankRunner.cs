@@ -112,7 +112,8 @@ namespace TestApp.SynthBank {
         private static void PrintUsage() {
             Console.Error.WriteLine(
                 "Usage: TestApp synth-bank --spec <json> --out <bank-root> " +
-                "[--datasets id1,id2] [--overwrite] [--dry-run] [--verify] [--catalog <path>] [--profile-id <guid>]");
+                "[--datasets id1,id2] [--overwrite] [--dry-run] [--verify] [--catalog <path>] [--profile-id <guid>] [--step-detect-bound]");
+            Console.Error.WriteLine("  --step-detect-bound: F18 -- derive step* as min(W_3x, max(W_detect, floor)) instead of curve geometry alone.");
         }
 
         private static async Task RunImpl(string[] args) {
@@ -135,6 +136,9 @@ namespace TestApp.SynthBank {
             var verify = DiagnosticUtil.HasFlag(args, "--verify");
             var catalogOverride = DiagnosticUtil.GetArg(args, "--catalog");
             var profileId = DiagnosticUtil.GetArg(args, "--profile-id");
+            // F18 arm switch. Absent => step* is curve geometry alone, byte-identical to every prior wave, so
+            // `--dry-run` with and without it is the derived-parameter diff that scopes the re-render.
+            var stepDetectBound = DiagnosticUtil.HasFlag(args, "--step-detect-bound");
 
             var specBytes = File.ReadAllBytes(specPath);
             var spec = JsonConvert.DeserializeObject<SynthBankSpec>(System.Text.Encoding.UTF8.GetString(specBytes))
@@ -206,7 +210,7 @@ namespace TestApp.SynthBank {
                 try {
                     var outcome = await ProcessDatasetAsync(
                         spec, dataset, datasetIndexById[dataset.Id], outRoot, overwrite, dryRun, verify,
-                        profileService, catalogReader, specSha256, CancellationToken.None).ConfigureAwait(false);
+                        profileService, catalogReader, specSha256, stepDetectBound, CancellationToken.None).ConfigureAwait(false);
                     switch (outcome) {
                         case DatasetOutcome.Generated: generated++; break;
                         case DatasetOutcome.Skipped: skipped++; break;
@@ -240,7 +244,7 @@ namespace TestApp.SynthBank {
         private static async Task<DatasetOutcome> ProcessDatasetAsync(
                 SynthBankSpec spec, SynthDatasetSpec dataset, int datasetIndex, string outRoot,
                 bool overwrite, bool dryRun, bool verify, IProfileService profileService,
-                IAstapCatalogReader catalogReader, string specSha256, CancellationToken token) {
+                IAstapCatalogReader catalogReader, string specSha256, bool stepDetectBound, CancellationToken token) {
             var defaults = spec.Defaults;
             var model = SynthBankDerivations.BuildDefocusModel(dataset, defaults);
             // --dry-run DOES pass the catalog reader, so the exposure band is derived and printed like every other
@@ -250,7 +254,8 @@ namespace TestApp.SynthBank {
             // exactly the outcome --dry-run exists to prevent. The catalog star count PrintDryRun reports is still a
             // separate, direct Query() -- it must not depend on a render having succeeded.
             var expectedOptimal = SynthBankDerivations.DeriveExpectedOptimal(
-                dataset, defaults, catalogReader, out var kernelCapGuard, out var truthModel, token);
+                dataset, defaults, catalogReader, out var kernelCapGuard, out var truthModel, token,
+                detectBoundedStep: stepDetectBound);
 
             // Apply the checked-in spec's *Override fields on top of the physics answer (SynthBankDerivations is
             // deliberately override-free — see its class remarks). Any override that actually disagrees with the
@@ -273,6 +278,17 @@ namespace TestApp.SynthBank {
             if (dataset.DonutOverride.HasValue && dataset.DonutOverride.Value != expectedOptimal.DonutDetection) {
                 Prog($"[{dataset.Id}] NOTE: donutOverride={dataset.DonutOverride.Value} overrides derived donutDetection={expectedOptimal.DonutDetection}");
                 expectedOptimal.DonutDetection = dataset.DonutOverride.Value;
+            }
+            if (dataset.ExposureSecondsOverride.HasValue && dataset.ExposureSecondsOverride.Value != expectedOptimal.ExposureSeconds) {
+                // F19's exposure ladder. The band stays as DERIVED — it describes what the physics asks for, and a
+                // rung deliberately sitting outside it is the measurement, not an error to be normalized away.
+                Prog($"[{dataset.Id}] NOTE: exposureSecondsOverride={dataset.ExposureSecondsOverride.Value:0.###}s " +
+                    $"overrides derived exposure={expectedOptimal.ExposureSeconds:0.###}s " +
+                    $"(band {expectedOptimal.ExposureBandLowSeconds:0.###}-{expectedOptimal.ExposureBandHighSeconds:0.###}s, unchanged)");
+                expectedOptimal.ExposureSeconds = dataset.ExposureSecondsOverride.Value;
+                expectedOptimal.ExposureDefinition = $"PINNED by exposureSecondsOverride to " +
+                    $"{dataset.ExposureSecondsOverride.Value.ToString("0.###", CultureInfo.InvariantCulture)}s. " +
+                    expectedOptimal.ExposureDefinition;
             }
 
             if (dryRun) {
@@ -354,6 +370,12 @@ namespace TestApp.SynthBank {
                 : $"{expectedOptimal.ExposureSeconds:0.###}s (band {expectedOptimal.ExposureBandLowSeconds:0.###}-{expectedOptimal.ExposureBandHighSeconds:0.###}s)";
             Prog($"[{dataset.Id}] step*={expectedOptimal.StepSizeSteps} steps  exposure={exposureText}  " +
                 $"detectionBinning={expectedOptimal.DetectionBinning}  donut={expectedOptimal.DonutDetection}");
+            if (double.IsFinite(expectedOptimal.DetectableHalfWidthSteps)) {
+                Prog($"    W_detect*={expectedOptimal.DetectableHalfWidthSteps:0} steps");
+            }
+            if (!string.IsNullOrEmpty(expectedOptimal.StepSizeDefinition)) {
+                Prog($"    step rationale: {expectedOptimal.StepSizeDefinition}");
+            }
             Prog($"    donut rationale: {expectedOptimal.DonutRationale}");
             Prog($"    exposure definition: {expectedOptimal.ExposureDefinition}");
             Prog($"    kernel-cap guard: maxAbsDefocus={guard.MaxAbsDefocusMicrons:0.#}um sweepExtreme={guard.SweepExtremeDefocusMicrons:0.#}um " +
