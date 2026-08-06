@@ -277,8 +277,14 @@ This is the second time this wave that reading a stored number cost a minute and
 
 - Full suite green: **3652** passed, 0 failed (develop was 3635 → **+17**).
 - Discriminating counts, each confirmed by neutralizing the change and re-running:
-  **F18 6 discriminating / 3 guards**, **AF chart 4 / 2**, **F39(b) 4 tests** (the resolution precedence, the
-  fallback message, the no-source default, and `ApplyFactor`'s PixelScale carry).
+  - **F18: 6 discriminating / 3 guards** — neutralizing `MeasureMaxUsefulHalfSpan` and `ResolvePointsPerSide`
+    fails exactly those 6.
+  - **AF chart: 4 discriminating / 2 guards** — 3 fail against the pre-fix unconditional collapse; the
+    near-miss-timestamp test fails against a *filename-only* match, verified by loosening the match separately.
+  - **F39(b): 2 discriminating / 2 guards**, stated honestly. The precedence test fails if the settings file wins
+    over the dataset's derived value, and the fallback test fails if the fallback stops naming itself. The
+    no-source default and `ApplyFactor`'s PixelScale carry are **guards** — the latter characterizes product code
+    that already existed, and is here because the whole flag depends on it.
 - Per [F37](followups.md#f37--the-ci-test-host-crashes-natively-accessviolationexception-aborting-2000-tests-with-zero-failures),
   a red CI check is checked against the native test-host crash — verify the test COUNT — before being read as a
   regression.
