@@ -1084,7 +1084,8 @@ fail in two directions — biased, then saturated — which is why `precisionNul
 precision figure rather than being something a reader has to think to ask for.
 
 ### F32 — `J` is saturated near 1.0, so the optimizer trades enormous recall for numerically trivial gains
-**Status:** Open — **mechanism shipped default OFF (wave 5)**; adoption pending the confirmation arm. The
+**Status:** Open — **mechanism shipped default OFF (wave 5)**; the confirmation arm was **re-validated as the right
+experiment (wave 6)** against a restarts-only alternative and is still owed. The
 entry's own premise is corrected below: on 5 of 7 binding runs there was no trade to bound, the search was
 merely stuck · found 2026-08-03 re-reading the wave-1 real-bank control arm
 
@@ -1399,7 +1400,8 @@ passes either way is worth nothing") applies to a *set* of tests too: count the 
 ones you wrote.
 
 ### F39 — The harness records a detection binning the run never applied, and 7 datasets have never run at theirs
-**Status:** Open · found 2026-08-04 checking whether the banks differ in binning
+**Status:** Open — **part (a) done (wave 6)**; part (b) (running the 7 `detectionBinning = 2` datasets at their
+expected factor) deliberately deferred to its own wave · found 2026-08-04 checking whether the banks differ in binning
 
 Every `harness_settings.json` in the synthetic bank says `"DetectionBinning": "Bin2"`; every real run says
 `Bin1`. That looks like a systematic difference between the banks that could explain F33 outright. **It is not,
@@ -1498,7 +1500,8 @@ identical between two arms of the *same* binary. If it is not, the binaries diff
 them means anything — check that single number before reading a diff as a regression.
 
 ### F42 — Every build directory silently gets its OWN detector settings, and the run instructions require a new one per arm
-**Status:** Open · found 2026-08-05 chasing a `BaselineJ` gap that turned out not to be the code under test
+**Status:** **Done (wave 6)** — per-user default path, loud bootstrap, and a `UseAdvanced=False` warning that names
+the overridden knobs · found 2026-08-05 chasing a `BaselineJ` gap that turned out not to be the code under test
 
 `HarnessSettingsStore.DefaultPath()` is `Path.Combine(AppContext.BaseDirectory, "harness_settings.json")` — the
 file sits **next to the exe** — and `ResolveAt` **bootstraps one from the live NINA profile** when it is absent.
@@ -1566,7 +1569,8 @@ pinned `--settings` explicitly, which bypasses `DefaultPath()` entirely.
 agrees-with-the-presets case.
 
 ### F43 — The optimizer wizard refuses to start unless the DEFAULT settings already produce a usable curve
-**Status:** **Done (wave 5)** for the Live path; the replay case is left open below · found 2026-08-05 from a
+**Status:** **Done (wave 5)** for the Live path; **replay DECIDED (wave 6) — extend, but not before the
+`BaselineJ = 0` presentation question is answered**, so the implementation is still open · found 2026-08-05 from a
 user report on a 40 mm rig
 
 `SeedFitIsUsableAsync` (`StarDetectionOptimizerWizardVM.cs:2869`, called at `:2541`) evaluates the **default seed
@@ -1725,7 +1729,8 @@ Tests: 5, of which **3 fail** when the fix is removed (2 for the probe, 1 for th
 labelled guards (inertness on a healthy sweep, and the floor-combination helper).
 
 ### F44 — The synthetic camera queries the catalog for at most ONE CELL, so a wide field is rendered starless outside a small central patch
-**Status:** **Code FIXED (wave 5)**; `D01`/`D02` still marked **SUSPECT** and awaiting re-baseline next wave ·
+**Status:** **Done (wave 6)** — code fixed wave 5, both rows re-baselined wave 6 and `suspect` cleared; **`D01` was
+the only affected row** ·
 found 2026-08-05 from a user report: "why is only a portion of the sensor getting rendered with stars?"
 
 `StarFieldCompositor` computes the field correctly — `DiagonalFovDegrees × 1.05` — and hands it to
