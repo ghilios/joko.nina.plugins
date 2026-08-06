@@ -606,14 +606,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // donut master is on we apply a default structure boost EVEN IF the explicit DefocusAwareStructure
                     // axis is off (the optimizer can raise it further via that axis). Gated by the master ⇒
                     // bit-identical when off.
-                    int effectiveStructureLayers;
-                    if (p.DefocusAwareStructure) {
-                        effectiveStructureLayers = Math.Max(1, p.StructureLayers + p.StructureLayerBoost);
-                    } else if (p.DefocusAwareDonutDetection) {
-                        effectiveStructureLayers = Math.Max(1, p.StructureLayers + DonutDefaultStructureLayerBoost);
-                    } else {
-                        effectiveStructureLayers = p.StructureLayers;
-                    }
+                    var effectiveStructureLayers = EffectiveStructureLayers(p);
                     using (var residualLayer = ComputeResidualAtrousB3SplineDyadicWaveletLayer(structureMap, effectiveStructureLayers)) {
                         MaybeSaveIntermediateImage(residualLayer, p, "04-structure-wavelet-residual.tif");
                         CvImageUtility.SubtractInPlace(structureMap, residualLayer);
@@ -1545,6 +1538,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// </summary>
         public static double EffectiveSensitivityGate(StarDetectorParams p) =>
             p == null ? double.NaN : Math.Max(p.Sensitivity, InertSensitivityBound(p));
+
+        /// <summary>
+        /// The wavelet layer count the structure-removal residual is ACTUALLY computed at — <see cref="StarDetectorParams.StructureLayers"/>
+        /// plus whichever defocus boost is in force. The single source of truth for that rule: step 4 of
+        /// <c>Detect</c> uses it, and so does the optimizer's cost readout, so the two cannot drift.
+        ///
+        /// <para><b>Why anything outside the detector cares.</b> The residual is recomputed at <c>2^layers</c>, so
+        /// this number is the dominant term in a detection's COST, not merely in its behaviour. Measured on the
+        /// synthetic bank (<c>D15_cdk20_3454mm_e47</c>, 9 frames, binning 1) the wall time per layer runs
+        /// 27 / 46 / 117 / 254 / 526 s for layers 4…8 — <b>roughly a doubling per layer</b>. A parameter search
+        /// that wanders two layers deeper is spending ~4× per evaluation for a gain the objective reports in its
+        /// fourth decimal, and nothing told the user that (F52).</para>
+        /// </summary>
+        public static int EffectiveStructureLayers(StarDetectorParams p) {
+            if (p == null) {
+                return 0;
+            }
+            if (p.DefocusAwareStructure) {
+                return Math.Max(1, p.StructureLayers + p.StructureLayerBoost);
+            }
+            if (p.DefocusAwareDonutDetection) {
+                return Math.Max(1, p.StructureLayers + DonutDefaultStructureLayerBoost);
+            }
+            return p.StructureLayers;
+        }
 
         /// <summary>
         /// Companion to <see cref="ComputeEffectiveMaxDistortion"/> for the NotCentered gate. Computes the

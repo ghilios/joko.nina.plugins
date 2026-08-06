@@ -2866,8 +2866,9 @@ exposure, or say plainly that it will not. (c) Neither should require Accept: re
 Reproduce: NINA log `20260806-122836-3.3.0.1048.73484-202608.log`; frames in `E:\AutoFocusSaves\`.
 
 ### F52 — A two-hour optimization logs ONE line and offers no cost context, and the search is not cost-aware
-**Status:** Open · found 2026-08-06 (wave 8) from the same field session · partly measured, partly **unmeasurable
-after the fact, which is the finding**
+**Status:** **(a) and (b) DONE 2026-08-06 (wave 8); (c) BLOCKED on [F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one);
+(d) open** · found 2026-08-06 (wave 8) from the same field session · partly measured, partly **unmeasurable after
+the fact, which is the finding**
 
 Run 4 (step 459, 2 s) ran from 14:38:11 to past 16:30 — **over two hours**. Run 3, on the **same step size, same
 sweep geometry, same 11 frames, same rig, same night, differing only in exposure (5 s)**, took ~30 minutes.
@@ -2920,20 +2921,43 @@ action whose control is hidden). **What is absent is not the progress readout �
 **Next step, in three separable pieces. (b) and (c) are the user's actual request and they have different
 readiness.**
 
-**(a) Make it diagnosable at all — no product surface, no dependencies.** Log evaluation count, phase and
-elapsed-per-evaluation at INFO, one line every N evaluations. This alone would have answered *"where did two hours
-go?"* in seconds instead of leaving it permanently unattributable.
+**(a) DONE 2026-08-06 (wave 8).** `StarDetectionOptimizer` emits one INFO line every **10 completed evaluations**
+(`SearchContext.ProgressEvaluationInterval`), carrying phase, evaluation count against the budget, elapsed,
+seconds-per-evaluation and the incumbent `J` — plus the cost note when one applies. Verified on the field session's
+own frames:
 
-**(b) Say WHY it is slow, while it is slow — buildable today.** Three facts, none of which need a statistic that
-does not already exist:
-1. **elapsed, evaluations done, and the observed rate** (and remaining budget where the phase is bounded) — the
-   one thing the counter cannot convey, because 300/500 says nothing about whether that took 5 minutes or 90;
-2. **that the search is in an EXPENSIVE region, and which knob put it there** — derivable from the candidate
-   parameters being evaluated against the measured scaling above (`StructureLayers` ≈ 2× per layer,
-   `DefocusAwareStructure` on top), e.g. *"currently evaluating at 6 structure layers with defocus-aware structure
-   — roughly 4× the cost of the starting configuration"*;
-3. **what aborting costs** — nothing is written and the current settings are kept, which the user cannot be
-   expected to know while watching a bar.
+```
+Optimizer progress: phase 'CoarseGrid',    evaluation 20/60, elapsed 00:00:23, 1.2s/evaluation, best J 0.998372
+Optimizer progress: phase 'PatternSearch', evaluation 50/60, elapsed 00:00:41, 0.8s/evaluation, best J 0.99849
+```
+
+Cache hits are excluded from the rate (they cost nothing and would flatter it), and the evaluator is timed rather
+than the surrounding bookkeeping, so `s/evaluation × remaining` is a number that means something.
+
+**(b) DONE 2026-08-06 (wave 8).** Three facts under the progress bar, none needing a statistic that does not
+already exist:
+
+1. **The RATE and a bound on what is left** — `"0.8 s per step · at most 4 min more, usually much less"`.
+   **Elapsed was already there** and is deliberately not repeated: `ProgressCountElapsedText` renders
+   `X / Y (M:SS)` one line above and re-raises every second. Checking that first is what kept this from shipping a
+   duplicate. The remaining figure is stated as an **upper bound**, because the evaluation budget is a cap the
+   search usually stops well short of (`OptimizerSettings.MaxEvaluations` records a bank-wide convergence study
+   finding it self-terminates before 400 on most runs) — a plain ETA would read as a promise and would usually be
+   far too long.
+2. **Which knob made it expensive**, quantified against **this run's own seed**: *"Searching at 8 structure layers
+   (2 deeper than this run started at), which costs roughly 4x per evaluation."* Derived from
+   `StarDetector.EffectiveStructureLayers` — extracted in this wave as the single source of truth so the readout
+   and the detector's step 4 cannot drift — against the ~2×-per-layer scaling measured above. Absent entirely when
+   the search is in a cheap region, because a readout that always says "expensive" says nothing.
+3. **What Cancel costs** — *"Cancel stops the search only. Nothing is written to your profile unless you click
+   Accept, and the frames already captured stay on disk."* Verified against the code: `Cancel()` only cancels the
+   token, and `Apply` is reachable only from Accept. The frames clause appears on live runs only.
+
+**Tests: 5 discriminating + 1 guard**, each confirmed by neutralizing the change and re-running — including one
+correction found that way: the "stays cheap" test originally claimed to discriminate against an absolute-keyed
+note and did not, because its seed sat at the shipped default of 4 where the two implementations coincide. Its
+seed now turns the donut master on (effective depth 6, `StructureLayers` still 4) so the absolute implementation
+reports "2 deeper" for a search that has not moved, and the test fails as claimed.
 
 **(c) Recommend whether to abort and re-run at a longer exposure — BLOCKED ON
 [F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one),

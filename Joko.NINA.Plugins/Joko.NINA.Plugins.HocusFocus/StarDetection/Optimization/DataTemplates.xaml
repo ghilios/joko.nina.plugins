@@ -667,6 +667,35 @@
                         HorizontalAlignment="Center"
                         Text="{Binding ProgressImprovementText}"
                         Visibility="{Binding IsOptimizing, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                    <!--  F52 — the search's COST, which the count and the clock above cannot convey: what a step is
+                          costing, an upper bound on what is left, and (only when true) why it is expensive right now.
+                          Deliberately no recommendation to abort or re-expose: that needs a wing-frame statistic the
+                          exposure recommender does not have yet (F52 (c), blocked on F19).  -->
+                    <TextBlock
+                        Margin="0,2,0,0"
+                        HorizontalAlignment="Center"
+                        Opacity="0.75"
+                        Text="{Binding ProgressTimingText, Mode=OneWay}"
+                        Visibility="{Binding IsOptimizing, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                    <TextBlock
+                        MaxWidth="520"
+                        Margin="0,4,0,0"
+                        HorizontalAlignment="Center"
+                        Opacity="0.75"
+                        Text="{Binding ProgressCostNote, Mode=OneWay}"
+                        TextAlignment="Center"
+                        TextWrapping="Wrap"
+                        Visibility="{Binding HasProgressCostNote, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                    <TextBlock
+                        MaxWidth="520"
+                        Margin="0,6,0,0"
+                        HorizontalAlignment="Center"
+                        FontStyle="Italic"
+                        Opacity="0.6"
+                        Text="{Binding ProgressAbortNote, Mode=OneWay}"
+                        TextAlignment="Center"
+                        TextWrapping="Wrap"
+                        Visibility="{Binding IsOptimizing, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 </StackPanel>
 
                 <!--  Step 4: Summary (the results page)  -->

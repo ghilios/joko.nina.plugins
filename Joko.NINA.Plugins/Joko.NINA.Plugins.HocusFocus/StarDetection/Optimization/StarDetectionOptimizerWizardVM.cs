@@ -1416,7 +1416,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// meaningless during loading/analysis) is shown only then.</summary>
         public bool IsOptimizing {
             get => isOptimizing;
-            private set { isOptimizing = value; RaisePropertyChanged(); }
+            private set {
+                isOptimizing = value;
+                RaisePropertyChanged();
+                // F52: every one of these reads IsOptimizing, so they must re-evaluate when it flips — otherwise a
+                // finished search leaves "2 h 14 min elapsed" and a cost note on screen next to the results.
+                if (!isOptimizing) {
+                    progressElapsed = TimeSpan.Zero;
+                    progressSecondsPerEvaluation = double.NaN;
+                    progressCostNote = null;
+                }
+                RaisePropertyChanged(nameof(ProgressTimingText));
+                RaisePropertyChanged(nameof(ProgressCostNote));
+                RaisePropertyChanged(nameof(HasProgressCostNote));
+                RaisePropertyChanged(nameof(ProgressAbortNote));
+            }
         }
 
         /// <summary>Sets the descriptive phase heading + the determinate count in one shot (raising once each).</summary>
@@ -1456,6 +1470,86 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             get => progressBestSigma;
             private set { progressBestSigma = value; RaisePropertyChanged(); RaisePropertyChanged(nameof(ProgressImprovementText)); }
         }
+
+        private TimeSpan progressElapsed;
+        private double progressSecondsPerEvaluation = double.NaN;
+
+        /// <summary>
+        /// F52 — what each search step is COSTING, and an upper bound on what is left.
+        ///
+        /// <para><b>Deliberately does NOT repeat the elapsed clock.</b> <see cref="ProgressCountElapsedText"/>
+        /// already renders "X / Y (M:SS)" one line above and re-raises every second, so elapsed is covered. What
+        /// was missing is the RATE — "300 / 500" says nothing about whether that took five minutes or ninety, and
+        /// a real field session spent <b>two hours</b> on one search with no way, from the UI or the log, to tell
+        /// whether it was nearly done or merely expensive.</para>
+        ///
+        /// <para><b>The remaining figure is an upper BOUND and says so.</b> The evaluation budget is a cap the
+        /// search usually stops well short of — <see cref="OptimizerSettings.MaxEvaluations"/> records a bank-wide
+        /// convergence study finding it self-terminates before 400 on most runs — so a plain ETA would read as a
+        /// promise and would usually be far too long. "At most N, usually much less" is the honest form of the same
+        /// information, and it is still enough to decide whether to wait.</para>
+        /// </summary>
+        public string ProgressTimingText {
+            get {
+                if (!IsOptimizing || !double.IsFinite(progressSecondsPerEvaluation) || progressSecondsPerEvaluation <= 0.0) {
+                    return string.Empty;
+                }
+                var rate = progressSecondsPerEvaluation >= 1.0
+                    ? $"{progressSecondsPerEvaluation:0.#} s per step"
+                    : $"{progressSecondsPerEvaluation * 1000.0:0} ms per step";
+                var remaining = ProgressTotal - ProgressCurrent;
+                if (remaining <= 0) {
+                    return rate;
+                }
+                var worstCase = TimeSpan.FromSeconds(remaining * progressSecondsPerEvaluation);
+                var worstCaseText = worstCase.TotalHours >= 1.0
+                    ? $"{worstCase.TotalHours:0.#} h"
+                    : worstCase.TotalMinutes >= 1.0
+                        ? $"{Math.Ceiling(worstCase.TotalMinutes):0} min"
+                        : $"{Math.Ceiling(worstCase.TotalSeconds):0} s";
+                return $"{rate} · at most {worstCaseText} more, usually much less";
+            }
+        }
+
+        private string progressCostNote;
+
+        /// <summary>
+        /// F52 — why the search is currently expensive, when it is. Straight from
+        /// <see cref="OptimizationProgress.CostNote"/>; empty when the search is in a cheap region.
+        ///
+        /// <para><b>A statement of COST, never a recommendation.</b> "Abort and re-run at a longer exposure" is the
+        /// piece users ask for, and it is deliberately NOT here: it cannot be derived from the shipped exposure
+        /// statistic, which reports "exposure is not the limit" on exactly the rich fields that gain most from a
+        /// longer exposure (measured on <c>D02_rich_135mm</c>: the 20th-brightest star's S/N is 991.8 against a
+        /// target of 10 and the derived ask is 0.000 s, while σ_focus improves 44% at 8× the exposure — and on
+        /// live hardware the same statistic read 1438.6). Advice built on it would tell the users who most need a
+        /// longer exposure that theirs is already fine, at the moment they are deciding whether to spend another
+        /// two hours. Facts about cost need no such statistic; the advice does, and it waits for one.</para>
+        /// </summary>
+        public string ProgressCostNote {
+            get => IsOptimizing ? (progressCostNote ?? string.Empty) : string.Empty;
+            private set {
+                if (progressCostNote != value) {
+                    progressCostNote = value;
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(HasProgressCostNote));
+                }
+            }
+        }
+
+        /// <summary>Whether there is a cost note to show — the row collapses rather than reserving blank space.</summary>
+        public bool HasProgressCostNote => !string.IsNullOrEmpty(ProgressCostNote);
+
+        /// <summary>
+        /// F52 — what cancelling costs, stated while the user is deciding rather than left to be guessed.
+        /// Deliberately factual and symmetric: it names what is preserved, not what they should do.
+        /// </summary>
+        public string ProgressAbortNote =>
+            IsOptimizing
+                ? (lastRunWasLive
+                    ? "Cancel stops the search only. Nothing is written to your profile unless you click Accept, and the frames already captured stay on disk."
+                    : "Cancel stops the search only. Nothing is written to your profile unless you click Accept.")
+                : string.Empty;
 
         /// <summary>The J the live readout must beat before it claims anything: the stricter of this pass's own
         /// baseline (<see cref="ProgressSeedJ"/>) and the user's current settings (currentBaselineJ).
@@ -3313,6 +3407,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 ProgressSeedJ = progressBaselineJOverride ?? currentBaselineJ;
                 ProgressSeedSigma = progressBaselineSigmaOverride ?? currentBaselineSigma;
                 Phase = FriendlyPhase(p.Phase);
+                // F52 — time and cost. Assigned last so the timing text, which reads ProgressCurrent/ProgressTotal
+                // above, is computed from this report's counts rather than the previous one's.
+                progressElapsed = p.Elapsed;
+                progressSecondsPerEvaluation = p.SecondsPerEvaluation;
+                ProgressCostNote = p.CostNote;
+                RaisePropertyChanged(nameof(ProgressTimingText));
             });
 
             // Hand the optimizer the SAME objective the wizard scored the baseline with (standard, or the
