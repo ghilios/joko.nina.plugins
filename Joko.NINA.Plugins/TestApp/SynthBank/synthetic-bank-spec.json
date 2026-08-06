@@ -32,7 +32,8 @@
       "seeingArcsec": 2.5,
       "optimalFocuserPosition": 6000,
       "focuserStepSizeMicrons": 1.985179,
-      "datasetSeed": 1
+      "datasetSeed": 1,
+      "suspect": "SUSPECT (F44) — RE-RENDER REQUIRED. This row's diagonal FOV exceeds the catalog query's one-cell cap (AstapCellGeometry.FindAreas clamps to ~5.14 deg), so stars were fetched for only a small central patch and the rest of the sensor rendered starless. Counts, recall, precision and star POSITIONS from this dataset are not trustworthy; gate-threshold results are. Re-render once the wide-field query lands."
     },
     {
       "id": "D02_rich_135mm",
@@ -50,7 +51,8 @@
       "seeingArcsec": 2.5,
       "optimalFocuserPosition": 6000,
       "focuserStepSizeMicrons": 2.126977,
-      "datasetSeed": 2
+      "datasetSeed": 2,
+      "suspect": "SUSPECT (F44) — RE-RENDER REQUIRED. This row's diagonal FOV exceeds the catalog query's one-cell cap (AstapCellGeometry.FindAreas clamps to ~5.14 deg), so stars were fetched for only a small central patch and the rest of the sensor rendered starless. Counts, recall, precision and star POSITIONS from this dataset are not trustworthy; gate-threshold results are. Re-render once the wide-field query lands."
     },
     {
       "id": "D03_redcat_250mm",
@@ -288,7 +290,7 @@
     },
     {
       "id": "D16_esprit550_ha3",
-      "description": "Same optics as D04 (550mm f/5.5, unobstructed, IMX571 bin1) but through a 3nm H\u03b1 narrowband filter. Heart Nebula (Cassiopeia), rich H\u03b1 field. H\u03b1 passes ~64-107x less flux than L, so the derived exposure is expected to sit near ExposureRecommender's 30s absolute ceiling (CappedByAbsoluteLimit). NOTE: the derived exposure lands at the 0.5s floor despite the 3nm filter, because ExposureRecommender's sensitivity metric is the NTarget=20th-brightest star's SNR and a 2.9deg field always contains 20 bright stars. D16 is therefore the narrowband-realism dataset, not the 30s-cap dataset (that role moved to D10).",
+      "description": "Same optics as D04 (550mm f/5.5, unobstructed, IMX571 bin1) but through a 3nm Hα narrowband filter. Heart Nebula (Cassiopeia), rich Hα field. Hα passes ~64-107x less flux than L, so the derived exposure is expected to sit near ExposureRecommender's 30s absolute ceiling (CappedByAbsoluteLimit). NOTE: the derived exposure lands at the 0.5s floor despite the 3nm filter, because ExposureRecommender's sensitivity metric is the NTarget=20th-brightest star's SNR and a 2.9deg field always contains 20 bright stars. D16 is therefore the narrowband-realism dataset, not the 30s-cap dataset (that role moved to D10).",
       "focalLengthMm": 550.0,
       "focalRatio": 5.5,
       "centralObstructionFraction": 0.0,

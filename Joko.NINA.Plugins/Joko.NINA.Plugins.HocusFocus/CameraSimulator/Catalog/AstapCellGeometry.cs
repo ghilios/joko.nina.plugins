@@ -174,7 +174,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Catalog {
         /// Maximum FOV (radians) a single query may span before <c>find_areas</c> would risk missing a tile:
         /// one cell dimension (9.53° for .290, 5.142857° for .1476). Matches the reference crop.
         /// </summary>
-        private static double MaxFovRadians(AstapPartitioning partitioning) =>
+        public static double MaxFovRadians(AstapPartitioning partitioning) =>
             (partitioning == AstapPartitioning.Astap1476 ? 5.142857 : 9.53) * Deg;
 
         /// <summary>
@@ -207,6 +207,132 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Catalog {
             }
             // Unreachable given the range check above.
             throw new ArgumentOutOfRangeException(nameof(area), area, "Could not map area to a cell file.");
+        }
+
+        /// <summary>
+        /// EVERY cell intersecting a cone of angular radius <c>fovRadians / 2</c> about (ra, dec) — the wide-field
+        /// counterpart to <see cref="FindAreas"/>.
+        ///
+        /// <para><b>Why this exists (F44).</b> <see cref="FindAreas"/> is a faithful port of ASTAP's
+        /// <c>find_areas</c>, which clamps the field to ONE CELL (<see cref="MaxFovRadians"/>) and then samples
+        /// only the four CORNERS of that clamped box. That is exactly right for plate-solving, where fields are a
+        /// few degrees and four corner cells genuinely cover them. It is wrong for rendering: a 40 mm lens on a
+        /// full-frame sensor spans ~57°, the clamp cuts the query to 5.14°, and the simulator rendered stars over
+        /// a ~10° patch of a 48.5° × 33.4° frame with the rest of the sensor empty. Nothing warned, because the
+        /// query returned plenty of stars — just not the right ones.</para>
+        ///
+        /// <para><b>Deliberately over-inclusive.</b> The RA span per band is padded by one whole cell on each
+        /// side, and a cone touching a pole takes every cell of every band it reaches. Extra cells cost a little
+        /// I/O and are then trimmed by the caller's per-star angular cut and by the projection's frame bounds;
+        /// missing cells are the defect. Correctness first.</para>
+        ///
+        /// <para><see cref="AstapAreaSelection.Fraction"/> is reported as an even split. The reference's
+        /// per-corner coverage arithmetic does not generalize to an arbitrary cell count, and nothing reads the
+        /// value — it exists for diagnostics.</para>
+        /// </summary>
+        /// <param name="raRadians">Field-center RA [radians].</param>
+        /// <param name="decRadians">Field-center Dec [radians].</param>
+        /// <param name="fovRadians">Full field-of-view angle [radians]; NOT clamped.</param>
+        /// <param name="partitioning">Which cell partitioning the target database uses.</param>
+        public static IReadOnlyList<AstapAreaSelection> FindAreasCovering(
+            double raRadians, double decRadians, double fovRadians, AstapPartitioning partitioning) {
+            if (fovRadians <= 0.0) {
+                throw new ArgumentOutOfRangeException(nameof(fovRadians), fovRadians, "FOV must be positive.");
+            }
+
+            var decB = partitioning == AstapPartitioning.Astap1476 ? DecBoundaries1476 : DecBoundaries290;
+            var cellsPerBand = partitioning == AstapPartitioning.Astap1476 ? CellsPerBand1476 : CellsPerBand290;
+            var cumBefore = partitioning == AstapPartitioning.Astap1476 ? CumBefore1476 : CumBefore290;
+            var nBands = cellsPerBand.Length;
+
+            var ra = NormalizeRa(raRadians);
+            var radius = Math.Min(fovRadians / 2.0, Math.PI);
+            var decLo = decRadians - radius;
+            var decHi = decRadians + radius;
+
+            var areas = new SortedSet<int>();
+            for (var b = 1; b <= nBands; b++) {
+                var bandLo = decB[b - 1];
+                var bandHi = decB[b];
+                if (bandHi < decLo || bandLo > decHi) {
+                    continue; // band lies entirely outside the cone's declination range
+                }
+
+                var cellsInBand = cellsPerBand[b - 1];
+                if (cellsInBand <= 1) {
+                    areas.Add(cumBefore[b] + 1); // pole cell: one cell spans all RA
+                    continue;
+                }
+
+                var cellWidth = TwoPi / cellsInBand;
+                // No special case for a cone containing a pole: MaxRaHalfSpan already returns pi there, both via
+                // its cos(dec) guard and because the law-of-cosines term drops below -1 (at dec0 = 89 deg with
+                // r = 15 deg it evaluates to -41.5). A separate touchesPole branch WAS written here, measured
+                // against the tests, found to change nothing, and removed rather than left as an untested path.
+                var halfSpan = MaxRaHalfSpan(decRadians, radius, Math.Max(bandLo, decLo), Math.Min(bandHi, decHi));
+                if (double.IsNaN(halfSpan)) {
+                    continue; // the cone does not actually reach into this band
+                }
+
+                if (halfSpan + cellWidth >= Math.PI) {
+                    for (var i = 0; i < cellsInBand; i++) {
+                        areas.Add(cumBefore[b] + 1 + i);
+                    }
+                    continue;
+                }
+
+                // Pad by a whole cell each side, then walk the (possibly wrapping) index range.
+                var first = (int)Math.Floor((ra - halfSpan - cellWidth) / cellWidth);
+                var last = (int)Math.Floor((ra + halfSpan + cellWidth) / cellWidth);
+                for (var i = first; i <= last; i++) {
+                    var idx = ((i % cellsInBand) + cellsInBand) % cellsInBand;
+                    areas.Add(cumBefore[b] + 1 + idx);
+                }
+            }
+
+            // CellFileName, NOT the bare area number: the on-disk names are band/index encoded ("0101.1476"),
+            // and building them by hand here would produce files that do not exist.
+            var fraction = areas.Count > 0 ? 1.0 / areas.Count : 0.0;
+            var result = new List<AstapAreaSelection>(areas.Count);
+            foreach (var area in areas) {
+                result.Add(new AstapAreaSelection(area, fraction, CellFileName(area, partitioning)));
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// The largest half-width in RA [radians] that a cone of <paramref name="radius"/> about
+        /// (<paramref name="centerDec"/>, implicit RA) subtends anywhere in the declination range
+        /// [<paramref name="decFrom"/>, <paramref name="decTo"/>]. NaN when the cone does not reach that range.
+        ///
+        /// <para>From the spherical law of cosines: <c>cos Δra = (cos r − sin d₀ sin d) / (cos d₀ cos d)</c>.
+        /// Evaluated at both ends of the range and at the cone centre's own declination when that falls inside it,
+        /// because the extremum can sit at either an endpoint or the centre.</para>
+        /// </summary>
+        private static double MaxRaHalfSpan(double centerDec, double radius, double decFrom, double decTo) {
+            var best = double.NaN;
+            var samples = decFrom <= centerDec && centerDec <= decTo
+                ? new[] { decFrom, decTo, centerDec }
+                : new[] { decFrom, decTo };
+            foreach (var d in samples) {
+                var cosD = Math.Cos(d);
+                var cosD0 = Math.Cos(centerDec);
+                if (cosD <= 1e-12 || cosD0 <= 1e-12) {
+                    return Math.PI; // at/near a pole every meridian is within reach
+                }
+                var cosDelta = (Math.Cos(radius) - (Math.Sin(centerDec) * Math.Sin(d))) / (cosD0 * cosD);
+                if (cosDelta <= -1.0) {
+                    return Math.PI;
+                }
+                if (cosDelta >= 1.0) {
+                    continue; // cone does not reach this declination
+                }
+                var delta = Math.Acos(cosDelta);
+                if (double.IsNaN(best) || delta > best) {
+                    best = delta;
+                }
+            }
+            return best;
         }
 
         /// <summary>

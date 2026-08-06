@@ -1579,7 +1579,8 @@ Tests: 5, of which **3 fail** when the fix is removed (2 for the probe, 1 for th
 labelled guards (inertness on a healthy sweep, and the floor-combination helper).
 
 ### F44 — The synthetic camera queries the catalog for at most ONE CELL, so a wide field is rendered starless outside a small central patch
-**Status:** Open · found 2026-08-05 from a user report: "why is only a portion of the sensor getting rendered with stars?"
+**Status:** **Code FIXED (wave 5)**; `D01`/`D02` still marked **SUSPECT** and awaiting re-baseline next wave ·
+found 2026-08-05 from a user report: "why is only a portion of the sensor getting rendered with stars?"
 
 `StarFieldCompositor` computes the field correctly — `DiagonalFovDegrees × 1.05` — and hands it to
 `AstapCatalogReader.Query`, which calls `AstapCellGeometry.FindAreas`. That method does two things which are
@@ -1610,21 +1611,78 @@ So the catalog is queried over roughly a 10° patch of a 48.5° × 33.4° frame,
 
 **Why nothing caught it.** The compositor warns only when the query returns **no** stars
 (`StarFieldCompositor.cs:303`); a partially-covered field returns plenty, so no warning fires and the frame looks
-plausible. And the synthetic AF bank never exercises it: its widest row, `D01_ultrawide_40mm`, is 40 mm but on a
-**much smaller sensor**, so its field stays near the cap. Every bank dataset happens to sit inside one cell.
+plausible. **The bank does exercise it — on two rows — and nothing checked.** `D01_ultrawide_40mm`'s own spec
+description even names the hazard: *"capped at mag<=10.5 so the ~39deg diagonal FOV catalog query (design risk
+R5) stays tractable"*. R5 was recorded as a **tractability** risk (too many stars); the actual failure was the
+opposite — the query silently returns too few, over too small a patch.
+
+### Affected bank datasets — SUSPECT, refresh required
+
+Diagonal FOV × 1.05 against the cap, computed over all 20 rows (sensor dimensions from `SensorRegistry`,
+binning applied). The verdict is the same under either partitioning (5.14° or 9.53°):
+
+| dataset | sensor | FL | diagonal FOV | requested | × over the 5.14° cap | status |
+|---|---|---|---|---|---|---|
+| **`D01_ultrawide_40mm`** | IMX571 | 40 mm | **38.91°** | 40.85° | **7.9×** | **SUSPECT — refresh** |
+| **`D02_rich_135mm`** | IMX571 | 135 mm | **11.95°** | 12.55° | **2.4×** | **SUSPECT — refresh** |
+| `D03_redcat_250mm` (next widest) | IMX533 | 250 mm | 3.66° | 3.85° | 0.7× | ok |
+| the remaining 17 | — | ≥ 250 mm | ≤ 2.94° | ≤ 3.09° | ≤ 0.6× | ok |
+
+**Only D01 and D02 are affected**, and both must be **re-rendered in the next wave** once the query is fixed.
+Everything from D03 down sits comfortably inside one cell and is unaffected.
+
+**What this does and does not invalidate on those two rows.** The stars that ARE rendered are rendered correctly
+— right PSF, right defocus, right photometry — so results about **gate thresholds and HFR-versus-focus behaviour**
+survive. What does not survive is anything reading **counts, recall, precision, or position**: the field is
+spatially truncated, so star totals are low by an unknown factor and the surviving stars occupy one patch of the
+sensor.
+
+Specifically at risk, and to be re-checked after the refresh:
+
+- **[F35](#f35--minhfr-should-be-seeded-from-the-sweep-wings-and-neither-available-hfr-statistic-can-size-it)'s
+  headline validation rests on exactly these two rows** — "D01 and D02 go from `FinalJ` exactly 0 to a real
+  landing". The *mechanism* (the `MinHFR` gate zeroing an undersampled rig's fit, and seeding rescuing it) is a
+  threshold result and should hold; the `FinalJ` values and star counts are measured on a truncated field.
+- **[F43](#f43--the-optimizer-wizard-refuses-to-start-unless-the-default-settings-already-produce-a-usable-curve)**
+  cites D01's per-frame counts (0 stars at focus, ~1700 in the wings). Its conclusion was independently confirmed
+  on the reporter's own real 40 mm frames, so it stands, but the D01 figures are indicative rather than exact.
+- The **wave-5 [F24](#f24--donut-detection-costs-precision-even-where-donuts-exist-and-badly-where-they-do-not--it-costs-recall-where-it-is-not-needed)
+  arms** covered all 20 datasets; the D01 and D02 rows of that table are suspect. The verdict is unaffected — it
+  turned on D06/D09/D14, none of which are.
+- Any **sensor-model, tilt, or region-based** result derived from D01/D02, since those read star *position*.
 
 **Consequences beyond the missing stars.** The rendered field is not just sparse but *spatially truncated*, so
 anything that reads position — the aberration inspector's sensor model, tilt calibration, region-based AF, the
 golden-set geometry — sees a synthetic frame whose stars occupy one corner-ish patch of the sensor. Any result
 derived from a wide-field simulator frame is suspect until this is fixed.
 
-**Next step.** Enumerate **every** cell intersecting the requested field instead of the four corners of a clamped
-box, and drop the clamp on the render path (keep `FindAreas` as-is if anything still needs the ASTAP-compatible
-behavior — it is a faithful port and worth keeping honest under its own name). The pieces already exist:
-`AreaForCoordinates` maps a coordinate to a cell, and the per-star angular filter in `QueryCells` already uses
-the **unclamped** FOV, so it will correctly trim the extra stars a wider cell sweep pulls in. Watch the RA
-wrap and the pole cells, which is where a naive lat/long tiling breaks, and add a wide-field bank row (or a unit
-test at 40 mm on a full-frame sensor) so the population is covered.
+**FIXED 2026-08-05 (wave 5).** `AstapCellGeometry.FindAreasCovering` enumerates **every** cell intersecting a
+cone of the requested radius, walking the band table directly: per dec band, the RA half-span comes from the
+spherical law of cosines evaluated at both band edges and at the cone centre, padded by one whole cell each side.
+`AstapCatalogReader.Query` uses it **only when the field exceeds the cap** — below it the two agree by
+construction (a box at most one cell across touches at most four cells, and its corners hit all four), so every
+existing narrow-field result stays bit-identical and `FindAreas` remains an untouched, honest ASTAP port.
+
+**Measured on `D01_ultrawide_40mm`, re-rendered:**
+
+| | truth stars on frame | x extent | y extent | sensor grid occupancy |
+|---|---|---|---|---|
+| before | 8107 | 431 – 5921 | **741 – 2965** | **125/256 (49%)** |
+| after | **19212** | −1 – 6249 | **0 – 4176** | **256/256 (100%)** |
+
+Half the sensor was empty; it now fills edge to edge with 2.4× the stars.
+
+Tests: an independent brute-force oracle (dense sphere sampling, no shared code with the routine under test)
+asserts no cell inside the cone goes unqueried, across six pointings including RA-wrap and both poles, on both
+partitionings; plus whole-sky, filename-encoding and supersets-the-reference checks. A `touchesPole` fast path
+was written, measured against those tests, found to change nothing (`MaxRaHalfSpan` already returns π there) and
+**removed** rather than left as an untested branch.
+
+**Still outstanding: the two suspect rows have NOT been re-baselined.** `D01`/`D02` must be re-rendered and every
+number derived from them re-measured in the next wave — the re-render above went to a scratch directory purely to
+verify the fix, deliberately **not** into the bank, since re-baselining mid-wave is what
+[F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings) and wave 3 warn against. The `suspect`
+marker stays in the spec until that happens, and `synth-bank` prints it on every run that selects those rows.
 
 ### F35 — `MinHFR` should be seeded from the sweep WINGS, and neither available HFR statistic can size it
 **Status:** Done (wave 3) · found 2026-08-03 answering "how far can `MinHFR` safely come down?" for

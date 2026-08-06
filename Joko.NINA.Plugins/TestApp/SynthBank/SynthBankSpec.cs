@@ -79,6 +79,18 @@ namespace TestApp.SynthBank {
         [JsonProperty("id")] public string Id { get; set; }
         [JsonProperty("description")] public string Description { get; set; }
 
+        /// <summary>
+        /// Non-null when this row's rendered frames are KNOWN BAD and must be re-rendered before their numbers are
+        /// used again; the text says why. Purely declarative — nothing branches on it — but it is a real property
+        /// rather than a stray JSON key so a spec round-trip cannot silently drop the warning, and
+        /// <c>synth-bank</c> prints it (see <see cref="SuspectBanner"/>).
+        ///
+        /// <para>Currently set on the two rows whose diagonal FOV exceeds the catalog query's one-cell cap
+        /// (F44): their star fields are spatially truncated, so counts, recall, precision and positions from them
+        /// are not trustworthy. Gate-threshold results are.</para>
+        /// </summary>
+        [JsonProperty("suspect", NullValueHandling = NullValueHandling.Ignore)] public string Suspect { get; set; }
+
         [JsonProperty("focalLengthMm")] public double FocalLengthMm { get; set; }
 
         /// <summary>Focal ratio N = f/D. Aperture is DERIVED as <see cref="FocalLengthMm"/> / <see cref="FocalRatio"/> (<see cref="ApertureMillimeters"/>) rather than stored redundantly.</summary>

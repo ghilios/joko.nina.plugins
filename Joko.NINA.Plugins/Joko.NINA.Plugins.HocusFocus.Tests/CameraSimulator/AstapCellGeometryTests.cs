@@ -175,4 +175,129 @@ public class AstapCellGeometryTests {
             Assert.That(sel.CellFileName, Is.EqualTo(AstapCellGeometry.CellFileName(sel.Area, partitioning)));
         }
     }
+
+    // ---- F44: wide-field cell enumeration ------------------------------------------------------------------
+    //
+    // find_areas clamps the field to ONE CELL and samples only its four corners. Correct for plate-solving,
+    // catastrophic for rendering: a 40 mm full-frame field is ~57°, the clamp cut the catalog query to 5.14°,
+    // and the simulator drew stars over a ~10° patch of a 48.5° x 33.4° frame with the rest of the sensor empty.
+
+    /// <summary>The reference brute force: every cell whose CENTRE lies within the cone, found by sampling the
+    /// sphere densely. Independent of the routine under test, so it can disagree with it.</summary>
+    private static HashSet<int> CellsByDenseSampling(double raRad, double decRad, double radiusRad, AstapPartitioning p) {
+        var hit = new HashSet<int>();
+        const int NDec = 900, NRa = 1800;
+        for (var i = 0; i <= NDec; i++) {
+            var d = -Math.PI / 2 + (Math.PI * i / NDec);
+            for (var j = 0; j < NRa; j++) {
+                var r = 2 * Math.PI * j / NRa;
+                var cosSep = (Math.Sin(decRad) * Math.Sin(d)) + (Math.Cos(decRad) * Math.Cos(d) * Math.Cos(r - raRad));
+                if (cosSep >= Math.Cos(radiusRad)) {
+                    hit.Add(AstapCellGeometry.AreaForCoordinates(r, d, p));
+                }
+            }
+        }
+        return hit;
+    }
+
+    [TestCase(305.5571, 40.2567, 59.67)]   // the reporting rig: 40 mm full-frame
+    [TestCase(305.5571, 40.2567, 12.55)]   // D02_rich_135mm
+    [TestCase(10.0, 0.0, 40.0)]            // equator, crossing RA = 0
+    [TestCase(350.0, -20.0, 50.0)]         // southern, wrapping RA
+    [TestCase(0.0, 89.0, 30.0)]            // cone containing the north pole
+    [TestCase(180.0, -88.0, 25.0)]         // cone containing the south pole
+    public void FindAreasCovering_MissesNoCellThatTheConeActuallyTouches(double raDeg, double decDeg, double fovDeg) {
+        foreach (var part in new[] { AstapPartitioning.Astap290, AstapPartitioning.Astap1476 }) {
+            var ra = raDeg * Deg;
+            var dec = decDeg * Deg;
+            var covering = AstapCellGeometry.FindAreasCovering(ra, dec, fovDeg * Deg, part)
+                .Select(a => a.Area).ToHashSet();
+            var expected = CellsByDenseSampling(ra, dec, fovDeg * Deg / 2.0, part);
+
+            var missed = expected.Except(covering).OrderBy(x => x).ToList();
+            Assert.That(missed, Is.Empty,
+                $"{part} at ({raDeg},{decDeg}) fov {fovDeg}: cells inside the cone that were never queried: " +
+                string.Join(",", missed));
+        }
+    }
+
+    [Test]
+    public void FindAreasCovering_IsVastlyWiderThanFindAreas_OnA40mmField() {
+        // The defect, as an inequality. find_areas clamps 59.67 deg to one cell and returns at most 4.
+        const double Ra = 305.5571 * (Math.PI / 180.0), Dec = 40.2567 * (Math.PI / 180.0), Fov = 59.67 * (Math.PI / 180.0);
+        var reference = AstapCellGeometry.FindAreas(Ra, Dec, Fov, AstapPartitioning.Astap1476);
+        var covering = AstapCellGeometry.FindAreasCovering(Ra, Dec, Fov, AstapPartitioning.Astap1476);
+
+        Assert.Multiple(() => {
+            Assert.That(reference.Count, Is.LessThanOrEqualTo(4), "find_areas returns at most 4 cells by construction");
+            Assert.That(covering.Count, Is.GreaterThan(50), "a 59.67 deg field spans far more than 4 of the 5.14 deg cells");
+            Assert.That(covering.Select(c => c.Area).ToHashSet().IsSupersetOf(reference.Select(c => c.Area)),
+                Is.True, "the wide sweep must still include everything the reference found");
+        });
+    }
+
+    [Test]
+    public void FindAreasCovering_ReturnsRealCellFileNamesAndDistinctAreas() {
+        // Building "<area>.1476" by hand would name files that do not exist on disk; the encoding is band/index.
+        var cells = AstapCellGeometry.FindAreasCovering(
+            305.5571 * Deg, 40.2567 * Deg, 59.67 * Deg, AstapPartitioning.Astap1476);
+
+        Assert.Multiple(() => {
+            Assert.That(cells.Select(c => c.Area).Distinct().Count(), Is.EqualTo(cells.Count), "no duplicate cells");
+            foreach (var c in cells) {
+                Assert.That(c.Area, Is.InRange(1, AstapCellGeometry.AreaCount(AstapPartitioning.Astap1476)));
+                Assert.That(c.CellFileName, Is.EqualTo(AstapCellGeometry.CellFileName(c.Area, AstapPartitioning.Astap1476)));
+            }
+        });
+    }
+
+    [TestCase(0.0, 89.0, 30.0)]
+    [TestCase(123.0, -88.5, 20.0)]
+    [TestCase(200.0, 90.0, 44.0)]
+    public void FindAreasCovering_AConeContainingAPoleTakesEVERYMeridianOfEveryBandItReaches(
+        double raDeg, double decDeg, double fovDeg) {
+        // A cone that swallows a pole has no bounded RA range: every meridian is inside it. Computing one from
+        // the law of cosines leaves a narrow wrap-around sliver unqueried (halfSpan lands just under pi, so the
+        // "covers the circle" branch does not fire and the padded index walk stops a few degrees short). The
+        // sliver is easy to miss with a centre-sampling oracle, so assert the structural property directly.
+        foreach (var part in new[] { AstapPartitioning.Astap290, AstapPartitioning.Astap1476 }) {
+            var ra = raDeg * Deg;
+            var dec = decDeg * Deg;
+            var radius = fovDeg * Deg / 2.0;
+            var returned = AstapCellGeometry.FindAreasCovering(ra, dec, fovDeg * Deg, part)
+                .Select(a => a.Area).ToHashSet();
+
+            // Any band the cone reaches must be present in FULL.
+            var reached = returned.Select(a => BandOf(a, part)).Distinct().ToList();
+            Assert.That(reached, Is.Not.Empty);
+            foreach (var band in reached) {
+                foreach (var area in AreasInBand(band, part)) {
+                    Assert.That(returned, Does.Contain(area),
+                        $"{part} at ({raDeg},{decDeg}) fov {fovDeg}: band {band} is only partly queried " +
+                        $"(missing area {area}) — a pole-containing cone covers every meridian");
+                }
+            }
+        }
+    }
+
+    // Band arithmetic mirrored from the geometry's own cumulative table, via the public area->name encoding:
+    // the file name's first four digits are "BBII" (band, index within band), so the band is recoverable.
+    private static int BandOf(int area, AstapPartitioning p) =>
+        int.Parse(AstapCellGeometry.CellFileName(area, p).Substring(0, 2));
+
+    private static IEnumerable<int> AreasInBand(int band, AstapPartitioning p) {
+        for (var a = 1; a <= AstapCellGeometry.AreaCount(p); a++) {
+            if (BandOf(a, p) == band) {
+                yield return a;
+            }
+        }
+    }
+
+    [Test]
+    public void FindAreasCovering_AWholeSkyConeReturnsEveryCell() {
+        foreach (var part in new[] { AstapPartitioning.Astap290, AstapPartitioning.Astap1476 }) {
+            var cells = AstapCellGeometry.FindAreasCovering(0.0, 0.0, 360.0 * Deg, part);
+            Assert.That(cells.Count, Is.EqualTo(AstapCellGeometry.AreaCount(part)), $"{part}");
+        }
+    }
 }
