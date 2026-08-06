@@ -129,9 +129,18 @@ seven datasets on the strength of a decision nobody has taken would be exactly t
 prevent. Verified from the files: `Provenance.CommandLine` in `D08`/`D17` reads `--out D:\hf_w7\g2\bin1\…`
 ([F30](followups.md#f30--a-stored-optimized_settingsjson-does-not-say-which-config-produced-it) doing its job).
 
-**The adoption decision is NOT taken here.** The evidence says binning 2 is dramatically better for these seven,
-and acting on it means re-baselining them — which is a wave of its own, with its own before/after, on a bank
-nobody is simultaneously re-rendering. What this wave delivers is the measurement and the flag.
+**The adoption decision is NOT taken here — and there is a concrete gate in front of it.** Scored against the
+checked-in per-class `recallHighMin = 0.90`, binning 2 puts **two datasets below their band**:
+`D12_c14_585_afbin2` at **0.813** and `D15_cdk20_3454mm_e47` at **0.874** — the bright-tier cost of
+[F46](followups.md#f46--detection-binning-buys-faint-stars-and-quietly-sells-bright-ones-to-the-shapesize-gates),
+landing where it matters. `synthetic-af-bank-expectations.json`'s own rule forbids fixing a breach by widening
+the band, so adoption requires either reducing that loss or re-deriving the bands with a stated justification.
+
+The full hand-off for the adoption wave — the decision, what does and does not change, the two breaches, the F15
+arm ordering (**status-quo FIRST** next time, the reverse of this wave), the 13 unaffected datasets as a free
+control, and why F32 is untouched by it — is written into
+[F39](followups.md#f39--the-harness-records-a-detection-binning-the-run-never-applied-and-7-datasets-have-never-run-at-theirs)
+so the next wave does not have to re-derive it.
 
 ### What shipped
 

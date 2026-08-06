@@ -1599,8 +1599,10 @@ ones you wrote.
 `DetectionBinning > 1`, and until wave 7 the harness had never produced one —
 [F39](#f39--the-harness-records-a-detection-binning-the-run-never-applied-and-7-datasets-have-never-run-at-theirs)(b)
 was exactly that gap. `optimize --apply-run-detection-binning` now makes the seven `detectionBinning = 2` datasets
-detect at 2, so a bank-level regression assertion for the captured-vs-binned comparison is possible for the first
-time. **Adding it is owed** (wave-7 plan, Step 6) — the flag exists, the assertion does not.
+detect at 2, so a bank-level regression assertion for the captured-vs-binned comparison became possible for the
+first time — and **it was added in the same wave**: the whole (1.2, 2.4] silent window at factor 2, plus the four
+real bank in-focus HFRs pinning that honouring the factor did NOT quietly start seeding the entire binning-2
+population. **3 discriminating** (reverting the division fails them) **/ 5 guards**.
 
 **A related hypothesis this entry did NOT explain, checked and refuted.** Wave 7's binning arm shows `recall@high`
 falling on 4 of 7 datasets at factor 2, which looks exactly like this entry's mismatch (a gate in binned space
@@ -1731,9 +1733,56 @@ seven datasets on a decision nobody has taken is exactly the silent drift that r
 own with its own before/after on a bank nobody is simultaneously re-rendering. What wave 7 delivers is the
 measurement and the flag.
 
-**Still owed:** the [F38](#f38--the-minhfr-seed-trigger-compares-a-captured-pixel-vertex-against-a-binned-pixel-gate)
-bank regression assertion this finally makes possible — that population has never existed in the bank until now —
-and the adoption re-baseline above.
+**Still owed: the ADOPTION wave.** Wave 7 delivered the measurement and the flag; it did not take the decision.
+Everything below is what that wave needs, so it does not have to re-derive it.
+
+**1. The decision to take.** Should the seven be scored at their derived factor permanently — i.e. does
+`--apply-run-detection-binning` become the default on the headless path (or the resolved value stop being
+discarded at all)? The evidence says yes on recall and emphatically yes on σ_focus, and the counter-evidence is
+[F46](#f46--detection-binning-buys-faint-stars-and-quietly-sells-bright-ones-to-the-shapesize-gates).
+
+**2. What changes, and what does not.** The frames do NOT move (`detectionBinning` enters no render input — §3.3),
+so **no re-render**, and no `--dry-run` diff is needed to scope one. The **product is not affected either**: the
+live app already applies the user's factor through `ApplyDetectionImageContext`. This is a harness/bank change
+only, on 7 of 20 datasets. The other 13 are binning 1 under either configuration, which makes them a **free
+control — they must come back bit-identical**, and an adoption arm that moves one of them has a fault, not a
+result ([F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)'s shape).
+
+**3. It BREACHES two checked-in expectation bands, and that is the real gate.** Scored against
+[`docs/synthetic-af-bank-expectations.json`](synthetic-af-bank-expectations.json)'s per-class `recallHighMin`
+(both L34 and L47 are 0.90), using wave 7's arm-G1 numbers under config B:
+
+| dataset | class | floor | recall@high bin1 | **bin2** | verdict at bin2 |
+|---|---|---|---|---|---|
+| `D12_c14_585_afbin2` | L34 | 0.90 | 0.879 | **0.813** | **BREACH** (and it already breached at bin1) |
+| `D15_cdk20_3454mm_e47` | L47 | 0.90 | 0.931 | **0.874** | **BREACH** (bin1 was fine) |
+| `D08` / `D09` / `D10` / `D14` / `D17` | — | 0.90 | — | 0.948–1.000 | ok |
+
+That file's own rule is explicit: *"A cell landing outside its band is a FLAG that gets triaged into
+docs/followups.md — it is NEVER fixed by widening the band here."* So **adoption cannot proceed by relaxing the
+band**. Either F46 is understood first and the bright-tier loss is reduced, or the breach is triaged on its
+merits and the band is re-derived with a stated justification — which is a legitimate move (the bands were
+calibrated at binning 1, a configuration the bank did not intend) but a deliberate, separately-argued one.
+
+**Note the direction is not uniform**: overall recall RISES on all seven while `recall@high` falls on four, so a
+re-derivation would tighten some bands and loosen others. Both halves have to be stated.
+
+**4. Ordering, so the adoption arm is the one the bank keeps.**
+[F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings): `optimize --per-run` rewrites
+`optimized_settings.json` into the run folders. Wave 7 ran the status-quo arm LAST on purpose; an adoption wave
+must run it **FIRST** and the binning-2 arm last, then record the mapping in its results doc.
+
+**5. What it does NOT disturb.** `D18`/`D19`/`D20` are not among the seven, so
+[F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains)'s
+confirmation arm is unaffected by this adoption — the question that dominated wave 7's ordering does not recur
+here. Prior waves' A/B comparisons on the seven also stay internally valid (the factor was a uniform 1 across
+every arm of every wave); what changes is that future numbers are not comparable to them, which is
+[F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary) again and wants the usual
+re-run-rather-than-compare-across treatment.
+
+**6. Reproduce the wave-7 measurement it builds on:** `D:\hf_w7\f39b_golden.sh` (arm G1, recall/precision, ~6 min)
+and the G2 block of `D:\hf_w7\remaining_arms.sh` (σ_focus / `J`). Per-dataset outputs in `D:\hf_w7\golden` and
+`D:\hf_w7\g2`.
 
 ### F40 — The settings handoff shipped in wave 4 had never once been written to disk
 **Status:** Done (wave 5 — backfilled and now exercised) · found 2026-08-05 backfilling it
@@ -2507,6 +2556,13 @@ weights most. Nothing in the product tells the user that half of a knob's effect
 [F38](#f38--the-minhfr-seed-trigger-compares-a-captured-pixel-vertex-against-a-binned-pixel-gate)'s space
 mismatch: `MinHFR` gates inside the binned raster, so factor 2 would effectively gate at 2.4 captured px. The
 attribution refutes it — **`TooLowHFR` appears in none of the fourteen runs.**
+
+**This BLOCKS [F39](#f39--the-harness-records-a-detection-binning-the-run-never-applied-and-7-datasets-have-never-run-at-theirs)(b)'s
+adoption wave, which is what raises it from an observation to a gate.** At binning 2 the bright-tier loss puts
+**two datasets below their checked-in `recallHighMin = 0.90` band**: `D12_c14_585_afbin2` at **0.813** (L34) and
+`D15_cdk20_3454mm_e47` at **0.874** (L47). `synthetic-af-bank-expectations.json`'s own rule forbids fixing that by
+widening the band, so adopting the correct binning factor requires either reducing this loss or triaging the
+breach on its merits with a stated re-derivation.
 
 **Next step.** Two separable questions. (a) Are `MinimumStarBoundingBoxSize` and the structure-map layers
 calibrated for the BINNED raster, or are they carrying captured-pixel values into a half-resolution image? They
