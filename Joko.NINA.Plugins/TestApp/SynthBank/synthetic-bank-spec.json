@@ -32,8 +32,7 @@
       "seeingArcsec": 2.5,
       "optimalFocuserPosition": 6000,
       "focuserStepSizeMicrons": 1.985179,
-      "datasetSeed": 1,
-      "suspect": "SUSPECT (F44) — RE-RENDER REQUIRED. This row's diagonal FOV exceeds the catalog query's one-cell cap (AstapCellGeometry.FindAreas clamps to ~5.14 deg), so stars were fetched for only a small central patch and the rest of the sensor rendered starless. Counts, recall, precision and star POSITIONS from this dataset are not trustworthy; gate-threshold results are. Re-render once the wide-field query lands."
+      "datasetSeed": 1
     },
     {
       "id": "D02_rich_135mm",
@@ -51,8 +50,7 @@
       "seeingArcsec": 2.5,
       "optimalFocuserPosition": 6000,
       "focuserStepSizeMicrons": 2.126977,
-      "datasetSeed": 2,
-      "suspect": "SUSPECT (F44) — RE-RENDER REQUIRED. This row's diagonal FOV exceeds the catalog query's one-cell cap (AstapCellGeometry.FindAreas clamps to ~5.14 deg), so stars were fetched for only a small central patch and the rest of the sensor rendered starless. Counts, recall, precision and star POSITIONS from this dataset are not trustworthy; gate-threshold results are. Re-render once the wide-field query lands."
+      "datasetSeed": 2
     },
     {
       "id": "D03_redcat_250mm",

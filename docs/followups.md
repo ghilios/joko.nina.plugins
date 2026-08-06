@@ -550,6 +550,22 @@ shedding; it does not price a 4% one. The two entries are independent.
 
 Reproduce: `D:\hf_w5\f24_arms.sh`, analysed by `D:\hf_w5\analyze_f24.py`.
 
+> **The suspect D01/D02 rows of that table, resolved (wave 6).** `D02`'s frames turned out to be unaffected
+> (bit-identical after the F44 fix), so its row never needed replacing. `D01`'s did, and re-running all five arms
+> on the corrected field changes nothing that matters:
+>
+> | arm | D01 recall@high, old (truncated) | **D01, new (full field)** | TP, new | FP |
+> |---|---|---|---|---|
+> | `masterOFF` | 0.129 | **0.127** | 19039 | 0 |
+> | `shipping` | 0.115 | 0.114 | 17636 | 0 |
+> | `boost0` | 0.119 | 0.119 | 17988 | 0 |
+> | `close1` | 0.126 | 0.125 | 19004 | 0 |
+> | `both` | 0.129 | **0.127** | 19039 | 0 |
+>
+> The master still **hurts** on D01 (masterOFF − shipping = +0.014 old, +0.013 new), `both` still recovers
+> master-OFF recall exactly, and precision is still 1.000 with zero false positives. The wave-5 verdict turned on
+> D06/D09/D14 — none of which was ever suspect — and is untouched.
+
 ### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
 **Status:** Open · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
 
@@ -1374,6 +1390,18 @@ derived-looking value that was not derived — either omit the field or mark it 
 itself, not only in `DerivedNotes`. (b) Decide whether the seven `detectionBinning = 2` datasets should be run at
 their expected factor, which is a re-baseline and needs its own arm.
 
+**PART (a) DONE 2026-08-06 (wave 6); part (b) DEFERRED, deliberately.** `ResolveForRun` now writes
+`DetectionBinningSource` — `derived-from-in-focus-hfr` or `kept-from-base` — as a **field** rather than only as
+prose inside `DerivedNotes`. A reader diffs fields; nobody diffs a sentence, which is why seventeen files could
+say "kept from base" in prose while presenting `"DetectionBinning": "Bin2"` next to sixteen genuinely exported
+values. 2 tests, both discriminating.
+
+**Part (b) is not paired with wave 6's re-baseline on purpose.** Wave 6 re-rendered `D01`/`D02` and the whole
+value of that pass is that **exactly one thing changed** — the star field, with every derived parameter (step,
+exposure, binning, donut) provably identical. Honouring a per-run binning would have moved a second variable on
+7 other datasets in the same wave, and the two effects could not then be separated. It needs its own arm, with
+its own before/after, on a bank nobody is simultaneously re-rendering.
+
 ### F40 — The settings handoff shipped in wave 4 had never once been written to disk
 **Status:** Done (wave 5 — backfilled and now exercised) · found 2026-08-05 backfilling it
 
@@ -1461,6 +1489,33 @@ a settings file is created rather than loaded, since that is the moment an arm s
 its predecessor. Consider defaulting the path to a fixed per-user location rather than `AppContext.BaseDirectory`,
 so a new build directory inherits instead of bootstrapping.
 
+**FIXED 2026-08-06 (wave 6).** All three, plus one the entry did not know about:
+
+1. **The default path now INHERITS.** `DefaultPath()` = an existing file beside the exe (unchanged for any arm
+   directory that already has one) → otherwise `%LOCALAPPDATA%\HocusFocusHarness\harness_settings.json`. A fresh
+   `-o` directory therefore picks up the same file the last one used instead of minting a new detector. The
+   decision is a pure function (`ResolveDefaultPath`) so it is tested without a filesystem.
+2. **The bootstrap is loud** — `WARNING` on stderr plus `Logger.Warning`, naming the profile and saying outright
+   that the run is not comparable to any earlier arm using a different file.
+3. **A `UseAdvanced = False` settings file now warns, and names the knobs it is lying about.**
+   `StarDetectionOptions.InitializeOptions` ends in `ConfigureSimpleSettings()`, which in Simple mode runs
+   `DerivePresetSettings()` and **overwrites ~16 advanced knobs** from the three `Simple_*` presets — so editing
+   `NoiseClippingMultiplier` or `MinHFR` in a pinned file does *nothing*, silently. This is the wave-5 probe set
+   where four supposedly different configurations returned identical star counts, promoted from an anecdote in
+   [F43](#f43--the-optimizer-wizard-refuses-to-start-unless-the-default-settings-already-produce-a-usable-curve) to
+   a check. The overridden keys are MEASURED (hand the file's own bag to a throwaway options instance, diff it
+   afterwards) rather than hard-coded, so the list cannot drift from what the class does.
+
+**Checked, and wave 5 is NOT invalidated by (3):** `D:\hf_w5\pinned_settings.json`'s advanced values coincide with
+the Typical presets (`NoiseClip 4`, `StarClip 2`, `StructureLayers 4`, `Sensitivity 10`, `MinHFR 1.2`,
+`MinBox 5`, `NoiseReductionRadius 3+1`), so the diff is empty and every wave-5 arm ran the detector its file
+describes. The hazard was real and did not fire. **Nor is any wave-5 comparison affected by (1)**: those arms
+pinned `--settings` explicitly, which bypasses `DefaultPath()` entirely.
+
+7 tests, of which **4 discriminate** (confirmed by neutralizing the three behaviours and re-running: exactly those
+4 fail); the other 3 are labelled guards — the beside-the-exe precedence, Advanced-mode silence, and the
+agrees-with-the-presets case.
+
 ### F43 — The optimizer wizard refuses to start unless the DEFAULT settings already produce a usable curve
 **Status:** **Done (wave 5)** for the Live path; the replay case is left open below · found 2026-08-05 from a
 user report on a 40 mm rig
@@ -1483,6 +1538,20 @@ accepted stars across the sweep:
 | `MinHFR = 1.2` (default) | 816 | 1670 | 1773 | 11 | **0** | 5 | 1748 | 1672 | 815 |
 | `MinHFR = 0.30` (F35 floor) | 816 | 1670 | 2463 | 204 | **5** | 187 | 2469 | 1672 | 815 |
 | `MinHFR = 0.10` (search floor) | 816 | 1670 | 2463 | 208 | **6** | 190 | 2469 | 1672 | 815 |
+
+> **Re-measured on the F44-corrected D01 (wave 6).** The table above was taken on a spatially truncated field; the
+> corrected one is 2.3× richer everywhere and **the core is still empty**, which is the whole point of the entry:
+>
+> | focuser | 5964 | 5973 | 5982 | 5991 | **6000 (focus)** | 6009 | 6018 | 6027 | 6036 |
+> |---|---|---|---|---|---|---|---|---|---|
+> | `MinHFR = 1.2` (default) | 1859 | 3758 | 4157 | 13 | **0** | 11 | 4182 | 3761 | 1867 |
+> | `MinHFR = 0.30` | 1859 | 3758 | 5784 | 476 | **7** | 438 | 5786 | 3761 | 1867 |
+> | `MinHFR = 0.10` | 1859 | 3758 | 5784 | 478 | **7** | 443 | 5786 | 3761 | 1867 |
+>
+> Thousands of stars in the wings, **zero at focus at the default gate**, and lowering the gate buys 7 — against
+> `NHard = 3`. The rescue is exactly as thin on a correct field as it looked on a truncated one, so the entry's
+> "genuinely thin on the rigs it exists for" framing stands unaltered. The old rows reproduce **exactly** on the
+> wave-6 binary, so the two tables differ only by the frames.
 
 The wings detect thousands of stars; the **core of the curve is empty**. That is F20's signature — rejections
 concentrated on the INNER frames — and at 40 mm it is expected: in-focus stars are ~1 px, so the `MinHFR` gate
@@ -1530,6 +1599,34 @@ saved run exists only because those settings could already focus — a decision 
 modes. Probing the seed there would quietly convert replay into a seed-gated path. **Open question:** whether a
 saved run whose current settings cannot fit deserves the same rescue. The circularity argument applies equally;
 the counter-argument is that such a run should not have been captured. Not changed as a side effect of this one.
+
+> **REPLAY DECIDED (wave 6): extend the rescue, but not as a drive-by — the premise it rests on is measurably
+> false, and the change needs a UI answer the wizard does not have yet.**
+>
+> *The premise.* `SeedFitIsUsableAsync` gates replay on `r.Baseline` (`:2882`) because "a saved run exists because
+> those settings could already focus". Three populations falsify that, and all three are real today:
+>
+> | population | why the premise fails | evidence |
+> |---|---|---|
+> | **failed AF runs** | `KeepFramesForReview` saves sweeps that did NOT focus — a failed AF is precisely what a user brings to the optimizer | `KeepFramesForReview = True` in the shipped AF options |
+> | **settings changed since capture** | the wizard's whole purpose is changing detection settings; "current" need not be what captured the run | — |
+> | **runs never captured by this profile at all** | bank folders and other people's data are loaded routinely | the live app's own `LastSelectedLoadPath` read `D:\SyntheticAutofocusBank\D01_ultrawide_40mm\attempt01` — a dataset that yields **zero** in-focus stars at the default gate |
+>
+> So the asymmetry is not "live is the hard case and replay is the easy one"; it is that replay refuses a case it
+> demonstrably receives. `D01` is the counterexample in the bank itself.
+>
+> *What to implement.* Keep the baseline gate FIRST — when the current settings fit, nothing changes, so the
+> premise case stays exactly as it is. Only on the refusal path, probe the same `TryRescueSeedAsync` ladder that
+> Live uses, and refuse only when no probed gate produces a **scorable** curve. `SeedGuard_ReplayMode_GatesOnBaseline`
+> then needs rewriting rather than deleting: its contract becomes *"replay refuses when neither the baseline nor any
+> probed gate can fit"*, and it must still fail when the ladder is removed.
+>
+> *Why this is NOT shipped in wave 6.* A replay whose baseline cannot fit has `BaselineJ = 0` — measured directly:
+> every `D01`/`D02` arm this wave printed `Current settings J: 0`. The wizard's headline is an improvement
+> *percentage against the baseline*, and a percentage against zero is not a number. So the change needs a decision
+> about what the summary says when there is no baseline to improve on ("no usable curve at your current settings"
+> rather than a ratio), which is UI work with its own review. Implementing the guard without it would replace a
+> confusing refusal with a confusing result.
 
 **EXTENDED 2026-08-05, same session, after the reporter tried it and it STILL failed.** The first fix was right
 about the circularity and wrong about the bar. Lowering `MinHFR` made the reporter's curve **fittable** but not
@@ -1678,11 +1775,30 @@ partitionings; plus whole-sky, filename-encoding and supersets-the-reference che
 was written, measured against those tests, found to change nothing (`MaxRaHalfSpan` already returns π there) and
 **removed** rather than left as an untested branch.
 
-**Still outstanding: the two suspect rows have NOT been re-baselined.** `D01`/`D02` must be re-rendered and every
-number derived from them re-measured in the next wave — the re-render above went to a scratch directory purely to
-verify the fix, deliberately **not** into the bank, since re-baselining mid-wave is what
-[F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings) and wave 3 warn against. The `suspect`
-marker stays in the spec until that happens, and `synth-bank` prints it on every run that selects those rows.
+**RE-BASELINED 2026-08-06 (wave 6) — and only ONE of the two rows was ever affected.** Both were re-rendered into
+the bank with the fixed query. Every derived parameter is unchanged on both (step 9 / 6, exposure 0.5 s,
+`detectionBinning` 1, donut off, identical sweep positions), so the star field is the *only* thing that moved:
+
+| row | in-focus truth stars | x extent | y extent | 16×16 grid occupancy | frames |
+|---|---|---|---|---|---|
+| `D01` before | 8107 | 431–5921 | **741–2965** | **125/256 (49%)** | — |
+| `D01` after | **19212** | −1–6249 | 0–4176 | **256/256 (100%)** | changed |
+| **`D02` before** | **3594** | −2–6247 | −1–4176 | **256/256 (100%)** | — |
+| **`D02` after** | **3594** | −2–6247 | −1–4176 | **256/256 (100%)** | **BIT-IDENTICAL** |
+
+**`D02_rich_135mm` was never affected**: its re-rendered FITS are byte-for-byte identical to the old ones, and its
+golden star set is the same set (3536 stars, 25 unresolved, reordered only — the new query enumerates cells in a
+different order). **So no number derived from D02 ever needed re-measuring**, including F35's D02 landing.
+
+**The suspect criterion over-predicted, and this is the useful correction.** The table above marked D02 suspect on
+*diagonal FOV ÷ one-cell cap* = 2.4×, which is a proxy for the real question: *do the ≤ 4 corner cells `FindAreas`
+returns cover the field?* Cells are equal-area, so at `D02`'s **Dec +61.45°** one cell spans ≈ 1/cos(61.45) ≈ 2.1×
+more RA degrees than at the equator, and the four corner cells covered an 11.95° field comfortably. **The cap ratio
+is not the criterion; cell coverage at the field's declination is.** A ratio-based rule flags rows that are fine
+(D02) and would keep flagging them forever. D01 at 7.9× is far enough over that no declination saves it.
+
+`suspect` is now cleared on both rows, so `synth-bank` no longer warns. What was re-measured on D01, and what it
+changed, is in [`docs/synthetic-af-bank-followups-wave6-results.md`](synthetic-af-bank-followups-wave6-results.md).
 
 ### F35 — `MinHFR` should be seeded from the sweep WINGS, and neither available HFR statistic can size it
 **Status:** Done (wave 3) · found 2026-08-03 answering "how far can `MinHFR` safely come down?" for
@@ -1701,6 +1817,29 @@ name:
 | `D02_rich_135mm` | **YES** | 0.550 / 1.200 | **0.99656 / 0.00000** |
 | `D03_redcat_250mm` | **YES** | 0.300 / 0.450 | 0.99549 / 0.99486 |
 | the other 14 | no | **identical** | **identical to 5 dp** |
+
+> **RE-MEASURED 2026-08-06 (wave 6) on the F44-corrected frames — the headline survives intact.** `D01`'s field
+> was spatially truncated when the table above was produced ([F44](#f44--the-synthetic-camera-queries-the-catalog-for-at-most-one-cell-so-a-wide-field-is-rendered-starless-outside-a-small-central-patch));
+> `D02`'s, it turns out, was not (its re-rendered frames are bit-identical). Re-run on **one binary**, with the
+> control produced by the new `optimize --no-min-hfr-seed` rather than by an older commit ([F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)):
+>
+> | dataset | frames | fitted vertex | `FinalJ` seed OFF | `FinalJ` seed ON | landed `MinHFR` |
+> |---|---|---|---|---|---|
+> | `D01` | **old (truncated)** | 0.7621 | **0.000000** | 0.990358 | 0.100 |
+> | `D01` | **new (full field)** | 0.7712 | **0.000000** | **0.991551** | 0.100 |
+> | `D02` (frames bit-identical) | — | 0.7488 | **0.000000** | 0.996510 | 0.3625 |
+> | `D03` | — | 1.0154 | 0.995880 | 0.996543 | 0.300 |
+> | **`D05` control** | — | 1.7882 | **0.999706** | **0.999706** | 1.48125 |
+>
+> **"`FinalJ` exactly 0 → a real landing" is unchanged on a field with 2.4× the stars**, which is what a
+> gate-threshold result should do. `BaselineJ` is identical between the two arms of every dataset (F41's free
+> check), and `D05` is bit-identical seed-on vs seed-off — the boring control that caught the wave-3 seed leak,
+> still boring.
+>
+> **The drift is bounded by a dataset that could not move.** `D02`'s frames are provably identical to wave 3's, so
+> its `FinalJ` 0.99656 → 0.996510 is **pure wave-3→wave-6 binary drift: 5×10⁻⁵**. `D01`'s old-frames landing moved
+> 0.99018 → 0.990358 (+1.8×10⁻⁴) — same order. So `D01`'s **+1.2×10⁻³** from the re-render is roughly 6× the
+> drift and is attributable to the frames, not the binary.
 
 **D01 and D02 go from `FinalJ` exactly 0 to a real landing — the whole of F20's defect — and 14 of 17 landings
 are bit-identical to the control**, including D05 at 1.450. On every rig the change was not designed for it is a
@@ -1795,6 +1934,25 @@ recall@high per dataset, **FP = 0 in all 32 configurations**:
 | 0.25 | 0.165 | 0.595 | 0.585 | 0.985 | 5 |
 | 0.15 | 0.165 | 0.595 | 0.585 | 0.985 | 5 |
 | 0.1 | 0.165 | 0.595 | 0.585 | 0.985 | 6 |
+
+> **The D01 column re-measured on the F44-corrected frames (wave 6).** The old-frames column above reproduces
+> **exactly, to three decimals, on the wave-6 binary** — a free F41 check that this detector has not drifted for
+> this measurement — and the corrected field changes the conclusion in no respect:
+>
+> | `MinHFR` | D01 old (truncated) | **D01 new (full field)** | FP, both | D01 vertex-frame stars, old → new |
+> |---|---|---|---|---|
+> | 1.2 | 0.129 | **0.127** | 0 | 0 → **0** |
+> | 0.9 | 0.152 | 0.150 | 0 | 0 → 0 |
+> | 0.7 | 0.160 | 0.157 | 0 | 2 → 4 |
+> | 0.5 | 0.164 | 0.161 | 0 | 5 → 6 |
+> | 0.35 | 0.164 | 0.162 | 0 | 5 → 7 |
+> | 0.25 – 0.15 | 0.165 | 0.162 | 0 | 5 → 7 |
+> | 0.1 | 0.165 | 0.162 | 0 | 6 → 7 |
+>
+> **Zero false positives at every value on the corrected field too, and the gain still saturates by 0.5.** Recall
+> is fractionally *lower* because the golden grew with the field (TP 8253 → **19039**, and the stars the fix added
+> are predominantly faint edge-of-frame ones), not because detection got worse: the wing frames go from ~816/1670
+> accepted stars to ~1859/3758. The claim this table exists to support — *how low is safe* — is unchanged.
 
 **Zero false positives at every value on every dataset**, and the recall gain saturates by 0.5 at the latest.
 `MinHFR` is a second line of defence — hot-pixel filtering is separate and enabled by default — and on this bank
@@ -1902,6 +2060,84 @@ effective-gate correction instead — a different repair than the one being audi
 **Why it matters.** The blanket assumption — "these were measured on suspect landings, so they are all suspect" —
 would have cost a full re-measurement pass and found nothing. The actual exposure was one clause in one entry.
 Recording the audit so it is not re-opened on the same inference next wave.
+
+### F45 — The Grubbs test rejects the IN-FOCUS point of a near-perfect curve, and the blind walk then buys an extra exposure
+**Status:** Open · found 2026-08-06 (wave 6) from a real 40 mm simulator run · **mechanism reproduced offline
+from the run's own report**, not inferred
+
+**The observation.** A blind sweep logged its queue decision against a minimum its own data does not support:
+
+```
+21:47:08 Enough left trend points (4) with an established minimum (25015) to queue remaining right focus points up to 25075
+```
+
+`AutoFocusEngine.cs:1485` sets `targetMaxFocuserPosition = trendlineFit.Minimum.X + (failedRightPoints +
+offsetSteps) · stepSize`. `TrendlineFitting.Minimum` is **not a fitted vertex** — NINA core's
+`TrendlineFitting.Calculate` sets it to `argmin(Y + ErrorY)` over the points it is HANDED. The run's own report
+(`2026-08-05--21-47-43--90d513b9….json`, step 15, `offsetSteps` 4) makes the anchor look plainly wrong:
+
+| position | HFR | error | `Y + ErrorY` |
+|---|---|---|---|
+| **25000** | 0.6941 | 0.1736 | **0.8677 ← argmin of the measured set** |
+| 25015 | 0.7709 | 0.2459 | 1.0168 |
+
+with `CalculatedFocusPoint = 24999.996` and hyperbolic R² = **0.99928**. Anchored at 25000 the target is 25060,
+which had already been sampled ⇒ the walk stops; anchored at 25015 it is 25075 ⇒ **one extra step and one extra
+exposure**, on every run that hits this.
+
+**The mechanism, measured.** Feeding the report's own points back through the engine's fitting loop
+(`WeightRegularization.Regularize` → `AlglibHyperbolicFitting` → `MathUtility.RejectionTest` → drop → refit,
+`MaxOutlierRejections = 1`, confidence 0.99, `WeightedHyperbolicFitEnabled`):
+
+| set | rejected | resulting `Minimum.X` |
+|---|---|---|
+| the 10 points present at the decision (24925–25060) | **25000** | **25015** |
+| the final 11 points | **25000** | 25015 |
+| the same 10 points, rejection disabled | — | **25000** |
+
+**So `Minimum` is computed on the POST-REJECTION set, and the point rejected is the in-focus one.** σ is
+regularized but untouched here (the floor is 0.2 × median = 0.023; no σ is that small), so regularization is not
+the cause.
+
+**And the rejection itself is the more serious half.** The weighted residuals the Grubbs test ranks, on a fit with
+R² = 0.9994:
+
+| position | residual | weighted | Grubbs z |
+|---|---|---|---|
+| **25000** | **+0.0345** | +0.199 | **2.60** ← rejected |
+| 24940 | +0.0116 | +0.193 | **2.54** ← also over the limit |
+| every other point | ≤ 0.034 | ≤ 0.17 | ≤ 1.7 |
+
+The limit at N = 10, confidence 0.99 is **2.41**. Two points clear it and the larger wins. The scale is the **MAD
+of the weighted residuals** (`MathUtility.cs:163`) — deliberately robust — but on an *excellent* fit the residuals
+are both tiny and tightly clustered, so MAD collapses and ordinary scatter reads as a 2.6σ outlier. The rejected
+point's residual is **0.0345 px against its own measurement error of 0.174 px**: it is consistent with the curve
+to a fifth of its own error bar, and is discarded as an outlier anyway.
+
+**Why it matters, beyond one exposure.**
+- The discarded point is the **most informative one in the sweep** — the in-focus measurement the whole run exists
+  to obtain. Here it costs little (the hyperbola vertex is pinned by 10 other points, and it still landed at
+  24999.996); on a sparser sweep, or a rig where the near-focus frames are the only ones with stars, discarding it
+  is not free.
+- A **robust scale estimator applied to a near-perfect fit inverts its own purpose**: the better the fit, the
+  smaller the MAD, and the more aggressively the test fires. The guard is loosest exactly where it is needed and
+  tightest where it is not.
+- The blind walk's cost is deterministic and per-run: one exposure, on a rig class whose exposures are the
+  expensive part.
+
+**Next step, and what NOT to do.** Three separable questions, deliberately not answered here:
+(a) should the queue anchor be a *fitted* vertex (`HyperbolicFitting.Minimum.X`, or `Intersection`) rather than a
+post-rejection argmin data point — note `Minimum` is also the anchor for the left/right trend split, so changing
+its meaning is not local; (b) should `RejectionTest`'s MAD scale carry a **floor tied to the points' own measured
+σ**, so a point cannot be an outlier while sitting well inside its own error bar; (c) should the walk's
+`while (rightMostPosition < targetMaxFocuserPosition)` compare with a half-step tolerance, which bounds the
+symptom without touching either fit. **(b) changes every AF fit in the product** and must be measured on the bank
+before it is contemplated — the AF-bank σ_focus/R² arms are the instrument.
+
+**Reproduce (offline, no rig, ~1 min):** feed the eleven `MeasurePoints` above through
+`WeightRegularization.Regularize` → `AlglibHyperbolicFitting.Create(…, TiltedHyperbola, pts, stepSize: 15,
+useWeights: true)` → `MathUtility.RejectionTest(pts, fit.Fitting, 0.99, BuildResidualWeights(pts, true))`, then
+`new TrendlineFitting().Calculate(remaining, "STARHFR").Minimum.X`. Run log: `20260805-214043`.
 
 ---
 
