@@ -2911,11 +2911,43 @@ an order of magnitude in wall time, and nothing prefers the cheap one or reports
 expensive region. A user watching a progress bar for two hours has no way to know that a 2.5× longer exposure would
 likely have finished in a quarter of the time.
 
-**Next step.** (a) Log the evaluation count, phase and elapsed-per-evaluation at INFO so a long run is diagnosable
-at all — one line every N evaluations would have answered this question in seconds. (b) Surface elapsed +
-evaluations + current best `J` in the wizard while it runs, with the cost-relevant knobs named when the search is
-in an expensive region. (c) Consider a cost term or an eval-time budget: the search should not spend its budget in
-a region that is 4× the price for a fourth-decimal gain — the same shape as
+**What the wizard ALREADY surfaces while it runs, checked before proposing to add any of it:** `Phase`, a
+`current/total` counter (`SetProgress`), and live `ProgressSeedJ` / `ProgressBestJ` / `ProgressSeedSigma` /
+`ProgressBestSigma` — so seed-vs-best `J` AND σ are already on screen. `CancelCommand` exists, so there is a real
+control for any abort advice to name (the house rule at `ShowOptimizeAgainAtRecommendedBinning`: never describe an
+action whose control is hidden). **What is absent is not the progress readout — it is TIME and WHY.**
+
+**Next step, in three separable pieces. (b) and (c) are the user's actual request and they have different
+readiness.**
+
+**(a) Make it diagnosable at all — no product surface, no dependencies.** Log evaluation count, phase and
+elapsed-per-evaluation at INFO, one line every N evaluations. This alone would have answered *"where did two hours
+go?"* in seconds instead of leaving it permanently unattributable.
+
+**(b) Say WHY it is slow, while it is slow — buildable today.** Three facts, none of which need a statistic that
+does not already exist:
+1. **elapsed, evaluations done, and the observed rate** (and remaining budget where the phase is bounded) — the
+   one thing the counter cannot convey, because 300/500 says nothing about whether that took 5 minutes or 90;
+2. **that the search is in an EXPENSIVE region, and which knob put it there** — derivable from the candidate
+   parameters being evaluated against the measured scaling above (`StructureLayers` ≈ 2× per layer,
+   `DefocusAwareStructure` on top), e.g. *"currently evaluating at 6 structure layers with defocus-aware structure
+   — roughly 4× the cost of the starting configuration"*;
+3. **what aborting costs** — nothing is written and the current settings are kept, which the user cannot be
+   expected to know while watching a bar.
+
+**(c) Recommend whether to abort and re-run at a longer exposure — BLOCKED ON
+[F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one),
+and shipping it before that would be actively harmful.** This is the piece the user asked for by name. It cannot
+be built on the existing exposure statistic: on this very rig that statistic reported *"2 s (unchanged; measured
+star S/N 1438.6; target 10)"*, and wave 8's arm X measured the same saturation on `D02` (`S_now` 991.8 against a
+target of 10, raw ask **0.000 s**, while σ_focus improves 44 % at 8×). **An abort-and-re-expose prompt derived
+from `S_now` would tell precisely the users who need a longer exposure that theirs is already fine** — F19's
+defect promoted from a silent omission into an active instruction. What (c) needs is F19's outstanding half: a
+statistic that can see the WING frames (their star counts / σ contribution) rather than the 20th-brightest star of
+the whole field. Until then (b)'s facts are honest and (c)'s advice is not.
+
+**(d) Consider a cost term or an eval-time budget.** The search should not spend its budget in a region that is 4×
+the price for a fourth-decimal gain — the same shape as
 [F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains), in wall
 time instead of recall.
 Reproduce: `D:\hf_w8\field\compare_runs.sh`, `D:\hf_w8\field\cost_*.json`, `D:\hf_w8\field\gate_*.json`.
