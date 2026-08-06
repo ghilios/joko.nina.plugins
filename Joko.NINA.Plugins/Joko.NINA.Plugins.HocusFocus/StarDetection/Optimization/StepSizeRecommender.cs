@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using System;
+using System.Collections.Generic;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
@@ -37,6 +38,68 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// being deeper, produces a better-grounded one.
         /// </summary>
         public bool WasCapped { get; set; }
+
+        /// <summary>
+        /// The DETECTABILITY half-width actually used to bound <see cref="HalfWidth"/> — <see cref="MaxUsefulHalfSpan"/>
+        /// after the "one run may not shrink the sweep by more than half" floor
+        /// (<see cref="StepSizeRecommender.MinHalfWidthSampledHalfSpanMultiple"/>). <see cref="double.NaN"/> when no
+        /// detectability measurement was supplied or too few frames qualified to make one.
+        /// </summary>
+        public double DetectHalfWidth { get; set; } = double.NaN;
+
+        /// <summary>
+        /// The outermost offset from focus at which this sweep still detected the hard floor of stars — i.e. the
+        /// furthest point that MEASURED anything. Reported UNFLOORED, so it is a statement about the sweep rather
+        /// than about the recommendation: a point beyond this buys no measurement at any step size, which is what
+        /// makes it the right bound for a far-from-focus recovery step. <see cref="double.NaN"/> when unmeasurable.
+        ///
+        /// <para>Reporting only. Nothing in this class or in the AF engine clamps a recovery step to it today; see
+        /// the wave-7 design's §2.2 for why that is engine-side work with its own followup.</para>
+        /// </summary>
+        public double MaxUsefulHalfSpan { get; set; } = double.NaN;
+
+        /// <summary>
+        /// True when detectability — not curve geometry — is what set <see cref="HalfWidth"/>: the sweep stopped
+        /// yielding stars before the fitted 3x band ended. This is F18's condition, and a consumer can say
+        /// "narrowed to what your rig can still see" rather than presenting a smaller number with no reason.
+        /// </summary>
+        public bool WasDetectBounded { get; set; }
+    }
+
+    /// <summary>
+    /// What a sweep actually DETECTED, per frame — the measured half of F18's bound. Supplied by a caller that has
+    /// a <c>RunEvaluationMetrics</c> in hand; omitted (null) leaves <see cref="StepSizeRecommender.Recommend"/>
+    /// byte-identical to its pre-F18 behaviour.
+    /// </summary>
+    public sealed class SweepDetectability {
+
+        /// <summary>Accepted star count per frame — <c>RunEvaluationMetrics.FrameStarCounts</c>.</summary>
+        public IReadOnlyList<int> FrameStarCounts { get; set; }
+
+        /// <summary>Focuser position per frame, PARALLEL to <see cref="FrameStarCounts"/>.</summary>
+        public IReadOnlyList<int> FrameFocuserPositions { get; set; }
+
+        /// <summary>
+        /// Recovery flag per frame, PARALLEL to <see cref="FrameStarCounts"/>. Recovery frames are DELIBERATELY far
+        /// from focus and are exempt from the objective's own hard floor, so including them would let the rescue
+        /// wing vote on how wide the ordinary sweep should be. Null ⇒ no frame is a recovery frame.
+        /// </summary>
+        public IReadOnlyList<bool> FrameIsRecovery { get; set; }
+
+        /// <summary>
+        /// The per-frame star count the objective actually requires — <c>ObjectiveConstants.NHard</c>. A frame below
+        /// it is not a usable measurement, which is exactly the sense in which the sweep has run out of detectable
+        /// range. Read from the caller's constants rather than hard-coded, for the same reason
+        /// <c>ExposureRecommender</c> reads <c>NTarget</c> from them.
+        /// </summary>
+        public int HardFloorStarCount { get; set; } = 3;
+
+        /// <summary>
+        /// Focus-recovery steps per side the executed sweep adds beyond the offset steps. Used ONLY when the caller
+        /// asks for the step to be sized for the sweep actually run; see
+        /// <see cref="StepSizeRecommender.Recommend"/>'s <c>sizeForExecutedSweep</c>.
+        /// </summary>
+        public int RecoveryStepsPerSide { get; set; }
     }
 
     /// <summary>
@@ -80,12 +143,51 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public const double MaxHalfWidthSampledHalfSpanMultiple = 1.5;
 
         /// <summary>
+        /// How far the DETECTABILITY bound may narrow the half-width in one run, as a multiple of the sampled
+        /// HALF-span — the mirror of <see cref="MaxHalfWidthSampledHalfSpanMultiple"/> on the other side.
+        ///
+        /// <para>The recommender has always bounded how far one run may WIDEN the sweep, on the reasoning that an
+        /// extrapolated half-width is a claim the data cannot support. It had no bound on how far one run may
+        /// NARROW it, and that asymmetry is what lets a run whose only star-bearing frames are the innermost ones
+        /// collapse the sweep in a single step. At 0.5 the worst one-run shrink is
+        /// <c>2·step/PointsPerSide = 0.57×</c>, so a pathological run halves the step and converges over runs
+        /// instead — the same converge-over-runs philosophy, applied symmetrically.</para>
+        /// </summary>
+        public const double MinHalfWidthSampledHalfSpanMultiple = 0.5;
+
+        /// <summary>
+        /// How many non-recovery frames must clear the hard floor before a detectability half-width is computed at
+        /// all. Below this the answer is "unmeasurable" (NaN ⇒ no bound), never "nothing is detectable" — a thin
+        /// run tells you the first and not the second, and treating it as the second is exactly how a bound meant
+        /// to tighten an over-reach would instead collapse a sweep. Matches
+        /// <c>ExposureRecommender.MinFramesForRecommendation</c>'s "too thin to trust" bar, and is a separate
+        /// constant for the same reason that one is: the two answer different questions and only coincide by choice.
+        /// </summary>
+        public const int MinFramesForDetectHalfWidth = 3;
+
+        /// <summary>
         /// Recommends a step size (and offset steps) from <paramref name="bestFit"/>. Returns the
         /// <paramref name="currentStepSize"/> unchanged (with <see cref="StepSizeRecommendation.HalfWidth"/> NaN)
         /// for a degenerate fit (null fit, non-finite minimum, or non-positive minimum HFR). When supplied,
         /// <paramref name="focuserMaxStep"/> clamps the recommendation; the result is never below 1.
+        ///
+        /// <para><b>F18 — the detectability bound.</b> When <paramref name="detectability"/> is supplied, the
+        /// half-width becomes <c>min(W_3x, max(W_detect, floor))</c>, where <c>W_detect</c> is the outermost offset
+        /// at which the sweep still detected <c>NHard</c> stars. The 3x band is pure curve GEOMETRY and asks
+        /// nothing about whether stars are still visible out there; on a 3800 mm rig it put the half-width 15%
+        /// past the last position that measured anything, and the sweep then spent exposures on frames with zero
+        /// stars. <c>W_detect</c> is MEASURED rather than extrapolated, so it can only ever report something this
+        /// sweep actually sampled — which is what makes it safe to trust more than the fitted band. It only ever
+        /// TIGHTENS: a detectable range wider than the 3x band changes nothing.</para>
+        ///
+        /// <para><paramref name="sizeForExecutedSweep"/> additionally sizes the step for the points the run will
+        /// ACTUALLY visit (offset + focus-recovery steps per side) rather than the offset steps alone, holding the
+        /// outermost executed point at the same multiple of the half-width today's outermost offset point reaches.
+        /// It is separately switchable because it costs lever arm on every successful run to bound a path that only
+        /// executes when a run has already failed — a trade the wave-7 design settles by measurement, not argument.</para>
         /// </summary>
-        public static StepSizeRecommendation Recommend(AlglibHyperbolicFitting bestFit, int currentStepSize, int? focuserMaxStep = null) {
+        public static StepSizeRecommendation Recommend(AlglibHyperbolicFitting bestFit, int currentStepSize, int? focuserMaxStep = null,
+                                                       SweepDetectability detectability = null, bool sizeForExecutedSweep = false) {
             if (bestFit == null || bestFit.Fitting == null) {
                 return Degenerate(currentStepSize, focuserMaxStep);
             }
@@ -123,15 +225,88 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 wasCapped = true;
             }
 
-            var step = (int)Math.Round(halfWidth / PointsPerSide, MidpointRounding.AwayFromZero);
+            // F18: bound the geometric band by what the sweep could still SEE. Only ever tightens.
+            var maxUsefulHalfSpan = MeasureMaxUsefulHalfSpan(detectability, x0);
+            var detectHalfWidth = double.NaN;
+            var wasDetectBounded = false;
+            if (double.IsFinite(maxUsefulHalfSpan)) {
+                var minHalfWidth = MinHalfWidthSampledHalfSpanMultiple * 0.5 * searchSpan;
+                detectHalfWidth = Math.Max(maxUsefulHalfSpan, minHalfWidth);
+                if (detectHalfWidth < halfWidth) {
+                    halfWidth = detectHalfWidth;
+                    wasDetectBounded = true;
+                }
+            }
+
+            var step = (int)Math.Round(halfWidth / ResolvePointsPerSide(detectability, sizeForExecutedSweep), MidpointRounding.AwayFromZero);
             step = ClampStep(step, focuserMaxStep);
 
             return new StepSizeRecommendation {
                 StepSize = step,
                 OffsetSteps = DefaultOffsetSteps,
                 HalfWidth = halfWidth,
-                WasCapped = wasCapped
+                WasCapped = wasCapped,
+                DetectHalfWidth = detectHalfWidth,
+                MaxUsefulHalfSpan = maxUsefulHalfSpan,
+                WasDetectBounded = wasDetectBounded
             };
+        }
+
+        /// <summary>
+        /// The outermost offset from <paramref name="x0"/> at which a NON-RECOVERY frame still detected the hard
+        /// floor of stars, or NaN when that is not measurable from <paramref name="detectability"/>.
+        ///
+        /// <para>NaN is returned — meaning "no bound" — rather than 0 whenever the measurement cannot be made:
+        /// absent or mismatched inputs, or fewer than <see cref="MinFramesForDetectHalfWidth"/> qualifying frames.
+        /// The distinction matters: a starless run has not shown that nothing is detectable, only that this sweep
+        /// did not detect it, and a bound built on the second reading would collapse the very sweep that needs to
+        /// stay wide enough to find the curve again.</para>
+        /// </summary>
+        private static double MeasureMaxUsefulHalfSpan(SweepDetectability detectability, double x0) {
+            var counts = detectability?.FrameStarCounts;
+            var positions = detectability?.FrameFocuserPositions;
+            if (counts == null || positions == null || counts.Count == 0 || positions.Count != counts.Count) {
+                return double.NaN;
+            }
+            var isRecovery = detectability.FrameIsRecovery;
+            var hardFloor = detectability.HardFloorStarCount;
+            var qualifying = 0;
+            var furthest = 0.0;
+            for (var i = 0; i < counts.Count; i++) {
+                if (isRecovery != null && i < isRecovery.Count && isRecovery[i]) {
+                    continue; // deliberately far from focus, and exempt from the objective's own floor
+                }
+                if (counts[i] < hardFloor) {
+                    continue;
+                }
+                qualifying++;
+                var offset = Math.Abs(positions[i] - x0);
+                if (offset > furthest) {
+                    furthest = offset;
+                }
+            }
+            if (qualifying < MinFramesForDetectHalfWidth || !(furthest > 0.0)) {
+                return double.NaN;
+            }
+            return furthest;
+        }
+
+        /// <summary>
+        /// The divisor that turns a half-width into a step. <see cref="PointsPerSide"/> by default — the band holds
+        /// 3-4 offset points per side, and the outermost of the <see cref="DefaultOffsetSteps"/> offset points lands
+        /// at <c>DefaultOffsetSteps / PointsPerSide</c> ≈ 1.14x the half-width.
+        ///
+        /// <para>When the caller asks for the EXECUTED sweep to be sized, the recovery steps join the count and the
+        /// divisor is scaled so the outermost point the run will actually visit lands at that SAME 1.14x multiple,
+        /// instead of at <c>(offset + recovery) / PointsPerSide</c> — which at 4 offset + 1 recovery is 1.43x, the
+        /// 43% over-reach F18 measured. With no recovery steps the two are identical by construction.</para>
+        /// </summary>
+        private static double ResolvePointsPerSide(SweepDetectability detectability, bool sizeForExecutedSweep) {
+            var recoverySteps = detectability?.RecoveryStepsPerSide ?? 0;
+            if (!sizeForExecutedSweep || recoverySteps <= 0) {
+                return PointsPerSide;
+            }
+            return (DefaultOffsetSteps + recoverySteps) * PointsPerSide / DefaultOffsetSteps;
         }
 
         private static StepSizeRecommendation Degenerate(int currentStepSize, int? focuserMaxStep) {

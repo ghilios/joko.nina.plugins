@@ -343,4 +343,194 @@ public class StepSizeRecommenderTests {
             Assert.That(rec.WasCapped, Is.False);
         });
     }
+
+    // ---- F18: the detectability bound -----------------------------------------------------------------------
+    //
+    // The reproduced rig is F18's own: AutoFocus_20260802_122354, 3800 mm, in-focus HFR 5.96 px, step 1770, 4
+    // offset steps + 1 focus-recovery step per side. Its measured star counts by distance from focus were
+    // 1770 -> 10, 3540 -> 10, 5310 -> 6 and 3, 7080 -> 1 and 1, 8850 -> 0. The fitted 3x band put the half-width
+    // at 6221 steps while the outermost position still yielding NHard = 3 stars was 5310: the band is ~15% past
+    // what the rig can measure, and the recovery step reaches 8850, where nothing is detectable at all.
+
+    private const int F18Step = 1770;
+    private const double F18HfrMin = 5.96;
+
+    // kappa chosen so the fitted 3x band lands at F18's measured 6221 steps: W_3x = sqrt(8)*hfrMin/kappa.
+    private const double F18Kappa = 2.828427124746190 * F18HfrMin / 6221.0;
+
+    private static AlglibHyperbolicFitting FitF18Sweep()
+        => FitTruthSweep(F18HfrMin, F18Kappa, P0, F18Step, offsetSteps: 4);
+
+    /// <summary>The 9 sweep positions of <see cref="FitF18Sweep"/>, ascending — parallel to any counts array below.</summary>
+    private static int[] F18Positions()
+        => Enumerable.Range(-4, 9).Select(i => P0 + i * F18Step).ToArray();
+
+    private static SweepDetectability Detectability(int[] counts, bool[] isRecovery = null, int recoveryStepsPerSide = 0)
+        => new SweepDetectability {
+            FrameStarCounts = counts,
+            FrameFocuserPositions = F18Positions(),
+            FrameIsRecovery = isRecovery,
+            HardFloorStarCount = 3,
+            RecoveryStepsPerSide = recoveryStepsPerSide
+        };
+
+    [Test]
+    public void Recommend_DetectabilityBound_TightensToTheOutermostFrameThatStillMeasuredStars() {
+        var fit = FitF18Sweep();
+        var unbounded = StepSizeRecommender.Recommend(fit, F18Step);
+        // 1, 3, 10, 10, 20, 10, 10, 6, 1 — F18's own counts. NHard = 3 is last cleared at +/-5310.
+        var rec = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null,
+            detectability: Detectability(new[] { 1, 3, 10, 10, 20, 10, 10, 6, 1 }));
+
+        Assert.Multiple(() => {
+            Assert.That(unbounded.HalfWidth, Is.EqualTo(6221).Within(60), "the fitted 3x band, as F18 measured it");
+            Assert.That(rec.WasDetectBounded, Is.True, "detectability, not geometry, must set the half-width here");
+            Assert.That(rec.MaxUsefulHalfSpan, Is.EqualTo(3.0 * F18Step).Within(1e-6), "5310 = the outermost frame clearing NHard");
+            Assert.That(rec.HalfWidth, Is.EqualTo(3.0 * F18Step).Within(1e-6));
+            Assert.That(rec.StepSize, Is.LessThan(unbounded.StepSize), "the sweep must narrow to what the rig can see");
+            Assert.That(rec.StepSize * rec.OffsetSteps, Is.LessThanOrEqualTo(6221),
+                "the OFFSET sweep now stays inside the fitted band; bounding the recovery step too is the separate "
+                + "sizeForExecutedSweep arm, deliberately");
+        });
+    }
+
+    [Test]
+    public void Recommend_DetectableRangeWiderThanTheBand_ChangesNothing() {
+        // The bound only ever TIGHTENS. A rig that still sees stars past its own 3x band gets today's answer.
+        var fit = FitF18Sweep();
+        var unbounded = StepSizeRecommender.Recommend(fit, F18Step);
+        var rec = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null,
+            detectability: Detectability(new[] { 40, 40, 40, 40, 40, 40, 40, 40, 40 }));
+
+        Assert.Multiple(() => {
+            Assert.That(rec.WasDetectBounded, Is.False);
+            Assert.That(rec.StepSize, Is.EqualTo(unbounded.StepSize));
+            Assert.That(rec.HalfWidth, Is.EqualTo(unbounded.HalfWidth).Within(1e-9));
+            Assert.That(rec.MaxUsefulHalfSpan, Is.EqualTo(4.0 * F18Step).Within(1e-6), "still REPORTED, just not binding");
+        });
+    }
+
+    [Test]
+    public void Recommend_TooFewQualifyingFrames_LeavesTheRecommendationUnbounded() {
+        // A starless run has not shown that nothing is detectable — only that this sweep detected nothing. Below
+        // the frame floor the answer is "unmeasurable" (no bound), never "zero" (collapse the sweep).
+        var fit = FitF18Sweep();
+        var unbounded = StepSizeRecommender.Recommend(fit, F18Step);
+        var rec = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null,
+            detectability: Detectability(new[] { 0, 0, 0, 2, 20, 2, 0, 0, 0 })); // only the vertex clears NHard
+
+        Assert.Multiple(() => {
+            Assert.That(rec.WasDetectBounded, Is.False);
+            Assert.That(double.IsNaN(rec.MaxUsefulHalfSpan), Is.True, "unmeasurable, and it must say so rather than report 0");
+            Assert.That(rec.StepSize, Is.EqualTo(unbounded.StepSize));
+        });
+    }
+
+    [Test]
+    public void Recommend_OnlyTheInnermostFramesDetect_TheFloorBoundsHowFarOneRunMayShrink() {
+        // Exactly MinFramesForDetectHalfWidth frames qualify and they are all within one step of focus, so the raw
+        // detectability half-width is 1770. The floor (0.5 x the sampled half-span = 3540) keeps one run from
+        // collapsing the sweep; the next, narrower sweep then measures a better-grounded bound.
+        var fit = FitF18Sweep();
+        var rec = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null,
+            detectability: Detectability(new[] { 0, 0, 0, 10, 20, 10, 0, 0, 0 }));
+
+        var sampledHalfSpan = 4.0 * F18Step;
+        Assert.Multiple(() => {
+            Assert.That(rec.MaxUsefulHalfSpan, Is.EqualTo(1.0 * F18Step).Within(1e-6), "the raw measurement is reported unfloored");
+            Assert.That(rec.HalfWidth, Is.EqualTo(StepSizeRecommender.MinHalfWidthSampledHalfSpanMultiple * sampledHalfSpan).Within(1e-6));
+            Assert.That(rec.WasDetectBounded, Is.True);
+            Assert.That(rec.StepSize, Is.GreaterThanOrEqualTo((int)(0.55 * F18Step)),
+                "one run may at most roughly halve the step — the mirror of the 1.5x widening cap");
+        });
+    }
+
+    [Test]
+    public void Recommend_RecoveryFramesDoNotVoteOnTheDetectableRange() {
+        // Recovery frames are DELIBERATELY far from focus and are exempt from the objective's own hard floor
+        // (JRun's FrameIsRecovery exemption), so letting them widen the ordinary sweep would defeat the bound.
+        var fit = FitF18Sweep();
+        var counts = new[] { 10, 10, 10, 10, 20, 10, 10, 10, 10 };
+        var outerAreRecovery = new[] { true, false, false, false, false, false, false, false, true };
+
+        var withRecoveryCounted = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null,
+            detectability: Detectability(counts));
+        var withRecoveryExcluded = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null,
+            detectability: Detectability(counts, isRecovery: outerAreRecovery));
+
+        Assert.Multiple(() => {
+            Assert.That(withRecoveryCounted.MaxUsefulHalfSpan, Is.EqualTo(4.0 * F18Step).Within(1e-6));
+            Assert.That(withRecoveryExcluded.MaxUsefulHalfSpan, Is.EqualTo(3.0 * F18Step).Within(1e-6));
+        });
+    }
+
+    [Test]
+    public void Recommend_WithoutDetectability_IsIdenticalToThePreF18Result() {
+        // The absent-input contract: one binary, both arms (F41). Null detectability, and a detectability whose
+        // lists are null, must both leave the recommendation exactly where it was.
+        var fit = FitF18Sweep();
+        var baseline = StepSizeRecommender.Recommend(fit, F18Step);
+        var emptyDetectability = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null,
+            detectability: new SweepDetectability { RecoveryStepsPerSide = 1 });
+
+        Assert.Multiple(() => {
+            Assert.That(emptyDetectability.StepSize, Is.EqualTo(baseline.StepSize));
+            Assert.That(emptyDetectability.HalfWidth, Is.EqualTo(baseline.HalfWidth).Within(1e-9));
+            Assert.That(emptyDetectability.WasDetectBounded, Is.False);
+            Assert.That(double.IsNaN(emptyDetectability.MaxUsefulHalfSpan), Is.True);
+        });
+    }
+
+    [Test]
+    public void Recommend_SizeForExecutedSweep_IsIndependentOfWhetherDetectabilityWasMeasurable() {
+        // The two behaviours are separately switchable on purpose. The executed-sweep divisor is about how many
+        // points the run VISITS, which is known even when nothing about detectability is: a run whose counts were
+        // never populated still takes its recovery step.
+        var fit = FitF18Sweep();
+        var baseline = StepSizeRecommender.Recommend(fit, F18Step);
+        var executedOnly = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null,
+            detectability: new SweepDetectability { RecoveryStepsPerSide = 1 }, sizeForExecutedSweep: true);
+
+        Assert.Multiple(() => {
+            Assert.That(executedOnly.WasDetectBounded, Is.False, "no counts were supplied, so nothing bounded the half-width");
+            Assert.That(executedOnly.HalfWidth, Is.EqualTo(baseline.HalfWidth).Within(1e-9));
+            Assert.That(executedOnly.StepSize, Is.LessThan(baseline.StepSize), "but the divisor still accounts for the recovery step");
+        });
+    }
+
+    [Test]
+    public void Recommend_SizeForExecutedSweep_AccountsForTheRecoveryStepsAndNothingElse() {
+        // Today the step is sized for 4 offset points per side, so the outermost lands at 4/3.5 = 1.14x the
+        // half-width — but the run also takes a recovery step, reaching 5/3.5 = 1.43x: F18's 43% over-reach.
+        // Sizing for the executed sweep holds the OUTERMOST EXECUTED point at that same 1.14x instead.
+        var fit = FitF18Sweep();
+        var detect = Detectability(new[] { 1, 3, 10, 10, 20, 10, 10, 6, 1 }, recoveryStepsPerSide: 1);
+
+        var offsetOnly = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null, detectability: detect);
+        var executed = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null, detectability: detect,
+            sizeForExecutedSweep: true);
+
+        Assert.Multiple(() => {
+            Assert.That(offsetOnly.HalfWidth, Is.EqualTo(executed.HalfWidth).Within(1e-9),
+                "the half-width is the same measurement either way; only the divisor moves");
+            Assert.That(executed.StepSize, Is.EqualTo((int)Math.Round(executed.HalfWidth / (5 * 3.5 / 4.0), MidpointRounding.AwayFromZero)));
+            // The invariant that matters: the OUTERMOST EXECUTED point (4 offset + 1 recovery) lands at the same
+            // ~1.14x of the half-width today's outermost OFFSET point does, instead of 1.43x. Stated with one
+            // step-unit of slack because StepSize is an integer.
+            Assert.That(executed.StepSize * 5, Is.LessThanOrEqualTo(1.15 * executed.HalfWidth),
+                "the executed sweep now reaches no further than the offset-only sweep used to");
+            Assert.That(offsetOnly.StepSize * 5, Is.GreaterThan(1.35 * offsetOnly.HalfWidth),
+                "...which is exactly what it does NOT do without this flag — F18's 43% over-reach");
+        });
+    }
+
+    [Test]
+    public void Recommend_SizeForExecutedSweep_WithNoRecoverySteps_IsIdenticalToToday() {
+        var fit = FitF18Sweep();
+        var detect = Detectability(new[] { 1, 3, 10, 10, 20, 10, 10, 6, 1 }, recoveryStepsPerSide: 0);
+        var a = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null, detectability: detect);
+        var b = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null, detectability: detect,
+            sizeForExecutedSweep: true);
+        Assert.That(b.StepSize, Is.EqualTo(a.StepSize));
+    }
 }

@@ -69,6 +69,12 @@ namespace TestApp.SynthBank {
         [JsonProperty("offsetSteps")] public int OffsetSteps { get; set; }
         [JsonProperty("halfWidth")] public double HalfWidth { get; set; } = double.NaN;
         [JsonProperty("wasCapped")] public bool WasCapped { get; set; }
+
+        // F18. NaN/false on the control arm, which is how a reader tells "the bound was off" from "the bound was on
+        // and did not bind" -- WasDetectBounded false with a finite MaxUsefulHalfSpan is the second.
+        [JsonProperty("detectHalfWidth")] public double DetectHalfWidth { get; set; } = double.NaN;
+        [JsonProperty("maxUsefulHalfSpan")] public double MaxUsefulHalfSpan { get; set; } = double.NaN;
+        [JsonProperty("wasDetectBounded")] public bool WasDetectBounded { get; set; }
     }
 
     /// <summary>design step 4b: <see cref="NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.ExposureRecommender"/>,
