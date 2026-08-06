@@ -235,6 +235,31 @@ that report knows.
 
 ---
 
+## The free control: this PR moves nothing in the bank, and it caught a stale number doing so
+
+`synth-bank --dry-run` over **all 20 datasets**, on this branch and on a `develop` @ `761b9b1` build of the same
+binary, diffed on the derived-parameter lines: **IDENTICAL**. `step*`, `exposure`, `detectionBinning` and `donut`
+are the same value on every dataset. So nothing shipped here — the recommender change, the harness flags, the
+spec's new override — moves a rendered frame or an expected optimum. That is the wave-6 discipline (diff the
+derived parameters *before* rendering) used as an inertness control rather than as a scoping tool.
+
+**And running it surfaced that two of F19's own numbers have drifted since the entry was filed:**
+
+| F19's claim, as filed 2026-08-02 | measured today |
+|---|---|
+| the 0.5 s exposure floor for **12 of 17** datasets | **8 of 17** (`D01`–`D05`, `D07`, `D13`, `D14`) |
+| `D16_esprit550_ha3` derives **0.5 s** | **2 s** (band 1.079–3.102 s) |
+
+The cause is **not identified**, and is not this PR — the `develop` control produces the same table. The likely
+candidates are [F44](followups.md#f44--the-synthetic-camera-queries-the-catalog-for-at-most-one-cell-so-a-wide-field-is-rendered-starless-outside-a-small-central-patch)'s
+catalog-query fix (which changes on-frame star counts on exactly the wide fields the claim rests on) and the
+derivation's move to a median-across-sweep-frames statistic. **F19's argument is unaffected** — a 3 nm Hα field
+64× down on flux earning 2 s is still "sized by field richness rather than by photon starvation" — but its
+specific numbers are now corrected in the entry, and `D16` has crossed above
+`MeaningfulExposureAboveFloorSeconds`, so it qualifies for scenario S3 where it did not before.
+
+This is the second time this wave that reading a stored number cost a minute and changed the work list.
+
 ## What this wave did NOT disturb
 
 - **F32's confirmation arm.** Nothing in this wave has re-rendered a frame, so every synthetic dataset — including
@@ -263,6 +288,9 @@ that report knows.
 ```
 # F39(b) arm G1 -- the cheap instrument, no optimizer, no re-render (~6 min)
 D:\hf_w7\f39b_golden.sh          # outputs in D:\hf_w7\golden
+
+# The inertness control -- derived parameters, this branch vs develop, all 20 datasets (~15 s)
+D:\hf_w7\dryrun_diff.sh 'D:\hf_w7\exe\SynthBank\synthetic-bank-spec.json'
 
 # still owed, in plan order:
 #   Step 2  Arm E  -- F19's exposure ladder (needs exposureSecondsOverride rungs added to the spec)

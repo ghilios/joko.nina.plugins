@@ -635,6 +635,23 @@ luminance. It still derives 0.5 s, because its 2.9° field carries 6835 on-frame
 magnitude ~9. The datasets that do demand a long exposure are the *narrow, sparse* ones — `D10` (0.28° field,
 26 on-frame stars) derives 30 s — and they get there by having few bright stars, not by being photon-starved.
 
+> **These two numbers have DRIFTED and are no longer what the derivation produces (re-measured 2026-08-06, wave 7).**
+> `synth-bank --dry-run` over all 20 datasets on `develop` @ `761b9b1`:
+>
+> | claim as filed | measured today |
+> |---|---|
+> | the 0.5 s floor for **12 of 17** | **8 of 17** (`D01`–`D05`, `D07`, `D13`, `D14`) |
+> | `D16_esprit550_ha3` derives **0.5 s** | **2 s** (band 1.079–3.102 s) |
+>
+> The cause is **not identified** — it lies somewhere between this entry's filing (2026-08-02) and now, and the
+> candidates are [F44](#f44--the-synthetic-camera-queries-the-catalog-for-at-most-one-cell-so-a-wide-field-is-rendered-starless-outside-a-small-central-patch)'s
+> catalog-query fix (which changes on-frame star counts on exactly the wide fields this claim rests on) and the
+> derivation's own move to a median-across-sweep-frames statistic. Recorded rather than chased: the entry's
+> ARGUMENT is unaffected — a 3 nm Hα field 64× down on flux earning 2 s is still "sized by field richness rather
+> than by photon starvation" — but its specific numbers must not be quoted again without re-measuring. It also
+> moves `D16` above the `MeaningfulExposureAboveFloorSeconds` gate, so it now qualifies for scenario S3, which it
+> did not when this entry was written.
+
 **Why it matters.** The knob is sized by field richness rather than by whether the stars the autofocus fit
 actually depends on are above the noise. A long-focal-length rig on a bright field will report "exposure is not
 the limit" while its faint-end stars — the ones that carry the wings of the V-curve — are still noise-dominated.

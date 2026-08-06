@@ -133,7 +133,8 @@ working-as-intended no matter which statistic is nearest to hand.
 σ_focus:
 
 - `D16_esprit550_ha3` — F19's own poster child: 550 mm behind a **3 nm Hα** (≈ 64× less flux than L), 2.9° field,
-  6835 on-frame stars, derives the **0.5 s floor**.
+  6835 on-frame stars. **Derives 2 s** (band 1.079–3.102 s), *not* the 0.5 s floor F19 records — that number has
+  drifted since the entry was filed and is corrected there; the ladder brackets the measured value either way.
 - `D02_rich_135mm` — a rich, broadband control at the other end of the focal-length range, whose frames wave 6
   proved bit-identical across a re-render (so any movement here belongs to the exposure, not to the field).
 - Ladder: **0.5, 1, 2, 4, 8 s** (D16), and the same relative ladder on D02.
