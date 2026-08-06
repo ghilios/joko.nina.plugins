@@ -283,6 +283,23 @@ public class HarnessSettingsStoreTests {
     }
 
     [Test]
+    public void ResolveRunDetectionBinningFactor_AnswersFromTheDatasetWithNoResolvedSettingsAtAll() {
+        // Wave 8: `golden eval` calls this with a NULL Resolved, purely to report when the factor it is scoring at
+        // disagrees with the run's own physics -- it has no settings bundle in hand at that point and must not need
+        // one. The dataset's own derivation is sufficient, and passing null must not throw.
+        var (datasetDir, runDir) = BankLayout(expectedDetectionBinning: 2);
+        try {
+            var factor = HarnessSettingsStore.ResolveRunDetectionBinningFactor(runDir, null, out var source);
+            Assert.Multiple(() => {
+                Assert.That(factor, Is.EqualTo(2));
+                Assert.That(source, Does.Contain("synthetic_meta.json"));
+            });
+        } finally {
+            try { Directory.Delete(datasetDir, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    [Test]
     public void ResolveRunDetectionBinningFactor_ResolvesTo1WithNeitherSource() {
         // The value every run to date has actually used. A missing answer must not become a fabricated factor.
         var (datasetDir, runDir) = BankLayout(expectedDetectionBinning: null);

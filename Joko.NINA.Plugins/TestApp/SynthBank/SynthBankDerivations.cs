@@ -376,7 +376,8 @@ namespace TestApp.SynthBank {
         /// <param name="stepSize">Derived sweep step (<see cref="DeriveStepSize"/>) — fixes where the sweep's frames sit, and so the per-frame defocus the median peak fraction is taken over.</param>
         /// <param name="offsetSteps">Frames per side of focus; the sweep is <c>2·offsetSteps+1</c> frames.</param>
         /// <param name="token">Cancellation for the render.</param>
-        public static (double ExposureSeconds, double BandLowSeconds, double BandHighSeconds, string Definition) DeriveExposureBand(
+        public static (double ExposureSeconds, double BandLowSeconds, double BandHighSeconds, string Definition,
+                double RawSeconds, string Clamp) DeriveExposureBand(
                 SynthDatasetSpec dataset, SynthBankDefaults defaults, DefocusModel model,
                 IAstapCatalogReader catalogReader, int captureBinning, int detectionBinning,
                 int stepSize, int offsetSteps, CancellationToken token = default) {
@@ -404,7 +405,8 @@ namespace TestApp.SynthBank {
             var (star, onFrameCount, usedFallback) = FindNthBrightestOnFrameStar(truth, sensor.Width, sensor.Height, NTarget);
             if (star == null) {
                 return (double.NaN, double.NaN, double.NaN,
-                    "No catalog stars landed on-frame at the in-focus position; the exposure band cannot be derived from truth (starless pointing, or the ASTAP catalog is missing/unreadable).");
+                    "No catalog stars landed on-frame at the in-focus position; the exposure band cannot be derived from truth (starless pointing, or the ASTAP catalog is missing/unreadable).",
+                    double.NaN, "not-derived");
             }
 
             // t = ReferenceExposureSeconds = 1 s, so FluxElectrons/SkyElectronsPerPixel/DarkElectronsPerPixel
@@ -461,7 +463,19 @@ namespace TestApp.SynthBank {
                 $"clamped to [{MinExposureSeconds:0.0}, {ExposureRecommender.MaxRecommendedExposureSeconds:0}] s and rounded on ExposureRecommender.RoundExposureSeconds' ladder. " +
                 $"Band = t at snr(t) = {GateSnrBandFloor:0} (low) and snr(t) = {GateSnrBandCeiling:0} (high).";
 
-            return (exposureSeconds, bandLow, bandHigh, definition);
+            // F19(b): a value that IS the clamp is not an answer, it is the arithmetic saying it had nothing to
+            // say -- and reporting it identically to a free solution inside the band hides exactly that. On
+            // D02_rich_135mm the solve asks for far less than the 0.5 s floor and the reported band collapses to
+            // [0.5, 0.5]; the zero width is the tell that nothing was measured, not that everything agreed. Wave 7
+            // arm E then measured D02 gaining 44% of sigma_focus at 8x this "derived" exposure. Say it in the
+            // definition and expose the pre-clamp value, so the saturated set is readable rather than inferred --
+            // that set is the work list for re-checking MinExposureSeconds itself.
+            var clamp = ExposureClamp.Classify(rawTarget, MinExposureSeconds, ExposureRecommender.MaxRecommendedExposureSeconds);
+            if (ExposureClamp.Saturated(clamp)) {
+                definition += $" SATURATED at the {clamp}: the solve asked for {rawTarget:0.###} s, so {exposureSeconds:0.###} s is the clamp rather than a derived value.";
+            }
+
+            return (exposureSeconds, bandLow, bandHigh, definition, rawTarget, clamp);
         }
 
         /// <summary>
@@ -703,6 +717,8 @@ namespace TestApp.SynthBank {
 
             double exposureSeconds, bandLow, bandHigh;
             string exposureDefinition;
+            var exposureRaw = double.NaN;
+            var exposureClamp = "not-derived";
             if (catalogReader == null) {
                 exposureSeconds = bandLow = bandHigh = double.NaN;
                 exposureDefinition = "No catalog reader supplied; the exposure band was not derived (catalog-free fields only).";
@@ -712,7 +728,7 @@ namespace TestApp.SynthBank {
                 // holds the exposure axis still on purpose (F19 decided no change there). A narrower sweep has a
                 // slightly higher median peak fraction, so keeping the geometric-step exposure is the CONSERVATIVE
                 // direction — marginally more exposure than the narrowed sweep needs, never less.
-                (exposureSeconds, bandLow, bandHigh, exposureDefinition) =
+                (exposureSeconds, bandLow, bandHigh, exposureDefinition, exposureRaw, exposureClamp) =
                     DeriveExposureBand(dataset, defaults, model, catalogReader, dataset.CaptureBinning, detectionBinning,
                         geometricStep, offsetSteps, token);
             }
@@ -739,6 +755,8 @@ namespace TestApp.SynthBank {
                 ExposureBandLowSeconds = bandLow,
                 ExposureBandHighSeconds = bandHigh,
                 ExposureDefinition = exposureDefinition,
+                ExposureRawSeconds = exposureRaw,
+                ExposureClamp = exposureClamp,
                 StepSizeSteps = stepSize,
                 StepSizeTolerance = 0.4,
                 DetectableHalfWidthSteps = detectableHalfWidth,

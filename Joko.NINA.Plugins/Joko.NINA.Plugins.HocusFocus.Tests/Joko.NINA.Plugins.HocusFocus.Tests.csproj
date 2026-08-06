@@ -31,6 +31,7 @@
     <Compile Include="..\TestApp\SynthBank\GoldenFromTruth.cs" Link="Golden\GoldenFromTruth.cs" />
     <Compile Include="..\TestApp\SynthBank\TruthProtection.cs" Link="Golden\TruthProtection.cs" />
     <Compile Include="..\TestApp\SynthBank\ConvergenceBand.cs" Link="Bank\ConvergenceBand.cs" />
+    <Compile Include="..\TestApp\SynthBank\ExposureClamp.cs" Link="Bank\ExposureClamp.cs" />
   </ItemGroup>
 
   <ItemGroup>
