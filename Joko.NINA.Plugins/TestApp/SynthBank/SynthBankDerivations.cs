@@ -86,6 +86,158 @@ namespace TestApp.SynthBank {
             return Math.Max(1, step);
         }
 
+        /// <summary>
+        /// The per-frame star count the objective requires (<c>ObjectiveConstants.NHard</c>). A sweep position
+        /// below it is not a usable measurement, which is exactly the sense in which the sweep has run out of
+        /// DETECTABLE range. Mirrored here rather than referenced because <c>ObjectiveConstants</c> is a plugin
+        /// type the derivation deliberately does not depend on — same arrangement as <see cref="NTarget"/>.
+        /// </summary>
+        public const int NHardStars = 3;
+
+        /// <summary>
+        /// How far the detectability bound may narrow <c>step*</c> in one derivation, as a multiple of the sampled
+        /// HALF-span — the analytic twin of <c>StepSizeRecommender.MinHalfWidthSampledHalfSpanMultiple</c>. Kept in
+        /// lockstep with it for the same reason <see cref="PointsPerSide"/> is kept in lockstep with the
+        /// recommender's: the two derivations must differ only where the physics does.
+        /// </summary>
+        public const double MinHalfWidthSampledHalfSpanMultiple = 0.5;
+
+        /// <summary>
+        /// F18's analytic twin: the largest offset from focus (focuser steps) at which at least
+        /// <see cref="NHardStars"/> on-frame truth stars still clear the detector's default Sensitivity gate at
+        /// <paramref name="exposureSeconds"/>. <see cref="double.NaN"/> when fewer than
+        /// <see cref="MinFramesForDetectableHalfWidth"/> sweep positions qualify — "unmeasurable", never "nothing
+        /// is detectable", the same distinction the runtime rule makes.
+        ///
+        /// <para><b>Why the bank needs this at all.</b> <c>step*</c> is the target the bank's A1/A3 assertions walk
+        /// the recommender toward. If the shipped recommender gains a detectability bound and this derivation does
+        /// not, the bank asserts the recommender toward a target F18 says is wrong. So the rule is applied to BOTH
+        /// or to NEITHER — which is why it rides the same arm flag rather than shipping unconditionally.</para>
+        ///
+        /// <para><b>The SNR model is <see cref="DeriveExposureBand"/>'s, term for term</b>
+        /// (<c>snr = GateSnrPeakCoefficient · peakElectrons / σ_bg</c>), evaluated per STAR rather than for the
+        /// NTarget-th one, and compared against <see cref="ExposureRecommender.TargetSensitivity"/> — which is
+        /// documented there as the shipped default gate, and is what the effective gate
+        /// <c>max(Sensitivity, InertSensitivityBound) = max(10, 1.5)</c> resolves to at defaults.</para>
+        ///
+        /// <para><b>One render, like the exposure band.</b> Aberrations are off across the bank, so every star on a
+        /// frame shares one kernel; a star's flux does not change with focus, and only the peak FRACTION varies per
+        /// frame — analytically, via <c>PsfKernelGenerator</c>. So the star field is rendered once at focus and
+        /// every sweep position is evaluated from it.</para>
+        /// </summary>
+        public static (double HalfWidthSteps, int QualifyingFrames, string Definition) DeriveDetectableHalfWidth(
+                SynthDatasetSpec dataset, SynthBankDefaults defaults, DefocusModel model,
+                IAstapCatalogReader catalogReader, int captureBinning, int detectionBinning,
+                int stepSize, int offsetSteps, double exposureSeconds, CancellationToken token = default) {
+            if (dataset == null) throw new ArgumentNullException(nameof(dataset));
+            if (model == null) throw new ArgumentNullException(nameof(model));
+            if (catalogReader == null || !double.IsFinite(exposureSeconds) || !(exposureSeconds > 0.0) || stepSize < 1) {
+                return (double.NaN, 0, "detectable half-width not derived (no catalog reader, or no usable exposure/step)");
+            }
+
+            var sensor = SensorRegistry.Get(SynthRenderRequestFactory.ParseSensorModel(dataset.SensorModel));
+            var filter = FilterRegistry.Get(SynthRenderRequestFactory.ParseFilter(dataset.Filter ?? defaults.Filter));
+            var gain = dataset.Gain ?? defaults.Gain;
+
+            var request = SynthRenderRequestFactory.Build(
+                dataset, defaults, focuserPosition: model.OptimalFocuserPosition, exposureSeconds: ReferenceExposureSeconds, noiseSeed: 0);
+            var compositor = new StarFieldCompositor(catalogReader);
+            var truth = new List<StarTruth>();
+            compositor.Render(request, truth, token);
+
+            // On-frame centres only — the gate question is about a star the detector centroids, matching
+            // FindNthBrightestOnFrameStar's own exclusion of wing-spill truth.
+            var onFrameFluxPerSecond = truth
+                .Where(t => t.CxPixels >= 0.0 && t.CxPixels < sensor.Width && t.CyPixels >= 0.0 && t.CyPixels < sensor.Height)
+                .Select(t => t.FluxElectrons)
+                .Where(f => f > 0.0)
+                .ToList();
+            if (onFrameFluxPerSecond.Count == 0) {
+                return (double.NaN, 0, "detectable half-width not derived (no on-frame catalog stars at the in-focus position)");
+            }
+
+            var radiometry = RadiometryCalculator.FromRequest(request, sensor, filter);
+            var skyPlusDarkRatePerSecond = radiometry.SkyElectronsPerPixel() + radiometry.DarkElectronsPerPixel();
+            var readNoise = sensor.ReadNoiseElectronsAtGain(gain);
+            var effectiveBinning = captureBinning * detectionBinning;
+            // σ_bg at this exposure is the same for every star on every frame (background, not signal), so it is
+            // computed once rather than per star.
+            var sigmaBackground = effectiveBinning * Math.Sqrt(skyPlusDarkRatePerSecond * exposureSeconds + readNoise * readNoise);
+            if (!(sigmaBackground > 0.0)) {
+                return (double.NaN, 0, "detectable half-width not derived (non-positive background sigma)");
+            }
+
+            var qualifying = 0;
+            var furthestSteps = 0.0;
+            var edgeFrameCount = 0;
+            for (var k = -offsetSteps; k <= offsetSteps; k++) {
+                var defocusMicrons = k * stepSize * dataset.FocuserStepSizeMicrons;
+                var frameKernel = PsfKernelGenerator.Generate(model, defocusMicrons);
+                var peakFractionBinned = GoldenFromTruth.PeakFractionBinned(frameKernel.MaxPeak, effectiveBinning);
+                // The faintest flux that still clears the gate on THIS frame, solved from
+                // snr = c · flux · t · peakFraction / σ_bg >= gate. Counting stars above a flux threshold is the
+                // same test as evaluating every star's SNR, and it is O(N) instead of O(N) per frame with a divide.
+                var snrPerFluxUnit = GateSnrPeakCoefficient * exposureSeconds * peakFractionBinned / sigmaBackground;
+                if (!(snrPerFluxUnit > 0.0)) {
+                    continue;
+                }
+                var fluxThreshold = ExposureRecommender.TargetSensitivity / snrPerFluxUnit;
+                var count = 0;
+                for (var i = 0; i < onFrameFluxPerSecond.Count; i++) {
+                    if (onFrameFluxPerSecond[i] >= fluxThreshold) {
+                        count++;
+                    }
+                }
+                // The OUTERMOST frame's count is the headroom this bound has. Reported, because "W_detect never
+                // binds" is only believable alongside the margin by which it did not: a count of 4 at the edge and
+                // a count of 400 mean very different things about whether the bank can exercise F18 at all.
+                if (Math.Abs(k) == offsetSteps) {
+                    edgeFrameCount = Math.Max(edgeFrameCount, count);
+                }
+                if (count < NHardStars) {
+                    continue;
+                }
+                qualifying++;
+                var offsetSteps_ = Math.Abs((double)k * stepSize);
+                if (offsetSteps_ > furthestSteps) {
+                    furthestSteps = offsetSteps_;
+                }
+            }
+
+            if (qualifying < MinFramesForDetectableHalfWidth || !(furthestSteps > 0.0)) {
+                return (double.NaN, qualifying,
+                    $"detectable half-width UNMEASURABLE: only {qualifying} of {2 * offsetSteps + 1} sweep positions carry " +
+                    $">= {NHardStars} stars above the gate at {exposureSeconds:0.###}s (need {MinFramesForDetectableHalfWidth}); " +
+                    "no bound is applied, which is deliberately different from a bound of zero");
+            }
+            return (furthestSteps, qualifying,
+                $"detectable half-width {furthestSteps:0} steps (edge frame carries {edgeFrameCount} stars above the gate, " +
+                $"floor {NHardStars}): the outermost of {2 * offsetSteps + 1} sweep positions " +
+                $"(at step {stepSize}) still carrying >= {NHardStars} of {onFrameFluxPerSecond.Count} on-frame stars above " +
+                $"the default gate ({ExposureRecommender.TargetSensitivity:0}) at {exposureSeconds:0.###}s, binning {effectiveBinning}");
+        }
+
+        /// <summary>How many sweep positions must clear the floor before a detectable half-width is measurable at all. Twin of <c>StepSizeRecommender.MinFramesForDetectHalfWidth</c>.</summary>
+        public const int MinFramesForDetectableHalfWidth = 3;
+
+        /// <summary>
+        /// F18's step*, bounded by detectability: <c>min(W_3x, max(W_detect, floor)) / PointsPerSide</c>, with the
+        /// floor at <see cref="MinHalfWidthSampledHalfSpanMultiple"/> × the sampled half-span of the GEOMETRIC
+        /// sweep. A non-finite <paramref name="detectableHalfWidthSteps"/> returns the geometric step unchanged —
+        /// unmeasurable means no bound.
+        /// </summary>
+        public static int DeriveStepSizeDetectBounded(DefocusModel model, int geometricStep, int offsetSteps, double detectableHalfWidthSteps) {
+            if (model == null) throw new ArgumentNullException(nameof(model));
+            if (!double.IsFinite(detectableHalfWidthSteps) || !(detectableHalfWidthSteps > 0.0)) {
+                return Math.Max(1, geometricStep);
+            }
+            var hfrEffective = Math.Max(model.HfrMinPixels, PixelizationFloorPixels);
+            var geometricHalfWidth = Math.Sqrt(8.0) * hfrEffective / model.KappaPixelsPerStep;
+            var floor = MinHalfWidthSampledHalfSpanMultiple * offsetSteps * Math.Max(1, geometricStep);
+            var halfWidth = Math.Min(geometricHalfWidth, Math.Max(detectableHalfWidthSteps, floor));
+            return Math.Max(1, (int)Math.Round(halfWidth / PointsPerSide, MidpointRounding.AwayFromZero));
+        }
+
         // ── Detection binning ────────────────────────────────────────────────────────────────────────────────
 
         /// <summary>
@@ -515,20 +667,28 @@ namespace TestApp.SynthBank {
         /// to stop before that happens, matching the design's harness self-verification order (kernel-cap guard
         /// is checked before any render).</para>
         /// </summary>
+        /// <param name="detectBoundedStep">
+        /// F18 arm switch. False (the default) derives <c>step*</c> from curve geometry alone, byte-identical to
+        /// every prior wave. True additionally bounds it by <see cref="DeriveDetectableHalfWidth"/>.
+        ///
+        /// <para><b>Why it is a switch and not a fix.</b> The rule has to be applied to the bank's TARGET and to
+        /// the shipped recommender together or not at all: an arm that changed only the recommender would be
+        /// scored against a target that still says curve geometry is right, and an arm that changed only the
+        /// target would score today's recommender as newly broken. One flag, both places, so each arm is
+        /// internally consistent and arm C reproduces `develop` exactly.</para>
+        /// </param>
         public static SynthExpectedOptimal DeriveExpectedOptimal(
                 SynthDatasetSpec dataset, SynthBankDefaults defaults, IAstapCatalogReader catalogReader,
-                out SynthKernelCapGuard kernelCapGuard, out SynthTruthModel truthModel, CancellationToken token = default) {
+                out SynthKernelCapGuard kernelCapGuard, out SynthTruthModel truthModel, CancellationToken token = default,
+                bool detectBoundedStep = false) {
             if (dataset == null) throw new ArgumentNullException(nameof(dataset));
             if (defaults == null) throw new ArgumentNullException(nameof(defaults));
 
             var model = BuildDefocusModel(dataset, defaults);
             var offsetSteps = defaults.OffsetSteps;
-            var stepSize = DeriveStepSize(model);
+            var geometricStep = DeriveStepSize(model);
+            var stepSize = geometricStep;
             var detectionBinning = DeriveDetectionBinning(model, dataset.CaptureBinning);
-            var (donutExpected, donutRationale) = DeriveDonutExpectation(dataset, model, offsetSteps, stepSize, dataset.CaptureBinning);
-
-            kernelCapGuard = DeriveKernelCapGuard(model, offsetSteps, stepSize);
-            truthModel = kernelCapGuard.WithinCap ? BuildTruthModel(model, dataset, offsetSteps, stepSize) : null;
 
             double exposureSeconds, bandLow, bandHigh;
             string exposureDefinition;
@@ -536,10 +696,32 @@ namespace TestApp.SynthBank {
                 exposureSeconds = bandLow = bandHigh = double.NaN;
                 exposureDefinition = "No catalog reader supplied; the exposure band was not derived (catalog-free fields only).";
             } else {
+                // Derived at the GEOMETRIC step, and deliberately NOT re-derived after the detectability bound
+                // narrows the sweep. Re-deriving would couple the exposure axis to the step axis, and this wave
+                // holds the exposure axis still on purpose (F19 decided no change there). A narrower sweep has a
+                // slightly higher median peak fraction, so keeping the geometric-step exposure is the CONSERVATIVE
+                // direction — marginally more exposure than the narrowed sweep needs, never less.
                 (exposureSeconds, bandLow, bandHigh, exposureDefinition) =
                     DeriveExposureBand(dataset, defaults, model, catalogReader, dataset.CaptureBinning, detectionBinning,
-                        stepSize, offsetSteps, token);
+                        geometricStep, offsetSteps, token);
             }
+
+            var detectableHalfWidth = double.NaN;
+            var stepSizeDefinition = $"step* = sqrt(8)*max(HFR_min, {PixelizationFloorPixels:0.00})/(kappa*{PointsPerSide}) " +
+                "= the fitted 3x-min-HFR half-width over PointsPerSide (curve geometry alone)";
+            if (detectBoundedStep) {
+                var (halfWidth, _, detectDefinition) = DeriveDetectableHalfWidth(
+                    dataset, defaults, model, catalogReader, dataset.CaptureBinning, detectionBinning,
+                    geometricStep, offsetSteps, exposureSeconds, token);
+                detectableHalfWidth = halfWidth;
+                stepSize = DeriveStepSizeDetectBounded(model, geometricStep, offsetSteps, halfWidth);
+                stepSizeDefinition = $"F18 detectability-bounded: step* = min(W_3x, max(W_detect, {MinHalfWidthSampledHalfSpanMultiple:0.0}*sampled half-span))/{PointsPerSide}. " +
+                    $"Geometry alone gives {geometricStep}; {detectDefinition}. Result: {stepSize}.";
+            }
+
+            var (donutExpected, donutRationale) = DeriveDonutExpectation(dataset, model, offsetSteps, stepSize, dataset.CaptureBinning);
+            kernelCapGuard = DeriveKernelCapGuard(model, offsetSteps, stepSize);
+            truthModel = kernelCapGuard.WithinCap ? BuildTruthModel(model, dataset, offsetSteps, stepSize) : null;
 
             return new SynthExpectedOptimal {
                 ExposureSeconds = exposureSeconds,
@@ -548,6 +730,8 @@ namespace TestApp.SynthBank {
                 ExposureDefinition = exposureDefinition,
                 StepSizeSteps = stepSize,
                 StepSizeTolerance = 0.4,
+                DetectableHalfWidthSteps = detectableHalfWidth,
+                StepSizeDefinition = stepSizeDefinition,
                 OffsetSteps = offsetSteps,
                 AutofocusBinning = dataset.CaptureBinning,
                 DetectionBinning = detectionBinning,

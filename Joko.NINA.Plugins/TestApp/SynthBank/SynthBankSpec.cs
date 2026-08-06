@@ -193,6 +193,20 @@ namespace TestApp.SynthBank {
         /// <summary>Physics step* (focuser steps), <see cref="SynthBankDerivations.DeriveStepSize"/>.</summary>
         [JsonProperty("stepSizeSteps")] public int StepSizeSteps { get; set; }
 
+        /// <summary>
+        /// F18 — the DETECTABILITY half-width (focuser steps): the largest offset from focus at which at least
+        /// <see cref="SynthBankDerivations.NHardStars"/> truth stars still clear the detector's default gate at
+        /// <see cref="ExposureSeconds"/>. <see cref="double.NaN"/> when the detectability-bounded derivation was
+        /// not requested, or when too few sweep positions qualify to measure it.
+        ///
+        /// <para>Reported UNFLOORED, like the runtime's <c>StepSizeRecommendation.MaxUsefulHalfSpan</c>: it is a
+        /// statement about the rig, not about the recommendation the floor then produces.</para>
+        /// </summary>
+        [JsonProperty("detectableHalfWidthSteps")] public double DetectableHalfWidthSteps { get; set; } = double.NaN;
+
+        /// <summary>Human-readable statement of which rule produced <see cref="StepSizeSteps"/> — geometry alone, or geometry bounded by detectability (F18).</summary>
+        [JsonProperty("stepSizeDefinition")] public string StepSizeDefinition { get; set; }
+
         /// <summary>Fractional tolerance for comparing a measured step size against <see cref="StepSizeSteps"/>.</summary>
         [JsonProperty("stepSizeTolerance")] public double StepSizeTolerance { get; set; } = 0.4;
 

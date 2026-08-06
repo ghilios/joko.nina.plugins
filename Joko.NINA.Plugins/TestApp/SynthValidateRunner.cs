@@ -369,7 +369,10 @@ namespace TestApp.SynthBank {
 
             Prog($"[{dataset.Id}] deriving expected-optimal bootstrap...");
             var model = SynthBankDerivations.BuildDefocusModel(dataset, defaults);
-            var expected = SynthBankDerivations.DeriveExpectedOptimal(dataset, defaults, catalogReader, out var kernelCapGuard, out _, token);
+            // F18: the arm flag drives the bank's TARGET as well as the runtime recommender, so each arm is
+            // internally consistent (see DeriveExpectedOptimal's detectBoundedStep remarks).
+            var expected = SynthBankDerivations.DeriveExpectedOptimal(dataset, defaults, catalogReader, out var kernelCapGuard, out _, token,
+                detectBoundedStep: ctx.StepDetectBound);
 
             // Apply the checked-in spec's *Override fields on top of the physics answer, exactly as
             // SynthBankRunner.ProcessDatasetAsync does for the bank generator -- S0's bootstrap must match what is
@@ -398,7 +401,9 @@ namespace TestApp.SynthBank {
             }
 
             var stepTheory = (double)expected.StepSizeSteps;
-            var stepBehavioral = ComputeStepBehavioral(model, defaults.OffsetSteps, expected.StepSizeSteps, ctx.AlglibAPI);
+            var stepBehavioral = ComputeStepBehavioral(model, defaults.OffsetSteps, expected.StepSizeSteps, ctx.AlglibAPI,
+                ctx.StepDetectBound ? expected.DetectableHalfWidthSteps : double.NaN,
+                ctx.StepSizeForExecutedSweep ? ctx.StepRecoveryStepsPerSide : 0, ctx.StepSizeForExecutedSweep);
             var deltaPct = stepTheory > 0 && double.IsFinite(stepBehavioral) ? (stepBehavioral - stepTheory) / stepTheory : double.NaN;
             Prog($"[{dataset.Id}] step_theory={stepTheory:0.##} step_behavioral={stepBehavioral:0.##} (delta {deltaPct:P1})");
 
@@ -1160,7 +1165,16 @@ namespace TestApp.SynthBank {
         /// step_theory, which additionally floors HFR_min at <see cref="SynthBankDerivations.PixelizationFloorPixels"/>
         /// (R2) and never accounts for <see cref="StepSizeRecommender.MaxHalfWidthSampledHalfSpanMultiple"/>'s cap.
         /// </summary>
-        private static double ComputeStepBehavioral(DefocusModel model, int offsetSteps, int seedStep, IAlglibAPI alglibAPI) {
+        /// <param name="detectableHalfWidthSteps">
+        /// F18 — the analytic detectable half-width (<c>SynthBankDerivations.DeriveDetectableHalfWidth</c>), or NaN
+        /// for the control arm. The truth curve carries no star counts, so the fixed point cannot observe
+        /// detectability directly; instead each sampled position is given <c>NHardStars</c> if it lies within this
+        /// half-width and 0 if it does not. That is exactly the discretization the runtime rule performs on a real
+        /// sweep — it takes the outermost SAMPLED position still clearing the floor — so the fixed point A3
+        /// compares against is produced by the same rule as the landing it scores.
+        /// </param>
+        private static double ComputeStepBehavioral(DefocusModel model, int offsetSteps, int seedStep, IAlglibAPI alglibAPI,
+                double detectableHalfWidthSteps = double.NaN, int recoveryStepsPerSide = 0, bool sizeForExecutedSweep = false) {
             var step = Math.Max(1, seedStep);
             var visited = new HashSet<int>();
             const int MaxIterations = 50;
@@ -1190,7 +1204,26 @@ namespace TestApp.SynthBank {
                 if (!fit.Solve()) {
                     return double.NaN;
                 }
-                var rec = StepSizeRecommender.Recommend(fit, step, focuserMaxStep: null);
+                SweepDetectability detectability = null;
+                if (double.IsFinite(detectableHalfWidthSteps) || recoveryStepsPerSide > 0) {
+                    var counts = new int[2 * offsetSteps + 1];
+                    var positions = new int[2 * offsetSteps + 1];
+                    for (var k = -offsetSteps; k <= offsetSteps; k++) {
+                        var idx = k + offsetSteps;
+                        positions[idx] = model.OptimalFocuserPosition + k * step;
+                        counts[idx] = !double.IsFinite(detectableHalfWidthSteps)
+                            ? SynthBankDerivations.NHardStars   // no bound measured: every position counts as usable
+                            : (Math.Abs((double)k * step) <= detectableHalfWidthSteps ? SynthBankDerivations.NHardStars : 0);
+                    }
+                    detectability = new SweepDetectability {
+                        FrameStarCounts = counts,
+                        FrameFocuserPositions = positions,
+                        HardFloorStarCount = SynthBankDerivations.NHardStars,
+                        RecoveryStepsPerSide = recoveryStepsPerSide
+                    };
+                }
+                var rec = StepSizeRecommender.Recommend(fit, step, focuserMaxStep: null,
+                    detectability: detectability, sizeForExecutedSweep: sizeForExecutedSweep);
                 if (rec.StepSize == step) {
                     return step;
                 }
