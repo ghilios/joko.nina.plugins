@@ -195,6 +195,55 @@ exposures cannot exercise F18's defect** — F18's evidence came from a real 380
 starless, which is not a rig at the bank's derived exposure. The arms therefore have to include the **starved**
 scenarios (S3, exposure ×0.25; S6, step and exposure both ×0.25) or arm D measures nothing by construction.
 
+## F18's acceptance arms — the rule fires for D, against S, and the evidence for D is VACUOUS
+
+**28 (dataset, scenario) cells** — `D05`, `D06`, `D09`, `D12`, `D15`, `D16` × S0/S1/S2, plus S3/S6 on the five that
+qualify — × three arms, one binary, `--settings` pinned, `--max-rounds 3 --max-evals 120`.
+
+| control | result |
+|---|---|
+| Round-0 control (identical bootstrap ⇒ identical σ_focus) | **0 violations** across every cell |
+| Instrument-fault check (`W_detect` = the sampled half-span?) | **passes now** — the bound binds in 1 cell of 28, not 28 of 28 |
+| Assertion verdicts | **identical across all three arms**: Pass 82 / Fail 2. The 2 failures are in arm C too, i.e. pre-existing S2 behaviour ([F25](followups.md#f25--from-a-far-too-wide-sweep-the-step-recommender-widens-it-further-instead-of-recovering)/[F34](followups.md#f34--synth-validate-scored-a-stalled-run-as-converged-at-a-step-4-outside-the-band-its-own-assertion-failed-it-on)), not something an arm caused |
+
+### The pre-registered rules, applied verbatim
+
+| rule | outcome |
+|---|---|
+| **1 — arm D ships** if median σ_focus is no worse than C by >2%, no dataset regresses >20%, and the A3 pass count is not reduced | **FIRES.** Median ratio **1.0000**; **0** cells worse; A3 counts identical |
+| **2 — arm S ships instead of D** only if it beats D by >5% median | **DOES NOT FIRE.** Median ratio 1.0000, and S is >20% **worse** on 2 cells (`D15` S6 0.046 → 0.098, `D16` S6 0.065 → 0.143) |
+
+### …and why arm D's pass is not evidence that it works
+
+**Arm D is byte-identical to the control on 26 of 28 cells.** The detectability bound bound in exactly **one**
+cell — `D16_esprit550_ha3` scenario S2 — and that cell's σ_focus is **NaN** (a degenerate fit at 4× too wide). So
+arm D's single active cell produced **no readable acceptance metric at all**.
+
+The rule fires because the arm is *inert*, not because it is *good*. Stated plainly rather than dressed up:
+
+- **What the bank proved:** the change is safe. On 26 of 28 cells it cannot alter a landing, and on the one cell
+  where it can it did not regress anything measurable.
+- **What the bank did NOT prove:** that it fixes anything. **Zero** cells improved. The Step-7 diff had already
+  said why — at the bank's derived exposures the detectability limit is never reached, and F18's evidence came
+  from a real 3800 mm rig at 14 s whose wings went starless, which no dataset here reproduces.
+- **So the flag stays default OFF.** F18 asked for "bank validation with σ_focus as the acceptance metric"; the
+  bank returned a null. Enabling it for every user on an acceptance rule that passed vacuously would be reading a
+  null as a green light. Adoption needs a rig where the defect reproduces — and this wave shipped the instrument
+  that identifies one, `StepSizeRecommendation.MaxUsefulHalfSpan`.
+
+### Arm S is more interesting than its verdict, and the verdict still stands
+
+Arm S is **bimodal**, not flat: **6 cells >20% better** (`D05` S1 0.2296 → 0.0055, `D15` S1 0.1622 → 0.0471,
+`D09` S1 0.0945 → 0.0406, `D16` S3 0.1332 → 0.0465, …), 18 within ±20%, **2 cells >20% worse**. The 18 ties are
+largely structural — S0 converges in one round on most datasets, so only round 0 is ever rendered and the arms
+cannot differ.
+
+**The median therefore reads 1.0000 for a distribution that is anything but flat**, and rule 2 uses the median. The
+rule was fixed in advance and it is applied as written: **arm S does not ship.** Recording the weakness rather
+than using it to overturn the result after the fact — a pre-registered statistic that turns out to be poorly
+matched to the data is a lesson for the next rule, not a licence to pick a better one once the numbers are in.
+Filed as [F48](followups.md#f48--the-executed-sweep-step-sizing-is-bimodal-6-cells-better-2-worse-and-the-median-hides-both).
+
 ## F18 — shipped behind two flags; the arms are wired and owed
 
 `min(W_3x, max(W_detect, floor))`, where `W_detect` is the outermost non-recovery frame that still detected `NHard`

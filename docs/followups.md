@@ -114,8 +114,9 @@ F6 diagonal valley, but it means **a single landing is not evidence** about whic
 and any claim resting on one `optimize` run should be treated as anecdote.
 
 ### F18 — Step size is sized by curve geometry alone, so the sweep outruns what the detector can see
-**Status:** Open — **designed and shipped behind flags (wave 7)**; both open decisions closed, the σ_focus arms
-still owed · found 2026-08-02 reproducing a 3800 mm sweep that yielded four dead frames
+**Status:** Open — **mechanism shipped behind flags, default OFF (wave 7)**; both open decisions closed; the
+σ_focus arms RAN and returned a **null** — the bank cannot exercise this defect · found 2026-08-02 reproducing a
+3800 mm sweep that yielded four dead frames
 
 `StepSizeRecommender` sets the half-width from the fitted HFR curve: the distance at which HFR reaches
 `HfrThresholdMultiple = 3.0` × its minimum, then `step = W / 3.5` at `DefaultOffsetSteps = 4`. That is a pure
@@ -199,10 +200,41 @@ Arm S ships instead of D only if it beats D by more than 5% median. `BaselineJ` 
 reporting the sweep's edge rather than detectability and the arm is void.
 
 **`optimize` deliberately stays on the pre-F18 recommender**, so every F32/F35 arm's reported step remains
-comparable; the arms run through `synth-validate`, which is the recommender's own convergence driver. 6
-discriminating unit tests + 3 guards, confirmed by neutralizing the bound and re-running. The bank derivation's
-analytic twin (`W_detect*` in `SynthBankDerivations`) and the arms themselves are **not yet done** — see the
-wave-7 plan, Steps 4 and 8.
+comparable; the arms run through `synth-validate`, which is the recommender's own convergence driver.
+
+**A DEFECT IN THE RULE, caught by this entry's own pre-registered instrument check.** The check said: *if
+`W_detect` equals the sampled half-span on most datasets it is reporting the sweep's edge rather than
+detectability, and the arm is void.* It came back equal on **all 20** datasets. `W_detect` is bounded above by the
+sampled half-span **by construction** — it is the outermost SAMPLED position that cleared `NHard` — so when no
+frame falls below the floor, returning the sweep's own edge turns `min(W_3x, W_detect)` into *"never recommend a
+sweep wider than the one you just took"* on every healthy run. That is a cap on WIDENING, a different rule, and one
+the recommender already has. **Fixed: no starved frame ⇒ NaN ⇒ no bound** — "unmeasurable is not zero", at the
+other end. The first arm run was discarded and re-run on the corrected binary.
+
+**ARMS RUN 2026-08-06 (wave 7). The rule fires for arm D, against arm S — and arm D's pass is VACUOUS.**
+28 (dataset, scenario) cells over `D05`/`D06`/`D09`/`D12`/`D15`/`D16` × S0/S1/S2 (+S3/S6 where applicable), three
+arms, one binary, `--settings` pinned. Round-0 control: **0 violations**. Assertion verdicts **identical across all
+three arms** (Pass 82 / Fail 2; the 2 are in arm C too — pre-existing S2 behaviour, F25/F34).
+
+| rule (fixed in advance) | outcome |
+|---|---|
+| arm D ships if median σ_focus no worse than C by >2%, no dataset worse by >20%, A3 count not reduced | **FIRES** — median ratio 1.0000, 0 worse, counts identical |
+| arm S ships instead of D only if it beats D by >5% median | **DOES NOT FIRE** — median 1.0000, and S is >20% WORSE on 2 cells |
+
+**But arm D is byte-identical to the control on 26 of 28 cells.** The bound bound in exactly ONE cell (`D16` S2),
+whose σ_focus is **NaN** (degenerate fit) — so its only active cell produced no readable acceptance metric.
+**Zero** cells improved. The rule fires because the arm is INERT, not because it is good.
+
+**Consequence: the mechanism ships, the flag stays default OFF.** This entry asked for bank validation with
+σ_focus as the acceptance metric and the bank returned a **null**: at the derived exposures the detectability limit
+is never reached (edge-frame headroom 3–2746 stars against a floor of 3), and this entry's own evidence came from a
+real 3800 mm rig at 14 s whose wings went starless — which no dataset here reproduces. Turning it on for every
+user on a vacuous pass would be reading a null as a green light. **Adoption needs a rig where the defect
+reproduces**, and wave 7 shipped the instrument that identifies one (`StepSizeRecommendation.MaxUsefulHalfSpan`).
+
+**What the bank cannot do, recorded as a property of the bank:** its exposure derivation targets `NTarget = 20`
+stars over the gate on the MEDIAN frame, which on these fields implies ≥ `NHard` at the edge. A dataset that could
+exercise this entry has to be built deliberately — starved on purpose — or borrowed from the real bank.
 
 ### F25 — From a far-too-wide sweep the step recommender widens it further, instead of recovering
 **Status:** Open · found 2026-08-03 running scenario S2 (step ×4) on the synthetic AF bank
@@ -2437,6 +2469,39 @@ measured it is where all the flat-topped rejections came from.
 unchanged when it is not (an unmeasurable bound is absent, never zero — the same rule F18's `W_detect` uses). This
 is engine-side, changes live AF behaviour, and wants its own before/after; it is deliberately not bundled with
 F18's recommender change.
+
+### F48 — The executed-sweep step sizing is BIMODAL (6 cells better, 2 worse), and the median hides both
+**Status:** Open · found 2026-08-06 (wave 7) running F18's arm S · **the pre-registered rule was applied as written and rejected it**
+
+F18's arm S sizes the step for the points the sweep ACTUALLY visits (offset + focus-recovery per side) rather than
+the offset steps alone. Over 26 scorable (dataset, scenario) cells it is:
+
+| vs the control | cells |
+|---|---|
+| **>20% BETTER** | **6** — `D05` S1 0.2296 → **0.0055**, `D15` S1 0.1622 → **0.0471**, `D09` S1 0.0945 → **0.0406**, `D16` S3 0.1332 → **0.0465**, `D06` S1 0.0861 → **0.0154**, `D05`/`D06` others |
+| within ±20% | 18 |
+| **>20% WORSE** | **2** — `D15` S6 0.0457 → 0.0978, `D16` S6 0.0651 → 0.1433 |
+
+**Median ratio: 1.0000.** F18's rule 2 ("arm S ships only if it beats arm D by >5% median") therefore did not
+fire, and arm S does not ship. That verdict stands — the rule was fixed before the arm ran, and a pre-registered
+statistic that turns out to be poorly matched to the data is a lesson for the next rule, not a licence to pick a
+better statistic once the numbers are in.
+
+**But the median is the wrong statistic here and that is worth fixing for next time.** 18 of the 26 ties are
+STRUCTURAL: S0 converges in a single round on most datasets, so only round 0 is ever rendered and no arm can
+differ. A median over a set dominated by forced ties reports "no effect" for a distribution with six clear wins
+and two clear losses in it.
+
+**Why it matters.** The wins are concentrated in the ×0.25-step scenarios (S1), i.e. runs recovering from a
+too-narrow sweep, and the losses in S6 (step AND exposure both wrong). That is a real, structured signal — a
+narrower executed sweep helps when the fit is being rebuilt and hurts when the run is also photon-starved — and
+the median threw it away.
+
+**Next step.** Two separable pieces. (a) Re-score arm S on the cells where the arms CAN differ (more than one
+round rendered), which needs no new runs — the reports are on disk at `D:\hf_w7\f18arms`. (b) For any future
+arm rule, state the statistic over the cells that can move, and say up front how many cells are expected to be
+structural ties; a rule whose denominator is mostly ties cannot fire in either direction.
+Reproduce: `D:\hf_w7\f18_arms.sh`, scored by `D:\hf_w7\score_f18.py`.
 
 ---
 
