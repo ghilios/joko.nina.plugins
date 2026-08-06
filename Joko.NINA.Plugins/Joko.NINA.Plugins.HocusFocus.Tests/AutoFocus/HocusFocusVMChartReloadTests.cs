@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Utility;
@@ -87,7 +88,29 @@ public class HocusFocusVMChartReloadTests {
             MeasurePoints = Array.Empty<FocusPoint>()
         };
         var name = $"{(fileNameStamp ?? timestamp):yyyy-MM-dd--HH-mm-ss}--90d513b9-bd75-41db-9250-6f7b15b4ba3d.json";
-        File.WriteAllText(Path.Combine(reportDir, name), JsonConvert.SerializeObject(report, Formatting.Indented));
+        File.WriteAllText(Path.Combine(reportDir, name), SerializeLikeProduction(report));
+    }
+
+    /// <summary>
+    /// Serializes a report the way <c>HocusFocusVM.GenerateReport</c> actually does — INCLUDING the option blocks.
+    ///
+    /// <para>This exists because omitting them is what hid a total failure of the loaded-report lookup. Those three
+    /// properties are interface-typed (<c>IStarDetectionOptions</c> / <c>IAutoFocusOptions</c> /
+    /// <c>IFocuserSettings</c>), so Newtonsoft can serialize them and CANNOT construct them on the way back: a real
+    /// report threw "Could not create an instance of type ... Type is an interface or abstract class", the source
+    /// caught it and returned null, and every info row collapsed. A fixture that writes reports the production
+    /// writer would never produce cannot catch that, and did not — for a whole release.</para>
+    ///
+    /// <para>The blocks are injected as raw JSON rather than as real option objects on purpose: the point is to
+    /// reproduce the on-disk SHAPE, and binding to the concrete option types would make this fixture depend on
+    /// their constructors instead of on the format under test.</para>
+    /// </summary>
+    private static string SerializeLikeProduction(HocusFocusReport report) {
+        var json = JObject.Parse(JsonConvert.SerializeObject(report, Formatting.Indented));
+        json["HocusFocusStarDetectionOptions"] = new JObject { ["PersistToProfile"] = true, ["NoiseReductionRadius"] = 3 };
+        json["HocusFocusAutoFocusOptions"] = new JObject { ["PersistToProfile"] = true, ["MaxConcurrent"] = 0 };
+        json["FocuserOptions"] = new JObject { ["AutoFocusStepSize"] = 50, ["AutoFocusInitialOffsetSteps"] = 4 };
+        return json.ToString();
     }
 
     // Seeds the VM the way a completed live run leaves it: every measured point mirrored into the
@@ -294,6 +317,43 @@ public class HocusFocusVMChartReloadTests {
                 "reloading this VM's own run must keep its live-only info rows");
             Assert.That(vm.InitialHFR, Is.EqualTo(1.79));
             Assert.That(vm.FinalHFR, Is.EqualTo(1.85));
+        });
+    }
+
+    [Test]
+    public void CoreLoadChart_OwnRun_AfterVisitingAForeignRun_StillShowsItsOwnInfoRows() {
+        // FIELD REPORT 2026-08-06: "I just ran an autofocus which showed the before->after position. Then I
+        // switched to an older AF run and back, and it only shows the latest."
+        //
+        // CoreLoadChart_SameRunReload_PreservesLiveInfoFields covers the watcher re-loading the just-written chart
+        // IMMEDIATELY, and passes -- because the live fields are still intact at that point. It does not cover a
+        // ROUND TRIP. Once a foreign chart has been loaded, the live fields have already been overwritten with that
+        // run's values; coming back to this VM's own run then takes the "same run" branch and re-populates nothing,
+        // so whatever the foreign visit left behind stays on screen.
+        var vm = BuildVM();
+        SeedLiveRunState(vm, new[] { 4900, 4950, 5000, 5050, 5100 });
+        var ownTimestamp = new DateTime(2026, 8, 6, 18, 11, 17, 525);
+        vm.MarkReportGenerated(ownTimestamp);
+
+        // The live run's own report is on disk exactly as GenerateReport writes it.
+        WriteReport(ownTimestamp, initialPosition: 5000, initialHfr: 1.79, finalHfr: 1.85);
+        // An older run the user can pick from the chart list. Deliberately given DIFFERENT values, so a stale
+        // reading and a correct one cannot be confused.
+        var foreignTimestamp = new DateTime(2026, 7, 27, 10, 42, 13, 104);
+        WriteReport(foreignTimestamp, initialPosition: 4986, initialHfr: 4.46, finalHfr: 4.47);
+
+        // 1. Switch to the older run.
+        SimulateCoreLoadChart(vm, WellCenteredSweep(), new DataPoint(4986, 4.4), foreignTimestamp);
+        Assert.That(vm.InitialFocuserPosition, Is.EqualTo(4986), "sanity: the foreign visit renders the foreign run");
+
+        // 2. Switch back to the run this VM produced.
+        SimulateCoreLoadChart(vm, WellCenteredSweep(), new DataPoint(5000, 2.0), ownTimestamp);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.InitialFocuserPosition, Is.EqualTo(5000),
+                "returning to this VM's own run must show ITS starting position, not a collapsed row and not the foreign run's");
+            Assert.That(vm.InitialHFR, Is.EqualTo(1.79).Within(1e-9));
+            Assert.That(vm.FinalHFR, Is.EqualTo(1.85).Within(1e-9));
         });
     }
 

@@ -10,9 +10,12 @@
 
 #endregion "copyright"
 
+using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -137,6 +140,36 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double BestSigmaFocus { get; set; } = double.NaN;
 
         public string Phase { get; set; }
+
+        /// <summary>
+        /// F52 — wall time since the parameter search started. The progress COUNTER cannot convey this: "300 / 500"
+        /// says nothing about whether that took five minutes or ninety, and a real field session spent <b>two
+        /// hours</b> here while the log recorded exactly one line and the UI showed only a bar.
+        /// </summary>
+        public TimeSpan Elapsed { get; set; }
+
+        /// <summary>
+        /// F52 — observed mean seconds per COMPLETED evaluation (cache hits excluded; they cost nothing and would
+        /// flatter the figure). NaN before the first evaluation finishes. This is what turns elapsed time into a
+        /// decision: a user who can see 40 s/evaluation against a 500-evaluation budget knows what they are
+        /// committing to, and one who cannot has no basis for aborting or waiting.
+        /// </summary>
+        public double SecondsPerEvaluation { get; set; } = double.NaN;
+
+        /// <summary>
+        /// F52 — a plain-language note naming WHY the search is currently expensive, or null when it is not. Today
+        /// this is the structure-layer depth (<see cref="StarDetector.EffectiveStructureLayers"/>), whose residual
+        /// is recomputed at <c>2^layers</c> and which measures ~2× per layer.
+        ///
+        /// <para><b>Deliberately a statement of COST, never a recommendation.</b> "You should abort and re-expose"
+        /// is [F52](c), and it is blocked on
+        /// <c>F19</c>: the shipped exposure statistic reports "exposure is not the limit" on exactly the rich
+        /// fields that gain most from a longer exposure (measured: S_now 991.8 against a target of 10 on
+        /// <c>D02_rich_135mm</c>, raw ask 0.000 s, while σ_focus improves 44% at 8×). Advice built on it would tell
+        /// the users who most need a longer exposure that theirs is already fine. Facts about cost need no such
+        /// statistic and are safe to show now; the advice is not.</para>
+        /// </summary>
+        public string CostNote { get; set; }
     }
 
     /// <summary>Outcome of an optimization run.</summary>
@@ -330,6 +363,62 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             public int Evaluations { get; private set; }
 
+            // F52 — the search's own wall clock, plus the running total of time spent INSIDE the evaluator. The two
+            // are separate on purpose: the second divided by Evaluations is the honest per-evaluation cost, while
+            // elapsed/Evaluations would silently fold in the seed load and every cache hit and read low.
+            private readonly Stopwatch searchClock = Stopwatch.StartNew();
+            private double evaluatorSeconds;
+
+            // The last (phase, J, σ) a caller Reported. A periodic in-search report reuses it so the readout can
+            // refresh TIME every few evaluations without pretending J moved: J and σ genuinely only change at the
+            // points the search compares candidates, and inventing fresher-looking values would be worse than
+            // showing the last real ones.
+            private string lastPhase;
+            private double lastBestJ, lastSeedJ, lastBestSigma = double.NaN;
+            private int lastLoggedEvaluations;
+
+            // The effective structure-layer depth of the SEED, so the cost note can express the current candidate
+            // RELATIVE to where this search started rather than against an absolute that means nothing to a user.
+            private int seedEffectiveLayers = -1;
+
+            /// <summary>How often (in completed evaluations) a long search emits an INFO line and refreshes the
+            /// live time readout. Small enough that a two-hour run is traceable minute-by-minute, large enough that
+            /// a fast run adds a handful of lines rather than hundreds.</summary>
+            internal const int ProgressEvaluationInterval = 10;
+
+            /// <summary>F52 — mean seconds per COMPLETED evaluation; NaN before the first one finishes. Cache hits
+            /// are excluded (they cost nothing and would flatter the figure).</summary>
+            public double SecondsPerEvaluation => Evaluations > 0 ? evaluatorSeconds / Evaluations : double.NaN;
+
+            public TimeSpan Elapsed => searchClock.Elapsed;
+
+            /// <summary>
+            /// F52 — names why the search is currently expensive, or null when it is not.
+            ///
+            /// <para>The structure-removal residual is recomputed at <c>2^layers</c>
+            /// (<see cref="StarDetector.EffectiveStructureLayers"/>), measured at ~2× per layer on the synthetic
+            /// bank, so a candidate two layers deeper than the seed costs roughly 4× per evaluation. Expressed as
+            /// a factor relative to THIS search's seed, and rounded to a whole number — the measurement supports
+            /// "roughly 4×", not 3.8×.</para>
+            ///
+            /// <para>A statement of cost, never a recommendation: see <see cref="OptimizationProgress.CostNote"/>
+            /// for why the "abort and re-expose" advice is a separate, blocked item.</para>
+            /// </summary>
+            private string CostNoteFor(double[] theta) {
+                if (theta == null || seedEffectiveLayers <= 0) {
+                    return null;
+                }
+                var layers = StarDetector.EffectiveStructureLayers(Materialize(theta));
+                var deeper = layers - seedEffectiveLayers;
+                if (deeper <= 0) {
+                    return null;
+                }
+                var factor = Math.Pow(2.0, deeper);
+                return string.Format(CultureInfo.CurrentCulture,
+                    "Searching at {0} structure layers ({1} deeper than this run started at), which costs roughly {2:0}x per evaluation.",
+                    layers, deeper, factor);
+            }
+
             public SearchContext(
                 StarDetectionOptimizer owner,
                 StarDetectorParams seed,
@@ -389,8 +478,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     return Judge(cached, memoKeep.TryGetValue(key, out var k) ? k : double.NaN, isSeed);
                 }
 
+                // F52 — time the evaluator itself, not the surrounding bookkeeping, so SecondsPerEvaluation is the
+                // number a user can multiply by the remaining budget.
+                var evalStart = searchClock.Elapsed;
                 var runMetrics = await evaluator(p, token).ConfigureAwait(false);
+                evaluatorSeconds += (searchClock.Elapsed - evalStart).TotalSeconds;
                 Evaluations++;
+                if (isSeed) {
+                    seedEffectiveLayers = StarDetector.EffectiveStructureLayers(p);
+                }
+                MaybeReportProgress(theta);
 
                 double j;
                 if (runMetrics == null || runMetrics.Count == 0) {
@@ -527,13 +624,62 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             public bool BudgetExhausted => Evaluations >= settings.MaxEvaluations;
 
             public void Report(string phase, double[] bestTheta, double bestJ, double seedJ) {
+                lastPhase = phase;
+                lastBestJ = bestJ;
+                lastSeedJ = seedJ;
+                lastBestSigma = SigmaFor(bestTheta);
                 progress?.Report(new OptimizationProgress {
                     Evaluations = Evaluations,
                     MaxEvaluations = settings.MaxEvaluations,
                     BestJ = bestJ,
                     SeedJ = seedJ,
-                    BestSigmaFocus = SigmaFor(bestTheta),
-                    Phase = phase
+                    BestSigmaFocus = lastBestSigma,
+                    Phase = phase,
+                    Elapsed = Elapsed,
+                    SecondsPerEvaluation = SecondsPerEvaluation,
+                    CostNote = CostNoteFor(bestTheta)
+                });
+            }
+
+            /// <summary>
+            /// F52 — every <see cref="ProgressEvaluationInterval"/> completed evaluations, emit ONE INFO log line
+            /// and refresh the live readout.
+            ///
+            /// <para><b>Why this exists at all.</b> The search reports only at PHASE boundaries, and a phase can
+            /// run for over an hour. A real field session spent two hours here and the NINA log recorded a single
+            /// line for the whole duration, so "where did the time go?" was not answerable afterwards by anyone,
+            /// with any tool. One line per ten evaluations makes it answerable in seconds.</para>
+            ///
+            /// <para>J and σ are carried over from the last real <see cref="Report"/> rather than recomputed: they
+            /// only change where the search compares candidates, and showing a fresher-looking number than the
+            /// search has actually produced would be worse than showing the last true one. What IS fresh — the
+            /// evaluation count, the elapsed time, the per-evaluation cost and the cost note — is exactly what was
+            /// missing.</para>
+            /// </summary>
+            private void MaybeReportProgress(double[] theta) {
+                if (Evaluations - lastLoggedEvaluations < ProgressEvaluationInterval) {
+                    return;
+                }
+                lastLoggedEvaluations = Evaluations;
+                var costNote = CostNoteFor(theta);
+                var budget = settings.MaxEvaluations > 0
+                    ? $"/{settings.MaxEvaluations.ToString(CultureInfo.InvariantCulture)}"
+                    : string.Empty;
+                Logger.Info(
+                    $"Optimizer progress: phase '{lastPhase ?? "search"}', evaluation {Evaluations}{budget}, "
+                    + $"elapsed {Elapsed:hh\\:mm\\:ss}, {SecondsPerEvaluation:0.0}s/evaluation, "
+                    + $"best J {lastBestJ:0.######}"
+                    + (costNote == null ? string.Empty : $" -- {costNote}"));
+                progress?.Report(new OptimizationProgress {
+                    Evaluations = Evaluations,
+                    MaxEvaluations = settings.MaxEvaluations,
+                    BestJ = lastBestJ,
+                    SeedJ = lastSeedJ,
+                    BestSigmaFocus = lastBestSigma,
+                    Phase = lastPhase,
+                    Elapsed = Elapsed,
+                    SecondsPerEvaluation = SecondsPerEvaluation,
+                    CostNote = costNote
                 });
             }
 

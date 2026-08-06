@@ -77,6 +77,14 @@ namespace TestApp {
             public int FnAcceptedElsewhere;
             public int FnNoCandidate;
             public Dictionary<string, int> FnByGate = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            // F46: the same attribution restricted to the HIGH confidence tier (peak SNR >= 20, the tier the
+            // checked-in recallHighMin bands are scored on). The aggregate attribution above mixes every tier, so
+            // on D12 it explains 107 false negatives of which only 20 are bright -- reading it as an explanation of
+            // a recall@high movement is an inference, not a measurement. These three make it a measurement.
+            public int FnHighAcceptedElsewhere;
+            public int FnHighNoCandidate;
+            public Dictionary<string, int> FnHighByGate = new Dictionary<string, int>(StringComparer.Ordinal);
             public int MatchedHigh, TotalHigh, MatchedHighMed, TotalHighMed, MatchedAll, TotalAll;
             public Dictionary<int, PrecisionRecall> PerRegion = new Dictionary<int, PrecisionRecall>();
             public double DefocusOffset; // |focuser - best| in steps (filled later)
@@ -251,6 +259,19 @@ namespace TestApp {
                     p.PixelScale = effectivePixelScale * detectionBinningFactor;
                     Console.WriteLine($"  pixelScale: {Fmt(effectivePixelScale)} arcsec/px ({pixelScaleSource})"
                         + (detectionBinningFactor > 1 ? $"; detectionBinning {detectionBinningFactor} -> detecting at {Fmt(p.PixelScale)} arcsec/binned-px" : string.Empty));
+
+                    // F39(b) wave 8: `optimize` now DEFAULTS to each run's derived detection binning. `golden eval`
+                    // deliberately does NOT — it is the instrument every prior wave's golden arm was measured with,
+                    // and silently re-basing it would re-baseline those comparisons rather than extend them (F41).
+                    // What it does instead is SAY when this invocation disagrees with the run's own physics, so the
+                    // two harnesses cannot disagree QUIETLY. A run scored at the wrong factor is now a stated fact
+                    // in the report rather than something a reader has to know to go and check.
+                    var derivedFactor = HarnessSettingsStore.ResolveRunDetectionBinningFactor(runFolder, null, out var derivedSource);
+                    if (derivedFactor != detectionBinningFactor) {
+                        Console.WriteLine($"  NOTE: this run's derived detection binning is {derivedFactor} "
+                            + $"({derivedSource}) but it is being scored at {detectionBinningFactor}. "
+                            + "Pass --detection-binning to score it at its own factor; `optimize` uses the derived one by default.");
+                    }
                 }
 
                 var fullW = rendered.RawImageData.Properties.Width;
@@ -308,19 +329,37 @@ namespace TestApp {
                     if (rank >= 3) { fe.TotalHigh++; if (matched) fe.MatchedHigh++; }
                 }
 
-                // FN attribution.
+                // FN attribution, tallied for every tier AND separately for the high tier (F46), plus a per-star
+                // dump so a specific missed star can be looked up by position instead of inferred from a total.
+                var fnCsv = new StringBuilder("x,y,w,h,confidence,disposition,gate\n");
                 foreach (var gi in match.FalseNegatives) {
                     var cls = BoxMatcher.Classify(goldenRects[gi], acceptedBounds, rejected);
+                    var isHigh = GoldenConfidence.Rank(gf.Stars[gi].Confidence) >= 3;
+                    string disposition, gate = string.Empty;
                     if (cls.Kind == BoxClassification.Accepted) {
                         fe.FnAcceptedElsewhere++;
+                        if (isHigh) { fe.FnHighAcceptedElsewhere++; }
+                        disposition = "accepted-elsewhere";
                     } else if (cls.Kind == BoxClassification.Rejected) {
-                        var gate = cls.Gate ?? "Unknown";
+                        gate = cls.Gate ?? "Unknown";
                         fe.FnByGate.TryGetValue(gate, out var c);
                         fe.FnByGate[gate] = c + 1;
+                        if (isHigh) {
+                            fe.FnHighByGate.TryGetValue(gate, out var hc);
+                            fe.FnHighByGate[gate] = hc + 1;
+                        }
+                        disposition = "rejected";
                     } else {
                         fe.FnNoCandidate++;
+                        if (isHigh) { fe.FnHighNoCandidate++; }
+                        disposition = "no-candidate";
                     }
+                    var b = gf.Stars[gi];
+                    fnCsv.AppendLine($"{b.X.ToString("F1", CultureInfo.InvariantCulture)},{b.Y.ToString("F1", CultureInfo.InvariantCulture)}," +
+                        $"{b.W.ToString("F1", CultureInfo.InvariantCulture)},{b.H.ToString("F1", CultureInfo.InvariantCulture)}," +
+                        $"{b.Confidence},{disposition},{gate}");
                 }
+                File.WriteAllText(Path.Combine(runOut, $"false_negatives_f{frame.FocuserPosition}.csv"), fnCsv.ToString());
 
                 // Per-region (assign golden & detected to regions by center).
                 foreach (var region in regions) {
@@ -679,6 +718,17 @@ namespace TestApp {
             foreach (var gate in allGates) {
                 sb.AppendLine($"  REJECTED:{gate}: {frames.Sum(f => f.FnByGate.TryGetValue(gate, out var c) ? c : 0)}");
             }
+            sb.AppendLine();
+
+            // F46: the same table restricted to the HIGH tier, because recall@high is what the checked-in bands are
+            // scored on and the aggregate above is dominated by the faint tier on every long-focal-length dataset.
+            sb.AppendLine("FALSE-NEGATIVE ATTRIBUTION, HIGH TIER ONLY (what recall@high is actually losing):");
+            sb.AppendLine($"  ACCEPTED-elsewhere: {frames.Sum(f => f.FnHighAcceptedElsewhere)}");
+            sb.AppendLine($"  NO CANDIDATE (structure gap): {frames.Sum(f => f.FnHighNoCandidate)}");
+            foreach (var gate in frames.SelectMany(f => f.FnHighByGate.Keys).Distinct().OrderBy(x => x)) {
+                sb.AppendLine($"  REJECTED:{gate}: {frames.Sum(f => f.FnHighByGate.TryGetValue(gate, out var c) ? c : 0)}");
+            }
+            sb.AppendLine("  (per-star detail: false_negatives_f<focuser>.csv)");
 
             File.WriteAllText(Path.Combine(runOut, "golden_eval.txt"), sb.ToString());
             Console.WriteLine();

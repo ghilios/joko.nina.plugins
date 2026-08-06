@@ -767,6 +767,80 @@ derived-exposure rung on either dataset, this entry REOPENS.**
 > `MinExposureSeconds = 0.5 s`: on `D02` it is the binding constraint and it is 16× below what the fit wants.
 > Reproduce: `D:\hf_w7\remaining_arms.sh` (Arm E), scored by `D:\hf_w7\score_armE.py`.
 
+> ## AND (a) — "widen the trigger" — IS ALSO REFUTED, by its own pre-registered test (2026-08-06, wave 8).
+>
+> Widening the trigger only helps if the block, once surfaced, says something TRUE. Nobody had checked, because
+> **the harness could not**: `OptimizationDiagnosticRunner` recorded `ExposureRecommendation` as `null` whenever
+> the gate was healthy, reproducing the product's blind spot instead of measuring it. Wave 8 computes it for every
+> run — **gate the DISPLAY, never the MEASUREMENT** — and re-ran wave 7's five exposure rungs, which are still on
+> disk, so **no re-render**.
+>
+> **Rule R5, fixed before the arm ran:** *if at `D02`'s derived rung the recommendation reports
+> `ExposureIsNotTheLimit`, or asks for less than 2× current, the statistic is wrong for this population and (a)
+> does NOT ship as a trigger widening.*
+>
+> | dataset | rung | σ_focus | **S_now** | **raw ask** | recommended | `ExposureIsNotTheLimit` |
+> |---|---|---|---|---|---|---|
+> | `D02_rich_135mm` | **0.5 s (derived)** | 0.10927 | **991.8** | **0.000 s** | 0.50 s = current | **True** |
+> | `D02_rich_135mm` | 1 s | 0.09125 | 1226.3 | 0.000 s | = current | True |
+> | `D02_rich_135mm` | 2 s | 0.09482 | 1864.4 | 0.000 s | = current | True |
+> | `D02_rich_135mm` | 4 s | 0.08182 | 2308.8 | 0.000 s | = current | True |
+> | `D02_rich_135mm` | **8 s** | **0.06109** (−44.1 %) | 1894.9 | 0.000 s | = current | True |
+>
+> **THE RULE FIRES.** The recommendation says "your exposure is fine" at **every rung across a 16× range** over
+> which σ_focus improves 44 %. It is not wrong at one operating point a wider trigger might have caught — it is
+> wrong everywhere on the axis it is being asked about. **Surfacing it would have published that answer to more
+> users and looked like a fix.**
+>
+> **The control passes on every rung, which is what makes the reading usable.** `D16_esprit550_ha3` at 0.5 s
+> (below its derived value) correctly asks for **1.5 s**; at its derived 2 s — exactly where its σ_focus minimum
+> sits (0.06423) — it asks for nothing more; and at 4 s and 8 s, where σ_focus is measurably worse (0.12034,
+> 0.14828), it again asks for nothing more. **The recommender is right wherever it can see and blind where it
+> cannot.**
+>
+> **And the magnitude finally has a number.** Against `TargetSensitivity = 10`, `S_now` on `D02` measures **991.8
+> to 2308.8 — 100× to 231× the target** — so `RawSeconds = 0.5 × (10/991.8)² = 5 × 10⁻⁵ s`. The statistic is not
+> slightly wrong on this population; it is wrong **by four orders of magnitude**, and it saturates HARDER as
+> exposure rises (992 → 1226 → 1864 → 2309), so it can never converge toward asking for more.
+>
+> **(b) is DONE, and half of it needed no code.** Harness: `SynthBankDerivations` now records
+> `exposureRawSeconds` and `exposureClamp` (`none`/`floor`/`ceiling`/`not-derived`) as **fields**, states the
+> saturation in the definition text, and `synth-bank --dry-run` prints the saturated set — which is (c)'s work
+> list. A field rather than only prose, for the reason [F39](#f39--the-harness-records-a-detection-binning-the-run-never-applied-and-7-datasets-have-never-run-at-theirs)(a)
+> added `DetectionBinningSource`: a reader diffs fields, nobody diffs a sentence. **Product: already correct** —
+> `StarSignalCopy.DescribeExposureDerivation` already reports every clamp branch and names which bound bound it.
+> Verified, not implemented.
+>
+> **What is left is not a trigger and not `NTarget`:** a statistic that can see the WING frames — σ_focus, or the
+> wing-frame star count — which is a new mechanism rather than a repair to this one. **(c) is deferred to wave 9**
+> with its re-render (moving `MinExposureSeconds` re-derives 8 datasets including `D14`, which wave 8's F39(b)
+> adoption arm was simultaneously measuring).
+> Reproduce: `D:\hf_w8\armX\arm_x.sh`.
+>
+> ### The saturated set, listed for the first time — and THIS ENTRY'S COUNT WAS LOW IN BOTH DIRECTIONS
+>
+> (b)'s reporting change produced it as a by-product. **13 of 20 datasets report a clamp rather than a derived
+> value**, measured by `synth-bank --dry-run`:
+>
+> | clamp | datasets | the solve asked for → reported |
+> |---|---|---|
+> | **floor** (11) | `D02` **0.001 s → 0.5 s (500×)**, `D01`/`D03` 0.003, `D04`/`D18`/`D20` 0.004, `D19` 0.008, `D05` 0.014, `D14` 0.055, `D07` 0.066, `D13` 0.264 | all reported as 0.5 s |
+> | **ceiling** (2) | **`D10_rc16_3250mm_sparse` 335.6 s → 30 s (11× SHORT)**, `D17_cdk14_oiii5` 40.4 s → 30 s | reported as 30 s |
+>
+> - This entry says *"the 0.5 s floor for 8 of 17"*. Measured: **11 at the floor** — those eight plus `D18`/`D19`/
+>   `D20`, which the 17-dataset count never included.
+> - **And 2 at the CEILING, which nobody had counted at all.** Running *out* of exposure is the same defect from
+>   the other side and had no name until (b) printed it.
+> - **`D02` makes this entry's case far more sharply than the entry does:** the arithmetic asks for **0.001 s**,
+>   gets 0.5 s, and arm E measured that dataset improving 44 % of σ_focus at **8 s** — four orders of magnitude
+>   above the ask.
+> - **`D18`/`D19`/`D20` are floor-saturated**, which belongs in
+>   [F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains)'s
+>   confirmation-arm write-up: its entire synthetic half sits on clamps rather than derived exposures. It does not
+>   invalidate that arm (every φ arm sees the same frames) but it must be stated there.
+>
+> **This list IS (c)'s work list**, produced by (b) rather than by a separate investigation.
+
 ### F20 — Below `MinHFR` the autofocus objective collapses to exactly zero, with no diagnostic
 **Status:** Done (parts 1 and 2) · found 2026-08-02 running `optimize --per-run` over the
 synthetic AF bank
@@ -1784,6 +1858,33 @@ re-run-rather-than-compare-across treatment.
 and the G2 block of `D:\hf_w7\remaining_arms.sh` (σ_focus / `J`). Per-dataset outputs in `D:\hf_w7\golden` and
 `D:\hf_w7\g2`.
 
+**PART (b) ADOPTED 2026-08-06 (wave 8).** `optimize --per-run` now applies each run's derived detection binning
+**by default**; `--no-run-detection-binning` is the opt-out, and it exists so every arm this project has already
+run stays reproducible on a current binary — rebuilding an old commit to get a control arm is not a control
+([F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)). Wave 7's
+`--apply-run-detection-binning` is still accepted and is now a no-op, so its scripts keep working *and keep
+meaning what they said*. Arms ran **status-quo FIRST, adopted LAST** per §4 above, so the bank's run folders hold
+the adopted landing.
+
+**`golden eval` is deliberately NOT re-based.** It is the instrument every prior wave's golden arm was measured
+with, and silently defaulting it would re-baseline those comparisons rather than extend them. Instead it now
+**states the disagreement**: when the factor it is scoring at differs from the run's derived one, the report says
+so and names the source. The two harnesses cannot disagree *quietly*, which was the actual requirement.
+
+**The §3 gate is resolved by applying the expectations file's own rule rather than working around it.**
+[F46](#f46--detection-binning-buys-faint-stars-and-quietly-sells-bright-ones-to-the-shapesize-gates) was triaged in
+full (mechanism named, binning-specificity established by a control, scaling rule refuted on its own pre-registered
+terms) and produced no fix that clears the band. The file says a cell outside its band *"is a FLAG that gets
+triaged into `docs/followups.md`"* — it does not say adoption is blocked, and the bands are documentation rather
+than a gate (nothing in the codebase reads that file). **So the bands are left untouched and are now telling the
+truth:** `D12` at 0.813 and `D15` at 0.874 say *the shipped default `StructureLayers = 4` under-performs at
+detection binning 2 on rigs with large wing donuts*, which is a true statement about the product. Re-deriving the
+band would have encoded a known defect into the file as an expectation — the outcome the rule exists to prevent,
+reached from the direction nobody anticipated. Note `D12` was **already** breaching at binning 1 (0.879), so
+adoption deepens that breach rather than creating it; `D15`'s is new to adoption and is fully explained
+(`--structure-layers 6` takes it to 0.977).
+Reproduce: `D:\hf_w8\adopt\adopt_arms.sh`.
+
 ### F40 — The settings handoff shipped in wave 4 had never once been written to disk
 **Status:** Done (wave 5 — backfilled and now exercised) · found 2026-08-05 backfilling it
 
@@ -2572,6 +2673,65 @@ should the factor be chosen to maximize something that sees both? Cheap to start
 `--min-box` swept, which `golden eval` already exposes and which needs no code.
 Reproduce: `D:\hf_w7\f39b_golden.sh`; per-dataset outputs in `D:\hf_w7\golden`.
 
+**ANSWERED 2026-08-06 (wave 8): question (a) is YES — the knob is `StructureLayers`, not `MinimumStarBoundingBoxSize`
+— and NO blanket scaling ships, because the correction does not generalize.** Full working in
+[`docs/synthetic-af-bank-followups-wave8-results.md`](synthetic-af-bank-followups-wave8-results.md) §1.
+
+**First, this entry's own account of WHERE the bright stars go is corrected.** The list above (`NO CANDIDATE
+(structure gap)`, `TooSmall`, `NotCentered`, `OnBorder`, more `TooDistorted`) was read off the ALL-TIER
+attribution, which on `D12` explains 107 false negatives of which only 20 are bright. Wave 8 shipped a
+**high-tier-only** attribution and a per-star `false_negatives_f<focuser>.csv`, and the bright tier says something
+else. At binning 2, shipped defaults:
+
+| gate, HIGH TIER only | `D15` | `D12` |
+|---|---|---|
+| `REJECTED:Contaminated` | **10** | 3 |
+| `REJECTED:TooFlat` | 0 | **8** |
+| `NO CANDIDATE (structure gap)` | **0** | 2 |
+| `REJECTED:TooSmall` | **0** | **0** |
+
+**`D15`'s bright-tier loss is `Contaminated`, and its structure-gap count is zero.** `TooSmall` does not appear in
+the bright tier at all.
+
+**`MinimumStarBoundingBoxSize` is REFUTED, and inertly.** `--min-box ∈ {2,3,4,5}` at binning 2 is **byte-identical**
+on both datasets. The flag works — `TooSmall: 6` disappears from `D12`'s all-tier table at `--min-box 2` — but
+those six stars are **not recovered**: they fail the next gate instead (`TooDistorted` 19→22, `LowSensitivity`
+34→37). *A gate's FN count is an UPPER BOUND on what relieving it buys, never an estimate* — filed as
+[F50](#f50--a-false-negative-gate-count-is-an-upper-bound-on-what-relieving-that-gate-buys-not-an-estimate).
+
+**Blending was also refuted** (`D:\hf_w8\p0\blend_check.py`, no detector run): the lost bright stars are ISOLATED —
+median nearest golden neighbour 79 px on `D12` and 829 px on `D15`, i.e. 15× and 139× the in-focus HFR — and there
+is no binning-2 detection within a match radius of any of them. But that arm produced the clue: **the lost stars
+are LARGER than the kept ones** (`D15` 66×66 vs 42×42, several at 80×80), concentrated at the sweep wings. Big
+defocused donuts, not small stars.
+
+**The mechanism.** `StarDetector` step 4 subtracts an à-trous B3-spline residual to erase large-scale structure,
+and its scale is `2^layers` **pixels**. Binning halves every structure's pixel extent while the layer count stays
+fixed, so a donut that survived the subtraction at binning 1 is inside the residual at binning 2 and is erased
+before candidate formation. The source's own comment predicts it: *"if the pixel scale is very small … you may
+need to increase the number of layers to keep stars from being excluded."* `ApplyFactor` rescales only
+`PixelScale`.
+
+**The binning-1 control discriminates:** at binning 1 the shipped `StructureLayers = 4` is at or above the optimum
+(every deeper setting is worse on `recall@all`, on both datasets); at binning 2 deeper is strictly better up to a
+peak. `D15` goes 0.874 → **0.977** at layers 6, above even its binning-1 0.931.
+
+**And the rule was refuted by the population that did not motivate it.** Measured on all seven (`R6`, fixed before
+that sweep ran): `StructureLayers += log2(factor)` improves `recall@high` on **3 of 7** — not a majority — and
+costs `D09` 0.011. `layers+2` fares no better. **Had this been run on `D12`+`D15` alone it would have looked like a
+clean 2-for-2 win** and a hard-coded scaling would have shipped to every user on evidence drawn entirely from the
+two cells that motivated it.
+
+**So the defect is the DEFAULT, not the code path** — and every number here is measured at `--params default`, a
+configuration no user keeps: `OptimizerVariable` already searches `StructureLayers` over `[1, 8]`, so a per-run
+`optimize` finds the right depth. The product change is deliberately not made; like
+[F47](#f47--a-focus-recovery-step-can-be-placed-where-nothing-is-detectable-and-now-there-is-a-number-that-says-so)
+it changes live detection behaviour and wants its own before/after.
+
+**Question (b) is still open** and is now the more interesting half.
+Reproduce: `D:\hf_w8\p0\blend_check.py`, `D:\hf_w8\p1\knob_sweep.sh`, `D:\hf_w8\p2\layers_control.sh`,
+`D:\hf_w8\p2\seven_sweep.sh`.
+
 ### F47 — A focus-recovery step can be placed where nothing is detectable, and now there is a number that says so
 **Status:** Open · found 2026-08-06 (wave 7) closing F18's open decision (a)
 
@@ -2628,6 +2788,291 @@ round rendered), which needs no new runs — the reports are on disk at `D:\hf_w
 arm rule, state the statistic over the cells that can move, and say up front how many cells are expected to be
 structural ties; a rule whose denominator is mostly ties cannot fire in either direction.
 Reproduce: `D:\hf_w7\f18_arms.sh`, scored by `D:\hf_w7\score_f18.py`.
+
+**PART (a) DONE 2026-08-06 (wave 8), offline, no new runs — and the denominator alone decided the verdict.**
+
+| denominator | n | median σ_focus **S/C** | S >20 % better | S >20 % worse |
+|---|---|---|---|---|
+| all scorable cells (wave 7's) | 28 | **1.0000** | 6 | 2 |
+| **movable cells only** (>1 round rendered) | **12** | **0.8977** | 6 | 2 |
+
+Excluded as structural ties: **16 of 28** — `S0` = 6, `S2` = 6, `S3` = 4.
+
+**Over the cells that can move, arm S beats the control by 10.2 %.** F18's rule 2 was *"arm S ships only if it
+beats arm D by >5 % median"*, and arm D is **1.0000 on all twelve movable cells** — so on the movable denominator
+**the rule would have FIRED and arm S would have shipped.** The data did not change; the denominator did.
+
+**The wave-7 verdict still stands and this does not re-open it** — the statistic was fixed before the arm ran and
+was applied as written. What this buys is the quantified lesson: **the choice of denominator was worth more than
+the entire effect being measured.**
+
+**It also sharpens arm D.** Wave 7 reported "byte-identical on 26 of 28, bound in exactly one". Restricted to the
+cells where an arm COULD act, **arm D is 1.0000 on all twelve** — its one binding cell (`D16` S2) is a one-round
+cell that could not have differed anyway, and its σ_focus there is NaN. **Arm D never acted on a cell where acting
+was possible.** [F18](#f18--step-size-is-sized-by-curve-geometry-alone-so-the-sweep-outruns-what-the-detector-can-see)'s
+flag staying default OFF is better supported than wave 7 stated, not worse.
+
+Part (b) — state the statistic over the cells that can move — is now a standing rule in the wave design template.
+Reproduce: `D:\hf_w8\f48_rescore.py`.
+
+### F51 — "Capture a new sweep and optimize" is gated on the EXPOSURE recommendation, so it hides exactly when the run needs re-running — and it would not carry the new step size anyway
+**Status:** Open · found 2026-08-06 (wave 8) from the same field session as
+[F49](#f49--the-star-signal-block-fires-on-a-floored-gate-but-every-remedy-it-owns-is-an-exposure-remedy-so-a-rich-well-exposed-field-gets-a-diagnosis-with-no-instruction) ·
+mechanism confirmed in source
+
+The user's session, from the NINA log — four wizard runs, each one told to widen by the previous one:
+
+| run | step | exposure | recommended next | outcome |
+|---|---|---|---|---|
+| 12:30 | 100 | 2 s | **214** | accepted, ~38 min |
+| 13:10 | 214 | 2 s | **459** (*"capped by this sweep's width"*) | accepted at **Sensitivity 0.000**, ~52 min |
+| 14:03 | 459 | **5 s** | 474 | good landing, Sensitivity 2.5, ~30 min |
+| 14:36 | 459 | 2 s | 482 | **~2 hours** |
+
+**The user had to Accept a landing they did not want, twice, in order to re-run with a wider sweep.** Their words:
+*"Ideally that shows up as an option to re-run entirely with the updated value without having to accept or go back
+(which is what happened here)."*
+
+**The action they wanted EXISTS — `CaptureNewSweepCommand` — and was hidden.**
+
+```csharp
+public bool ShowCaptureNewSweep =>
+    HasExposureBlock && lastRunWasLive && !IsUseCurrentMode
+    && (SelectedSummary?.ExposureAdvice?.IncreasesExposure ?? false);
+```
+
+On run 2 the first three conjuncts were true (the gate was floored at 0.000, the run was live, the mode was
+Optimize) and **`IncreasesExposure` was false** — the exposure row read *"2 s (unchanged; measured star S/N
+1438.6; target 10)"*. So the button was hidden. **That is [F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one)
+on live hardware:** `S_now = 1438.6` against a target of 10 is the same saturation wave 8 measured on `D02`
+(991.8 vs 10). F19's defect does not merely silence a *recommendation* — it removes the *button*.
+
+**And even had it been visible it would not have solved this.** `RunLiveAttemptAsync` overrides only
+`OverrideAutoFocusExposureTime` (plus focus-recovery steps) and takes everything else from
+`autoFocusEngine.GetOptions()`, i.e. **the profile's step size**. So the re-capture path carries the exposure
+recommendation and **not the step-size recommendation** — the one that was actually asking to change on every run
+of this session. There is no re-run-at-the-recommended-step path at all; Accept-then-restart is the only one, which
+is exactly what the user did.
+
+**Why it matters.** The step recommender is explicitly a converge-over-runs mechanism (its own copy says *"re-run
+auto-focus to refine"*), and the wizard has no affordance for the iteration it prescribes. Each cycle costs a full
+sweep plus an optimization — here 30–120 minutes — and forces the user to write a landing they may not want into
+their profile to get it. Note run 2's Accept is how `Sensitivity 0.000` reached the profile in the first place,
+which is why runs 3 and 4 both show `Current` Sensitivity 0.000.
+
+**Next step.** (a) Gate `ShowCaptureNewSweep` on *any* material recommendation — exposure **or** step size — rather
+than on `IncreasesExposure` alone. (b) Make the re-capture apply the recommended **step size** as well as the
+exposure, or say plainly that it will not. (c) Neither should require Accept: re-capturing is not adopting.
+Reproduce: NINA log `20260806-122836-3.3.0.1048.73484-202608.log`; frames in `E:\AutoFocusSaves\`.
+
+### F52 — A two-hour optimization logs ONE line and offers no cost context, and the search is not cost-aware
+**Status:** **(a) and (b) DONE 2026-08-06 (wave 8); (c) BLOCKED on [F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one);
+(d) open** · found 2026-08-06 (wave 8) from the same field session · partly measured, partly **unmeasurable after
+the fact, which is the finding**
+
+Run 4 (step 459, 2 s) ran from 14:38:11 to past 16:30 — **over two hours**. Run 3, on the **same step size, same
+sweep geometry, same 11 frames, same rig, same night, differing only in exposure (5 s)**, took ~30 minutes.
+
+**Between `Loaded saved AF run …` at 14:38:11 and the end of the session there is exactly ONE log line.** Nothing
+records how many evaluations ran, which phase it was in, or how much of the budget remained. Asked *"should I
+abort and try again with a longer exposure?"*, neither the log nor the UI can answer.
+
+**What IS measured, on the user's own frames** (`optimize --max-evals 1`, one settings file per arm, `UseAdvanced=True`
+so the Simple-mode presets do not overwrite the knobs — [F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)):
+
+| arm | config | wall |
+|---|---|---|
+| cheap | `StructureLayers 4`, `DefocusAwareStructure off`, `NR 3` | **33 s** |
+| expensive | `StructureLayers 6`, `DefocusAwareStructure ON`, `NR 5`, hotpixel-thresholding off — **the config run 4 actually landed on** | **47 s** |
+
+Only one of the two evaluations differs between arms, so the differing evaluation roughly **doubled**. Corroborated
+on the synthetic bank, where the scaling is stark — `D15_cdk20_3454mm_e47`, 9 frames, binning 1:
+
+| `StructureLayers` | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|
+| seconds | 27 | 46 | **117** | 254 | **526** |
+
+**≈2× per additional layer.** The à-trous residual is recomputed at `2^layers`, and `DefocusAwareStructure` adds
+`StructureLayerBoost` on top of that.
+
+**A hypothesis that was checked and is REFUTED: the floored gate costs nothing.** `Sensitivity 0 / StarClip 0.25 /
+PeakResponse 0.55` vs `10 / 2 / 0.75` on the same frames measured **42 s against 42 s**. The acceptance gates are
+LATE filters — they discard candidates after formation and PSF fitting — so admitting 5766 stars instead of 834
+does not cost time. The obvious explanation for the slowness is wrong.
+
+**So ~2× is attributed and the remaining ~2× is NOT**, and it cannot be recovered after the fact. The available
+circumstantial evidence is the landings themselves: run 4 moved **13** parameters including four structural/
+expensive axes (`StructureLayers`, `DefocusAwareStructure`, `NoiseReductionRadius`, `HotpixelThresholdingEnabled`)
+while run 3 moved **9** and touched none of them. More axes explored ⇒ more evaluations. **Headless at a FIXED
+budget the ordering even inverts** — 120 evals took 108 s on the 2 s frames and 150 s on the 5 s frames — which
+rules out per-evaluation cost as the whole story and points at evaluation COUNT.
+
+**Why it matters.** The objective is blind to cost: two candidate configurations scoring identically can differ by
+an order of magnitude in wall time, and nothing prefers the cheap one or reports that the search has moved into an
+expensive region. A user watching a progress bar for two hours has no way to know that a 2.5× longer exposure would
+likely have finished in a quarter of the time.
+
+**What the wizard ALREADY surfaces while it runs, checked before proposing to add any of it:** `Phase`, a
+`current/total` counter (`SetProgress`), and live `ProgressSeedJ` / `ProgressBestJ` / `ProgressSeedSigma` /
+`ProgressBestSigma` — so seed-vs-best `J` AND σ are already on screen. `CancelCommand` exists, so there is a real
+control for any abort advice to name (the house rule at `ShowOptimizeAgainAtRecommendedBinning`: never describe an
+action whose control is hidden). **What is absent is not the progress readout — it is TIME and WHY.**
+
+**Next step, in three separable pieces. (b) and (c) are the user's actual request and they have different
+readiness.**
+
+**(a) DONE 2026-08-06 (wave 8).** `StarDetectionOptimizer` emits one INFO line every **10 completed evaluations**
+(`SearchContext.ProgressEvaluationInterval`), carrying phase, evaluation count against the budget, elapsed,
+seconds-per-evaluation and the incumbent `J` — plus the cost note when one applies. Verified on the field session's
+own frames:
+
+```
+Optimizer progress: phase 'CoarseGrid',    evaluation 20/60, elapsed 00:00:23, 1.2s/evaluation, best J 0.998372
+Optimizer progress: phase 'PatternSearch', evaluation 50/60, elapsed 00:00:41, 0.8s/evaluation, best J 0.99849
+```
+
+Cache hits are excluded from the rate (they cost nothing and would flatter it), and the evaluator is timed rather
+than the surrounding bookkeeping, so `s/evaluation × remaining` is a number that means something.
+
+**(b) DONE 2026-08-06 (wave 8).** Three facts under the progress bar, none needing a statistic that does not
+already exist:
+
+1. **The RATE and a bound on what is left** — `"0.8 s per step · at most 4 min more, usually much less"`.
+   **Elapsed was already there** and is deliberately not repeated: `ProgressCountElapsedText` renders
+   `X / Y (M:SS)` one line above and re-raises every second. Checking that first is what kept this from shipping a
+   duplicate. The remaining figure is stated as an **upper bound**, because the evaluation budget is a cap the
+   search usually stops well short of (`OptimizerSettings.MaxEvaluations` records a bank-wide convergence study
+   finding it self-terminates before 400 on most runs) — a plain ETA would read as a promise and would usually be
+   far too long.
+2. **Which knob made it expensive**, quantified against **this run's own seed**: *"Searching at 8 structure layers
+   (2 deeper than this run started at), which costs roughly 4x per evaluation."* Derived from
+   `StarDetector.EffectiveStructureLayers` — extracted in this wave as the single source of truth so the readout
+   and the detector's step 4 cannot drift — against the ~2×-per-layer scaling measured above. Absent entirely when
+   the search is in a cheap region, because a readout that always says "expensive" says nothing.
+3. **What Cancel costs** — *"Cancel stops the search only. Nothing is written to your profile unless you click
+   Accept, and the frames already captured stay on disk."* Verified against the code: `Cancel()` only cancels the
+   token, and `Apply` is reachable only from Accept. The frames clause appears on live runs only.
+
+**Tests: 5 discriminating + 1 guard**, each confirmed by neutralizing the change and re-running — including one
+correction found that way: the "stays cheap" test originally claimed to discriminate against an absolute-keyed
+note and did not, because its seed sat at the shipped default of 4 where the two implementations coincide. Its
+seed now turns the donut master on (effective depth 6, `StructureLayers` still 4) so the absolute implementation
+reports "2 deeper" for a search that has not moved, and the test fails as claimed.
+
+**(c) Recommend whether to abort and re-run at a longer exposure — BLOCKED ON
+[F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one),
+and shipping it before that would be actively harmful.** This is the piece the user asked for by name. It cannot
+be built on the existing exposure statistic: on this very rig that statistic reported *"2 s (unchanged; measured
+star S/N 1438.6; target 10)"*, and wave 8's arm X measured the same saturation on `D02` (`S_now` 991.8 against a
+target of 10, raw ask **0.000 s**, while σ_focus improves 44 % at 8×). **An abort-and-re-expose prompt derived
+from `S_now` would tell precisely the users who need a longer exposure that theirs is already fine** — F19's
+defect promoted from a silent omission into an active instruction. What (c) needs is F19's outstanding half: a
+statistic that can see the WING frames (their star counts / σ contribution) rather than the 20th-brightest star of
+the whole field. Until then (b)'s facts are honest and (c)'s advice is not.
+
+**(d) Consider a cost term or an eval-time budget.** The search should not spend its budget in a region that is 4×
+the price for a fourth-decimal gain — the same shape as
+[F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains), in wall
+time instead of recall.
+Reproduce: `D:\hf_w8\field\compare_runs.sh`, `D:\hf_w8\field\cost_*.json`, `D:\hf_w8\field\gate_*.json`.
+
+### F50 — A false-negative gate count is an UPPER BOUND on what relieving that gate buys, not an estimate
+**Status:** Open · found 2026-08-06 (wave 8) refuting F46's `MinimumStarBoundingBoxSize` hypothesis · **a reading
+error, not a code defect — but every prior wave has read these tables the other way**
+
+`golden eval`'s false-negative attribution names the **first** gate a missed golden star hits. Wave 8 relieved one
+of them and measured what came back:
+
+| `D12_c14_585_afbin2` at binning 2 | `--min-box 5` (shipped) | `--min-box 2` |
+|---|---|---|
+| `REJECTED:TooSmall` | **6** | **0** |
+| `REJECTED:TooDistorted` | 19 | **22** |
+| `REJECTED:LowSensitivity` | 34 | **37** |
+| **recall@all / recall@high** | 0.675 / 0.813 | **0.675 / 0.813** |
+
+The six `TooSmall` rejections vanish and **not one star is recovered** — they fail the next gate instead. The
+result is byte-identical on every tier.
+
+**Why it matters.** Wave 7's F39(b) table, F46's entry, and the noise-clip sweep write-ups all read a gate's FN
+count as "what this gate is costing us". It is not: it is the count of stars that reach that gate first, which
+bounds the gain from above and can be an arbitrarily loose bound. A candidate that is too small is usually also
+distorted and faint — the gates are correlated because they are all measuring the same marginal blob.
+
+**Why it matters MORE than a reading habit.** `GateRecommender` recommends a threshold *per gate* from exactly
+these counts (`GateRecommender.cs:285` maps `RejectionGate.TooSmall` → `MinimumStarBoundingBoxSize`). A
+recommender driven by a bound it treats as an estimate will happily loosen a gate for no gain — and each such
+loosening is a real precision cost on some other frame.
+
+**Next step.** Attribute a false negative to the SET of gates it would have to clear, not to the first one — the
+detector already evaluates them in sequence, so the cheap version is "re-run with this gate disabled and see what
+comes back", which is what wave 8 did by hand. Until then, treat every FN-by-gate number in
+`docs/` as an upper bound and say so where it is quoted.
+Reproduce: `D:\hf_w8\p1\knob_sweep.sh` (the `p1_minbox*` arms).
+
+### F49 — The Star signal block fires on a floored gate but every remedy it owns is an EXPOSURE remedy, so a rich, well-exposed field gets a diagnosis with no instruction
+**Status:** Open · found 2026-08-06 (wave 8) from a **field report on the shipped `Default` profile**, not from the
+bank · mechanism confirmed in source
+
+The user ran the optimization wizard twice on their own rig. The second landing: **Sensitivity 15.667 → 0.000**,
+**StarClippingMultiplier 6.750 → 0.250**, stars per frame **834 → 5766** (≈ 7×), σ_focus 6.12 → 0.55. The Star
+signal block fired and said:
+
+> *"Brightness Sensitivity is at the bottom of its range (0.000): this focus result rests on low-confidence
+> detections. Star brightness is not the problem: your brightest stars measure S/N 1438.6, meeting the default S/N
+> target of 10. Brightness Sensitivity is low, so far fainter candidates are being admitted below them."*
+
+…and then stopped. **No remedy sentence at all**, on a page whose whole contract is "diagnosis plus exactly one
+instruction". The user's words: *"there's no guidance regarding how to get a better optimization with a non-zero
+sensitivity."*
+
+**Mechanism — this is structural, not a missing string.** `StarSignalCopy.RemedyFor` has exactly three ranked
+branches, and **all three are about exposure or binning**:
+
+| # | remedy | gate |
+|---|---|---|
+| 1 | change the detection binning factor first | `DetectionBinningDiffers && IncreasesExposure` |
+| 2 | auto-focus through a broadband filter instead | `HasRecommendation && !ExposureIsNotTheLimit && !IncreasesExposure` |
+| 3 | get frames at the longer exposure | `IncreasesExposure` |
+
+On this run `ExposureIsNotTheLimit` is **true** (S/N 1438.6 against a target of 10; the row reads "2 s
+(unchanged)"), so `IncreasesExposure` is false and branch 2's `!ExposureIsNotTheLimit` is false. **Every branch
+falls through and the method returns `string.Empty`.**
+
+**Why it matters.** The block's TRIGGER is `OptimizationSummary.HasLowStarSignal` — the Sensitivity gate alone —
+while its CONTENT is exposure-only. So on a **rich, well-exposed field where the optimizer CHOSE a floor gate**,
+the trigger fires, the copy correctly says brightness is not the problem, and then the block has structurally
+nothing to offer. Worse, **there is no user lever even if it had one to name**:
+[F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains)'s
+`OptimizerSettings.MinDetectionKeepFraction` has **no XAML binding anywhere** — it is `--keep-floor` on the harness
+only — and the search's Sensitivity lower bound is not exposed either. (Note the keep floor would not have bound
+here in any case: it rejects candidates keeping LESS than φ of the seed's stars, and this landing keeps ~7× MORE.
+The pathology is admission, not shedding — the *other* end of the same axis, which F32 has never measured.)
+
+**This is the exact MIRROR of [F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one).**
+F19 is the block staying **silent** on a population that would benefit from what it knows; this is the block
+**speaking** to a population it cannot help. Both say the same thing one level up: **the block's trigger and the
+block's content are keyed to two different quantities**, and any fix to F19's trigger must not deepen this.
+
+**Also in the same report, and separable: the step recommender widened again, from a NARROW sweep.** 214 → **459**,
+labelled *"capped by this sweep's width; re-run auto-focus to refine"*. The arithmetic checks out from the
+screenshot's own focuser axis — 11 points at spacing 214 ⇒ sampled half-span 1070; `MaxHalfWidthSampledHalfSpanMultiple
+= 1.5` ⇒ 1605; 1605 / 3.5 = 458.6 → **459** — so the cap BOUND, i.e. the recommender wanted more still. The cause
+is visible in the curve: HFR runs from ≈1.9 px at minimum to ≈3.5 px at the edges, so the sweep never reaches
+`3 × HFR_min ≈ 5.7 px` and `FindHalfWidth` extrapolates on every run. It will therefore ask to widen on **every**
+run until the sweep actually reaches 3×, and **nothing on the page says that this terminates, or after how many
+runs**. This is the same instability
+[F21](#f21--stepsizerecommenders-half-width-is-not-stable-against-noise-even-at-r--10000) names, approached from
+the narrow side rather than [F25](#f25--from-a-far-too-wide-sweep-the-step-recommender-widens-it-further-instead-of-recovering)'s
+wide side, and the user experienced it as a runaway rather than as convergence.
+
+**Next step.** Three separable pieces. **(a)** Give the floored-gate + `ExposureIsNotTheLimit` state a remedy of
+its own — the honest one names the gate, not the exposure ("the optimizer lowered the acceptance gate to admit
+~7× more candidates; set Brightness Sensitivity by hand and re-run in Current mode to compare"). **(b)** Decide
+whether a user-facing floor on the search's Sensitivity (or F32's keep fraction, exposed) is the right lever, since
+today there is none. **(c)** When the step recommendation is capped by the sweep width, say what it is converging
+TOWARD (`3 × HFR_min`) and that the cap means "partial step, this will take another run" — the exposure
+recommender's own `MaxExposureFactor` copy already sets that precedent verbatim ("Run again to refine").
+Reproduce: field report, `Default` profile, 2026-08-06; wizard screenshot in the wave-8 thread.
 
 ---
 

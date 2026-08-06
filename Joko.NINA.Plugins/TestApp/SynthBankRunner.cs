@@ -370,6 +370,14 @@ namespace TestApp.SynthBank {
                 : $"{expectedOptimal.ExposureSeconds:0.###}s (band {expectedOptimal.ExposureBandLowSeconds:0.###}-{expectedOptimal.ExposureBandHighSeconds:0.###}s)";
             Prog($"[{dataset.Id}] step*={expectedOptimal.StepSizeSteps} steps  exposure={exposureText}  " +
                 $"detectionBinning={expectedOptimal.DetectionBinning}  donut={expectedOptimal.DonutDetection}");
+            // F19(b): printed on its OWN line, never appended to the step*/exposure line above -- that line is the
+            // derived-parameter control every wave diffs against develop, and a reporting addition must not show up
+            // in it as if the physics had moved.
+            if (TestApp.SynthBank.ExposureClamp.Saturated(expectedOptimal.ExposureClamp)) {
+                Prog($"    exposure SATURATED at the {expectedOptimal.ExposureClamp}: solve asked for "
+                    + $"{expectedOptimal.ExposureRawSeconds:0.###}s, reported {expectedOptimal.ExposureSeconds:0.###}s "
+                    + "(the clamp, not a derived value)");
+            }
             if (double.IsFinite(expectedOptimal.DetectableHalfWidthSteps)) {
                 Prog($"    W_detect*={expectedOptimal.DetectableHalfWidthSteps:0} steps");
             }

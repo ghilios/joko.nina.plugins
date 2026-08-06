@@ -168,11 +168,22 @@ namespace TestApp {
             // every optimize and every golden eval over both banks has run at the default of 1 while seven synthetic
             // datasets record — and were rendered for — a factor of 2.
             //
-            // Deliberately ONLY the binning, and deliberately opt-in. Making the whole per-run Resolved authoritative
-            // would let a per-run settings file shadow the --settings file every arm pins (F42), which would break the
-            // comparability of every arm this project has run. Absent, the run is bit-identical to before this flag
-            // existed — the same one-binary-is-both-arms shape as --keep-floor and --no-min-hfr-seed above (F41).
-            bool applyRunDetectionBinning = DiagnosticUtil.HasFlag(args, "--apply-run-detection-binning");
+            // Deliberately ONLY the binning. Making the whole per-run Resolved authoritative would let a per-run
+            // settings file shadow the --settings file every arm pins (F42), which would break the comparability of
+            // every arm this project has run.
+            //
+            // ADOPTED AS THE DEFAULT in wave 8. Wave 7 measured it opt-in: overall recall up on 7 of 7 (+0.087 …
+            // +0.146) at precision 1.000, LowSensitivity false negatives collapsing 184 → 4 on the worst case, and
+            // sigma_focus — which is what autofocus is FOR — improving on 7 of 7 by 17% to 95% (D17: 2.65 focuser
+            // steps of uncertainty to 0.12). Seven datasets had been scored for their entire existence at a factor
+            // their own physics says is wrong, and the frames do not move either way (detectionBinning enters no
+            // render input; their exposures were ALREADY derived at binning 2).
+            //
+            // --no-run-detection-binning is the opt-out, and it exists so every arm this project has already run
+            // stays reproducible on a current binary (F41: rebuilding an old commit to get a control arm is not a
+            // control, because every merge in between rides along). --apply-run-detection-binning is still accepted
+            // and is now a no-op, so wave 7's scripts keep working and keep meaning what they said.
+            bool applyRunDetectionBinning = !DiagnosticUtil.HasFlag(args, "--no-run-detection-binning");
 
             var labelsDir = DiagnosticUtil.GetArg(args, "--labels");
 
@@ -362,9 +373,9 @@ namespace TestApp {
                 NoMinHfrSeed = noMinHfrSeed,
                 ApplyRunDetectionBinning = applyRunDetectionBinning
             };
-            if (applyRunDetectionBinning) {
-                Console.WriteLine("--apply-run-detection-binning: F39(b) — each per-run dataset is DETECTED at its own binning factor");
-            }
+            Console.WriteLine(applyRunDetectionBinning
+                ? "detection binning (F39b): each per-run dataset is DETECTED at its own derived binning factor (default; --no-run-detection-binning opts out)"
+                : "--no-run-detection-binning: F39(b) DISABLED — every run detects at factor 1 (the pre-wave-8 status quo)");
             if (noMinHfrSeed) {
                 Console.WriteLine("--no-min-hfr-seed: F35 MinHFR seeding DISABLED (pre-F35 control arm)");
             }
@@ -1020,17 +1031,26 @@ namespace TestApp {
                 .Where(t => Math.Abs(t.Cur - t.Best) > 1e-9)
                 .ToList();
 
-            // Exposure-time recommendation (T8): only computed when the WINNING run's landed Sensitivity gate is at
-            // the optimizer's search floor (signal-starved frames) — a healthy run gets a one-line "not at floor"
-            // instead (see WriteAggregateSummary). Same metrics/constants the run was scored with: bestM is this
+            // Exposure-time recommendation (T8). Computed for EVERY run, whether or not the landed Sensitivity gate
+            // sits at the optimizer's search floor. Same metrics/constants the run was scored with: bestM is this
             // run's own RunEvaluationMetrics, outcome.ObjectiveConstants is the objective the optimizer actually
             // searched against (NTarget included), and run.CapturedExposureSeconds is the exposure its frames were
             // shot with (NaN when the header carried none -- ExposureRecommender then reports no recommendation).
+            //
+            // F19: this used to be gated on `sensitivityAtFloor`, mirroring the product's own display trigger
+            // (OptimizationSummary.HasLowStarSignal). That made the harness unable to answer the question F19
+            // actually turns on -- "what WOULD the block say on a run where it never fires?" -- because on those
+            // runs the field was null and nothing had been measured. Wave 7's arm E found D02_rich_135mm gaining
+            // 44% of sigma_focus at 8x its derived exposure with Sensitivity landing at 9-49, i.e. the exposure
+            // advice is silent on exactly the population that loses; deciding whether widening the TRIGGER would
+            // publish a true answer or a false one requires the number the trigger was suppressing.
+            // GATE THE DISPLAY, NEVER THE MEASUREMENT. `SensitivityIsAtFloor` is still recorded beside it, so every
+            // consumer that wants the product's trigger semantics still has them, and the report text below is
+            // unchanged in what it CLAIMS -- it now also says what was measured rather than only "n/a".
             var landedSensitivity = outcome.Result.BestParams.Sensitivity;
             var sensitivityAtFloor = ExposureRecommender.SensitivityIsAtFloor(landedSensitivity);
-            var exposureRecommendation = sensitivityAtFloor
-                ? ExposureRecommender.Recommend(bestM, outcome.ObjectiveConstants, run.CapturedExposureSeconds, outcome.Result.BestParams)
-                : null;
+            var exposureRecommendation = ExposureRecommender.Recommend(
+                bestM, outcome.ObjectiveConstants, run.CapturedExposureSeconds, outcome.Result.BestParams);
 
             return new AggregateRow {
                 RunId = runId,
@@ -1104,7 +1124,15 @@ namespace TestApp {
             sb.AppendLine($"{indent}sensitivity : {F(brightnessSensitivity)} (effective gate {F(effectiveSensitivityGate)})"
                 + (sensitivityIsAtFloor ? "  (AT SEARCH FLOOR -- frames may be signal-starved)" : ""));
             if (!sensitivityIsAtFloor) {
-                sb.AppendLine($"{indent}exposure rec: n/a (Sensitivity is not at the search floor)");
+                // F19: the recommendation is now MEASURED on every run (see BuildAggregateRow), so this line reports
+                // what it says as well as the fact that the product would not surface it. "n/a" alone was the
+                // harness reproducing the product's blind spot instead of measuring it.
+                sb.AppendLine(rec == null || !rec.HasRecommendation
+                    ? $"{indent}exposure rec: not surfaced (Sensitivity is not at the search floor); no recommendation computable"
+                    : $"{indent}exposure rec: NOT SURFACED (Sensitivity is not at the search floor) -- would say "
+                        + $"{F(rec.CurrentSeconds)}s -> {F(rec.RecommendedSeconds)}s (increases={rec.IncreasesExposure}, "
+                        + $"raw={F(rec.RawSeconds)}s, S_now={F(rec.MeasuredSnr)}, notTheLimit={rec.ExposureIsNotTheLimit}, "
+                        + $"starCountIsTheLimit={rec.StarCountIsTheLimit}, exhausted={rec.StarFieldIsExhausted}, capped={rec.WasCapped})");
                 return;
             }
             if (rec == null || !rec.HasRecommendation) {

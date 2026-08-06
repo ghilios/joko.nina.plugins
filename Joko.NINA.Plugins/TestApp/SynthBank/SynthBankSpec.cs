@@ -190,6 +190,26 @@ namespace TestApp.SynthBank {
         /// <summary>Human-readable statement of exactly what was solved for and against which star/frame — see <see cref="SynthBankDerivations.DeriveExposureBand"/>.</summary>
         [JsonProperty("exposureDefinition")] public string ExposureDefinition { get; set; }
 
+        /// <summary>
+        /// F19(b) — the PRE-CLAMP solve, before <c>[MinExposureSeconds, MaxRecommendedExposureSeconds]</c> and the
+        /// ladder rounding. <see cref="double.NaN"/> when nothing was derived.
+        ///
+        /// <para>Recorded because a clamped value and a free solution inside the band are reported identically by
+        /// <see cref="ExposureSeconds"/> and are not the same fact. On <c>D02_rich_135mm</c> the solve asks for far
+        /// less than the 0.5 s floor: the stored exposure is the floor, the stored band collapses to [0.5, 0.5],
+        /// and the arithmetic carried no information — which is exactly the population wave 7's arm E measured
+        /// gaining 44% of σ_focus at 8× that "derived" exposure.</para>
+        /// </summary>
+        [JsonProperty("exposureRawSeconds")] public double ExposureRawSeconds { get; set; } = double.NaN;
+
+        /// <summary>
+        /// F19(b) — which bound, if any, decided <see cref="ExposureSeconds"/>: <c>none</c> (a free solution inside
+        /// the band), <c>floor</c>, <c>ceiling</c>, or <c>not-derived</c>. A FIELD rather than only prose inside
+        /// <see cref="ExposureDefinition"/>, for the reason F39(a) added <c>DetectionBinningSource</c>: a reader
+        /// diffs fields, and nobody diffs a sentence.
+        /// </summary>
+        [JsonProperty("exposureClamp")] public string ExposureClamp { get; set; }
+
         /// <summary>Physics step* (focuser steps), <see cref="SynthBankDerivations.DeriveStepSize"/>.</summary>
         [JsonProperty("stepSizeSteps")] public int StepSizeSteps { get; set; }
 
