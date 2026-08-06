@@ -1195,6 +1195,54 @@ does not address the defect (only `mccomiskey` binds, and it pays). **Adoption s
 by keep-% proxy here. Ships default OFF until then. Reproduce: `D:\hf_w5\f32_arms.sh`,
 `D:\hf_w5\scorecard.py`, `D:\hf_w5\score_f32_synth.sh`.
 
+**CONFIRMATION ARM RE-VALIDATED AS THE RIGHT EXPERIMENT (wave 6), against a pre-registered alternative.** Before
+spending ~6 h, the competing hypothesis was tested: if the unconstrained search is merely *stuck*, any RESTART
+should recover the floor's gain with no floor at all. `--continue-rounds` already is that mechanism — each round
+re-seeds from the prior best with a **fresh** curated set, resetting the pattern-search stride. **Arm R:** the same
+8 runs, `--continue-rounds 2`, **no keep floor**, same binary, `--settings` pinned.
+
+**First, the control.** Arm R's round 0 is **identical to wave 5's feature-OFF arm on all 8 runs, to 6 dp** —
+0.997993 / 0.998476 / 0.996368 / 0.997195 / 0.994025 / 0.999822 / 0.999557 / 0.999766. Two waves, two binaries,
+one pinned settings file, byte-identical landings. [F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)'s
+check passing this cleanly is what makes the rest of the table readable.
+
+| run | round 0 (= wave-5 OFF) | **Arm R final** | Δ from restarts | wave-5 φ=0.75 | Δ from the floor | **restarts recover** |
+|---|---|---|---|---|---|---|
+| `toml999` | 0.997993 | 0.998068 | +0.000075 | 0.998536 | +0.000543 | **13.8%** |
+| `CWhiteFocus` | 0.998476 | 0.998650 | +0.000174 | 0.999867 | +0.001391 | **12.5%** |
+| `uneven` | 0.996368 | 0.996745 | +0.000377 | 0.998014 | +0.001646 | **22.9%** |
+| `D18_m24_deep_shed` | 0.999822 | 0.999855 | +0.000033 | 0.999914 | +0.000092 | **35.9%** |
+| `D19_cygnus_deep_shed` | 0.999557 | 0.999557 | 0 | 0.999800 | +0.000243 | **0%** |
+| `muggsie` | 0.997195 | 0.997195 | 0 | 0.994854 | **−0.002341** | floor HURT |
+| `mccomiskey` | 0.994025 | **0.997394** | **+0.003369** | 0.963058 | **−0.030967** | floor HURT |
+| **`D20` (control)** | 0.999766 | 0.999768 | +0.000002 | 0.999766 | 0 | — |
+
+**Three findings, and they are not the same finding.**
+
+1. **The greedy trap is CONFIRMED as a fact, not an inference.** With no constraint whatsoever, simply restarting
+   improves `J` on **5 of 8** runs. A converged global optimum cannot be improved by re-seeding from itself, so
+   round 0 demonstrably was not one. This is the same phenomenon as
+   [F8](#f8--optimizer-landings-are-not-reproducible-across-invocations) — a landing is a property of the
+   trajectory, not of the objective.
+2. **But restarting is NOT a substitute for the floor.** On the five runs where the floor helped, restarts recover
+   **0–36% (median 13.8%)** of the floor's gain. A restart changes the *trajectory*; the floor changes the
+   *feasible set*, and it reaches a region three restarts do not find. **So the pre-registered rule fires:
+   recovery < 50% on 5 of 5 → keep the confirmation arm as designed, at φ = 0.50.**
+3. **The floor's two failures are exactly where restarts do best.** `mccomiskey` — the worst floor case at −0.031 —
+   *gains* +0.0034 from restarts alone, and `muggsie` (−0.0023 under the floor) is untouched by them. The two
+   mechanisms are complementary rather than competing, so **the confirmation arm should carry a third
+   `--continue-rounds` arm** rather than being floor-vs-nothing. That is a change to the experiment, and it costs
+   one more arm, not six hours more.
+
+> **Instrument caveat found while reading Arm R, and it would have inverted the result.** The end-of-run
+> `detections kept vs seed` line reads **≈ 1.0 in every multi-round run** (`toml999` 1.00069, `CWhiteFocus`
+> 1.00259) — which looks like "the unconstrained search stopped shedding entirely" and is nothing of the sort.
+> `DetectionKeepBaselineTotals` is pinned to round 0's seed **only when a floor is set** (`:690`), so with no floor
+> each round's keep is measured against *that round's own seed* — the last round barely moves, so the ratio is ~1.
+> Round 0's true keep is wave 5's control column (0.397, 0.429, 0.353, 0.612, 0.095). **A diagnostic whose meaning
+> silently changes with an unrelated flag is worse than an absent one**; the pinning should apply to the readout
+> whether or not a floor is in force. Reproduce: `D:\hf_w6\f32_armR.sh`.
+
 ### F33 — ~~The synthetic bank does not reproduce the real bank's optimizer failure mode~~ → it does now
 **Status:** Done (part 1 wave 3, part 2 wave 4) · found 2026-08-03 re-reading the wave-1 arms side by side
 
@@ -2102,15 +2150,17 @@ the cause.
 **And the rejection itself is the more serious half.** The weighted residuals the Grubbs test ranks, on a fit with
 R² = 0.9994:
 
-| position | residual | weighted | Grubbs z |
+| position | residual (px) | weighted | Grubbs z |
 |---|---|---|---|
-| **25000** | **+0.0345** | +0.199 | **2.60** ← rejected |
-| 24940 | +0.0116 | +0.193 | **2.54** ← also over the limit |
-| every other point | ≤ 0.034 | ≤ 0.17 | ≤ 1.7 |
+| **25000** | **+0.0345** | +0.1987 | **2.5804** ← rejected |
+| 24940 | +0.0116 | +0.1934 | **2.5277** ← also over the limit |
+| 24970 (next highest) | −0.0321 | −0.1728 | 1.1714 |
+| every other point | ≤ 0.034 | ≤ 0.14 | ≤ 0.84 |
 
-The limit at N = 10, confidence 0.99 is **2.41**. Two points clear it and the larger wins. The scale is the **MAD
-of the weighted residuals** (`MathUtility.cs:163`) — deliberately robust — but on an *excellent* fit the residuals
-are both tiny and tightly clustered, so MAD collapses and ordinary scatter reads as a 2.6σ outlier. The rejected
+The limit at N = 10, confidence 0.99 is **2.4821**; the scale is `median = −0.0569`, `MAD = 0.0990`. Two points
+clear the limit and the larger wins. The scale is the **MAD of the weighted residuals** (`MathUtility.cs:163`) —
+deliberately robust, and correctly so against a gross outlier — but on an *excellent* fit the residuals are both
+tiny and tightly clustered, so the MAD collapses and ordinary scatter reads as a 2.58σ outlier. The rejected
 point's residual is **0.0345 px against its own measurement error of 0.174 px**: it is consistent with the curve
 to a fifth of its own error bar, and is discarded as an outlier anyway.
 

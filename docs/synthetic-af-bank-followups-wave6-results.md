@@ -19,6 +19,7 @@ re-baseline says the headline survives — and that **one of the two rows was ne
 | F42 — make the trap impossible | **Shipped**: per-user default path, loud bootstrap, and a `UseAdvanced=False` warning that names the knobs the file is lying about |
 | F39 (a) | **Shipped** — `DetectionBinningSource` is a field now, not a sentence. Part (b) deliberately NOT paired with this wave |
 | F43 replay | **Decided**: extend the rescue, but its premise-breaking evidence and a UI answer come first |
+| F32 — is the ~6 h arm still right? | **Yes, tested not argued.** Restarts alone recover only **0–36%** of the floor's gain, so the arm stands — but the greedy trap is now a measured fact, and the arm gains a restart arm |
 | F45 (new) | The Grubbs test **rejects the in-focus point** of a curve fitting at R² 0.9994, and the blind walk then buys an extra exposure |
 
 ## The re-baseline, and the row that never needed one
@@ -148,6 +149,52 @@ refusal path changes. **Not shipped in wave 6**, because a replay whose baseline
 improve on, which is UI work with its own review. Replacing a confusing refusal with a confusing result is not
 progress.
 
+## F32 — the confirmation arm is still the right experiment, tested rather than argued
+
+Wave 5 found the keep floor landing at a *higher* `J` than the unconstrained search on 5 of 7 binding runs, which
+a constrained maximum cannot do against a true global maximum — so the floor might have been a workaround for a
+stuck search rather than the feasibility bound it was designed as. Before spending ~6 h on the confirmation arm,
+the competing hypothesis got a 1.5 h test with a **pre-registered decision rule**: if the search is merely stuck,
+a RESTART should recover the floor's gain with no floor at all. `--continue-rounds` already is that mechanism.
+
+**Arm R** — the same 8 runs, `--continue-rounds 2`, **no keep floor**, one binary, `--settings` pinned.
+
+**The control first.** Arm R's round 0 is **identical to wave 5's feature-OFF arm on all 8 runs, to 6 dp**. Two
+waves, two binaries, one pinned settings file, byte-identical landings — which also proves this wave's TestApp
+changes are inert when their flags are absent.
+
+| run | round 0 (= wave-5 OFF) | Arm R final | Δ restarts | wave-5 φ=0.75 | Δ floor | **restarts recover** |
+|---|---|---|---|---|---|---|
+| `toml999` | 0.997993 | 0.998068 | +0.000075 | 0.998536 | +0.000543 | **13.8%** |
+| `CWhiteFocus` | 0.998476 | 0.998650 | +0.000174 | 0.999867 | +0.001391 | **12.5%** |
+| `uneven` | 0.996368 | 0.996745 | +0.000377 | 0.998014 | +0.001646 | **22.9%** |
+| `D18` | 0.999822 | 0.999855 | +0.000033 | 0.999914 | +0.000092 | **35.9%** |
+| `D19` | 0.999557 | 0.999557 | 0 | 0.999800 | +0.000243 | **0%** |
+| `muggsie` | 0.997195 | 0.997195 | 0 | 0.994854 | **−0.002341** | floor HURT |
+| `mccomiskey` | 0.994025 | **0.997394** | **+0.003369** | 0.963058 | **−0.030967** | floor HURT |
+| **`D20` control** | 0.999766 | 0.999768 | +0.000002 | 0.999766 | 0 | — |
+
+**The greedy trap is now a fact rather than an inference:** with no constraint at all, restarting improves `J` on
+**5 of 8** runs, and a converged global optimum cannot be improved by re-seeding from itself. That is the same
+phenomenon as [F8](followups.md) — a landing is a property of the trajectory, not of the objective.
+
+**But restarting is not a substitute for the floor.** On the five runs where the floor helped, restarts recover
+**0–36% (median 13.8%)**. A restart changes the trajectory; the floor changes the feasible set and reaches a
+region three restarts do not find. **The pre-registered rule fires — recovery < 50% on 5 of 5 — so F32's
+confirmation arm stands as designed, at φ = 0.50.**
+
+**With one change to the experiment.** The floor's two failures are exactly where restarts do best:
+`mccomiskey`, the worst floor case at −0.031, *gains* +0.0034 from restarts alone. The mechanisms are
+complementary, so the confirmation arm should carry a third `--continue-rounds` arm rather than being
+floor-vs-nothing. That costs one arm, not another six hours.
+
+**An instrument caveat that would have inverted the reading.** The end-of-run `detections kept vs seed` line reads
+**≈ 1.0 in every multi-round run** — which looks like "the unconstrained search stopped shedding" and is nothing of
+the sort. `DetectionKeepBaselineTotals` is pinned to round 0's seed **only when a floor is set**, so with no floor
+each round's keep is measured against that round's own seed, and the last round barely moves. Round 0's true keep
+is wave 5's control column (0.397, 0.429, 0.353, 0.612, 0.095). Filed in F32: a diagnostic whose meaning silently
+changes with an unrelated flag is worse than an absent one.
+
 ## F45 — the blind walk extends one step past its own data
 
 From a real 40 mm simulator run: the engine queued its last sweep point from an "established minimum" of **25015**
@@ -165,8 +212,9 @@ on the **post-Grubbs-rejection** set, and the rejected point is the **in-focus o
 
 And the rejection is the more serious half: on a fit with **R² = 0.9994**, the vertex point's residual is 0.0345 px
 against its own measurement error of **0.174 px** — consistent with the curve to a fifth of its own error bar — and
-it is discarded because `RejectionTest` scales by the **MAD of the weighted residuals**, which collapses precisely
-when the fit is good. Full numbers, and the three separable fixes (none taken), in [F45](followups.md).
+it is discarded because `RejectionTest` scales by the **MAD of the weighted residuals** (here 0.0990), which
+collapses precisely when the fit is good: its Grubbs z is **2.5804** against a limit of **2.4821**, and the next
+point down sits at 1.17. Full numbers, and the three separable fixes (none taken), in [F45](followups.md).
 
 ## Lessons
 
@@ -190,6 +238,30 @@ It is also why F39 part (b) was refused — it would have moved a second variabl
 **5. A warning that names the specific keys beats a warning that names the hazard.** The `UseAdvanced=False` check
 diffs the file's own bag against what the options class does with it, so it reports *"`MinHFR 0.1→1.2`"* rather
 than *"advanced knobs may be overridden"* — and it cannot drift when the presets change.
+
+**6. Test the competing hypothesis before funding the expensive experiment — with the rule written first.** The
+question "is F32's ~6 h arm still the right one?" was settled in 1.5 h by an arm with a decision rule fixed in
+advance. Had restarts recovered most of the floor's gain, six hours would have been spent measuring a workaround;
+they recovered a median 13.8%, so the arm stands *and* comes back better specified than before.
+
+**7. A diagnostic that changes meaning with an unrelated flag is worse than no diagnostic.** Arm R's keep readout
+says ≈ 1.0 in every multi-round run, which reads as "the search stopped shedding" and means "the last round did
+not move much" — because the baseline pinning is conditional on a floor being set. It was caught only by
+disbelieving a number that agreed too well with the hypothesis under test.
+
+## What this wave changed in the banks themselves (F15)
+
+`optimize --per-run` writes each landing back into the run folder, so a wave that runs arms re-baselines the banks'
+stored settings whether it means to or not. Recorded rather than discovered later:
+
+| folder(s) | now holds | why that is the right one to leave |
+|---|---|---|
+| `D01`, `D02`, `D03`, `D05` | this wave's **seeded** landing (the shipping default) | the arms were deliberately ordered so the canonical arm runs LAST for each dataset |
+| `toml999`, `CWhiteFocus`, `uneven`, `muggsie`, `mccomiskey`, `D18`, `D19`, `D20` | Arm R's **3-round, no-floor** landing | it is a legitimate current landing, but it is NOT the single-pass one those folders held before |
+
+Every one carries its own `Provenance.CommandLine` ([F30](followups.md)), so which arm produced it is readable
+from the file rather than inferred. Old `D01`/`D02` frames and their pre-wave metadata are preserved at
+`D:\hf_w6\oldframes` and `D:\hf_w6\snapshots`.
 
 ## Verification
 
