@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using NINA.Core.Enum;
 using NINA.Core.Model;
 using NINA.Core.Utility;
@@ -87,7 +88,29 @@ public class HocusFocusVMChartReloadTests {
             MeasurePoints = Array.Empty<FocusPoint>()
         };
         var name = $"{(fileNameStamp ?? timestamp):yyyy-MM-dd--HH-mm-ss}--90d513b9-bd75-41db-9250-6f7b15b4ba3d.json";
-        File.WriteAllText(Path.Combine(reportDir, name), JsonConvert.SerializeObject(report, Formatting.Indented));
+        File.WriteAllText(Path.Combine(reportDir, name), SerializeLikeProduction(report));
+    }
+
+    /// <summary>
+    /// Serializes a report the way <c>HocusFocusVM.GenerateReport</c> actually does — INCLUDING the option blocks.
+    ///
+    /// <para>This exists because omitting them is what hid a total failure of the loaded-report lookup. Those three
+    /// properties are interface-typed (<c>IStarDetectionOptions</c> / <c>IAutoFocusOptions</c> /
+    /// <c>IFocuserSettings</c>), so Newtonsoft can serialize them and CANNOT construct them on the way back: a real
+    /// report threw "Could not create an instance of type ... Type is an interface or abstract class", the source
+    /// caught it and returned null, and every info row collapsed. A fixture that writes reports the production
+    /// writer would never produce cannot catch that, and did not — for a whole release.</para>
+    ///
+    /// <para>The blocks are injected as raw JSON rather than as real option objects on purpose: the point is to
+    /// reproduce the on-disk SHAPE, and binding to the concrete option types would make this fixture depend on
+    /// their constructors instead of on the format under test.</para>
+    /// </summary>
+    private static string SerializeLikeProduction(HocusFocusReport report) {
+        var json = JObject.Parse(JsonConvert.SerializeObject(report, Formatting.Indented));
+        json["HocusFocusStarDetectionOptions"] = new JObject { ["PersistToProfile"] = true, ["NoiseReductionRadius"] = 3 };
+        json["HocusFocusAutoFocusOptions"] = new JObject { ["PersistToProfile"] = true, ["MaxConcurrent"] = 0 };
+        json["FocuserOptions"] = new JObject { ["AutoFocusStepSize"] = 50, ["AutoFocusInitialOffsetSteps"] = 4 };
+        return json.ToString();
     }
 
     // Seeds the VM the way a completed live run leaves it: every measured point mirrored into the

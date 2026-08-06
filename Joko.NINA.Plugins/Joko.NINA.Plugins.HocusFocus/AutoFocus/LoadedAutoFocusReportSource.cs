@@ -114,9 +114,35 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        /// <summary>
+        /// <see cref="HocusFocusReport"/> is WRITE-ONLY as a whole: it carries <c>HocusFocusStarDetectionOptions</c>
+        /// (<c>IStarDetectionOptions</c>), <c>HocusFocusAutoFocusOptions</c> (<c>IAutoFocusOptions</c>) and
+        /// <c>FocuserOptions</c> (<c>IFocuserSettings</c>), and Newtonsoft cannot construct an interface. A plain
+        /// <c>DeserializeObject&lt;HocusFocusReport&gt;</c> of a REAL report therefore throws
+        /// <c>"Could not create an instance of type ... Type is an interface or abstract class"</c> — every time,
+        /// for every report this plugin has ever written.
+        ///
+        /// <para><b>This is why the loaded-run info rows never worked in the field</b> while their tests passed:
+        /// the test fixture built reports without those three option blocks, so its JSON had nothing unreadable in
+        /// it and the production writer's output was never round-tripped by anything.</para>
+        ///
+        /// <para>The handler skips a member it cannot construct and carries on, which is exactly right HERE: this
+        /// read wants <c>Timestamp</c>, <c>InitialFocusPoint</c> and <c>FinalHFR</c>, and the option blocks are
+        /// diagnostics for a human reading the file. A partially-populated object is safe by construction because
+        /// the caller still requires an EXACT <c>Timestamp</c> match before using it, and every value resolver
+        /// treats missing or non-finite as "not recorded" and collapses the row.</para>
+        ///
+        /// <para>Deliberately NOT fixed by changing what is WRITTEN: the option blocks are the record of how a run
+        /// was configured, and dropping or retyping them would rewrite the on-disk format and lose that for every
+        /// future report to fix a reader.</para>
+        /// </summary>
+        private static readonly JsonSerializerSettings ReadSettings = new JsonSerializerSettings {
+            Error = (_, args) => args.ErrorContext.Handled = true
+        };
+
         private static HocusFocusReport Deserialize(string path) {
             try {
-                return JsonConvert.DeserializeObject<HocusFocusReport>(File.ReadAllText(path));
+                return JsonConvert.DeserializeObject<HocusFocusReport>(File.ReadAllText(path), ReadSettings);
             } catch (Exception) {
                 // One unreadable/half-written report must not stop the scan reaching the right one.
                 return null;
