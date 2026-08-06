@@ -2815,6 +2815,111 @@ flag staying default OFF is better supported than wave 7 stated, not worse.
 Part (b) — state the statistic over the cells that can move — is now a standing rule in the wave design template.
 Reproduce: `D:\hf_w8\f48_rescore.py`.
 
+### F51 — "Capture a new sweep and optimize" is gated on the EXPOSURE recommendation, so it hides exactly when the run needs re-running — and it would not carry the new step size anyway
+**Status:** Open · found 2026-08-06 (wave 8) from the same field session as
+[F49](#f49--the-star-signal-block-fires-on-a-floored-gate-but-every-remedy-it-owns-is-an-exposure-remedy-so-a-rich-well-exposed-field-gets-a-diagnosis-with-no-instruction) ·
+mechanism confirmed in source
+
+The user's session, from the NINA log — four wizard runs, each one told to widen by the previous one:
+
+| run | step | exposure | recommended next | outcome |
+|---|---|---|---|---|
+| 12:30 | 100 | 2 s | **214** | accepted, ~38 min |
+| 13:10 | 214 | 2 s | **459** (*"capped by this sweep's width"*) | accepted at **Sensitivity 0.000**, ~52 min |
+| 14:03 | 459 | **5 s** | 474 | good landing, Sensitivity 2.5, ~30 min |
+| 14:36 | 459 | 2 s | 482 | **~2 hours** |
+
+**The user had to Accept a landing they did not want, twice, in order to re-run with a wider sweep.** Their words:
+*"Ideally that shows up as an option to re-run entirely with the updated value without having to accept or go back
+(which is what happened here)."*
+
+**The action they wanted EXISTS — `CaptureNewSweepCommand` — and was hidden.**
+
+```csharp
+public bool ShowCaptureNewSweep =>
+    HasExposureBlock && lastRunWasLive && !IsUseCurrentMode
+    && (SelectedSummary?.ExposureAdvice?.IncreasesExposure ?? false);
+```
+
+On run 2 the first three conjuncts were true (the gate was floored at 0.000, the run was live, the mode was
+Optimize) and **`IncreasesExposure` was false** — the exposure row read *"2 s (unchanged; measured star S/N
+1438.6; target 10)"*. So the button was hidden. **That is [F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one)
+on live hardware:** `S_now = 1438.6` against a target of 10 is the same saturation wave 8 measured on `D02`
+(991.8 vs 10). F19's defect does not merely silence a *recommendation* — it removes the *button*.
+
+**And even had it been visible it would not have solved this.** `RunLiveAttemptAsync` overrides only
+`OverrideAutoFocusExposureTime` (plus focus-recovery steps) and takes everything else from
+`autoFocusEngine.GetOptions()`, i.e. **the profile's step size**. So the re-capture path carries the exposure
+recommendation and **not the step-size recommendation** — the one that was actually asking to change on every run
+of this session. There is no re-run-at-the-recommended-step path at all; Accept-then-restart is the only one, which
+is exactly what the user did.
+
+**Why it matters.** The step recommender is explicitly a converge-over-runs mechanism (its own copy says *"re-run
+auto-focus to refine"*), and the wizard has no affordance for the iteration it prescribes. Each cycle costs a full
+sweep plus an optimization — here 30–120 minutes — and forces the user to write a landing they may not want into
+their profile to get it. Note run 2's Accept is how `Sensitivity 0.000` reached the profile in the first place,
+which is why runs 3 and 4 both show `Current` Sensitivity 0.000.
+
+**Next step.** (a) Gate `ShowCaptureNewSweep` on *any* material recommendation — exposure **or** step size — rather
+than on `IncreasesExposure` alone. (b) Make the re-capture apply the recommended **step size** as well as the
+exposure, or say plainly that it will not. (c) Neither should require Accept: re-capturing is not adopting.
+Reproduce: NINA log `20260806-122836-3.3.0.1048.73484-202608.log`; frames in `E:\AutoFocusSaves\`.
+
+### F52 — A two-hour optimization logs ONE line and offers no cost context, and the search is not cost-aware
+**Status:** Open · found 2026-08-06 (wave 8) from the same field session · partly measured, partly **unmeasurable
+after the fact, which is the finding**
+
+Run 4 (step 459, 2 s) ran from 14:38:11 to past 16:30 — **over two hours**. Run 3, on the **same step size, same
+sweep geometry, same 11 frames, same rig, same night, differing only in exposure (5 s)**, took ~30 minutes.
+
+**Between `Loaded saved AF run …` at 14:38:11 and the end of the session there is exactly ONE log line.** Nothing
+records how many evaluations ran, which phase it was in, or how much of the budget remained. Asked *"should I
+abort and try again with a longer exposure?"*, neither the log nor the UI can answer.
+
+**What IS measured, on the user's own frames** (`optimize --max-evals 1`, one settings file per arm, `UseAdvanced=True`
+so the Simple-mode presets do not overwrite the knobs — [F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)):
+
+| arm | config | wall |
+|---|---|---|
+| cheap | `StructureLayers 4`, `DefocusAwareStructure off`, `NR 3` | **33 s** |
+| expensive | `StructureLayers 6`, `DefocusAwareStructure ON`, `NR 5`, hotpixel-thresholding off — **the config run 4 actually landed on** | **47 s** |
+
+Only one of the two evaluations differs between arms, so the differing evaluation roughly **doubled**. Corroborated
+on the synthetic bank, where the scaling is stark — `D15_cdk20_3454mm_e47`, 9 frames, binning 1:
+
+| `StructureLayers` | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|
+| seconds | 27 | 46 | **117** | 254 | **526** |
+
+**≈2× per additional layer.** The à-trous residual is recomputed at `2^layers`, and `DefocusAwareStructure` adds
+`StructureLayerBoost` on top of that.
+
+**A hypothesis that was checked and is REFUTED: the floored gate costs nothing.** `Sensitivity 0 / StarClip 0.25 /
+PeakResponse 0.55` vs `10 / 2 / 0.75` on the same frames measured **42 s against 42 s**. The acceptance gates are
+LATE filters — they discard candidates after formation and PSF fitting — so admitting 5766 stars instead of 834
+does not cost time. The obvious explanation for the slowness is wrong.
+
+**So ~2× is attributed and the remaining ~2× is NOT**, and it cannot be recovered after the fact. The available
+circumstantial evidence is the landings themselves: run 4 moved **13** parameters including four structural/
+expensive axes (`StructureLayers`, `DefocusAwareStructure`, `NoiseReductionRadius`, `HotpixelThresholdingEnabled`)
+while run 3 moved **9** and touched none of them. More axes explored ⇒ more evaluations. **Headless at a FIXED
+budget the ordering even inverts** — 120 evals took 108 s on the 2 s frames and 150 s on the 5 s frames — which
+rules out per-evaluation cost as the whole story and points at evaluation COUNT.
+
+**Why it matters.** The objective is blind to cost: two candidate configurations scoring identically can differ by
+an order of magnitude in wall time, and nothing prefers the cheap one or reports that the search has moved into an
+expensive region. A user watching a progress bar for two hours has no way to know that a 2.5× longer exposure would
+likely have finished in a quarter of the time.
+
+**Next step.** (a) Log the evaluation count, phase and elapsed-per-evaluation at INFO so a long run is diagnosable
+at all — one line every N evaluations would have answered this question in seconds. (b) Surface elapsed +
+evaluations + current best `J` in the wizard while it runs, with the cost-relevant knobs named when the search is
+in an expensive region. (c) Consider a cost term or an eval-time budget: the search should not spend its budget in
+a region that is 4× the price for a fourth-decimal gain — the same shape as
+[F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains), in wall
+time instead of recall.
+Reproduce: `D:\hf_w8\field\compare_runs.sh`, `D:\hf_w8\field\cost_*.json`, `D:\hf_w8\field\gate_*.json`.
+
 ### F50 — A false-negative gate count is an UPPER BOUND on what relieving that gate buys, not an estimate
 **Status:** Open · found 2026-08-06 (wave 8) refuting F46's `MinimumStarBoundingBoxSize` hypothesis · **a reading
 error, not a code defect — but every prior wave has read these tables the other way**
