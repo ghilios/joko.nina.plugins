@@ -395,8 +395,13 @@ public class StepSizeRecommenderTests {
     }
 
     [Test]
-    public void Recommend_DetectableRangeWiderThanTheBand_ChangesNothing() {
-        // The bound only ever TIGHTENS. A rig that still sees stars past its own 3x band gets today's answer.
+    public void Recommend_EveryFrameCleared_TheLimitWasNeverOBSERVED_SoThereIsNoBound() {
+        // The bound is bounded ABOVE by the sampled half-span by construction — it is the outermost SAMPLED
+        // position. If no frame failed the floor, the sweep never reached the detectability limit, and reporting
+        // its own edge would turn min(W_3x, W_detect) into "never recommend a sweep wider than the one you just
+        // took" on every healthy run: a cap on WIDENING, which is a different rule the recommender already has.
+        // An unobserved limit is ABSENT. (Caught by the pre-registered instrument check: W_detect came back equal
+        // to the sampled half-span on all 20 bank datasets, which is the signature of exactly this mistake.)
         var fit = FitF18Sweep();
         var unbounded = StepSizeRecommender.Recommend(fit, F18Step);
         var rec = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null,
@@ -404,9 +409,25 @@ public class StepSizeRecommenderTests {
 
         Assert.Multiple(() => {
             Assert.That(rec.WasDetectBounded, Is.False);
+            Assert.That(double.IsNaN(rec.MaxUsefulHalfSpan), Is.True,
+                "no frame was starved, so no detectability limit was observed — the bound must be absent, not the sweep edge");
             Assert.That(rec.StepSize, Is.EqualTo(unbounded.StepSize));
             Assert.That(rec.HalfWidth, Is.EqualTo(unbounded.HalfWidth).Within(1e-9));
-            Assert.That(rec.MaxUsefulHalfSpan, Is.EqualTo(4.0 * F18Step).Within(1e-6), "still REPORTED, just not binding");
+        });
+    }
+
+    [Test]
+    public void Recommend_OneStarvedFrame_IsWhatTurnsTheBoundOn() {
+        // The discriminator for the rule above: the ONLY difference here is that the outermost pair fell below
+        // NHard. That single observation is what makes the limit real, and the bound then reports the outermost
+        // frame that still cleared it.
+        var fit = FitF18Sweep();
+        var rec = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null,
+            detectability: Detectability(new[] { 2, 40, 40, 40, 40, 40, 40, 40, 2 }));
+
+        Assert.Multiple(() => {
+            Assert.That(rec.MaxUsefulHalfSpan, Is.EqualTo(3.0 * F18Step).Within(1e-6));
+            Assert.That(rec.WasDetectBounded, Is.True);
         });
     }
 
@@ -449,8 +470,11 @@ public class StepSizeRecommenderTests {
     public void Recommend_RecoveryFramesDoNotVoteOnTheDetectableRange() {
         // Recovery frames are DELIBERATELY far from focus and are exempt from the objective's own hard floor
         // (JRun's FrameIsRecovery exemption), so letting them widen the ordinary sweep would defeat the bound.
+        // The |k|=3 pair is starved (so a limit IS observed either way), while the |k|=4 pair — the recovery
+        // wing — still carries stars. Counting the wing puts the limit at 7080; excluding it puts the limit at
+        // 3540, the outermost ORDINARY frame that cleared the floor.
         var fit = FitF18Sweep();
-        var counts = new[] { 10, 10, 10, 10, 20, 10, 10, 10, 10 };
+        var counts = new[] { 10, 2, 10, 10, 20, 10, 10, 2, 10 };
         var outerAreRecovery = new[] { true, false, false, false, false, false, false, false, true };
 
         var withRecoveryCounted = StepSizeRecommender.Recommend(fit, F18Step, focuserMaxStep: null,
@@ -460,7 +484,7 @@ public class StepSizeRecommenderTests {
 
         Assert.Multiple(() => {
             Assert.That(withRecoveryCounted.MaxUsefulHalfSpan, Is.EqualTo(4.0 * F18Step).Within(1e-6));
-            Assert.That(withRecoveryExcluded.MaxUsefulHalfSpan, Is.EqualTo(3.0 * F18Step).Within(1e-6));
+            Assert.That(withRecoveryExcluded.MaxUsefulHalfSpan, Is.EqualTo(2.0 * F18Step).Within(1e-6));
         });
     }
 

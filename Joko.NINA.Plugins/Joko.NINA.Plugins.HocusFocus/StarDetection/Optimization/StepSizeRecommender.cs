@@ -261,6 +261,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// The distinction matters: a starless run has not shown that nothing is detectable, only that this sweep
         /// did not detect it, and a bound built on the second reading would collapse the very sweep that needs to
         /// stay wide enough to find the curve again.</para>
+        ///
+        /// <para><b>And NaN when EVERY sampled frame cleared the floor</b>, which is the same principle at the
+        /// other end and is easy to get wrong. This quantity is bounded above by the sampled half-span by
+        /// construction — it is the outermost SAMPLED position, so it can never report a distance the sweep did not
+        /// visit. If no frame failed, the sweep never observed detectability ending, and returning the sweep's own
+        /// edge would turn <c>min(W_3x, W_detect)</c> into "never recommend a sweep wider than the one you just
+        /// took" on every healthy run — a cap on widening, which is a completely different rule from F18's, and one
+        /// the recommender already has in <see cref="MaxHalfWidthSampledHalfSpanMultiple"/>. The bound exists to
+        /// report an OBSERVED limit; an unobserved one is absent.</para>
         /// </summary>
         private static double MeasureMaxUsefulHalfSpan(SweepDetectability detectability, double x0) {
             var counts = detectability?.FrameStarCounts;
@@ -271,12 +280,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var isRecovery = detectability.FrameIsRecovery;
             var hardFloor = detectability.HardFloorStarCount;
             var qualifying = 0;
+            var starved = 0;
             var furthest = 0.0;
             for (var i = 0; i < counts.Count; i++) {
                 if (isRecovery != null && i < isRecovery.Count && isRecovery[i]) {
                     continue; // deliberately far from focus, and exempt from the objective's own floor
                 }
                 if (counts[i] < hardFloor) {
+                    starved++;
                     continue;
                 }
                 qualifying++;
@@ -285,7 +296,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     furthest = offset;
                 }
             }
-            if (qualifying < MinFramesForDetectHalfWidth || !(furthest > 0.0)) {
+            if (starved == 0 || qualifying < MinFramesForDetectHalfWidth || !(furthest > 0.0)) {
                 return double.NaN;
             }
             return furthest;

@@ -168,6 +168,7 @@ namespace TestApp.SynthBank {
             }
 
             var qualifying = 0;
+            var starvedPositions = 0;
             var furthestSteps = 0.0;
             var edgeFrameCount = 0;
             for (var k = -offsetSteps; k <= offsetSteps; k++) {
@@ -195,6 +196,7 @@ namespace TestApp.SynthBank {
                     edgeFrameCount = Math.Max(edgeFrameCount, count);
                 }
                 if (count < NHardStars) {
+                    starvedPositions++;
                     continue;
                 }
                 qualifying++;
@@ -204,6 +206,15 @@ namespace TestApp.SynthBank {
                 }
             }
 
+            if (starvedPositions == 0) {
+                // The sweep never observed detectability ending. Reporting its own edge would turn
+                // min(W_3x, W_detect) into a cap on WIDENING, which is a different rule the recommender already
+                // has -- see StepSizeRecommender.MeasureMaxUsefulHalfSpan's remarks. An unobserved limit is absent.
+                return (double.NaN, qualifying,
+                    $"detectable half-width NOT OBSERVED: all {2 * offsetSteps + 1} sweep positions carry >= {NHardStars} " +
+                    $"stars above the gate at {exposureSeconds:0.###}s (edge frame carries {edgeFrameCount}), so this sweep " +
+                    "never reached the detectability limit and no bound is applied");
+            }
             if (qualifying < MinFramesForDetectableHalfWidth || !(furthestSteps > 0.0)) {
                 return (double.NaN, qualifying,
                     $"detectable half-width UNMEASURABLE: only {qualifying} of {2 * offsetSteps + 1} sweep positions carry " +
