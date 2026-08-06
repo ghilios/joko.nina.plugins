@@ -560,6 +560,17 @@ a red CI check is checked against the native test-host crash — verify the test
 githubstatus.com, before being read as a regression.** Wave 7 hit a real Actions `major_outage` that failed
 docs-only commits in *Set up job* before any test ran.
 
+> **CI STATUS AT PR TIME: no checks, and it is not this branch.** `gh pr checks 184` reports *"no checks
+> reported"* and `gh api .../actions/runs` returns nothing for the branch — **`tests.yml` triggers on
+> `pull_request` to `develop`, so a run should exist.** githubstatus.com, checked before drawing any conclusion:
+> **`Actions: major_outage`** (and `Pages: major_outage`), indicator `major`, "Partial System Outage". No run was
+> ever scheduled.
+>
+> **This is the F37 rule catching the OTHER failure mode.** Wave 7's version was a red check that had nothing to
+> do with the code; this one is an ABSENT check, which is easier to misread as "CI passed" than a red one is to
+> misread as a regression. **The suite is green locally at 3667/0 on this exact tree.** CI must be re-checked
+> once Actions recovers, before this merges.
+
 ---
 
 ## Reproduce
