@@ -11,6 +11,8 @@
 #endregion "copyright"
 
 using NINA.Image.ImageData;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using NSubstitute;
 using NUnit.Framework;
@@ -228,6 +230,86 @@ public class HarnessSettingsStoreTests {
     public void ResolveForRun_MarksAMeasuredDetectionBinningAsDerived() {
         var (_, json) = ResolveForRunInTempDir(inFocusHfr: 8.0);
         Assert.That(json, Does.Contain(HarnessSettingsStore.DetectionBinningDerived));
+    }
+
+    // ---- F39(b): the factor a run should actually be DETECTED at ------------------------------------------
+
+    // A dataset folder holding synthetic_meta.json, with an attempt folder inside it — the real bank layout, since
+    // the resolver has to look in the run folder's PARENT.
+    private static (string DatasetDir, string RunDir) BankLayout(int? expectedDetectionBinning) {
+        var datasetDir = Path.Combine(Path.GetTempPath(), "hf_bank_" + Guid.NewGuid().ToString("N"));
+        var runDir = Path.Combine(datasetDir, "attempt01");
+        Directory.CreateDirectory(runDir);
+        if (expectedDetectionBinning.HasValue) {
+            File.WriteAllText(Path.Combine(datasetDir, "synthetic_meta.json"),
+                "{\"expectedOptimal\":{\"detectionBinning\":" + expectedDetectionBinning.Value + ",\"stepSizeSteps\":82}}");
+        }
+        return (datasetDir, runDir);
+    }
+
+    [Test]
+    public void ResolveRunDetectionBinningFactor_PrefersTheDatasetsPhysicsDerivedExpectation() {
+        // The seven detectionBinning=2 datasets: their settings file says Bin2 too, but it INHERITED it. The
+        // authoritative value is the dataset's own derivation — and the one its exposure was derived at.
+        var (datasetDir, runDir) = BankLayout(expectedDetectionBinning: 2);
+        try {
+            var settingsSayBin1 = new HarnessSettingsStore.Resolved { Accessor = Accessor(("DetectionBinning", "Bin1")) };
+            var factor = HarnessSettingsStore.ResolveRunDetectionBinningFactor(runDir, settingsSayBin1, out var source);
+            Assert.Multiple(() => {
+                Assert.That(factor, Is.EqualTo(2));
+                Assert.That(source, Does.Contain("synthetic_meta.json"),
+                    "the run log must say WHICH source decided, or an inherited guess is honoured silently again");
+            });
+        } finally {
+            try { Directory.Delete(datasetDir, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    [Test]
+    public void ResolveRunDetectionBinningFactor_FallsBackToTheSettingsFileAndSaysSo() {
+        // The real bank has no synthetic_meta.json, so its runs fall through here — and the message has to warn
+        // that the value may be kept-from-base rather than derived (F39 part (a)'s field).
+        var (datasetDir, runDir) = BankLayout(expectedDetectionBinning: null);
+        try {
+            var settings = new HarnessSettingsStore.Resolved { Accessor = Accessor(("DetectionBinning", "Bin2")) };
+            var factor = HarnessSettingsStore.ResolveRunDetectionBinningFactor(runDir, settings, out var source);
+            Assert.Multiple(() => {
+                Assert.That(factor, Is.EqualTo(2));
+                Assert.That(source, Does.Contain("kept-from-base"));
+            });
+        } finally {
+            try { Directory.Delete(datasetDir, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    [Test]
+    public void ResolveRunDetectionBinningFactor_ResolvesTo1WithNeitherSource() {
+        // The value every run to date has actually used. A missing answer must not become a fabricated factor.
+        var (datasetDir, runDir) = BankLayout(expectedDetectionBinning: null);
+        try {
+            Assert.That(HarnessSettingsStore.ResolveRunDetectionBinningFactor(runDir, null, out _), Is.EqualTo(1));
+        } finally {
+            try { Directory.Delete(datasetDir, recursive: true); } catch (IOException) { }
+        }
+    }
+
+    [Test]
+    public void ApplyFactor_CarriesTheFactorIntoPixelScale() {
+        // Why the factor is applied through DetectionBinningResolver rather than written to the field: PixelScale
+        // carries it (HocusFocusStarDetection.ApplyDetectionImageContext = pixelScale * softwareBinning). A raw
+        // field write would evaluate every pixel-scale-dependent gate at half the scale being analyzed.
+        var p = new StarDetectorParams { PixelScale = 0.277, DetectionBinning = 1 };
+        DetectionBinningResolver.ApplyFactor(p, 2);
+        Assert.Multiple(() => {
+            Assert.That(p.DetectionBinning, Is.EqualTo(2));
+            Assert.That(p.PixelScale, Is.EqualTo(0.554).Within(1e-12));
+        });
+        // ...and it is idempotent, which is what lets the per-run loop normalize back to 1 between datasets.
+        DetectionBinningResolver.ApplyFactor(p, 1);
+        Assert.Multiple(() => {
+            Assert.That(p.DetectionBinning, Is.EqualTo(1));
+            Assert.That(p.PixelScale, Is.EqualTo(0.277).Within(1e-12));
+        });
     }
 
     [Test]

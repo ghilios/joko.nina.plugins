@@ -163,6 +163,17 @@ namespace TestApp {
             // the run is bit-identical to before this flag existed, so one exe is both arms.
             bool noMinHfrSeed = DiagnosticUtil.HasFlag(args, "--no-min-hfr-seed");
 
+            // F39(b) — --apply-run-detection-binning: actually RUN each per-run dataset at its detection binning
+            // factor. Today ResolveForRun's answer is written to disk and discarded (a pure write side-effect), so
+            // every optimize and every golden eval over both banks has run at the default of 1 while seven synthetic
+            // datasets record — and were rendered for — a factor of 2.
+            //
+            // Deliberately ONLY the binning, and deliberately opt-in. Making the whole per-run Resolved authoritative
+            // would let a per-run settings file shadow the --settings file every arm pins (F42), which would break the
+            // comparability of every arm this project has run. Absent, the run is bit-identical to before this flag
+            // existed — the same one-binary-is-both-arms shape as --keep-floor and --no-min-hfr-seed above (F41).
+            bool applyRunDetectionBinning = DiagnosticUtil.HasFlag(args, "--apply-run-detection-binning");
+
             var labelsDir = DiagnosticUtil.GetArg(args, "--labels");
 
             // --per-run is a valueless flag: optimize each discovered run INDEPENDENTLY (one optimization, one
@@ -348,8 +359,12 @@ namespace TestApp {
                 LegacyObjective = legacyObjective,
                 ContinueRounds = continueRounds,
                 KeepFloor = keepFloor,
-                NoMinHfrSeed = noMinHfrSeed
+                NoMinHfrSeed = noMinHfrSeed,
+                ApplyRunDetectionBinning = applyRunDetectionBinning
             };
+            if (applyRunDetectionBinning) {
+                Console.WriteLine("--apply-run-detection-binning: F39(b) — each per-run dataset is DETECTED at its own binning factor");
+            }
             if (noMinHfrSeed) {
                 Console.WriteLine("--no-min-hfr-seed: F35 MinHFR seeding DISABLED (pre-F35 control arm)");
             }
@@ -399,6 +414,7 @@ namespace TestApp {
             public int ContinueRounds;  // --continue-rounds: extra chained passes after the first (0-2)
             public double? KeepFloor;   // --keep-floor: F32 detection-keep feasibility floor (null = unconstrained)
             public bool NoMinHfrSeed;   // --no-min-hfr-seed: F35 seeding off, so this binary can produce its own control
+            public bool ApplyRunDetectionBinning; // --apply-run-detection-binning: F39(b); false => bit-identical
 
             // F30: which invocation is producing these landings. Stamped onto every optimized_settings.json this
             // run writes, so a bank folder full of prepasses from different arms stops being ambiguous.
@@ -421,6 +437,29 @@ namespace TestApp {
             public List<RunEvaluationResult> PerRunBest;
             public List<LoadedHarnessRun> LoadedRuns;
             public ObjectiveConstants ObjectiveConstants; // the SAME constants the runs were scored with (ExposureRecommender needs NTarget)
+        }
+
+        /// <summary>
+        /// F39(b) — DETECT this run at its own detection-binning factor, instead of writing the factor to disk and
+        /// running at the default of 1. No-op unless <c>--apply-run-detection-binning</c> was passed, so the flag's
+        /// absence leaves the run bit-identical to before it existed (F41's one-binary-is-both-arms rule).
+        ///
+        /// <para>Applied through <see cref="DetectionBinningResolver.ApplyFactor"/> rather than by writing
+        /// <c>DetectionBinning</c> directly, because <c>StarDetectorParams.PixelScale</c> carries the factor too
+        /// (<c>HocusFocusStarDetection.ApplyDetectionImageContext</c>: <c>pixelScale * softwareBinning</c>). A raw
+        /// field write would leave every pixel-scale-dependent gate evaluated at half the scale the detector is
+        /// actually analyzing at.</para>
+        /// </summary>
+        private static void ApplyRunDetectionBinningIfRequested(
+            RunDetectionContext ctx, string runFolder, HarnessSettingsStore.Resolved resolvedForRun) {
+            if (!ctx.ApplyRunDetectionBinning) {
+                return;
+            }
+            var factor = HarnessSettingsStore.ResolveRunDetectionBinningFactor(runFolder, resolvedForRun, out var source);
+            DetectionBinningResolver.ApplyFactor(ctx.Seed, factor);
+            DetectionBinningResolver.ApplyFactor(ctx.Baseline, factor);
+            Console.WriteLine($"  detection binning (F39b): {factor} from {source}; "
+                + $"detecting at PixelScale {F(ctx.Seed.PixelScale)} arcsec/binned-px");
         }
 
         // ---- Joint mode (default): optimize ALL discovered runs together (N=1 reduces; N>1 is the balanced blend).
@@ -467,6 +506,13 @@ namespace TestApp {
                     loadedRuns.Add(loaded);
                     // PixelScale from THIS run's frames. Per-run mode optimizes each run independently, so each
                     // carries the scale its data actually has. Joint mode cannot express this (one bundle, many scales).
+                    if (ctx.ApplyRunDetectionBinning) {
+                        // F39(b): normalize any PREVIOUS run's factor out first, so the per-run PixelScale assigned
+                        // just below is the UNBINNED one and this run's factor is applied exactly once. Skipped
+                        // entirely when the flag is absent, so that path cannot move by even a rounding step.
+                        DetectionBinningResolver.ApplyFactor(ctx.Seed, 1);
+                        DetectionBinningResolver.ApplyFactor(ctx.Baseline, 1);
+                    }
                     if (double.IsFinite(loaded.PixelScale)) {
                         ctx.Seed.PixelScale = loaded.PixelScale;
                         ctx.Baseline.PixelScale = loaded.PixelScale;
@@ -474,9 +520,10 @@ namespace TestApp {
                     Console.WriteLine($"  {d.RunId}: PixelScale {F(ctx.Seed.PixelScale)} arcsec/px ({loaded.PixelScaleSource})");
                     // Per-dataset settings, derived from THIS run and recorded beside it.
                     var runFolder = Path.GetDirectoryName(d.Frames.First().Path);
-                    HarnessSettingsStore.ResolveForRun(
+                    var resolvedForRun = HarnessSettingsStore.ResolveForRun(
                         runFolder, ctx.HarnessSettings, loaded.FirstFrameMeta,
                         HarnessSettingsStore.ReadInFocusHfr(runFolder));
+                    ApplyRunDetectionBinningIfRequested(ctx, runFolder, resolvedForRun);
                     Directory.CreateDirectory(subDir);
                     var outcome = await OptimizeRunSetAsync(ctx, runsDir, subDir, loadedRuns).ConfigureAwait(false);
                     if (!outcome.HardFloorPassed) {

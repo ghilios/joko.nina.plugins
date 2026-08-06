@@ -242,8 +242,14 @@ namespace TestApp {
                             pixelScaleSource = $"profile (fallback: {headerSource})";
                         }
                     }
-                    p.PixelScale = effectivePixelScale;
-                    Console.WriteLine($"  pixelScale: {Fmt(effectivePixelScale)} arcsec/px ({pixelScaleSource})");
+                    // PixelScale carries the software binning factor, exactly as
+                    // HocusFocusStarDetection.ApplyDetectionImageContext does (`pixelScale * softwareBinning`):
+                    // detection reasons in BINNED pixels. Without this a --detection-binning 2 run would evaluate
+                    // every pixel-scale-dependent gate at half the scale it is actually analyzing at.
+                    var detectionBinningFactor = Math.Max(1, p.DetectionBinning);
+                    p.PixelScale = effectivePixelScale * detectionBinningFactor;
+                    Console.WriteLine($"  pixelScale: {Fmt(effectivePixelScale)} arcsec/px ({pixelScaleSource})"
+                        + (detectionBinningFactor > 1 ? $"; detectionBinning {detectionBinningFactor} -> detecting at {Fmt(p.PixelScale)} arcsec/binned-px" : string.Empty));
                 }
 
                 var fullW = rendered.RawImageData.Properties.Width;
@@ -417,6 +423,12 @@ namespace TestApp {
             Dbl("--min-hfr", v => p.MinHFR = v, "minHFR");
             Dbl("--star-center-tolerance", v => p.StarCenterTolerance = v, "centerTol");
             Int("--adaptive-block", v => p.AdaptiveNoiseBlockSize = v, "adaptiveBlock");  // adaptive-binarization grid (candidate formation)
+            // F39(b): software detection binning. Only the FACTOR is set here — PixelScale carries the factor too,
+            // and it is resolved per run from the frame header AFTER this method (see the p.PixelScale assignment in
+            // the frame loop), so multiplying it here would be overwritten. That assignment applies the factor.
+            // Clamped through DetectionBinningResolver so the flag cannot express a factor the detector rejects.
+            Int("--detection-binning", v => p.DetectionBinning = DetectionBinningResolver.ToFactor(
+                DetectionBinningResolver.ToSetting(v)), "detBin");
             if (DiagnosticUtil.HasFlag(args, "--adaptive-binarize")) { p.LocallyAdaptiveBinarization = true; notes.Add("adaptiveBinarize"); }
             if (notes.Count > 0) {
                 sourceLabel += " +params[" + string.Join(",", notes) + "]";

@@ -274,6 +274,17 @@ namespace TestApp.SynthBank {
                 Prog($"[{dataset.Id}] NOTE: donutOverride={dataset.DonutOverride.Value} overrides derived donutDetection={expectedOptimal.DonutDetection}");
                 expectedOptimal.DonutDetection = dataset.DonutOverride.Value;
             }
+            if (dataset.ExposureSecondsOverride.HasValue && dataset.ExposureSecondsOverride.Value != expectedOptimal.ExposureSeconds) {
+                // F19's exposure ladder. The band stays as DERIVED — it describes what the physics asks for, and a
+                // rung deliberately sitting outside it is the measurement, not an error to be normalized away.
+                Prog($"[{dataset.Id}] NOTE: exposureSecondsOverride={dataset.ExposureSecondsOverride.Value:0.###}s " +
+                    $"overrides derived exposure={expectedOptimal.ExposureSeconds:0.###}s " +
+                    $"(band {expectedOptimal.ExposureBandLowSeconds:0.###}-{expectedOptimal.ExposureBandHighSeconds:0.###}s, unchanged)");
+                expectedOptimal.ExposureSeconds = dataset.ExposureSecondsOverride.Value;
+                expectedOptimal.ExposureDefinition = $"PINNED by exposureSecondsOverride to " +
+                    $"{dataset.ExposureSecondsOverride.Value.ToString("0.###", CultureInfo.InvariantCulture)}s. " +
+                    expectedOptimal.ExposureDefinition;
+            }
 
             if (dryRun) {
                 PrintDryRun(dataset, expectedOptimal, kernelCapGuard, catalogReader);

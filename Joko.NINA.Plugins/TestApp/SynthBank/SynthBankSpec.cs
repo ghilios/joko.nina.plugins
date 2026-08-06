@@ -142,6 +142,16 @@ namespace TestApp.SynthBank {
         [JsonProperty("detectionBinningOverride", NullValueHandling = NullValueHandling.Ignore)] public int? DetectionBinningOverride { get; set; }
         [JsonProperty("donutOverride", NullValueHandling = NullValueHandling.Ignore)] public bool? DonutOverride { get; set; }
 
+        /// <summary>
+        /// Renders this dataset at a pinned exposure instead of the derived one. Added for F19's exposure-ladder
+        /// arm: the question "does a field that already carries 20 bright stars gain anything from more exposure?"
+        /// can only be answered by rendering the SAME field at several exposures and reading σ_focus, and the
+        /// derivation deliberately produces exactly one answer per dataset. Like its three siblings it is a PIN,
+        /// printed when it disagrees with the derivation rather than silently absorbed — a ladder rung is supposed
+        /// to disagree, and the run log has to say by how much.
+        /// </summary>
+        [JsonProperty("exposureSecondsOverride", NullValueHandling = NullValueHandling.Ignore)] public double? ExposureSecondsOverride { get; set; }
+
         /// <summary>Clear aperture diameter D (mm), derived as f/N — never stored independently, so it cannot drift from <see cref="FocalLengthMm"/>/<see cref="FocalRatio"/>.</summary>
         [JsonIgnore] public double ApertureMillimeters => FocalLengthMm / FocalRatio;
     }

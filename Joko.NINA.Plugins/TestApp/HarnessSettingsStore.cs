@@ -12,6 +12,7 @@
 
 using Newtonsoft.Json;
 using NINA.Core.Utility;
+using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Plugin.Interfaces;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
@@ -386,6 +387,47 @@ namespace TestApp {
                 Path = path,
                 WasBootstrapped = true
             };
+        }
+
+        /// <summary>
+        /// F39(b) — the detection-binning FACTOR a run should actually be DETECTED at, and where that answer came
+        /// from. Used by <c>optimize --apply-run-detection-binning</c>; the factor itself is applied through
+        /// <c>DetectionBinningResolver.ApplyFactor</c> so <c>PixelScale</c> stays consistent with it.
+        ///
+        /// <para><b>Precedence, and why.</b> The dataset's own <c>synthetic_meta.json</c>
+        /// <c>expectedOptimal.detectionBinning</c> wins, because it is PHYSICS-DERIVED — and, for the seven
+        /// <c>detectionBinning = 2</c> datasets, the value their EXPOSURES were already derived at
+        /// (<c>expectedOptimal.exposureDefinition</c> says so verbatim). The harness settings file is the fallback,
+        /// and for all seventeen synthetic datasets its value is INHERITED rather than derived
+        /// (<see cref="HarnessSettingsFile.DetectionBinningSource"/> = <see cref="DetectionBinningKeptFromBase"/>,
+        /// the field wave 6 added so exactly this is readable). Honouring an inherited guess silently is the defect
+        /// F39 is about, so <paramref name="source"/> always says which one was used and the caller prints it.</para>
+        ///
+        /// <para>Never throws: an unreadable meta file falls through to the settings file, and a run with neither
+        /// resolves to 1 — the value every run has used to date.</para>
+        /// </summary>
+        /// <param name="runDir">The run (attempt) folder; the dataset's meta sits in its PARENT.</param>
+        public static int ResolveRunDetectionBinningFactor(string runDir, Resolved resolvedForRun, out string source) {
+            var datasetDir = Path.GetDirectoryName(runDir ?? string.Empty);
+            var metaPath = Path.Combine(datasetDir ?? string.Empty, "synthetic_meta.json");
+            if (File.Exists(metaPath)) {
+                try {
+                    var meta = JsonConvert.DeserializeObject<Newtonsoft.Json.Linq.JObject>(File.ReadAllText(metaPath));
+                    var value = meta?["expectedOptimal"]?["detectionBinning"];
+                    if (value != null) {
+                        source = "synthetic_meta.json expectedOptimal.detectionBinning (physics-derived)";
+                        return NINA.Joko.Plugins.HocusFocus.Utility.DetectionBinningResolver.ToFactor(
+                            NINA.Joko.Plugins.HocusFocus.Utility.DetectionBinningResolver.ToSetting((int)value));
+                    }
+                } catch (Exception ex) {
+                    Console.Error.WriteLine($"  detection binning (F39b): could not read {metaPath} ({ex.Message}); "
+                        + "falling back to the harness settings file");
+                }
+            }
+            var setting = resolvedForRun?.Accessor?.GetValueEnum("DetectionBinning", DetectionBinningEnum.Bin1)
+                ?? DetectionBinningEnum.Bin1;
+            source = $"harness_settings.json (may be kept-from-base -- check DetectionBinningSource): {setting}";
+            return NINA.Joko.Plugins.HocusFocus.Utility.DetectionBinningResolver.ToFactor(setting);
         }
 
         /// <summary>
