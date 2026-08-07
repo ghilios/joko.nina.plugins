@@ -3062,6 +3062,57 @@ the price for a fourth-decimal gain — the same shape as
 time instead of recall.
 Reproduce: `D:\hf_w8\field\compare_runs.sh`, `D:\hf_w8\field\cost_*.json`, `D:\hf_w8\field\gate_*.json`.
 
+### F53 — Wave 8's arm X does not reproduce from wave 8's own `exe`, because the arm ran on an EARLIER build of it
+**Status:** Open · found 2026-08-07 (wave 9) re-running arm X's exact command to build the wing instrument ·
+**the reproduce line is stale, and nothing in the artifact says so**
+
+Wave 8's F19 arm X is recorded with `Reproduce: D:\hf_w8\armX\arm_x.sh`, which invokes
+`D:\hf_w8\exe\TestApp.exe`. **Running that script's exact command on that exact binary today does not reproduce
+the write-up's numbers.**
+
+| | `D02_rich_135mm` @ 0.5 s, `--max-evals 120`, same pinned settings |
+|---|---|
+| wave 8's arm X log | `bestJ = 0.996328`, effective gate **16.667**, σ_focus 0.10927 |
+| `D:\hf_w8\exe` **today** | `bestJ = 0.996486`, effective gate **33.333**, σ_focus 0.10063 |
+| wave 9's `exe2` (this branch) | `bestJ = 0.996486` — **identical to the line above** |
+
+**The tell is in the log, and it is unambiguous.** Wave 8's arm X log contains **no `detection binning (F39b)`
+line at all**; both of today's runs print one. That line is unconditional once wave 8's own F39(b) default flip
+landed, so **arm X was executed against a build of `D:\hf_w8\exe` that predates the flip**, and the directory was
+rebuilt later in the wave. The artifact directory keeps only the LAST build, so the script and the numbers it
+produced now disagree with nothing recording that they should.
+
+**Three things this is NOT.**
+
+1. **Not concurrency.** The control above was run with three `optimize` processes already in flight and matched a
+   run of a different binary to six decimal places. If a fan-out perturbed landings, these two could not agree.
+2. **Not this wave's code.** `D:\hf_w8\exe` and wave 9's `exe2` — different binaries, one of them predating every
+   line of wave 9 — give the same answer.
+3. **Not `ApplyFactor`.** `DetectionBinningResolver.ApplyFactor(p, 1)` is the identity when `p.DetectionBinning`
+   is already 1 (`unbinnedPixelScale = PixelScale / 1`, then `PixelScale = unbinnedPixelScale × 1`), which the
+   pinned settings guarantee. That is also why wave 8's own adoption-arm control found the 13 binning-1 datasets
+   bit-identical. The flip is a marker for WHICH BUILD ran, not the cause of the movement.
+
+**Does it overturn wave 8's F19 verdict? No, and the reason is worth stating.** Arm X's finding was that `D02`
+reports `ExposureIsNotTheLimit` with a raw ask of 0.000 s at every rung. Both landings put the EFFECTIVE gate
+(16.667 and 33.333) far above `TargetSensitivity = 10`, and every accepted star's gate statistic strictly exceeds
+that gate — so `ExposureIsNotTheLimit` is true by construction in both. **R5 fired for a structural reason, not a
+numerical one, so a different landing reaches the same verdict.** What is void is the reproducibility of the
+specific table, not its conclusion.
+
+**Why it matters.** [F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary) says a prior
+wave's control arm is not a control for a later wave's binary. This is the sharper case: **a prior wave's arm is
+not a control for its OWN recorded binary either**, when the arm directory is a build output that later steps in
+the same wave overwrite. Every `Reproduce:` line in `docs/` that names a `D:\hf_w*\exe` inherits this.
+
+**Next step.** (a) Stamp the build into the run: have `optimize` print the informational version / commit of the
+binary it is running, so a log says which build produced it. (b) Until then, treat a `D:\hf_w*\exe` reproduce line
+as naming a COMMAND, not a result — re-derive the numbers rather than quoting them across waves. (c) Prefer
+per-arm build directories that are never rebuilt mid-wave, which
+[F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)
+already asks for on a different ground.
+Reproduce: `D:\hf_w9\wing\ctl_w8bin.log` against `D:\hf_w8\armX\opt_0.5_D02_rich_135mm.log`.
+
 ### F50 — A false-negative gate count is an UPPER BOUND on what relieving that gate buys, not an estimate
 **Status:** Open · found 2026-08-06 (wave 8) refuting F46's `MinimumStarBoundingBoxSize` hypothesis · **a reading
 error, not a code defect — but every prior wave has read these tables the other way**
