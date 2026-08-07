@@ -519,7 +519,87 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return ClampInPlace(lhs, min, max);
         }
 
+        /// <summary>
+        /// The five non-zero B3-spline scaling coefficients, in kernel order. At dyadic layer <c>L</c> they sit
+        /// <c>2^L</c> apart — the "holes" the à-trous transform is named for.
+        /// </summary>
+        private static readonly float[] B3SplineTaps = { 0.0625f, 0.25f, 0.375f, 0.25f, 0.0625f };
+
+        /// <summary>
+        /// One à-trous scaling pass along a single axis: <c>out(x) = Σ_k tap[k] · in(x + (k−2)·stride)</c>, with
+        /// <see cref="BorderTypes.Reflect"/> at the edges — the same border
+        /// <see cref="ComputeResidualAtrousB3SplineDyadicWaveletLayer"/> has always used.
+        ///
+        /// <para><b>Why this is not a <c>SepFilter2D</c> call (F56).</b> <see cref="GetB3SplineFilter"/> expresses
+        /// the stride by ZERO-PADDING the kernel to length <c>2^(L+2)+1</c>, of which exactly five taps are
+        /// non-zero. <c>sepFilter2D</c> then runs a DENSE separable FIR over the whole thing, so its cost is
+        /// linear in kernel length and DOUBLES per layer — 13× wasted multiply-adds at the shipped default of 4,
+        /// and 205× at layer 8. That is precisely the cost curve F52 measured (27 / 46 / 117 / 254 / 526 s for
+        /// layers 4→8) and shipped a UI note to explain. OpenCV's <c>sepFilter2D</c> has no dilation parameter,
+        /// which is presumably why the padding was chosen; padding a border once and summing five shifted ROIs
+        /// has no such limit and is <b>O(1) in the layer index</b>.</para>
+        ///
+        /// <para>The shifted reads are plain ROI headers over one padded buffer — no pixel copying — so the work
+        /// is five weighted accumulations over the image regardless of how deep the layer is.</para>
+        /// </summary>
+        private static Mat ConvolveB3SplineStrided(Mat src, int stride, bool horizontal) {
+            var pad = 2 * stride;
+            using (var bordered = new Mat()) {
+                Cv2.CopyMakeBorder(src, bordered,
+                    top: horizontal ? 0 : pad, bottom: horizontal ? 0 : pad,
+                    left: horizontal ? pad : 0, right: horizontal ? pad : 0,
+                    borderType: BorderTypes.Reflect);
+                var dst = new Mat(src.Size(), MatType.CV_32F, Scalar.All(0));
+                for (var k = 0; k < B3SplineTaps.Length; ++k) {
+                    var offset = k * stride;
+                    var roi = horizontal
+                        ? new Rect(offset, 0, src.Width, src.Height)
+                        : new Rect(0, offset, src.Width, src.Height);
+                    using (var shifted = new Mat(bordered, roi)) {
+                        // dst += tap[k] * shifted. Accumulated in kernel order so the summation order matches the
+                        // dense implementation's as closely as a different reduction can.
+                        Cv2.AddWeighted(dst, 1.0, shifted, B3SplineTaps[k], 0.0, dst);
+                    }
+                }
+                return dst;
+            }
+        }
+
+        /// <summary>
+        /// The à-trous B3-spline scaling residual after <paramref name="numLayers"/> dyadic layers — the
+        /// "large structures" image <c>StarDetector</c>'s step 4 subtracts.
+        ///
+        /// <para><b>F56:</b> each layer is now a strided five-tap separable pass
+        /// (<see cref="ConvolveB3SplineStrided"/>) instead of a dense convolution against a kernel that is
+        /// <c>2^(L+2)+1</c> long and 99.5 % zeros. Mathematically identical; the cost stops doubling per
+        /// layer.</para>
+        ///
+        /// <para><b>Not bit-identical to the dense form, and that is expected.</b> Summing five weighted ROIs is a
+        /// different floating-point reduction than one long FIR, so results agree to float rounding rather than
+        /// exactly. <see cref="ComputeResidualAtrousB3SplineDyadicWaveletLayerDense"/> is retained as the
+        /// reference the equivalence test compares against.</para>
+        /// </summary>
         public static Mat ComputeResidualAtrousB3SplineDyadicWaveletLayer(Mat src, int numLayers) {
+            var previousLayer = src;
+            for (var i = 0; i < numLayers; ++i) {
+                var stride = 1 << i;
+                using (var horizontal = ConvolveB3SplineStrided(previousLayer, stride, horizontal: true)) {
+                    var next = ConvolveB3SplineStrided(horizontal, stride, horizontal: false);
+                    if (!ReferenceEquals(previousLayer, src)) {
+                        previousLayer.Dispose(); // every intermediate except the caller's src is ours to free
+                    }
+                    previousLayer = next;
+                }
+            }
+            // numLayers == 0 must not hand the caller its own src back as if it were a new Mat to dispose.
+            return ReferenceEquals(previousLayer, src) ? src.Clone() : previousLayer;
+        }
+
+        /// <summary>
+        /// The pre-F56 DENSE implementation, retained ONLY as the reference an equivalence test compares the
+        /// strided one against. Not used in production — it is the one whose cost doubles per layer.
+        /// </summary>
+        internal static Mat ComputeResidualAtrousB3SplineDyadicWaveletLayerDense(Mat src, int numLayers) {
             var previousLayer = src;
             Mat tempMat = new Mat();
             for (int i = 0; i < numLayers; ++i) {

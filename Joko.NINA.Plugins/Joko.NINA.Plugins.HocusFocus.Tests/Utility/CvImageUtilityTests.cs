@@ -261,6 +261,73 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
             Assert.That(stats.Mean, Is.EqualTo(0.5).Within(1e-3));
         }
 
+        /// <summary>A deterministic pseudo-random CV_32F image — fixed seed, so a failure is reproducible.</summary>
+        private static Mat NoiseImage(int width, int height, int seed) {
+            var mat = new Mat(new Size(width, height), MatType.CV_32F);
+            var rng = new Random(seed);
+            unsafe {
+                var p = (float*)mat.DataPointer;
+                for (var i = 0; i < width * height; ++i) {
+                    p[i] = (float)rng.NextDouble();
+                }
+            }
+            return mat;
+        }
+
+        private static double MaxAbsDiff(Mat a, Mat b) {
+            using var diff = new Mat();
+            Cv2.Absdiff(a, b, diff);
+            Cv2.MinMaxIdx(diff, out _, out double max);
+            return max;
+        }
+
+        [Test]
+        [TestCase(1)]
+        [TestCase(2)]
+        [TestCase(3)]
+        [TestCase(4)]   // the shipped StarDetectorParams.StructureLayers default
+        [TestCase(5)]
+        [TestCase(6)]
+        public void ComputeResidualAtrous_StridedMatchesTheDenseReference(int numLayers) {
+            // F56. The dense implementation expresses the a-trous stride by ZERO-PADDING the separable kernel to
+            // 2^(L+2)+1 taps, of which five are non-zero, and lets sepFilter2D convolve all the zeros -- which is
+            // why its cost DOUBLES per layer (F52 measured 27/46/117/254/526 s for layers 4..8). The strided form
+            // pads a border once and sums five shifted ROIs, so it is O(1) in the layer index.
+            //
+            // THE TWO MUST AGREE, because it is the same arithmetic. They are NOT bit-identical: five weighted
+            // accumulations are a different floating-point reduction than one long FIR, so this asserts agreement
+            // to float rounding rather than equality -- stated as a tolerance rather than hidden behind one.
+            //
+            // DISCRIMINATING: change any tap, the stride, or the border mode and this fails at every layer.
+            using var src = NoiseImage(96, 64, seed: 1234);
+            using var strided = CvImageUtility.ComputeResidualAtrousB3SplineDyadicWaveletLayer(src, numLayers);
+            using var dense = CvImageUtility.ComputeResidualAtrousB3SplineDyadicWaveletLayerDense(src, numLayers);
+
+            Assert.That(strided.Size(), Is.EqualTo(dense.Size()));
+            Assert.That(MaxAbsDiff(strided, dense), Is.LessThan(1e-5),
+                $"strided and dense a-trous must agree at layer {numLayers}");
+        }
+
+        [Test]
+        public void ComputeResidualAtrous_ActuallySmooths_SoANoOpImplementationCannotPass() {
+            // GUARD on the test above: two implementations that both did nothing would agree perfectly. The
+            // residual is a LOW-PASS, so on a noise image it must differ substantially from its input.
+            using var src = NoiseImage(96, 64, seed: 99);
+            using var residual = CvImageUtility.ComputeResidualAtrousB3SplineDyadicWaveletLayer(src, numLayers: 3);
+            Assert.That(MaxAbsDiff(residual, src), Is.GreaterThan(0.05),
+                "a residual that equals its input would make the equivalence test vacuous");
+        }
+
+        [Test]
+        public void ComputeResidualAtrous_DoesNotReturnTheCallersOwnMat() {
+            // The caller wraps this in `using`, so handing back `src` would dispose the caller's image out from
+            // under it. The dense version does exactly that at numLayers == 0; the strided one clones instead.
+            using var src = NoiseImage(16, 16, seed: 7);
+            using var residual = CvImageUtility.ComputeResidualAtrousB3SplineDyadicWaveletLayer(src, numLayers: 0);
+            Assert.That(ReferenceEquals(residual, src), Is.False);
+            Assert.That(MaxAbsDiff(residual, src), Is.EqualTo(0.0), "…but at 0 layers it is still a faithful copy");
+        }
+
         [Test]
         public void KappaSigmaNoiseEstimate_Reports_BackgroundMean_OnFlatImage() {
             using var mat = SyntheticGaussianStarImage.CreateFlat(16, 16, 0.42f);
