@@ -669,14 +669,28 @@
                         Visibility="{Binding IsOptimizing, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                     <!--  F52 — the search's COST, which the count and the clock above cannot convey: what a step is
                           costing, an upper bound on what is left, and (only when true) why it is expensive right now.
-                          Deliberately no recommendation to abort or re-expose: that needs a wing-frame statistic the
-                          exposure recommender does not have yet (F52 (c), blocked on F19).  -->
+                          The ADVICE half is the separate row further down (SearchExposureAdvice): facts about cost
+                          need no statistic and are these rows; advice needs one, and now has it (F52 (c)).  -->
                     <TextBlock
                         Margin="0,2,0,0"
                         HorizontalAlignment="Center"
                         Opacity="0.75"
                         Text="{Binding ProgressTimingText, Mode=OneWay}"
                         Visibility="{Binding IsOptimizing, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                    <!--  F52(c) — the one piece of ADVICE, and the only row here that tells the user to consider
+                          stopping. Computed from the SEED evaluation, which runs before the search does, so the
+                          answer to "should I abort?" was available in the first minute rather than after two hours.
+                          Hidden whenever the sweep's wings are healthy: a note that always fires says nothing.
+                          It names Cancel (which exists) and says what Cancel costs in the same sentence, because
+                          not knowing that is why the user sat through the two hours.  -->
+                    <TextBlock
+                        MaxWidth="520"
+                        Margin="0,6,0,0"
+                        HorizontalAlignment="Center"
+                        Text="{Binding SearchExposureAdvice, Mode=OneWay}"
+                        TextAlignment="Center"
+                        TextWrapping="Wrap"
+                        Visibility="{Binding HasSearchExposureAdvice, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                     <TextBlock
                         MaxWidth="520"
                         Margin="0,6,0,0"

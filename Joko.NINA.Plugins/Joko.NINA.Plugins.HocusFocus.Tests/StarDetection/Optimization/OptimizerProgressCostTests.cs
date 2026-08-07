@@ -116,6 +116,105 @@ public class OptimizerProgressCostTests {
         });
     }
 
+    // ── F52(c): the ADVICE, which wave 8 deliberately did not ship ──────────────────────────────────────────
+    //
+    // Wave 8 shipped (a) and (b) -- the rate, the bound on what is left, which knob made the search expensive, and
+    // what Cancel costs -- and withheld (c), because advice derived from the exposure statistic of the day "would
+    // tell precisely the users who most need a longer exposure that theirs is already fine": on the reporting
+    // user's own rig that statistic read S/N 1438.6 against a target of 10. The separation is kept exactly: facts
+    // about COST need no statistic; ADVICE needs one, and now has ExposureRecommendation.WingIsShedding.
+
+    /// <summary>A 9-frame seed evaluation whose OUTER third sheds <paramref name="wingRejected"/> candidates
+    /// against <paramref name="wingAccepted"/> accepted, placed on the wing axis.</summary>
+    private static RunEvaluationMetrics SeedMetrics(int wingRejected, int wingAccepted) {
+        const int n = 9;
+        var rejected = new int[n];
+        var accepted = Enumerable.Repeat(500, n).ToArray();
+        foreach (var i in new[] { 0, 8, 1 }) { rejected[i] = wingRejected; accepted[i] = wingAccepted; }
+        return new RunEvaluationMetrics {
+            FrameStarSnrs = Enumerable.Range(0, n).Select(_ => (IReadOnlyList<double>)Enumerable.Repeat(40.0, 20).ToArray()).ToArray(),
+            FrameStarCounts = accepted,
+            FrameLowSensitivityCounts = rejected,
+            FrameTooFlatCounts = new int[n],
+            FrameFocuserPositions = Enumerable.Range(0, n).Select(i => 1000 + (i - 4) * 10).ToArray(),
+            BestFocusPosition = 1000.0,
+            StepSize = 10.0
+        };
+    }
+
+    [Test]
+    public void SearchExposureAdvice_SheddingWings_TellsTheUserToConsiderStopping_AndWhatCancelCosts() {
+        // The user's actual question, asked two hours into a search: "should I abort and try again with a longer
+        // exposure?". It is answered from the SEED evaluation, which runs BEFORE the search, so the answer existed
+        // in the first minute.
+        //
+        // DISCRIMINATING: make BuildSearchExposureAdvice return string.Empty and every assertion fails.
+        var text = StarDetectionOptimizerWizardVM.BuildSearchExposureAdvice(
+            new[] { SeedMetrics(wingRejected: 600, wingAccepted: 200) },
+            HocusFocusStarDetection.BuildDefaultStarDetectorParams(), currentExposureSeconds: 2.0);
+
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("outer frames"), "it names the population the verdict rests on");
+            Assert.That(text, Does.Contain("longer exposure"));
+            Assert.That(text, Does.Contain("Cancel"), "the house rule: name a control that exists");
+            Assert.That(text, Does.Contain("nothing is written to your profile"),
+                "not knowing this is why the user sat through the two hours");
+            Assert.That(text, Does.Not.Contain("S/N"),
+                "the accepted-star S/N is exactly the number that would have said 'yours is already fine'");
+        });
+    }
+
+    [Test]
+    public void SearchExposureAdvice_HealthyWings_SaysNOTHING() {
+        // A note that always fires says nothing -- the same rule the cost note follows ("absent entirely when the
+        // search is in a cheap region"). This is also the case wave 8 refused to ship advice for.
+        //
+        // DISCRIMINATING: drop the WingIsShedding test and this fails.
+        var text = StarDetectionOptimizerWizardVM.BuildSearchExposureAdvice(
+            new[] { SeedMetrics(wingRejected: 1, wingAccepted: 500) },
+            HocusFocusStarDetection.BuildDefaultStarDetectorParams(), currentExposureSeconds: 2.0);
+
+        Assert.That(text, Is.Empty);
+    }
+
+    [Test]
+    public void SearchExposureAdvice_MultiRun_TakesTheWORSTRun_NotTheAverage() {
+        // A multi-run optimization lands ONE settings bundle across all of them, so the run that is worst off is
+        // what makes the search's answer untrustworthy. Averaging would understate it.
+        //
+        // BOTH RUNS MUST BE SHEDDING for this to discriminate, and that correction came from neutralizing it: the
+        // aggregation `continue`s past any run whose wings are healthy, so pairing a shedding run with a HEALTHY
+        // one leaves the worst and the average identical and the test proves nothing. An earlier version of this
+        // test did exactly that and passed under a deliberately-averaged implementation.
+        //
+        // DISCRIMINATING as written: 0.75 and 0.30 average to 0.525, which renders "53%", not "75%".
+        var text = StarDetectionOptimizerWizardVM.BuildSearchExposureAdvice(
+            new[] { SeedMetrics(wingRejected: 600, wingAccepted: 200),   // 600/800 = 0.75
+                    SeedMetrics(wingRejected: 300, wingAccepted: 700) }, // 300/1000 = 0.30
+            HocusFocusStarDetection.BuildDefaultStarDetectorParams(), currentExposureSeconds: 2.0);
+
+        Assert.Multiple(() => {
+            Assert.That(text, Is.Not.Empty);
+            Assert.That(text, Does.Contain("75%"), "the WORST run's fraction, not a blend");
+            Assert.That(text, Does.Not.Contain("53%"));
+        });
+    }
+
+    [Test]
+    public void SearchExposureAdvice_NoSeedMetrics_SaysNothingRatherThanGuessing() {
+        // GUARD. A run with no seed evaluation has not looked at its wings, and the advice tells the user to
+        // abandon a sweep -- the one place this must stay silent rather than default to something.
+        Assert.Multiple(() => {
+            Assert.That(StarDetectionOptimizerWizardVM.BuildSearchExposureAdvice(
+                null, HocusFocusStarDetection.BuildDefaultStarDetectorParams(), 2.0), Is.Empty);
+            Assert.That(StarDetectionOptimizerWizardVM.BuildSearchExposureAdvice(
+                new RunEvaluationMetrics[0], HocusFocusStarDetection.BuildDefaultStarDetectorParams(), 2.0), Is.Empty);
+            Assert.That(StarDetectionOptimizerWizardVM.BuildSearchExposureAdvice(
+                new[] { SeedMetrics(600, 200) }, HocusFocusStarDetection.BuildDefaultStarDetectorParams(), 0.0),
+                Is.Empty, "an unknown exposure has nothing to say about exposure");
+        });
+    }
+
     [Test]
     public void EffectiveStructureLayers_IsNullSafeAndNeverReturnsZeroLayersForRealParams() {
         // GUARD: the optimizer calls this on every evaluation and the wizard on every report; a null here would

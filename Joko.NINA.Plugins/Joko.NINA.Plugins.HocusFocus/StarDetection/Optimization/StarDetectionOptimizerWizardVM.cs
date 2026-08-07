@@ -3411,12 +3411,95 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // constants are then handed to the optimizer (OptimizeAsync), so the baseline J and BestJ are comparable.
             var currentSigma = sigmaCount > 0 ? sigmaSum / sigmaCount : double.NaN;
             currentBaselineSigma = currentSigma;
+            // F52(c) — the abort/re-expose advice, computed HERE and from the SEED. This runs once, before the
+            // search starts, so a user asking "should I abort?" two hours in gets an answer that was available in
+            // the first minute. That is the whole complaint: the field session spent over two hours in one
+            // optimization and neither the log nor the UI could answer it.
+            UpdateSearchExposureAdvice(metrics, baseline);
             objectiveConstants = OptimizeForAberrationInspection
                 ? ObjectiveConstants.ForAberrationInspection(currentSigma)
                 : new ObjectiveConstants();
 
             var perRunJ = metrics.Select(m => OptimizationObjective.JRun(m, objectiveConstants)).ToList();
             return OptimizationObjective.JTotal(perRunJ, objectiveConstants);
+        }
+
+        private string searchExposureAdvice = string.Empty;
+
+        /// <summary>
+        /// F52(c) — the one sentence under the progress bar that says whether this search is worth waiting for, or
+        /// whether the frames it is searching over are the problem. Empty (and the row hidden) when the sweep's
+        /// wings are healthy, because advice that always fires says nothing.
+        ///
+        /// <para><b>Why this could not ship in wave 8, and why it can now.</b> Wave 8 shipped (a) and (b) — the
+        /// rate, the bound on what is left, which knob made the search expensive, and what Cancel costs — and
+        /// deliberately withheld (c), because advice derived from the exposure statistic of the day *"would tell
+        /// precisely the users who most need a longer exposure that theirs is already fine"*: on the reporting
+        /// user's own rig that statistic read <b>S/N 1438.6 against a target of 10</b>. The separation wave 8 drew
+        /// is kept exactly: <b>facts about COST need no new statistic and are already shown; ADVICE needs
+        /// one</b>. It is now built on <see cref="ExposureRecommendation.WingIsShedding"/>, which measures the
+        /// population the gate did NOT admit.</para>
+        ///
+        /// <para><b>It names Cancel, which exists</b> — the house rule at
+        /// <see cref="ShowOptimizeAgainAtRecommendedBinning"/>: never describe an action whose control is hidden.
+        /// And it states what Cancel costs in the same breath, because the reason the user sat through two hours
+        /// was not knowing.</para>
+        ///
+        /// <para>It does NOT quote a recommended exposure. The seed evaluation supports a DIRECTION (the wing probe
+        /// is a probe precisely because the rejected candidates' SNRs are not recorded), and the Summary's own
+        /// exposure row is where a number belongs once the run finishes.</para>
+        /// </summary>
+        public string SearchExposureAdvice {
+            get => searchExposureAdvice;
+            private set {
+                if (searchExposureAdvice != value) {
+                    searchExposureAdvice = value;
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(HasSearchExposureAdvice));
+                }
+            }
+        }
+
+        public bool HasSearchExposureAdvice => !string.IsNullOrEmpty(SearchExposureAdvice);
+
+        /// <summary>
+        /// Builds <see cref="SearchExposureAdvice"/> from the SEED evaluation's metrics. Internal + static so the
+        /// copy is testable without a rig; the instance wrapper below just assigns it.
+        ///
+        /// <para>Takes the WORST wing fraction across the loaded runs rather than an average: a multi-run
+        /// optimization lands ONE settings bundle on all of them, so a single starved run is enough to make the
+        /// search's answer untrustworthy, and averaging would hide exactly that.</para>
+        /// </summary>
+        internal static string BuildSearchExposureAdvice(
+                IReadOnlyList<RunEvaluationMetrics> seedMetrics, StarDetectorParams seedParams, double currentExposureSeconds) {
+            if (seedMetrics == null || seedMetrics.Count == 0) {
+                return string.Empty;
+            }
+            var worstFraction = double.NaN;
+            foreach (var m in seedMetrics) {
+                var rec = ExposureRecommender.Recommend(m, new ObjectiveConstants(), currentExposureSeconds, seedParams);
+                if (!rec.WingIsShedding) {
+                    continue;
+                }
+                if (!double.IsFinite(worstFraction) || rec.WingRejectedFraction > worstFraction) {
+                    worstFraction = rec.WingRejectedFraction;
+                }
+            }
+            if (!double.IsFinite(worstFraction)) {
+                return string.Empty;
+            }
+            return $"The outer frames of this sweep are losing {worstFraction:P0} of the stars they find to the "
+                + "brightness gate, so a longer exposure is likely to help this focus more than a longer search will. "
+                + "Cancel stops the search only: nothing is written to your profile, and the frames already captured "
+                + "stay on disk.";
+        }
+
+        private void UpdateSearchExposureAdvice(IReadOnlyList<RunEvaluationMetrics> seedMetrics, StarDetectorParams seedParams) {
+            // The exposure the frames were actually shot with. Live runs know it exactly; a replay falls back to
+            // the box, and a non-positive value makes ExposureRecommender decline to answer at all, which is the
+            // right outcome -- the advice is about exposure, so an unknown exposure has nothing to say.
+            var exposure = capturedLiveExposureSeconds > 0.0 ? capturedLiveExposureSeconds : LiveExposureSeconds;
+            SearchExposureAdvice = BuildSearchExposureAdvice(seedMetrics, seedParams, exposure);
         }
 
         /// <summary>Runs the pure optimizer off the UI thread; progress posts back via <see cref="IProgress{T}"/>.
