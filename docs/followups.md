@@ -3322,6 +3322,29 @@ eight are one instrument"*, and it is applied as written: **no φ verdict is pub
 > **Those are exactly arm A's 0.988555 and arm B/C's 0.979173.** The probe reproduces the entire 7-hour
 > discrepancy from identical inputs in 40 seconds.
 >
+> ### THE FULL RATE, from a complete identical arm: 44 % of landings, not 15 %
+>
+> Wave 9's sequential re-run reproduces arm B (`--keep-floor 0.50`) in full, so the fan-out and sequential
+> versions of **the same 39 runs, same flag, same binary, same pinned settings** can be diffed directly:
+>
+> | quantity | differing |
+> |---|---|
+> | **`BaselineJ`** — one evaluation of the pinned seed, no search | **6 of 39 (15 %)** |
+> | **`BestJ`** — the landing the arm is actually read on | **17 of 39 (44 %)** |
+>
+> **The landing rate is triple the seed rate, and that is the important part.** Many runs have a
+> *bit-identical* `BaselineJ` and a *different* landing — `CWhiteFocus` 0.999740 vs 0.999867, `standard_example1`
+> 0.999846 vs 0.996456, `caboose` 0.996300 vs 0.994857, and `LinwoodFocus` **0.952882 vs 0.917207**, a gap of
+> 0.036. So the nondeterminism is not confined to the seed evaluation: it perturbs evaluations *during* the
+> search, and the pattern search amplifies one perturbed evaluation into a different landing.
+>
+> **RULE G caught 2 of 8 and the true rate is 44 %** — the gate was, if anything, lucky. Any arm run at fan-out
+> is not "mostly fine with a couple of outliers"; it is close to a coin flip per run.
+>
+> *(The two arms also differ in what a previous pass had left in the run folders. That was tested separately on
+> `toml999` — sequential and alone, on folders holding a contaminated landing, it returns the correct value — so
+> folder state is excluded as the cause.)*
+>
 > **Three things follow.**
 >
 > 1. **Sequential execution is deterministic** (5 of 5, and the wave-9 gate independently reproduced wave 5's
