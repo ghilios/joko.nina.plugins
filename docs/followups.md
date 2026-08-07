@@ -3219,10 +3219,45 @@ the first to lose them.
 against wave 5's φ table**. RULE G was written as *"a partial reproduction is a failure, not a warning — the
 eight are one instrument"*, and it is applied as written: **no φ verdict is published from this arm.**
 
-**Next step.** (a) Re-run the arm **sequentially** — ~28 h, and that is now the known price of a readable arm.
-(b) Find the nondeterminism: the run-evaluation path is parallel (`RunEvaluationDataParallelismTests`,
-`RunEvaluationDataCache`), and a seed evaluation that is not a pure function of (frames, settings) is a defect in
-its own right, independent of this arm. (c) Until (b), **treat concurrent `optimize` as invalid for any arm whose
+> ### CONFIRMED 2026-08-07 by a 40-SECOND reproducer, and it is BIMODAL
+>
+> Rather than spend ~28 h to find out, the question was asked directly: **is the seed evaluation a pure function
+> of (frames, settings)?** `D:\hf_w9\det\determinism_probe.sh` runs `optimize --per-run --max-evals 1` — so the
+> search does nothing and `BaselineJ` is the whole measurement — on `D16_esprit550_ha3`, the arm's biggest mover,
+> **five times sequentially and then five times at once**, each repeat on its own copy of the run folder reset to
+> an identical state. The banks are never touched.
+>
+> | phase | `BaselineJ` |
+> |---|---|
+> | **5× SEQUENTIAL** | `0.9791727071693058` five times — **identical** |
+> | **5× CONCURRENT** | `0.9885546719484486` ×3 and `0.9791727071693058` ×2 — **two values in one batch** |
+>
+> **Those are exactly arm A's 0.988555 and arm B/C's 0.979173.** The probe reproduces the entire 7-hour
+> discrepancy from identical inputs in 40 seconds.
+>
+> **Three things follow.**
+>
+> 1. **Sequential execution is deterministic** (5 of 5, and the wave-9 gate independently reproduced wave 5's
+>    eight values across two waves and two binaries). **Waves 5–8 stand**, and the ~28 h sequential re-run is
+>    valid — it is now RUNNING.
+> 2. **The defect is BIMODAL, not drift.** Two discrete attractors, not a spread — so it is a race between two
+>    code paths, not floating-point summation order. That also means it can flip a *sequential* run if the machine
+>    is busy for another reason, which is why this outranks the re-run in importance.
+> 3. **A 40-second reproducer exists**, which is the thing that was actually missing. Any candidate fix is now
+>    testable in a minute instead of a wave.
+>
+> **Excluded by reading the source (no runs — nothing may execute beside the sequential arm):** there is no
+> OpenCL/`UMat` path at all; `AlglibHyperbolicFitting`'s parallel candidate-model pass writes into **indexed
+> arrays** and resolves consensus by intersection + `Array.FindIndex`, so `Parallel.For` completion order cannot
+> change it (the comments say so deliberately); and there is no load-sensitive timeout in the
+> detection/evaluation/fit path — the only `Stopwatch` there is trace-only. **The mechanism is still open.**
+> Degree-of-parallelism knobs derive from `Environment.ProcessorCount`, which does not change when other
+> PROCESSES run, so the cause is more likely a shared cross-process resource or a genuine order dependence
+> somewhere below the fit.
+
+**Next step.** (a) ~~Re-run the arm sequentially~~ — **RUNNING** as of 2026-08-07 10:18Z, ~28 h.
+(b) **Find the nondeterminism — this now outranks (a) in value, because the reproducer makes it cheap and
+because a bimodal race can flip a sequential run too.** Bisect with `determinism_probe.sh`: it is 40 s per trial. (c) Until (b), **treat concurrent `optimize` as invalid for any arm whose
 conclusion rests on comparing landings**, and say so in the run instructions beside
 [F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)'s
 settings-pinning rule. (d) Add a cheap standing guard: have `optimize` print `BaselineJ` where a scripted arm can
