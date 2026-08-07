@@ -3166,6 +3166,51 @@ the price for a fourth-decimal gain — the same shape as
 time instead of recall.
 Reproduce: `D:\hf_w8\field\compare_runs.sh`, `D:\hf_w8\field\cost_*.json`, `D:\hf_w8\field\gate_*.json`.
 
+### F56 — The à-trous wavelet residual convolves a DENSE kernel that is 99.5 % zeros, and that IS the `StructureLayers` cost curve
+**Status:** Open · found 2026-08-07 (wave 9) answering a question about GPU/SIMD builds ·
+**ANALYSIS, NOT MEASUREMENT — no benchmark was run, because F55 forbids CPU load beside the sequential arm**
+
+`StarDetector` step 4's structure-removal residual is the detector's dominant cost.
+[F52](#f52--a-two-hour-optimization-logs-one-line-and-offers-no-cost-context-and-the-search-is-not-cost-aware)
+measured it on `D15_cdk20_3454mm_e47`: **27 / 46 / 117 / 254 / 526 s** for `StructureLayers` 4→8, *"roughly a
+doubling per layer"*, and shipped a UI note explaining that cost to users.
+
+**The doubling is an implementation artifact.** `CvImageUtility.GetB3SplineFilter(L)` builds a 1-D kernel of
+length `(1 << (L+2)) + 1` in which **exactly five taps are non-zero** — the B3-spline `0.0625 / 0.25 / 0.375 /
+0.25 / 0.0625` spaced `2^L` apart — and its own comment states the intent: *"Rather than copy the matrix to
+convolve it, we can pad the separated filter with zeroes."* `Cv2.SepFilter2D` then performs a **dense** separable
+FIR over the whole kernel.
+
+| layer | kernel taps | useful taps | wasted multiply-adds |
+|---|---|---|---|
+| **4** (shipped default) | 65 | 5 | **13×** |
+| 6 | 257 | 5 | **51×** |
+| 8 | 1025 | 5 | **205×** |
+
+Cost is linear in kernel length, and the kernel doubles per layer — which reproduces F52's measured curve exactly.
+
+**"À trous" MEANS "with holes", and the algorithm exists to be O(1) per layer**: convolve 5 taps at stride `2^L`.
+OpenCV's `sepFilter2D` has no dilation parameter, which is presumably why the zero-padding was chosen, but a
+hand-written strided 5-tap separable pass has no such limit and is trivially vectorizable.
+
+**Predicted, NOT measured:** layer 8 falls to roughly the cost of layer 1 — order **20–100×** on this stage —
+and the `StructureLayers` cost curve F52 documents largely disappears. **Nothing here is confirmed**; the
+arithmetic above is a static reading of the kernel and OpenCV's semantics.
+
+**Why it matters beyond speed.** (a) `OptimizerVariable` searches `StructureLayers` over `[1, 8]`, so every
+optimizer run pays this, hundreds of times — it is a large share of the two-hour runs F52 was filed about.
+(b) [F46](#f46--detection-binning-buys-faint-stars-and-quietly-sells-bright-ones-to-the-shapesize-gates) showed
+deeper layers are the RIGHT answer at detection binning 2, and the cost is what makes that expensive to adopt.
+(c) It reframes F52(d): a cost term in `J` would be penalising an artifact rather than physics.
+
+**Next step.** (a) Replace the zero-padded kernel with a strided 5-tap separable convolution (two passes, or one
+`filter2D` per axis with an explicit gather). (b) **Verify by EQUIVALENCE, not by eye** — it is the same
+arithmetic, so `StarDetectorEquivalenceTests` plus a bank re-score must come back bit-identical (or explain any
+delta as border handling: the current code uses `BorderTypes.Reflect`, and a strided implementation must match
+that at every layer). (c) Only then benchmark, and only with **nothing else running** (F55).
+**This supersedes any argument for a custom SIMD or CUDA OpenCV build as the first move**: the stock native
+build already dispatches AVX2/AVX-512, and no SIMD width recovers a 205× algorithmic waste.
+
 ### F55 — `optimize` is NOT reproducible when several instances run at once, and the SEED evaluation is what moves
 **Status:** Open · found 2026-08-07 (wave 9) when the confirmation arm's own pre-registered control fired ·
 **this voids the wave-9 F32 arm and constrains every future arm's design**
