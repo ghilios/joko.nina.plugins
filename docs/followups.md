@@ -3167,8 +3167,9 @@ time instead of recall.
 Reproduce: `D:\hf_w8\field\compare_runs.sh`, `D:\hf_w8\field\cost_*.json`, `D:\hf_w8\field\gate_*.json`.
 
 ### F56 — The à-trous wavelet residual convolves a DENSE kernel that is 99.5 % zeros, and that IS the `StructureLayers` cost curve
-**Status:** Open · found 2026-08-07 (wave 9) answering a question about GPU/SIMD builds ·
-**ANALYSIS, NOT MEASUREMENT — no benchmark was run, because F55 forbids CPU load beside the sequential arm**
+**Status:** Open · found 2026-08-07 (wave 9) answering a question about GPU/SIMD builds · **the diagnosis is
+confirmed and the first fix was MEASURED AT +50 % SLOWER AND REVERTED** — the à-trous kernel really is 99.5 %
+zeros, but the stage is memory-bandwidth bound, so the FLOP count did not predict runtime
 
 `StarDetector` step 4's structure-removal residual is the detector's dominant cost.
 [F52](#f52--a-two-hour-optimization-logs-one-line-and-offers-no-cost-context-and-the-search-is-not-cost-aware)
@@ -3193,9 +3194,46 @@ Cost is linear in kernel length, and the kernel doubles per layer — which repr
 OpenCV's `sepFilter2D` has no dilation parameter, which is presumably why the zero-padding was chosen, but a
 hand-written strided 5-tap separable pass has no such limit and is trivially vectorizable.
 
-**Predicted, NOT measured:** layer 8 falls to roughly the cost of layer 1 — order **20–100×** on this stage —
-and the `StructureLayers` cost curve F52 documents largely disappears. **Nothing here is confirmed**; the
-arithmetic above is a static reading of the kernel and OpenCV's semantics.
+> ### IMPLEMENTED, MEASURED, AND REVERTED THE SAME DAY — the FLOP analysis above does not predict wall time
+>
+> The strided rewrite was built, CI-verified (3682 passed / 0 failed; equivalence green at layers 1–6), merged,
+> and then **measured against the pre-F56 binary on the 8-run sequential gate — the same runs, same invocation,
+> sequential both times.**
+>
+> | run | pre-F56 | F56 strided | change |
+> |---|---|---|---|
+> | `toml999` | 154 s | 232 s | **+51 %** |
+> | `CWhiteFocus` | 495 s | 795 s | **+61 %** |
+> | `uneven` | 339 s | 641 s | **+89 %** |
+> | `muggsie` | 65 s | 101 s | **+55 %** |
+> | `mccomiskey` | 326 s | 351 s | **+8 %** |
+> | `D18_m24_deep_shed` | 334 s | 442 s | **+32 %** |
+> | **total** | **1713 s** | **2562 s** | **+50 %** |
+>
+> **Uniformly slower. Not one run faster. REVERTED.**
+>
+> **Why the arithmetic was irrelevant.** The à-trous residual is **memory-bandwidth bound, not FLOP bound.**
+> `sepFilter2D` makes ONE pass per axis with the kernel resident in registers; the strided version as implemented
+> made **five full-image read-modify-write passes per axis**, plus two `CopyMakeBorder` allocations per layer. It
+> traded 13× fewer multiply-adds for 5× the memory traffic, and at these image sizes memory wins. The 13–205×
+> figures are correct as FLOP counts and **do not predict runtime** — which is the whole reason the entry was
+> filed as "ANALYSIS, NOT MEASUREMENT".
+>
+> **What IS established, and is worth keeping:**
+> 1. **The rewrite is LANDING-NEUTRAL.** RULE G on the F56 binary passes **8 of 8 to 6 dp** — bit-identical
+>    landings, `BaselineJ` included. So the à-trous can be reimplemented freely without invalidating any prior
+>    arm; only speed is at stake.
+> 2. **The kernel really is 99.5 % zeros**, and F52's measured 2×-per-layer curve really is that padding. That
+>    part of the diagnosis stands.
+> 3. **The right implementation is a SINGLE FUSED strided pass**, not five composed `Cv2` calls: one hand-written
+>    pointer loop per axis gathering 5 taps at stride `2^L`, giving `sepFilter2D`'s memory traffic (one read, one
+>    write) with 5 multiply-adds instead of `2^(L+2)+1`. That is the version that should win at every layer, and
+>    it is what "O(1) per layer" was always supposed to mean.
+>
+> **Lesson, and it is this entry's real content: a FLOP count is not a benchmark.** The waste was real and the
+> conclusion was still wrong, because the bottleneck was somewhere the analysis never looked. Measure the thing
+> you are about to optimise before optimising it — the gate that measured this cost 33 minutes and would have
+> cost nothing to run first.
 
 **Why it matters beyond speed.** (a) `OptimizerVariable` searches `StructureLayers` over `[1, 8]`, so every
 optimizer run pays this, hundreds of times — it is a large share of the two-hour runs F52 was filed about.
@@ -3203,13 +3241,17 @@ optimizer run pays this, hundreds of times — it is a large share of the two-ho
 deeper layers are the RIGHT answer at detection binning 2, and the cost is what makes that expensive to adopt.
 (c) It reframes F52(d): a cost term in `J` would be penalising an artifact rather than physics.
 
-**Next step.** (a) Replace the zero-padded kernel with a strided 5-tap separable convolution (two passes, or one
-`filter2D` per axis with an explicit gather). (b) **Verify by EQUIVALENCE, not by eye** — it is the same
-arithmetic, so `StarDetectorEquivalenceTests` plus a bank re-score must come back bit-identical (or explain any
-delta as border handling: the current code uses `BorderTypes.Reflect`, and a strided implementation must match
-that at every layer). (c) Only then benchmark, and only with **nothing else running** (F55).
-**This supersedes any argument for a custom SIMD or CUDA OpenCV build as the first move**: the stock native
-build already dispatches AVX2/AVX-512, and no SIMD width recovers a 205× algorithmic waste.
+**Next step, revised by the measurement.** (a) **BENCHMARK FIRST** — the 8-run sequential gate is 33 minutes and
+is the instrument that settled this; run it before writing any further optimisation, not after. (b) If it is
+attempted again, the shape is a **single fused strided pass** (one hand-written pointer loop per axis, 5 taps at
+stride `2^L`, one read and one write), NOT composed `Cv2` calls — the composed form is what lost. (c) Find the
+crossover: F52's 27 → 526 s curve means dense must lose *somewhere*, so a hybrid that keeps `sepFilter2D` at low
+layers and switches at the crossover may be the only version that wins. (d) Equivalence is already established —
+RULE G passed 8/8 on the strided binary — so a future attempt needs only a benchmark, not a re-validation.
+**On custom SIMD / CUDA OpenCV builds:** the stock native build already dispatches AVX2/AVX-512, and this
+result is the argument against assuming any build-level change helps — the stage is bound by memory, not by
+instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
+buying or building anything.
 
 ### F55 — `optimize` is NOT reproducible when several instances run at once, and the SEED evaluation is what moves
 **Status:** Open · found 2026-08-07 (wave 9) when the confirmation arm's own pre-registered control fired ·
