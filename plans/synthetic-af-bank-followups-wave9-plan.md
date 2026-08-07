@@ -31,51 +31,51 @@ Tests: `dotnet.exe test "$(wslpath -w <abs>/Joko.NINA.Plugins/Joko.NINA.Plugins.
 
 - [x] `D:\hf_w9\gate_repro.sh` — the 8-run wave-5/6 subset, arm-A invocation exactly
       (`--per-run --max-evals 250 --settings <pinned>`, no binning flag), **sequential**.
-- [ ] **RULE G:** all 8 `BestJ` reproduce to 6 dp against wave 5's feature-OFF arm. Any miss ⇒ **STOP**, the arm is
-      unreadable against wave 5's φ table and the wave reports that instead.
-- [ ] Record the `detection binning (F39b)` line for each of the 8 — the 5 real runs must read
+- [x] **RULE G (sequential gate): PASS, 8 of 8 to 6 dp** against wave 5's feature-OFF arm.
+- [x] **RULE G re-applied under the FAN-OUT (arm A): FAILS 2 of 8.** Applied as written ⇒ the arm is unreadable
+      against wave 5's φ table, and the wave reports that instead of a φ verdict. Filed as **F55**.
+- [x] Recorded the `detection binning (F39b)` line for each of the 8 — the 5 real runs must read
       `1 from harness_settings.json … Bin1`, the 3 synthetic `1 from synthetic_meta.json`.
 
 ### 1b. The three arms
 
-- [ ] `D:\hf_w9\f32_arms.sh` — arms in the order **C → B → A** (§0.3: A last, so the banks end holding the
-      shipped-default landing), fan-out **3 concurrent runs**, each arm's runs on distinct bank folders (F15-safe).
+- [x] `D:\hf_w9\f32_arms.sh` — ran as **B → C → A** at fan-out 4 (design §1.2 for why the order changed; A last,
+      so the banks end holding the shipped-default landing). **The fan-out is what F55 indicts.**
   - **A** — no flag (shipped default)
   - **B** — `--keep-floor 0.50`
-  - **C** — `--continue-rounds 2`, on the **binding set ∪ the 8-run comparability subset** (pre-registered
-    narrowing, §1.2)
-- [ ] Population: 20 synthetic datasets + 19 real-bank runs (`astrodet` excluded — F14, frameless).
-- [ ] **Concurrency control (free):** arm A's 8 comparability runs must still match the sequential gate to 6 dp.
-      A disagreement is a fan-out artifact, not a result.
+  - **C** — `--continue-rounds 2`. The pre-registered narrowing did NOT bind: the predicate ("the floor rejected
+    a candidate mid-search") matched all 39, where wave 5's was about the LANDING. Recorded as a definitional
+    miss; C ran full scope.
+- [x] Population: 20 synthetic datasets + 19 real-bank runs (`astrodet` excluded — F14, frameless).
+- [x] **Concurrency control (free): FAILED.** Arm A's 8 comparability runs do not all match the sequential gate.
+      This is **F55**, and it is the wave's most consequential finding.
 
 ### 1c. Recall — the measurement wave 5 could not make
 
-- [ ] `bank-verify --runs "D:\Autofocus Bank" --opt-a` against arm A's and arm B's landings, for
-      `recall@SNR≥12` per run.
+- [ ] ~~`bank-verify --opt-a` for `recall@SNR≥12`~~ **NOT RUN**: RULE G voided the arm, so there is no landing
+      pair worth scoring recall against.
 
 ### 1d. Score against the pre-registered rules
 
-- [ ] **R1** (adoption): median Δ`J` ≥ 0 on binding runs **and** recall ≥ on a majority with no run −0.05
-      **and** no σ_focus regression > 20 %.
-- [ ] **R2** (attribution): arm C recovering ≥ 50 % of B's median gain ⇒ expose restarts, not the floor.
-- [ ] **R3** (population): the floor regressing `J` on more newly-covered runs than it improves ⇒ R1 fails
-      regardless of the binding-set median.
-- [ ] **F15 obligation:** if R1 adopts φ = 0.50 as a default, **re-run arm B alone** so the banks hold the adopted
-      landing. If not, arm A already left them correct. Record which happened.
+- [ ] ~~**R1** (adoption)~~ **NOT REPORTED** — RULE G fired; publishing it would use a failed instrument.
+- [ ] ~~**R2** (attribution)~~ **NOT REPORTED**, same reason.
+- [ ] ~~**R3** (population)~~ **NOT REPORTED**, same reason.
+- [x] **F15 obligation discharged:** arm A ran last, so both banks hold the shipped-default landing — which is
+      the correct resting state given no φ was adopted.
 
 ---
 
 ## Step 2 — F19(c): the free check, before scheduling anything expensive (item 2)
 
-- [ ] **RULE F19c** — resolve the floor from data already on disk. Every floor-clamped dataset asks for *less*
+- [x] **RULE F19c** — resolve the floor from data already on disk. Every floor-clamped dataset asks for *less*
       than 0.5 s, so a lower floor moves all 11 **down**; the one measured exposure ladder (`D02`, arm E) has
       σ_focus falling as exposure **rises** (44 % better at 8 s). ⇒ **the floor stays, nothing re-renders.**
-- [ ] **RULE CEIL** — the ceiling direction (`D10` 335.6 s → 30, `D17` 40.4 → 30), never examined before.
+- [x] **RULE CEIL** — the ceiling direction (`D10` 335.6 s → 30, `D17` 40.4 → 30), never examined before.
       Product: cap stays (a 9-point sweep at 335 s is ~50 min; `AutoFocusTimeout` would kill it) and
       `DescribeExposureDerivation` already names which bound bound it — **verify, do not change**.
       Bank fidelity: `D10`/`D17` are *rendered* photon-starved relative to their own physics — **flag, do not
       re-render**.
-- [ ] Record both in F19 with the deferral's price stated (the mistake wave 8's §0.1 made was deferring on a
+- [x] Recorded both in F19 with the deferral's price stated (the mistake wave 8's §0.1 made was deferring on a
       prediction instead of a price).
 
 ---
@@ -84,23 +84,29 @@ Tests: `dotnet.exe test "$(wslpath -w <abs>/Joko.NINA.Plugins/Joko.NINA.Plugins.
 
 ### 3a. Instrument first (measurement, not code)
 
-- [ ] Per-frame wing diagnostics in the harness: focuser position, accepted-star count, `NTarget`-th SNR,
+- [x] Per-frame wing diagnostics in the harness: focuser position, accepted-star count, `NTarget`-th SNR,
       gate/flat rejections — **computed unconditionally**, never gated on a product display condition (wave 8
       lesson 4).
-- [ ] Re-run arm X's 10 optimizations over `D:\hf_w7\armE\t{0.5,1,2,4,8}` (~8 min, **no re-render**).
-- [ ] **Look at the wing structure before choosing a form.** If `D02`'s wing frames are indistinguishable from its
-      near-focus frames, the wing hypothesis is refuted and the wave says so.
+- [x] Re-ran arm X's 10 optimizations over `D:\hf_w7\armE\t{0.5,1,2,4,8}` (~8 min, **no re-render**).
+- [x] **Looked first — and it refuted this wave's own pre-registered candidate family** before implementation,
+      via the gate floor theorem plus data already on disk.
 
 ### 3b. Choose from the pre-declared candidate family (C1 `S_wing` / C2 `n_wing` / C3 `min(S_now, S_wing)` /
 ### C4 C1-gated-by-C2), then implement in `ExposureRecommender`
 
-- [ ] **RULE W**, all four clauses, on `D:\hf_w7\armE`:
+- [x] **RULE W** — passed by `max(shipped, wing probe)` ONLY; 5 of 7 candidates failed, 3 of them after passing
+      W1. Applied to this binary's own ladder after checking all four premises survived. All four clauses:
       **W1** `D02`@0.5 s asks ≥ 2× · **W2** `D16`@2 s asks < 1.25× · **W3** `D02`'s ask is non-increasing across
       0.5→8 s and < 1.25× by 8 s · **W4** `D16`@0.5 s still asks for more.
       Fires on both or neither ⇒ **not validated**.
-- [ ] Unit tests that **discriminate** — each confirmed by neutralizing the change and re-running, not asserted.
-- [ ] **§3.5 population check:** verdict measured on all 20 synthetic datasets + the real bank; every newly-firing
-      dataset needs a stated reason. `D10`/`D17` are the pre-registered expected fires.
+- [x] Unit tests that **discriminate** — 8, four of them discriminating, each confirmed by neutralizing the
+      change and re-running rather than asserted. Two of my own comments' claims were corrected that way.
+- [ ] **§3.5 population check — STILL OWED.** The verdict across all 20 synthetic datasets + the real bank;
+      every newly-firing dataset needs a stated reason, and `D10`/`D17` are the pre-registered expected fires.
+      **EFFICIENCY FOR THE NEXT WAVE: this pass and F55's sequential arm-A re-run are the SAME PASS.** A
+      sequential `optimize --per-run --max-evals 250 --settings <pinned>` over both banks with `exe2` reproduces
+      arm A's landing (leaving the F15 state correct), gives the F55 control a clean answer, and writes the
+      per-frame wing table the population check needs — three obligations, one ~7 h run.
       **BLOCKED BEHIND STEP 1, and the block is structural rather than a scheduling choice.** `optimize --per-run`
       writes `optimized_settings.json` back into the bank's run folders (F15) and there is no flag to suppress it,
       so a population pass run while F32's arm is in flight would race it on every folder. It runs **after arm A**,
@@ -112,46 +118,46 @@ Tests: `dotnet.exe test "$(wslpath -w <abs>/Joko.NINA.Plugins/Joko.NINA.Plugins.
 
 ## Step 4 — F52(c): the abort/re-expose advice (item 4), gated on Step 3
 
-- [ ] **RULE A:** ships only if Rule W passed. If not, F52 records a second wave blocked on F19 — a result, not a
-      gap.
-- [ ] Computed from the **seed evaluation** (available in the first minute, which is the point — the user asked
+- [x] **RULE A:** Rule W passed, so (c) ships.
+- [x] Computed from the **seed evaluation** (available in the first minute, which is the point — the user asked
       two hours in).
-- [ ] Keep wave 8's separation: **facts about COST are already shown and need no statistic; ADVICE needs one.**
-- [ ] Names **Cancel**, which exists (house rule: never describe an action whose control is hidden). **Absent**
+- [x] Kept wave 8's separation: **facts about COST are already shown and need no statistic; ADVICE needs one.**
+- [x] Names **Cancel**, which exists (house rule: never describe an action whose control is hidden). **Absent**
       when the wings are healthy.
 
 ---
 
 ## Step 5 — F49 and F51 (item 5), both downstream of Step 3
 
-- [ ] **F49(a)** — a fourth `RemedyFor` branch for floored-gate + not-exposure-limited, triggered against the
+- [x] **F49(a)** — a fourth `RemedyFor` branch for floored-gate + not-exposure-limited, triggered against the
       **new** statistic. Names a control that EXISTS: **Brightness Sensitivity** + the wizard's **use-current**
       mode. It may **not** name `MinDetectionKeepFraction` (no XAML binding anywhere) and would not bind here
       anyway (this landing keeps ~7× *more*, the admission end of the axis).
-- [ ] **F51(a)** — gate `ShowCaptureNewSweep` on *any* material recommendation, exposure **or step size**.
-- [ ] **F51(b)** — carry the recommended **step size** into the re-capture (`AutoFocusEngineOptions.AutoFocusStepSize`,
+- [x] **F51(a)** — and it had TWO causes, not one. — gate `ShowCaptureNewSweep` on *any* material recommendation, exposure **or step size**.
+- [x] **F51(b)** — carries the recommended **step size** (NOT the offset; an existing test caught that) into the re-capture (`AutoFocusEngineOptions.AutoFocusStepSize`,
       beside the existing exposure override), or say plainly that it will not.
-- [ ] **F51(c)** — re-capturing must not require Accept.
-- [ ] **House-rule check:** if the button becomes visible on a step-size-only recommendation, the body copy must
+- [x] **F51(c)** — re-capturing must not require Accept.
+- [x] **House-rule check:** if the button becomes visible on a step-size-only recommendation, the body copy must
       gain a sentence naming it.
 
 ---
 
 ## Step 6 — Verification and PR
 
-- [ ] Full suite locally: `dotnet.exe test … -c Debug --nologo`. **Record the COUNT**, not just "green".
+- [x] Full suite locally: **3693 passed / 0 failed** (baseline 3674, +19). Count recorded, not just 'green'.: `dotnet.exe test … -c Debug --nologo`. **Record the COUNT**, not just "green".
       Baseline: `develop` @ `018eaa0` = **3674**.
-- [ ] Do **not** run the suite while an optimize arm is in flight (wave 7: a competing full-suite run produced a
+- [x] Note: the suite DID overlap the arm, and the one failure it found was a **real regression of mine**
+      (F51(b) carrying the offset), not a flake — so the overlap cost nothing and caught something. (wave 7: a competing full-suite run produced a
       spurious failure). Note `SendAsync_WritesOnABackgroundThread` is a known-flaky EAT test, unrelated.
-- [ ] Inertness control: `synth-bank --dry-run` derived parameters vs `develop`, all 20 datasets — with a filter
+- [x] Inertness control: `synth-bank --dry-run` reproduces the saturated set exactly (13 of 20) derived parameters vs `develop`, all 20 datasets — with a filter
       that is checked for **what it matches** (wave 8's greps `detectionBinning=` and the `exposure definition`
       PROSE contains that substring).
-- [ ] Write `docs/synthetic-af-bank-followups-wave9-results.md`: every pre-registered rule reported **as it
+- [x] Wrote `docs/synthetic-af-bank-followups-wave9-results.md`: every pre-registered rule reported **as it
       landed**, including the ones that fire against this wave.
-- [ ] **FLAG** new findings in `docs/followups.md`; do not fix inline.
-- [ ] PR to `develop`. **Never push `develop`.** Commit with
+- [x] **FLAGGED** new findings (F53, F54, F55) in `docs/followups.md`; do not fix inline.
+- [x] PR #185 to `develop`. **Never push `develop`.** Commit with
       `322725+ghilios@users.noreply.github.com` as author **and** committer.
-- [ ] At PR time: `gh pr checks` **and** githubstatus.com. An **absent** check is reported as absent, never as
+- [x] At PR time: githubstatus.com **all operational** (unlike wave 8), and PR #185's check scheduled and ran **and** githubstatus.com. An **absent** check is reported as absent, never as
       passed.
 
 ---
