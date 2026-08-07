@@ -116,13 +116,12 @@ real-bank recall, since the efficacy criterion could only be evaluated by keep-%
   the `_`-prefixed folders are scratch arms, not runs).
 - **Recall:** `bank-verify --opt-a` against arms A and B, which is the measurement wave 5 could not make.
 
-**Arm C's population is narrowed, and the narrowing is pre-registered rather than discovered.** Arm C runs on the
-**union of (i) the runs where arm B's landing differs from arm A's** (the *binding* set — where the floor did
-something, so "would a restart have done it instead?" is a question with content) **and (ii) the 8-run wave-5/6
-comparability subset** (so the cross-wave comparison to wave 6's arm R survives). On a non-binding run the floor
-changed nothing and arm C would be answering a question nobody asked. **This is a reduction in scope and it is
-declared as one** — the alternative is ~8 h of compute whose only possible finding is "the restart also did
-nothing here".
+**All three arms run the FULL population, and the reduction that was drafted here was withdrawn once it was
+priced.** The first draft narrowed arm C to the binding set, because `--continue-rounds 2` is ~2.4× the per-run
+cost (wave 6: 8 runs in 1 h 35 m against wave 5's 40 m) and 39 runs sequentially is ~8 h. **With the fan-out in
+§1.4 that is ~2.6 h**, which is inside F32's own ~6 h estimate for the whole arm — so the narrowing bought
+nothing but a definitional argument about what "binding" means before arm A has run. Full scope, no dependency
+between the arms, and the ordering in §0.3 works directly.
 
 ### §1.3 THE COMPARABILITY GATE — run FIRST, and the arm does not start until it passes
 
@@ -332,19 +331,72 @@ Wave 8 hit *"the instrument agrees with the thing it is supposed to check"* **th
 accepted-star count, `NTarget`-th SNR, gate/flat rejections), re-run arm X's 10 optimizations over the frames
 already on disk (**~8 min, no re-render**), and *look at the wing structure before choosing a form*.
 
-### §3.4 The candidate family, fixed now so that choosing among them is not fishing
+### §3.4 The candidate family — DRAFTED, THEN REFUTED BEFORE IT WAS IMPLEMENTED
+
+The family this section first named was **C1** `S_wing` (the `NTarget`-th-brightest reduction aggregated over the
+*wing* frames rather than all frames), **C2** `n_wing` (wing accepted-star count against `NTarget`), **C3**
+`min(S_now, S_wing)`, and **C4** C1-gated-by-C2. Every one of them is an order statistic over **ACCEPTED** stars.
+
+**All four are structurally incapable of firing on `D02`, and it takes a proof plus data already on disk to see
+it — no run required.**
+
+> **The gate floor theorem.** `StarDetector.InertSensitivityBound` proves that every candidate reaching the
+> Sensitivity gate satisfies `sensitivity > PeakResponse × EffectiveClipMultiplier`, and acceptance additionally
+> requires it to exceed `StarDetectorParams.Sensitivity`. So **every accepted star's gate statistic strictly
+> exceeds `EffectiveSensitivityGate = max(Sensitivity, InertSensitivityBound)`**, and therefore **any order
+> statistic over accepted stars — any rank, on any subset of frames — is bounded below by that gate.**
+>
+> Hence: **if `EffectiveSensitivityGate ≥ TargetSensitivity (= 10)`, `signalIsSufficient` is TRUE
+> unconditionally**, whatever the sky contains. `ExposureIsNotTheLimit` is then a property of the *landing*, not
+> a measurement of the frames.
+
+Wave 8's arm X, read for this rather than for `S_now`, says `D02_rich_135mm` lands its effective gate at
+**16.667 / 48.5 / 49.0 / 9.0 / 9.0** across the five rungs. **Three of the five are structurally silenced.** No
+wing statistic over accepted stars could ever have satisfied W1 there, so the whole family would have been
+implemented, measured, and refuted at the cost of a build and an arm.
+
+**This sharpens F19 far beyond "the 20th-brightest star saturates".** The rank is not the defect; the
+*population* is. `S_now` measures a set the detector has already filtered to be above the target, so the
+recommendation asks "are the stars I kept bright enough?" — a question whose answer is yes **by construction**
+whenever the optimizer lands a gate at or above 10. It is closely related to, and strictly stronger than, wave 7's
+leg 2 (*"the named alternative is PINNED BY THE GATE"*), which said the *faintest accepted star* is pinned; the
+theorem says **every** statistic over accepted stars is.
+
+### §3.4a The corrected family — the quantities that are NOT floored by the gate
+
+**Rule W (§3.2) is untouched.** It was fixed before any of this and it does not depend on which family is tried;
+that is the entire point of writing the acceptance rule before the statistic.
+
+Only two quantities in a run can see stars the exposure failed to deliver, because only they are not computed over
+the accepted set:
 
 | # | candidate | shape |
 |---|---|---|
-| **C1** | `S_wing` | the same per-frame `NTarget`-th-brightest reduction, aggregated as a **median over the WING frames** (outer third of the sweep by \|focuser − vertex\|) instead of over all frames |
-| **C2** | `n_wing` | median **accepted-star count** over the wing frames; short of `NTarget` ⇒ the wings are starved, derive from the count shortfall |
-| **C3** | `min(S_now, S_wing)` | the shipped statistic, floored by the wing one — strictly a widening, so it cannot regress a run the shipped statistic already serves (W4 free) |
-| **C4** | C1 gated by C2 | fire on wing SNR only when the wing frames are also short of stars, which is the conjunction that distinguishes "starved wings" from "merely defocused wings" |
+| **E1** | **wing rejected-fraction** | on the wing frames, `lowSensRejections / (lowSensRejections + accepted)` — candidates that FORMED and fell below the gate are exactly the stars a longer exposure could convert |
+| **E2** | **wing gate-headroom** | on the wing frames, `median(acceptedSNR) / EffectiveSensitivityGate` — gate-RELATIVE, so it is not floored at 1 by construction: it says whether the wing stars merely scrape the gate or clear it comfortably |
+| **E3** | `max(existing ask, E1's ask)` | a strict WIDENING of the shipped statistic, so it cannot regress a run the shipped statistic already serves — **W4 comes free** |
+| **E4** | E1 gated by E2 | fire on rejections only when the wing stars are also bunched at the gate — the conjunction that separates "faint because DEFOCUSED" (unavoidable, more exposure will not help) from "faint because UNDEREXPOSED" |
 
-All four are *"the same question asked of the frames the fit actually rests on"*, and all four answer the
-class's single-frame-fluke objection by aggregating over a set. The one that satisfies **Rule W** ships; if none
-does, the wave reports that the wing hypothesis failed its own pre-registered test and F19 stays open with a
-narrower next step.
+The first-order evidence for E1 is already visible in arm X's `GateRejectedCount` and it discriminates on the pair
+Rule W is built from: **`D02` @ 0.5 s = 3752 rejections; `D16` @ 2 s = 0.** W4's case (`D16` @ 0.5 s) is carried by
+the shipped `S_now` path, which is correct there (6.5 < 10) — which is why E3's widening shape matters.
+
+**Two hazards, both named before the arm rather than discovered in it.**
+
+1. **[F28](followups.md#f28--lowsensitivity-reads-exactly-zero-precisely-when-the-sensitivity-gate-is-floored): a
+   rejection count of ZERO is empty by construction when the gate is inert.** `D16` lands `Sensitivity = 0` with
+   an effective gate of 0.19–0.56 at every rung, so its zero rejections are not evidence of anything.
+   `GateIsProvablyInert` already exists to say so and E1 must consult it — a candidate that reads an inert
+   counter as "the wings are fine" has re-committed F28.
+2. **E1's raw count is confounded by the landed gate.** `D02`'s rejections run 3752 → 9696 → 7500 → 127 → 3 while
+   its gate runs 16.7 → 48.5 → 49 → 9 → 9; the rise from 0.5 s to 1 s is the gate more than doubling, not the sky
+   changing. **This is why E1 is a FRACTION of the candidates formed and why the per-frame instrument records
+   accepted counts beside rejections.** W3 (convergence) is the clause that will catch it if the normalization is
+   still wrong.
+
+The candidate that satisfies **Rule W** ships. If none does, the wave reports that the wing hypothesis failed its
+own pre-registered test and F19 stays open with a narrower next step — and the gate floor theorem above is worth
+the wave on its own, because it says what F19's fix can NEVER be built from.
 
 ### §3.5 The population check
 

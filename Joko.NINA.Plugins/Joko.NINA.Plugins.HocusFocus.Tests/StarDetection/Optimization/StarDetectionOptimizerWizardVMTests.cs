@@ -1763,6 +1763,65 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
+    public void ApplyRecaptureGeometry_F51_CarriesTheRecommendedStepAndOffset() {
+        // F51(b) — the re-capture used to override ONLY the exposure and take the step size from the PROFILE, so
+        // the one recommendation that was asking to change on every run of the field session (100 -> 214 -> 459
+        // -> 474 -> 482) was the one it could not carry. The only way to re-run at the recommended step was to
+        // Accept a landing first, and that Accept is how Sensitivity 0.000 reached the user's profile.
+        //
+        // DISCRIMINATING: neuter the method (or drop the call from RunLiveAttemptAsync) and this fails on both
+        // fields.
+        var options = new AutoFocusEngineOptions {
+            AutoFocusInitialOffsetSteps = 5,
+            AutoFocusStepSize = 214,
+            AutoFocusTimeout = TimeSpan.FromSeconds(600)
+        };
+        StarDetectionOptimizerWizardVM.ApplyRecaptureGeometry(options, 459, 6);
+        Assert.Multiple(() => {
+            Assert.That(options.AutoFocusStepSize, Is.EqualTo(459), "the recommended step, not the profile's");
+            Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(6));
+            Assert.That(options.AutoFocusTimeout, Is.EqualTo(TimeSpan.FromSeconds(600)),
+                "the timeout is NOT scaled here - ApplyFocusRecovery runs next and scales it from this offset, "
+                + "so scaling in both places would double-count the same widening");
+        });
+    }
+
+    [Test]
+    public void ApplyRecaptureGeometry_F51_NonPositiveIsACompleteNoOp_SoAnOrdinaryStartIsUnchanged() {
+        // An ordinary Live Start leaves both fields at 0, and that path must stay byte-identical to before this
+        // existed. The two are independent: an exposure-only re-capture passes 0 for the step size and must not
+        // disturb the profile's.
+        foreach (var (step, offset) in new[] { (0, 0), (-1, 0), (0, -3) }) {
+            var options = new AutoFocusEngineOptions { AutoFocusInitialOffsetSteps = 5, AutoFocusStepSize = 100 };
+            StarDetectionOptimizerWizardVM.ApplyRecaptureGeometry(options, step, offset);
+            Assert.Multiple(() => {
+                Assert.That(options.AutoFocusStepSize, Is.EqualTo(100), $"step unchanged at ({step},{offset})");
+                Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(5), $"offset unchanged at ({step},{offset})");
+            });
+        }
+    }
+
+    [Test]
+    public void ApplyRecaptureGeometry_F51_ComposesWithFocusRecoveryInTheShippedOrDER() {
+        // RunLiveAttemptAsync applies the geometry FIRST and recovery SECOND, so recovery widens whatever offset
+        // the recommendation left — exactly as it widens the profile's on an ordinary Start. Reversing the two
+        // would let recovery's widening be overwritten by the recommended offset and silently drop the recovery
+        // frames the evaluator is about to TAG as recovery.
+        var options = new AutoFocusEngineOptions {
+            AutoFocusInitialOffsetSteps = 4, AutoFocusStepSize = 100, AutoFocusTimeout = TimeSpan.FromSeconds(600)
+        };
+        StarDetectionOptimizerWizardVM.ApplyRecaptureGeometry(options, 459, 5);
+        StarDetectionOptimizerWizardVM.ApplyFocusRecovery(options, 2);
+        Assert.Multiple(() => {
+            Assert.That(options.AutoFocusStepSize, Is.EqualTo(459), "recovery never touches the step size");
+            Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(7), "5 recommended + 2 recovery per side");
+            Assert.That(options.AutoFocusTimeout.Ticks,
+                Is.EqualTo((long)(TimeSpan.FromSeconds(600).Ticks * 15.0 / 11.0)),
+                "recovery scales the timeout from the RECOMMENDED offset (11 points), not the profile's 9");
+        });
+    }
+
+    [Test]
     public async Task Start_Live_StampsRecoverySnapshotOntoLoadedRun() {
         // The loaded run's RunEvaluationData must carry the snapshotted recovery steps so the evaluator tags the outer
         // frames. The fake loader hands back the same LoadedRun instance we hold, and RecoveryStepsPerSide survives the

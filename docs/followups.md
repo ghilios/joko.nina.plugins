@@ -2865,6 +2865,34 @@ than on `IncreasesExposure` alone. (b) Make the re-capture apply the recommended
 exposure, or say plainly that it will not. (c) Neither should require Accept: re-capturing is not adopting.
 Reproduce: NINA log `20260806-122836-3.3.0.1048.73484-202608.log`; frames in `E:\AutoFocusSaves\`.
 
+**ALL THREE SHIPPED 2026-08-07 (wave 9), and (a) turned out to have TWO causes rather than one.** The entry
+names `IncreasesExposure`; the property also required `HasExposureBlock`, which is
+`OptimizationSummary.HasLowStarSignal` — **Sensitivity ≤ 1.0**. So the button was hidden by the exposure
+condition on run 2 *and* by the BLOCK's own condition on runs 1, 3 and 4, whose gates were healthy and which
+therefore never had a re-run affordance at all. The entry's table records those three runs recommending 214, 474
+and 482 with no way to act on any of them, and nothing in the entry had noticed the second gate.
+
+| part | what shipped |
+|---|---|
+| **(a)** | `ShowCaptureNewSweep` = `lastRunWasLive && !IsUseCurrentMode && (IncreasesExposure ‖ StepSizeOrOffsetChanged)`. The `HasExposureBlock` conjunct is **gone**, and the row **moved out of the Star signal block** into the Auto-focus block — beside the step-size and offset rows, which are the values it now carries. The two MODE conditions stay (Replay has no rig; use-current has nothing to re-tune), because those are fixed for the life of the Summary |
+| **(b)** | `ApplyRecaptureGeometry(options, stepSize, offsetSteps)` in `RunLiveAttemptAsync`, applied **before** `ApplyFocusRecovery` so recovery widens from the recommended offset exactly as it widens the profile's on a Start. Set from the SELECTED summary by `CaptureNewSweepAsync` and cleared on **every** exit path, so an ordinary Live Start is byte-identical |
+| **(b), the "or say plainly" half** | shipped **as well as** carrying it: `CaptureNewSweepCarriesText` states the geometry the next sweep will use (`"step size 214 → 459 … at the exposure below"`) and that nothing is written to the profile. A sweep geometry the user cannot see is how this defect stayed invisible for a whole session |
+| **(c)** | already true and now reachable — the command persists nothing and Accept remains the only writer. What forced the Accepts was (a) hiding the control, not (c) |
+
+**The house rule survives in both directions**, which is what the row's relocation had to preserve:
+`StarSignalCopy`'s Live sentence naming the button fires on `increases && live && !useCurrent`, which is a strict
+subset of the new visibility — so the copy can never name a hidden button. And in the new step-only state, where
+the Star signal block is not on screen at all, the row carries its own sentence.
+
+**Tests: 3 discriminating on `ApplyRecaptureGeometry`** (carries the step and offset; complete no-op at
+non-positive, so the Start path is unchanged; composes with `ApplyFocusRecovery` in the shipped order — reversing
+them would let the recommended offset overwrite recovery's widening and silently drop the frames the evaluator is
+about to TAG as recovery).
+
+**Still open, and it is the entry's real subject:** the step recommender asking to widen on **every** run because
+the sweep never reaches `3 × HFR_min`. (a)–(c) make the iteration cheap; they do not make it terminate. That is
+[F21](#f21--stepsizerecommenders-half-width-is-not-stable-against-noise-even-at-r--10000)/F49(c).
+
 ### F52 — A two-hour optimization logs ONE line and offers no cost context, and the search is not cost-aware
 **Status:** **(a) and (b) DONE 2026-08-06 (wave 8); (c) BLOCKED on [F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one);
 (d) open** · found 2026-08-06 (wave 8) from the same field session · partly measured, partly **unmeasurable after
@@ -3065,9 +3093,33 @@ runs**. This is the same instability
 the narrow side rather than [F25](#f25--from-a-far-too-wide-sweep-the-step-recommender-widens-it-further-instead-of-recovering)'s
 wide side, and the user experienced it as a runaway rather than as convergence.
 
-**Next step.** Three separable pieces. **(a)** Give the floored-gate + `ExposureIsNotTheLimit` state a remedy of
-its own — the honest one names the gate, not the exposure ("the optimizer lowered the acceptance gate to admit
-~7× more candidates; set Brightness Sensitivity by hand and re-run in Current mode to compare"). **(b)** Decide
+> ### (a) SHIPPED 2026-08-07 (wave 9) — and the branch is narrower than this entry proposed, on purpose
+>
+> `RemedyFor` gains a fourth, last-ranked branch for the floored-gate + `ExposureIsNotTheLimit` state:
+>
+> > *"The gate was lowered to admit more candidates, not because star brightness was missing. Set Brightness
+> > Sensitivity by hand in the star detection options and run this wizard again in "use current settings" mode to
+> > compare that landing against this one."*
+>
+> **It names only controls that EXIST**, per the house rule at `ShowOptimizeAgainAtRecommendedBinning`.
+> `BrightnessSensitivity` is bound in `OptionsDataTemplates.xaml`
+> (`StarDetectionOptions.BrightnessSensitivity`); `MinDetectionKeepFraction` is **not named**, because it has no
+> XAML binding anywhere — verified, not assumed.
+>
+> **It REQUIRES a measurement, which this entry's proposed wording did not.** The sentence CLAIMS that brightness
+> was not what was missing, and that is knowable only from `ExposureIsNotTheLimit` (S_now ≥ the default target).
+> On a run with no derivable recommendation at all — too few usable frames, no per-star SNRs, an unknown exposure
+> to scale from — all that is known is that the gate is floored, so those runs keep their diagnosis-only body.
+> **Asserting it there would break the entry's own "no star-poor claim without evidence" rule from the opposite
+> direction**, and two existing golden tests caught exactly that on the first attempt.
+>
+> **Tests: 4, three of them discriminating.** The pre-existing whole-body golden for this state is the sharpest —
+> it asserted a string that ENDED after the admission sentence, which is the defect written down as an
+> expectation. Plus: the remedy is last-ranked and does not displace an available exposure remedy; an unmeasured
+> run gets no gate remedy; and the copy names no control that does not exist.
+
+**Next step.** Three separable pieces. **(a)** ~~Give the floored-gate + `ExposureIsNotTheLimit` state a remedy of
+its own~~ — **DONE, see above**; the honest one names the gate, not the exposure. **(b)** Decide
 whether a user-facing floor on the search's Sensitivity (or F32's keep fraction, exposed) is the right lever, since
 today there is none. **(c)** When the step recommendation is capped by the sweep width, say what it is converging
 TOWARD (`3 × HFR_min`) and that the cap means "partial step, this will take another run" — the exposure

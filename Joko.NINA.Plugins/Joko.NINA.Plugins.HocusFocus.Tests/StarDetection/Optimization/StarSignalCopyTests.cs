@@ -276,11 +276,81 @@ public class StarSignalCopyTests {
         Assert.That(text, Is.EqualTo(
             NeutralOpening
             + " Star brightness is not the problem: your brightest stars measure S/N 22, meeting the default S/N target of 10."
-            + " Brightness Sensitivity is low, so far fainter candidates are being admitted below them."));
+            + " Brightness Sensitivity is low, so far fainter candidates are being admitted below them."
+            + " " + GateRemedy));
         Assert.Multiple(() => {
             Assert.That(text, Does.Not.Contain("barely cleared"));
             Assert.That(text, Does.Not.Contain("star-poor"), "nothing measured says the field is thin");
             Assert.That(text, Does.Not.Contain("per frame"), "no exposure figure: exposure is not the problem");
+        });
+    }
+
+    /// <summary>F49's remedy, spelled out so the golden whole-string assertions stay readable.</summary>
+    private const string GateRemedy =
+        "The gate was lowered to admit more candidates, not because star brightness was missing. "
+        + "Set Brightness Sensitivity by hand in the star detection options and run this wizard again in "
+        + "\"use current settings\" mode to compare that landing against this one.";
+
+    [Test]
+    public void ExposureCopy_F49_RichWellExposedFieldAtAFlooredGate_EndsOnAnInstruction() {
+        // F49, from a FIELD report on the shipped Default profile: Sensitivity 15.667 -> 0.000, StarClip 6.750 ->
+        // 0.250, stars per frame 834 -> 5766, and "your brightest stars measure S/N 1438.6" -- followed by NOTHING.
+        //
+        // THIS IS THE DEFECT, and it is structural rather than a missing string. RemedyFor's three ranked branches
+        // are ALL exposure or binning remedies: with ExposureIsNotTheLimit true, IncreasesExposure is false (which
+        // kills branches 1 and 3) and branch 2's !ExposureIsNotTheLimit is false, so every branch fell through and
+        // the method returned string.Empty -- on a page whose contract is "diagnosis plus exactly one instruction".
+        //
+        // DISCRIMINATING: delete the F49 branch and this fails, because the body ends after the admission sentence.
+        var text = Body(Starved(advice: Advice(2, 2, 1438.6, exposureIsNotTheLimit: true)), live: true);
+        Assert.Multiple(() => {
+            Assert.That(text, Does.EndWith(GateRemedy), "the block must end on exactly one instruction");
+            // It names the GATE, which is the lever on this population -- not the exposure, which is not.
+            Assert.That(text, Does.Contain("Brightness Sensitivity by hand"));
+            Assert.That(text, Does.Not.Contain("longer exposure"),
+                "on a field measuring S/N 1438.6 against a target of 10, an exposure remedy is F19's error mirrored");
+            Assert.That(text, Does.Not.Contain("broadband filter"),
+                "the filter route belongs to the exposure-exhausted state, which this is not");
+        });
+    }
+
+    [Test]
+    public void ExposureCopy_F49_NamesNoControlThatDoesNotExist() {
+        // The house rule at ShowOptimizeAgainAtRecommendedBinning: never describe an action whose control is
+        // hidden. F32's MinDetectionKeepFraction is the tempting lever here and it has NO XAML binding ANYWHERE --
+        // it is --keep-floor on the harness only. (It would not have bound in any case: it rejects landings
+        // keeping FEWER stars than the seed, and this landing keeps ~7x MORE. The pathology is admission, not
+        // shedding.) BrightnessSensitivity, by contrast, is bound in OptionsDataTemplates.xaml.
+        var text = Body(Starved(advice: Advice(2, 2, 1438.6, exposureIsNotTheLimit: true)), live: true);
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Not.Contain("keep"), "MinDetectionKeepFraction has no user-facing control");
+            Assert.That(text, Does.Not.Contain("detection keep"));
+        });
+    }
+
+    [Test]
+    public void ExposureCopy_F49_AnUnmeasuredRunGetsNoGateRemedy_BecauseTheSentenceCLAIMSSomething() {
+        // The F49 sentence asserts that star brightness was NOT what was missing. That is only knowable from
+        // ExposureIsNotTheLimit (S_now >= the default target). On a run with no derivable recommendation at all —
+        // too few usable frames, no per-star SNRs, an unknown exposure to scale from — all that is known is that
+        // the gate is floored, and claiming anything about brightness there breaks the same "no claim without
+        // evidence" rule the star-poor sentence is gated by, in the opposite direction.
+        //
+        // DISCRIMINATING: drop the `HasRecommendation && ExposureIsNotTheLimit` guard on the F49 branch and this
+        // fails, along with the two diagnosis-only golden tests below it.
+        var text = Body(Starved(advice: null), live: true);
+        Assert.That(text, Does.Not.Contain("Brightness Sensitivity by hand"));
+    }
+
+    [Test]
+    public void ExposureCopy_F49_TheGateRemedyIsTheCatchAll_NotAReplacementForTheExposureOnes() {
+        // The F49 branch is LAST in the ranking, so it must not displace a remedy that is genuinely available.
+        // DISCRIMINATING: move the branch above the IncreasesExposure branch and this fails.
+        var raisesExposure = Body(Starved(advice: Advice(2, 8, 5.0)), live: true);
+        Assert.Multiple(() => {
+            Assert.That(raisesExposure, Does.Not.Contain("Brightness Sensitivity by hand"),
+                "a run that CAN be fixed with exposure gets the exposure instruction, not the gate one");
+            Assert.That(raisesExposure, Does.Contain("Capture a new sweep at the longer exposure"));
         });
     }
 

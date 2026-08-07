@@ -1014,6 +1014,67 @@ namespace TestApp {
             // of landing: mccomiskey records Sensitivity 0.0 (which reads as "drove the gate to its floor") while
             // enforcing 9.81 and shedding 3606 detections down to 43.
             public double EffectiveSensitivityGate = double.NaN;
+
+            // F19 (wave 9) — the PER-FRAME table the run-level exposure statistic is a median over. See
+            // FrameDiagnostic. Computed UNCONDITIONALLY, from the same `bestM` metrics ExposureRecommendation is
+            // derived from, so the two describe one population. Null only when the run carries no per-frame data.
+            public List<FrameDiagnostic> FrameDiagnostics;
+        }
+
+        /// <summary>
+        /// One frame's contribution to the exposure statistic, plus where that frame sits on the sweep.
+        ///
+        /// <para><b>F19, wave 9.</b> <c>ExposureRecommender</c>'s S_now is a MEDIAN ACROSS FRAMES of each frame's
+        /// <c>NTarget</c>-th-brightest accepted-star SNR. On a rich field that median is dominated by the
+        /// near-focus frames, and wave 8's arm X measured it saturating at 991.8–2308.8 against a target of 10 —
+        /// RISING with exposure — on a run whose σ_focus improves 44 % at 16× that exposure. The hypothesis is that
+        /// the frames the fit's precision actually rests on are the WINGS, which that median cannot see. This
+        /// table is what lets the hypothesis be tested rather than argued: it exposes the per-frame values the
+        /// median collapses, keyed by distance from the fitted focus in STEP units.</para>
+        ///
+        /// <para><b>Deliberately not gated on anything.</b> Not on <c>SensitivityIsAtFloor</c>, not on
+        /// <c>HasLowStarSignal</c>, not on whether a recommendation exists — gating a measurement on the product's
+        /// own display condition is precisely what made F19 unanswerable until wave 8 (its lesson 4). And note
+        /// what this instrument does if the wing hypothesis is WRONG: it shows wing frames whose statistics are
+        /// indistinguishable from the near-focus frames, which refutes the hypothesis rather than confirming
+        /// it.</para>
+        /// </summary>
+        private sealed class FrameDiagnostic {
+            public int FocuserPosition;
+            public bool IsRecovery;
+
+            /// <summary>Signed distance from the fitted best-focus position in STEP units — the axis "wing" is
+            /// defined on. NaN when the run produced no usable fit (<c>BestFocusPosition</c> NaN) or no step size,
+            /// in which case no wing statistic can be computed for this run and that is reported, not guessed.</summary>
+            public double OffsetSteps = double.NaN;
+
+            /// <summary>Accepted stars on this frame (<c>FrameStarCounts</c>).</summary>
+            public int StarCount;
+
+            /// <summary>This frame's contribution to S_now: its <c>NTarget</c>-th-brightest accepted-star SNR, or
+            /// its FAINTEST survivor when fewer than <c>NTarget</c> survive (the same bounded under-estimate
+            /// <c>ExposureRecommender.PerFrameNthBrightest</c> makes, reproduced here rather than re-derived).
+            /// NaN when nothing survived filtering — which is NOT proof the frame was starved (see
+            /// <c>RunEvaluationMetrics.FrameStarSnrs</c>'s empty-does-not-mean-zero convention).</summary>
+            public double NthBrightestSnr = double.NaN;
+
+            /// <summary>True when the frame had fewer than <c>NTarget</c> usable SNRs, so
+            /// <see cref="NthBrightestSnr"/> is the faintest survivor rather than the true rank.</summary>
+            public bool WasShort;
+
+            /// <summary>The frame's faintest and median accepted-star SNR — the faint end the fit's wings rest on,
+            /// which the <c>NTarget</c>-th rank is deliberately insensitive to. NaN when no SNRs survived.</summary>
+            public double MinSnr = double.NaN;
+
+            public double MedianSnr = double.NaN;
+
+            /// <summary>Sensitivity-gate and flat-topped rejections on this frame. The flat count is the
+            /// sweep-geometry signal (<c>ExposureRecommendation.FlatRejectedCount</c>'s per-frame source): heavily
+            /// defocused stars go flat-topped, so a concentration out here means the sweep outruns the detector —
+            /// "narrow the sweep", never "expose longer".</summary>
+            public int LowSensitivityRejections;
+
+            public int TooFlatRejections;
         }
 
         /// <summary>Builds an aggregate row from a per-run outcome (exactly one run in the set in --per-run mode).
@@ -1068,8 +1129,75 @@ namespace TestApp {
                 BrightnessSensitivity = landedSensitivity,
                 SensitivityIsAtFloor = sensitivityAtFloor,
                 ExposureRecommendation = exposureRecommendation,
-                EffectiveSensitivityGate = StarDetector.EffectiveSensitivityGate(outcome.Result.BestParams)
+                EffectiveSensitivityGate = StarDetector.EffectiveSensitivityGate(outcome.Result.BestParams),
+                FrameDiagnostics = BuildFrameDiagnostics(bestM, outcome.ObjectiveConstants)
             };
+        }
+
+        /// <summary>
+        /// F19 (wave 9) — expands the per-frame values <c>ExposureRecommender</c>'s S_now is a median over. See
+        /// <see cref="FrameDiagnostic"/> for why. Pure, from metrics already plumbed through for other reasons
+        /// (<c>FrameStarCounts</c>, <c>FrameFocuserPositions</c>, <c>BestFocusPosition</c>, <c>FrameStarSnrs</c>,
+        /// <c>FrameIsRecovery</c>, and the two rejection tallies), so it adds no detection work and cannot perturb
+        /// a landing.
+        /// </summary>
+        private static List<FrameDiagnostic> BuildFrameDiagnostics(RunEvaluationMetrics m, ObjectiveConstants c) {
+            var snrsByFrame = m?.FrameStarSnrs;
+            if (snrsByFrame == null || snrsByFrame.Count == 0) {
+                return null;
+            }
+            var nTarget = c?.NTarget ?? 20;
+            var counts = m.FrameStarCounts;
+            var positions = m.FrameFocuserPositions;
+            var recovery = m.FrameIsRecovery;
+            var lowSens = m.FrameLowSensitivityCounts;
+            var tooFlat = m.FrameTooFlatCounts;
+            // The wing axis is |focuser - fitted focus| in STEP units. Both inputs can legitimately be missing (a
+            // run with no usable fit, or a caller that never populated positions), and the honest answer then is
+            // NaN on every frame rather than an offset measured from an invented origin.
+            var haveOffsetAxis = double.IsFinite(m.BestFocusPosition) && m.StepSize > 0.0 && positions != null;
+
+            var rows = new List<FrameDiagnostic>(snrsByFrame.Count);
+            for (var i = 0; i < snrsByFrame.Count; i++) {
+                var row = new FrameDiagnostic {
+                    FocuserPosition = positions != null && i < positions.Count ? positions[i] : 0,
+                    IsRecovery = recovery != null && i < recovery.Count && recovery[i],
+                    StarCount = counts != null && i < counts.Count ? counts[i] : 0,
+                    LowSensitivityRejections = lowSens != null && i < lowSens.Count ? lowSens[i] : 0,
+                    TooFlatRejections = tooFlat != null && i < tooFlat.Count ? tooFlat[i] : 0
+                };
+                if (haveOffsetAxis && i < positions.Count) {
+                    row.OffsetSteps = (positions[i] - m.BestFocusPosition) / m.StepSize;
+                }
+
+                // Same filter ExposureRecommender applies: finite AND positive. A filtered-out entry did not
+                // contribute a real detection, so pooling it here would make this table disagree with the
+                // statistic it exists to explain.
+                var filtered = new List<double>();
+                var frameSnrs = snrsByFrame[i];
+                if (frameSnrs != null) {
+                    for (var k = 0; k < frameSnrs.Count; k++) {
+                        var v = frameSnrs[k];
+                        if (double.IsFinite(v) && v > 0.0) {
+                            filtered.Add(v);
+                        }
+                    }
+                }
+                if (filtered.Count > 0) {
+                    filtered.Sort(); // ascending
+                    row.MinSnr = filtered[0];
+                    var (median, _) = filtered.MedianMAD();
+                    row.MedianSnr = median;
+                    if (filtered.Count >= nTarget) {
+                        row.NthBrightestSnr = filtered[filtered.Count - nTarget];
+                    } else {
+                        row.WasShort = true;
+                        row.NthBrightestSnr = filtered[0];
+                    }
+                }
+                rows.Add(row);
+            }
+            return rows;
         }
 
         /// <summary>

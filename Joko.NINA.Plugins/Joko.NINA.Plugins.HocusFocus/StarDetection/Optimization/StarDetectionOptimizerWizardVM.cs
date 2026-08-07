@@ -2144,12 +2144,77 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// hidden — the reverse). Both buttons are visible in that state and the paragraph says which to use first,
         /// so the user keeps the choice; hiding the capture action instead would silently overrule a user who has
         /// reason to re-expose before touching the factor.</para>
+        ///
+        /// <para><b>F51 — this is no longer gated on the Star signal block, nor on the exposure alone.</b> It used
+        /// to read <c>HasExposureBlock &amp;&amp; … &amp;&amp; IncreasesExposure</c>, which hid the re-run button in
+        /// exactly the two situations that most need it:
+        /// <list type="number">
+        /// <item><b>When F19 misfires.</b> A field session's run 2 had the gate floored at
+        /// 0.000, was Live, was in Optimize mode — and <c>IncreasesExposure</c> was false because the exposure row
+        /// read <i>"2 s (unchanged; measured star S/N 1438.6; target 10)"</i>. F19's saturation does not merely
+        /// silence a RECOMMENDATION; it removed the BUTTON.</item>
+        /// <item><b>When only the STEP SIZE wants to change.</b> <c>HasExposureBlock</c> is
+        /// <c>HasLowStarSignal</c> — Sensitivity ≤ 1.0 — so on a healthy-gate run with a step recommendation the
+        /// whole block, button included, was hidden. That was runs 1, 3 and 4 of the same session (100 → 214,
+        /// 459 → 474, 459 → 482), none of which had any re-run affordance at all.</item>
+        /// </list>
+        /// The user's actual cost: they had to <b>Accept a landing they did not want, twice</b>, to re-run with a
+        /// wider sweep — and run 2's Accept is how <c>Sensitivity 0.000</c> reached their profile in the first
+        /// place. <b>Re-capturing is not adopting</b>, and it must not require Accept to reach.</para>
+        ///
+        /// <para>So the condition is now "this run was Live, the mode can re-tune, and SOMETHING material is
+        /// recommended" — exposure or step geometry. <see cref="OptimizationSummary.StepSizeOrOffsetChanged"/> is
+        /// the same predicate the Apply toggle is enabled by, so the button appears exactly when there is
+        /// something for the re-capture to carry.</para>
+        ///
+        /// <para>The house rule (never describe an action whose control is hidden) is preserved in BOTH
+        /// directions: the row now lives in the Auto-focus block rather than inside the Star signal block, so it
+        /// no longer disappears with a block whose visibility is about something else, and
+        /// <see cref="StarSignalCopy"/>'s Live sentence that names it still has its referent on the same page.</para>
         /// </summary>
         public bool ShowCaptureNewSweep =>
-            HasExposureBlock
-            && lastRunWasLive
+            lastRunWasLive
             && !IsUseCurrentMode
-            && (SelectedSummary?.ExposureAdvice?.IncreasesExposure ?? false);
+            && ((SelectedSummary?.ExposureAdvice?.IncreasesExposure ?? false)
+                || (SelectedSummary?.StepSizeOrOffsetChanged ?? false));
+
+        /// <summary>
+        /// F51(b) — the one sentence above the re-capture row saying WHAT the next sweep will be taken at, so the
+        /// user is not left to infer it from a button label.
+        ///
+        /// <para><b>Why this had to be said rather than assumed.</b> The re-capture used to override the exposure
+        /// and nothing else, taking the step size from the profile — so on the field session it silently re-shot
+        /// the SAME too-narrow sweep the step recommender was asking to widen, run after run. F51's next step
+        /// offered two acceptable answers, "carry the step size" or "say plainly that it will not"; this carries
+        /// it AND says so, because a sweep geometry the user cannot see is how that defect stayed invisible.</para>
+        ///
+        /// <para>Empty when the row is hidden, so the bound TextBlock never renders a stray line. It quotes the
+        /// step size and offset but NOT the exposure — the editable box directly below is the authority on that,
+        /// and a quoted number would contradict it the moment the user types (the same rule that keeps the button
+        /// label free of seconds).</para>
+        /// </summary>
+        public string CaptureNewSweepCarriesText {
+            get {
+                if (!ShowCaptureNewSweep) {
+                    return string.Empty;
+                }
+                var s = SelectedSummary;
+                if (s == null || !s.StepSizeOrOffsetChanged) {
+                    // Exposure-only: the box below already carries the number, and nothing else changes.
+                    return "The new sweep uses the exposure below; the step size and offset steps stay as they are. "
+                        + "Nothing is written to your profile — Accept still does that.";
+                }
+                var parts = new List<string>(2);
+                if (s.RecommendedStepSize != s.CurrentStepSize) {
+                    parts.Add($"step size {s.CurrentStepSize} → {s.RecommendedStepSize}");
+                }
+                if (s.RecommendedOffsetSteps != s.CurrentOffsetSteps) {
+                    parts.Add($"offset steps {s.CurrentOffsetSteps} → {s.RecommendedOffsetSteps}");
+                }
+                return $"The new sweep uses the recommended {string.Join(" and ", parts)}, at the exposure below. "
+                    + "Nothing is written to your profile — Accept still does that.";
+            }
+        }
 
         /// <summary>
         /// Whether the capture can actually proceed. It drives a real auto-focus sweep, so it needs an engine, a
@@ -2211,6 +2276,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // that motivates both is documented on OptimizeAgainAtRecommendedBinningCommand's notification there.
             RaisePropertyChanged(nameof(ShowCaptureNewSweep));
             RaisePropertyChanged(nameof(CanCaptureNewSweep));
+            // F51 — the row's own sentence follows its visibility, and the visibility now also turns on the STEP
+            // recommendation, so both are re-raised wherever the selected variant settles.
+            RaisePropertyChanged(nameof(CaptureNewSweepCarriesText));
             CaptureNewSweepCommand?.NotifyCanExecuteChanged();
         }
 
@@ -2239,6 +2307,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // RunEvaluationData.RecoveryStepsPerSide (acquire AND the re-optimize/feedback reload loop) so both optimize
         // passes tag the same outer frames as recovery even if the UI box is later edited. 0 for Replay => inert.
         private int capturedRecoveryStepsPerSide;
+
+        /// <summary>
+        /// F51(b) — the sweep GEOMETRY a "Capture a new sweep and optimize" re-capture should use, set by
+        /// <see cref="CaptureNewSweepAsync"/> from the selected summary and consumed once by
+        /// <see cref="RunLiveAttemptAsync"/>. 0 ⇒ no override, which is what an ordinary Live Start leaves it at,
+        /// so that path stays byte-identical.
+        ///
+        /// <para><b>Why this exists.</b> The re-capture used to override ONLY
+        /// <see cref="AutoFocusEngineOptions.OverrideAutoFocusExposureTime"/> and take everything else from
+        /// <c>autoFocusEngine.GetOptions()</c> — i.e. the PROFILE's step size. So the one recommendation that was
+        /// asking to change on every run of the field session (100 → 214 → 459 → 474 → 482) was the one the
+        /// re-capture could not carry, and the ONLY way to re-run at the recommended step was to Accept the
+        /// landing first. That Accept is how <c>Sensitivity 0.000</c> reached the user's profile.</para>
+        ///
+        /// <para>Set to the recommendation, never to the profile: a re-capture that silently used the old geometry
+        /// would look like the fix and reproduce the same sweep.</para>
+        /// </summary>
+        private int recaptureStepSize;
+
+        private int recaptureOffsetSteps;
 
         private bool LastRunWasLive {
             get => lastRunWasLive;
@@ -2862,6 +2950,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 options.UseExactImagingFilter = true;
             }
 
+            // F51(b) — a RE-CAPTURE also carries the recommended sweep GEOMETRY, not just the exposure. Applied
+            // BEFORE ApplyFocusRecovery so recovery still widens whatever offset this leaves behind, exactly as it
+            // widens the profile's on an ordinary Start. Both fields are 0 on a normal Live Start, so that path is
+            // byte-identical. Cleared by the caller after the sweep so a later Start cannot inherit them.
+            ApplyRecaptureGeometry(options, recaptureStepSize, recaptureOffsetSteps);
+
             // Widen the captured sweep by the snapshotted recovery steps (never the live box) so the widened capture and
             // the tagged evaluation use the identical N, and scale the per-run timeout so the longer sweep doesn't time
             // out. No-op at N <= 0, keeping the Live path byte-identical when recovery is off.
@@ -2894,6 +2988,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// out. Never touches the persisted profile offset or timeout seconds. A no-op at <paramref name="recoverySteps"/>
         /// &lt;= 0 (or null options), so the Live path stays byte-identical when recovery is off. Internal + static so the
         /// widening is directly unit-testable.</summary>
+        /// <summary>F51(b) — applies a re-capture's recommended sweep geometry to <paramref name="options"/>: the
+        /// AF step size and the offset steps, each only when strictly positive. Internal + static so the override
+        /// is directly unit-testable without a rig.
+        ///
+        /// <para>A no-op at 0 (or null options), which is what an ordinary Live Start passes, so the normal
+        /// capture path is byte-identical to before this existed. Unlike
+        /// <see cref="ApplyFocusRecovery"/> — which widens the RANGE and deliberately leaves
+        /// <see cref="AutoFocusEngineOptions.AutoFocusStepSize"/> alone because recovery widens rather than
+        /// refines — this is precisely a step-size change, because that is the recommendation being carried.</para>
+        ///
+        /// <para>The per-run timeout is deliberately NOT scaled here. <see cref="ApplyFocusRecovery"/> scales it by
+        /// the POINT-COUNT ratio, and this method changes the point count only through
+        /// <paramref name="offsetSteps"/> — which the recommender moves by at most a step or two, and which the
+        /// recovery call immediately after re-scales from whatever offset this leaves. Scaling here as well would
+        /// double-count that same widening.</para></summary>
+        internal static void ApplyRecaptureGeometry(AutoFocusEngineOptions options, int stepSize, int offsetSteps) {
+            if (options == null) {
+                return;
+            }
+            if (stepSize > 0) {
+                options.AutoFocusStepSize = stepSize;
+            }
+            if (offsetSteps > 0) {
+                options.AutoFocusInitialOffsetSteps = offsetSteps;
+            }
+        }
+
         internal static void ApplyFocusRecovery(AutoFocusEngineOptions options, int recoverySteps) {
             if (options == null || recoverySteps <= 0) {
                 return; // N<=0 keeps the Live path byte-identical
@@ -4504,6 +4625,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return;
             }
             LiveExposureSeconds = target;
+            // F51(b) — carry the recommended sweep GEOMETRY too, not only the exposure. Read from the SELECTED
+            // summary (the variant whose row the user is looking at), and only when it actually differs from the
+            // profile: StepSizeOrOffsetChanged is the same predicate the Apply toggle is enabled by, so the
+            // re-capture carries exactly what the page says is recommended. Nothing is written to the profile —
+            // this is a per-run override on the sweep about to be taken, which is what makes re-capturing
+            // independent of Accept.
+            var geometry = SelectedSummary;
+            if (geometry != null && geometry.StepSizeOrOffsetChanged) {
+                recaptureStepSize = geometry.RecommendedStepSize;
+                recaptureOffsetSteps = geometry.RecommendedOffsetSteps;
+            } else {
+                recaptureStepSize = 0;
+                recaptureOffsetSteps = 0;
+            }
 
             ErrorMessage = null;
             SetProgress(null, 0, 0);
@@ -4608,6 +4743,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     capturedLiveExposureSeconds = previousCapturedExposure;
                     RaiseExposureRowChanged();
                 }
+                // F51(b) — the geometry override is consumed by exactly the sweep this command started, so it is
+                // cleared on EVERY exit path (success as well as failure). Leaving it set would silently apply
+                // this run's recommended step size to a later ordinary Start, which no page ever offered.
+                recaptureStepSize = 0;
+                recaptureOffsetSteps = 0;
                 DisposeLoadedRuns(captured);
                 IsBusy = false;
                 Interlocked.Exchange(ref running, 0);
