@@ -841,6 +841,64 @@ derived-exposure rung on either dataset, this entry REOPENS.**
 >
 > **This list IS (c)'s work list**, produced by (b) rather than by a separate investigation.
 
+> ## (c) RESOLVED 2026-08-07 (wave 9): THE FLOOR STAYS, THE CEILING STAYS, AND NOTHING RE-RENDERS
+>
+> (c) was filed as expensive — moving `MinExposureSeconds` re-derives and re-renders 11 datasets. **The check
+> that decides whether to spend that is free, and it was run first.** Rule F19c, fixed before it ran: *(c)
+> resolves as "the floor stays" unless a floor-clamped dataset can be shown, from data already on disk, to have
+> its σ_focus minimum BELOW 0.5 s.*
+>
+> **The floor. Every one of the 11 clamped datasets asks for LESS than 0.5 s**, so a lower floor moves all eleven
+> **down** — and the one dataset with a measured exposure ladder moves the other way: wave 7's arm E has `D02`
+> improving **44 % of σ_focus at 8 s**, four orders of magnitude above its 0.001 s ask. **Lowering the floor makes
+> `D02` worse; raising it is not what a floor is for** (a floor stops an absurdly short exposure, it does not
+> supply an exposure the derivation failed to find). **The floor is the symptom, not the defect.**
+>
+> **And the free check produced a number the entry never had.** `synth-bank --dry-run` on the wave-9 binary
+> reproduces the saturated set exactly (**13 of 20**, 11 floor + 2 ceiling), and printed beside the on-frame star
+> count the 20th-brightest is drawn from it says what this entry has always ARGUED:
+>
+> | dataset | on-frame stars | raw ask | clamp |
+> |---|---|---|---|
+> | `D10_rc16_3250mm_sparse` | **26** | **335.6 s** | ceiling |
+> | `D13_apo200_1800mm` | 177 | 0.264 s | floor |
+> | `D07_rc10_2000mm` | 428 | 0.066 s | floor |
+> | `D14_cdk14_2563mm_e47` | 640 | 0.055 s | floor |
+> | **`D17_cdk14_oiii5`** | **799** | **40.4 s** | **ceiling** |
+> | `D03` / `D20` / `D05` / `D02` | 969 / 1151 / 2346 / 3590 | 0.003 / 0.004 / 0.014 / **0.001** s | floor |
+> | `D19` / `D04` / `D01` / `D18` | 4914 / 7480 / 19201 / **27084** | 0.008 / 0.004 / 0.003 / 0.004 s | floor |
+>
+> **Spearman ρ(on-frame star count, raw ask) = −0.68 over the 13.** The two CEILING datasets are the two
+> sparsest-or-faintest; all eleven FLOOR datasets are the rich ones. *"Sized by field richness rather than by
+> whether the stars the fit depends on are above the noise"* is no longer an argument — it is a rank correlation
+> over the whole bank, in both directions at once.
+>
+> **The one exception is the honest one, and it is this entry's own poster child.** `D17_cdk14_oiii5` has 799
+> on-frame stars — more than four of the floor-clamped datasets — and still asks for 40.4 s, because an OIII
+> filter genuinely starves it. So richness is not the WHOLE story; it is simply the dominant term, and the
+> statistic has no way to tell the two apart. That is the wing-statistic problem, not a clamp problem.
+>
+> ### The CEILING, which had never been examined
+>
+> Separable from the floor and **not obviously the same defect** — at the floor the arithmetic asks for less than
+> any sane exposure; at the ceiling it asks for more than an AF sweep can spend.
+>
+> - **Product: `MaxRecommendedExposureSeconds = 30 s` STAYS. Verified, not changed.** `D10`'s 335.6 s over a
+>   9-point sweep is ~50 minutes of pure integration and `AutoFocusEngineOptions.AutoFocusTimeout` would kill the
+>   run. The cap is doing its job, and `StarSignalCopy.DescribeExposureDerivation` already names *which* bound
+>   bound it (F19(b) verified that).
+> - **Bank fidelity: `D10` and `D17` are RENDERED at 30 s while their own physics asks 335.6 / 40.4 s.** Two of
+>   the twenty datasets are deliberately photon-starved relative to their derivation and no write-up had ever said
+>   so. **Recorded, not re-rendered:** a `D10` rendered at 335 s would be a dataset no user could capture.
+> - **Rule CEIL, fixed in advance:** the ceiling moves only if a dataset's σ_focus is measured to improve
+>   materially between 30 s and its raw ask. No such ladder exists, and rendering one would re-render the bank
+>   [F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains)'s
+>   confirmation arm was running on. **Deferred with a stated price**, which is the thing wave 8's §0.1 got wrong
+>   by deferring on a prediction instead.
+>
+> **So (c) costs nothing and re-renders nothing, and the wave's item 1 was worth running for its own sake rather
+> than as a prerequisite.** Reproduce: `D:\hf_w9\dryrun_w9.txt`.
+
 ### F20 — Below `MinHFR` the autofocus objective collapses to exactly zero, with no diagnostic
 **Status:** Done (parts 1 and 2) · found 2026-08-02 running `optimize --per-run` over the
 synthetic AF bank
