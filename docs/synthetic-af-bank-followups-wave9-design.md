@@ -116,12 +116,27 @@ real-bank recall, since the efficacy criterion could only be evaluated by keep-%
   the `_`-prefixed folders are scratch arms, not runs).
 - **Recall:** `bank-verify --opt-a` against arms A and B, which is the measurement wave 5 could not make.
 
-**All three arms run the FULL population, and the reduction that was drafted here was withdrawn once it was
-priced.** The first draft narrowed arm C to the binding set, because `--continue-rounds 2` is ~2.4× the per-run
-cost (wave 6: 8 runs in 1 h 35 m against wave 5's 40 m) and 39 runs sequentially is ~8 h. **With the fan-out in
-§1.4 that is ~2.6 h**, which is inside F32's own ~6 h estimate for the whole arm — so the narrowing bought
-nothing but a definitional argument about what "binding" means before arm A has run. Full scope, no dependency
-between the arms, and the ordering in §0.3 works directly.
+**Arms A and B run the FULL population; arm C runs the BINDING set. That reduction was drafted, withdrawn on an
+ESTIMATE, and reinstated on a MEASUREMENT** — the sequence is recorded because the estimate was wrong by 3×.
+
+1. **Drafted:** narrow arm C, because `--continue-rounds 2` is ~2.4× the per-run cost (wave 6: 8 runs in 1 h 35 m
+   against wave 5's 40 m) and 39 runs sequentially is ~8 h.
+2. **Withdrawn:** at fan-out 3 that projected to ~2.6 h, inside F32's own ~6 h estimate, so the narrowing looked
+   like it bought nothing but a definitional argument.
+3. **Reinstated:** measured at fan-out 4, arm C did **9 runs in 1.8 h** — ~8 h for arm C alone and ~11 h for the
+   wave. The projection was wrong because it priced the *median* run against a population whose real-bank runs
+   are 5–25 minutes each under `--continue-rounds 2`.
+
+**And the reinstated version rests on a better reason than cost.** Arm C's question is R2 — *how much of arm B's
+gain is merely un-sticking a greedy search?* On a run where the floor never rejected a single candidate there is
+no gain to attribute, so a restart there answers a question nobody asked. **The binding set is read from arm B's
+own logs** (`keep floor (F32): 0.50; N candidate(s) rejected as infeasible`, N > 0), **unioned with the 8-run
+wave-5/6 comparability subset** so the cross-wave comparison to wave 6's arm R survives regardless.
+
+**So the order becomes B → C(binding) → A**, not C → B → A. The binding set is a property of B alone, so C needs
+no dependency on A — and **A still runs LAST and still owns the banks' final landing** (§0.3), which is the whole
+constraint the original ordering existed to satisfy. An interruption after B and A leaves the banks in the correct
+resting state; only an interruption *inside* C leaves a named, small subset to restore.
 
 ### §1.3 THE COMPARABILITY GATE — run FIRST, and the arm does not start until it passes
 

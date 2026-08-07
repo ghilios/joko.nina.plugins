@@ -652,9 +652,10 @@ Reproduce: `D:\hf_w5\f24_arms.sh`, analysed by `D:\hf_w5\analyze_f24.py`.
 > D06/D09/D14 — none of which was ever suspect — and is untouched.
 
 ### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
-**Status:** **OPEN — the wave-7 "working as intended" position was REFUTED by its own pre-registered test**
-(2026-08-06). A rich field gains 44% of σ_focus from 8× the derived exposure, and the block is never even
-surfaced there · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
+**Status:** **(a) refuted (wave 8) · (b) DONE (wave 8) · (c) RESOLVED "the floor stays", free, no re-render
+(wave 9) · THE REMAINDER IS FIXED (wave 9): the wing rejected fraction, chosen by a rule fixed before it, and the
+reason both earlier fixes failed is now a THEOREM about the gate.** Population check across both banks still owed
+· found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
 
 `ExposureRecommender`'s `S_now` is the median, across non-recovery frames, of each frame's
 **`NTarget`-th-brightest** accepted-star SNR, with `NTarget = 20`. Any reasonably wide field contains 20 stars
@@ -840,6 +841,80 @@ derived-exposure rung on either dataset, this entry REOPENS.**
 >   invalidate that arm (every φ arm sees the same frames) but it must be stated there.
 >
 > **This list IS (c)'s work list**, produced by (b) rather than by a separate investigation.
+
+> ## THE REMAINDER IS FIXED (2026-08-07, wave 9), AND THE REASON BOTH EARLIER FIXES FAILED IS A THEOREM
+>
+> ### The gate floor theorem
+>
+> `StarDetector.InertSensitivityBound` proves every candidate reaching the Sensitivity gate satisfies
+> `sensitivity > PeakResponse × EffectiveClipMultiplier`, and acceptance additionally requires it to exceed
+> `StarDetectorParams.Sensitivity`. So **every accepted star's gate statistic strictly exceeds
+> `EffectiveSensitivityGate = max(Sensitivity, InertSensitivityBound)`** — and therefore **ANY order statistic
+> over accepted stars, at ANY rank, on ANY subset of frames, is bounded below by that gate.**
+>
+> **Corollary: when the optimizer lands a gate at or above `TargetSensitivity` (10), `ExposureIsNotTheLimit` is
+> true BY CONSTRUCTION, whatever the sky contains.** `D02_rich_135mm` lands its effective gate at **16.7 / 50.0 /
+> 34.3 / 10.0 / 14.0** across a 16× exposure ladder over which σ_focus improves **48 %**.
+>
+> **This is why both earlier fixes were refuted by their own pre-registered tests.** Wave 7's "change `NTarget`"
+> and wave 8's "widen the trigger" each moved the rank or the display and left the POPULATION untouched. It is
+> strictly stronger than wave 7's leg 2, which established only that the *faintest accepted star* is pinned by the
+> gate; the theorem says every statistic over accepted stars is. **And it killed wave 9's own first candidate
+> family before a line of it was implemented** — all four candidates were order statistics over accepted stars.
+>
+> ### What ships: the WING REJECTED FRACTION
+>
+> The candidates the gate **rejected** on the sweep's wing frames are the only population in a run that is not
+> floored by the gate, and they are exactly the stars a longer exposure can convert.
+> `ExposureRecommendation.WingRejectedFraction` = `rejected / (rejected + accepted)` pooled over the outer third
+> of the non-recovery frames by distance from the fitted focus; `WingIsShedding` at ≥ 0.20.
+>
+> - **Pooled over a wing SET, not a worst frame** — which answers this class's own documented objection that a
+>   worst-frame rule "would hand the entire recommendation to whichever single frame had a passing cloud".
+> - **A PROBE (×2), not a formula**, following `StarCountProbeFactor`'s precedent: the run records HOW MANY
+>   candidates were rejected out there, not what SNR they sat at, so there is nothing to derive a magnitude from.
+>   **Fabricating one was measured and rejected** — a `(1/(1−f))²` form asked **1.25×** on `D16` at exactly the
+>   exposure where its σ_focus is minimised, which is the control the whole statistic has to pass.
+> - **It WIDENS rather than replaces:** `max(existing, probe)`. Both halves are load-bearing.
+> - **NaN, never 0**, when the run cannot be placed on the wing axis. "We could not look" and "we looked and
+>   nothing was shedding" must not be the same number, because the caller turns one of them into an instruction.
+> - **Inert unless the data supports it:** a caller that does not populate the per-frame wing axis is
+>   byte-identical to before.
+>
+> ### RULE W, fixed BEFORE the statistic was written, and applied to this binary's own ladder
+>
+> Validated on wave 7's exposure ladder, still on disk at `D:\hf_w7\armE\t{0.5,1,2,4,8}`. **No re-render.**
+>
+> | | W1 `D02`@0.5 s ≥ 2× | W2 `D16`@2 s < 1.25× | W3 converges | W4 `D16`@0.5 s asks | verdict |
+> |---|---|---|---|---|---|
+> | shipped statistic | ✗ 1.00× | ✓ | ✓ | ✓ | fires on NEITHER |
+> | wing fraction, `(1/(1−f))²` magnitude | ✓ 4.00× | ✗ 1.25× | ✗ | ✗ | fires on BOTH |
+> | wing headroom vs the gate | ✓ 2.00× | ✓ | ✗ | ✗ | — |
+> | wing probe ALONE | ✓ 2.00× | ✓ | ✓ | ✗ | — |
+> | **`max(shipped, wing probe)`** | **✓ 2.00×** | **✓ 1.00×** | **✓** | **✓ 3.00×** | **ADOPTED** |
+>
+> **Five of seven candidates failed, three of them AFTER passing W1** — the clause that looks like the whole point.
+> On `D02` the adopted statistic asks 2× at 0.5 / 1 / 2 s and goes **silent at 4 s**, which is exactly where this
+> binary's σ_focus minimum sits (0.05208).
+>
+> **The ladder MOVED between binaries** ([F54](#f54--f39bs-default-flip-moves-a-landing-at-a-resolved-factor-of-1-where-it-is-documented-as-a-no-op)),
+> so the rule was applied to this binary's own σ values rather than to wave 7's — after checking that **all four
+> clauses' premises survive on both ladders**. `D02` gains 48 % here against wave 7's 44 %; `D16`'s minimum is at
+> its derived 2 s on both, and 4 s / 8 s are worse on both.
+>
+> **The verdict is reproduced END TO END by the shipped code**, not only by the offline scorer: re-running the ten
+> rungs with `ExposureRecommender` itself gives the same four passes.
+>
+> **Tests: 8, four discriminating**, each confirmed by neutralizing — delete the probe ⇒ W1/W3/W4 fail; `max()` ⇒
+> plain assignment ⇒ W4 alone fails; fire on any rejection ⇒ W2 alone fails. That also caught an overclaim in one
+> of this wave's own test comments: the F28 conjunct is **redundant by construction** and fails nothing when
+> removed, so both the code and the test now say so.
+>
+> **Still owed: the §3.5 population check** — the verdict measured across all 20 synthetic datasets and the real
+> bank. It is blocked behind F32's confirmation arm, structurally rather than by scheduling: `optimize --per-run`
+> writes back into the bank's run folders ([F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings))
+> and there is no flag to suppress it, so a population pass while that arm is in flight would race it on every
+> folder. Reproduce: `D:\hf_w9\wing2\`, `D:\hf_w9\wing\score_wing.py`.
 
 > ## (c) RESOLVED 2026-08-07 (wave 9): THE FLOOR STAYS, THE CEILING STAYS, AND NOTHING RE-RENDERS
 >
@@ -2933,7 +3008,7 @@ and 482 with no way to act on any of them, and nothing in the entry had noticed 
 | part | what shipped |
 |---|---|
 | **(a)** | `ShowCaptureNewSweep` = `lastRunWasLive && !IsUseCurrentMode && (IncreasesExposure ‖ StepSizeOrOffsetChanged)`. The `HasExposureBlock` conjunct is **gone**, and the row **moved out of the Star signal block** into the Auto-focus block — beside the step-size and offset rows, which are the values it now carries. The two MODE conditions stay (Replay has no rig; use-current has nothing to re-tune), because those are fixed for the life of the Summary |
-| **(b)** | `ApplyRecaptureGeometry(options, stepSize, offsetSteps)` in `RunLiveAttemptAsync`, applied **before** `ApplyFocusRecovery` so recovery widens from the recommended offset exactly as it widens the profile's on a Start. Set from the SELECTED summary by `CaptureNewSweepAsync` and cleared on **every** exit path, so an ordinary Live Start is byte-identical |
+| **(b)** | `ApplyRecaptureGeometry(options, stepSize)` in `RunLiveAttemptAsync`, applied **before** `ApplyFocusRecovery`. Set from the SELECTED summary by `CaptureNewSweepAsync` and cleared on **every** exit path, so an ordinary Live Start is byte-identical |
 | **(b), the "or say plainly" half** | shipped **as well as** carrying it: `CaptureNewSweepCarriesText` states the geometry the next sweep will use (`"step size 214 → 459 … at the exposure below"`) and that nothing is written to the profile. A sweep geometry the user cannot see is how this defect stayed invisible for a whole session |
 | **(c)** | already true and now reachable — the command persists nothing and Accept remains the only writer. What forced the Accepts was (a) hiding the control, not (c) |
 
@@ -2942,18 +3017,26 @@ and 482 with no way to act on any of them, and nothing in the entry had noticed 
 subset of the new visibility — so the copy can never name a hidden button. And in the new step-only state, where
 the Star signal block is not on screen at all, the row carries its own sentence.
 
-**Tests: 3 discriminating on `ApplyRecaptureGeometry`** (carries the step and offset; complete no-op at
-non-positive, so the Start path is unchanged; composes with `ApplyFocusRecovery` in the shipped order — reversing
-them would let the recommended offset overwrite recovery's widening and silently drop the frames the evaluator is
-about to TAG as recovery).
+> **CORRECTION, caught by an existing test on the full-suite run.** The first version of (b) also carried the
+> recommended **offset steps**, and `CaptureNewSweep_UsesTheSnapshottedRecoverySteps_NotTheLiveBox` failed with a
+> re-capture widened to **5** where the recovery snapshot alone gives **1**. It is wrong for two independent
+> reasons, and the test found both: `StepSizeRecommender` derives its step from the desired half-width over the
+> **current** points-per-side, so the recommended STEP already expresses the whole geometry change at the existing
+> offset — carrying the offset too widens the sweep twice; and `ApplyFocusRecovery` **owns** the offset axis and
+> ADDS to whatever it is handed. **The re-capture now carries the step size and nothing else**, and the copy says
+> so rather than promising a sweep it does not take.
+
+**Tests: 3 discriminating on `ApplyRecaptureGeometry`** (carries the step; complete no-op at non-positive, so the
+Start path is unchanged; composes with `ApplyFocusRecovery` without double-widening — which is the assertion the
+correction above turned into a permanent guard).
 
 **Still open, and it is the entry's real subject:** the step recommender asking to widen on **every** run because
 the sweep never reaches `3 × HFR_min`. (a)–(c) make the iteration cheap; they do not make it terminate. That is
 [F21](#f21--stepsizerecommenders-half-width-is-not-stable-against-noise-even-at-r--10000)/F49(c).
 
 ### F52 — A two-hour optimization logs ONE line and offers no cost context, and the search is not cost-aware
-**Status:** **(a) and (b) DONE 2026-08-06 (wave 8); (c) BLOCKED on [F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one);
-(d) open** · found 2026-08-06 (wave 8) from the same field session · partly measured, partly **unmeasurable after
+**Status:** **(a) and (b) DONE 2026-08-06 (wave 8); (c) DONE 2026-08-07 (wave 9) once F19's remainder
+landed; (d) open** · found 2026-08-06 (wave 8) from the same field session · partly measured, partly **unmeasurable after
 the fact, which is the finding**
 
 Run 4 (step 459, 2 s) ran from 14:38:11 to past 16:30 — **over two hours**. Run 3, on the **same step size, same
@@ -3045,7 +3128,28 @@ note and did not, because its seed sat at the shipped default of 4 where the two
 seed now turns the donut master on (effective depth 6, `StructureLayers` still 4) so the absolute implementation
 reports "2 deeper" for a search that has not moved, and the test fails as claimed.
 
-**(c) Recommend whether to abort and re-run at a longer exposure — BLOCKED ON
+> **(c) SHIPPED 2026-08-07 (wave 9), on the statistic it was waiting for.**
+> [F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one)'s
+> remainder landed as `ExposureRecommendation.WingIsShedding` — the fraction of candidates the gate rejected on the
+> sweep's WING frames, which is the one population in a run not floored by the gate. **The separation this entry
+> drew is kept exactly: facts about COST need no new statistic and are already shown; ADVICE needs one.**
+>
+> `StarDetectionOptimizerWizardVM.SearchExposureAdvice` is computed in `ComputeBaselineJAsync` — i.e. from the
+> **SEED evaluation, which runs BEFORE the search** — so the answer to *"should I abort and try again with a
+> longer exposure?"* was available in the first minute rather than after two hours, which was the complaint.
+>
+> It is **absent when the wings are healthy** (a note that always fires says nothing), it **names Cancel**, which
+> exists, and it says **what Cancel costs in the same sentence**, because not knowing that is why the user sat
+> through the two hours. It quotes **no recommended exposure**: the wing probe is a probe precisely because the
+> rejected candidates' SNRs are not recorded, and the Summary's exposure row is where a number belongs once the
+> run finishes.
+>
+> **Tests: 4, three discriminating** — and the multi-run one is CORRECTED. Its first version paired a shedding run
+> with a healthy one, which the aggregation skips entirely, so "worst" and "average" were identical and it passed
+> under a deliberately-averaged implementation. It now pairs two shedding runs (0.75 and 0.30) and fails as
+> claimed.
+
+**(c) ~~Recommend whether to abort and re-run at a longer exposure~~ — was BLOCKED ON
 [F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one),
 and shipping it before that would be actively harmful.** This is the piece the user asked for by name. It cannot
 be built on the existing exposure statistic: on this very rig that statistic reported *"2 s (unchanged; measured

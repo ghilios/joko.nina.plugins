@@ -165,6 +165,113 @@ apart. That is the wing problem, not a clamp problem.
 
 ---
 
+## §3 — F19's remainder: the wing statistic, and a theorem that explains three waves of failure
+
+### §3.1 The gate floor theorem — why "change `NTarget`" and "widen the trigger" were both refuted
+
+`StarDetector.InertSensitivityBound` proves every candidate reaching the Sensitivity gate satisfies
+`sensitivity > PeakResponse × EffectiveClipMultiplier`, and acceptance additionally requires it to exceed
+`StarDetectorParams.Sensitivity`. So:
+
+> **Every accepted star's gate statistic strictly exceeds `EffectiveSensitivityGate = max(Sensitivity,
+> InertSensitivityBound)` — and therefore ANY order statistic over accepted stars, at ANY rank, on ANY subset of
+> frames, is bounded below by that gate.**
+>
+> **Corollary:** when the optimizer lands a gate at or above `TargetSensitivity` (10), `ExposureIsNotTheLimit` is
+> true **by construction**, whatever the sky contains.
+
+`D02_rich_135mm` lands its effective gate at **16.7 / 50.0 / 34.3 / 10.0 / 14.0** across a 16× ladder over which
+σ_focus improves **48 %**. Three of the five rungs are structurally silenced.
+
+**This is why both earlier fixes failed their own pre-registered tests.** Wave 7's "change `NTarget`" moved the
+RANK; wave 8's "widen the trigger" moved the DISPLAY. Neither touched the POPULATION. It is strictly stronger
+than wave 7's leg 2, which established only that the *faintest accepted star* is pinned.
+
+**And it killed this wave's own first candidate family before a line of it was implemented.** §3.4 of the design
+had named four candidates — all four order statistics over accepted stars. The refutation cost a proof and a
+column of numbers already on disk; implementing them would have cost a build and an arm. *The cheap refutation
+arrives before the expensive confirmation, including refutations of your own plan.*
+
+### §3.2 What ships, and why it is a probe rather than a formula
+
+The candidates the gate **rejected** on the wing frames are the only population in a run not floored by the gate.
+`WingRejectedFraction` = `rejected / (rejected + accepted)`, pooled over the outer third of the non-recovery
+frames by distance from the fitted focus; `WingIsShedding` at ≥ 0.20; the ask is `max(existing, ×2 probe)`.
+
+A **probe**, following `StarCountProbeFactor`'s precedent, because the run records how MANY candidates were
+rejected out there and not what SNR they sat at. **Fabricating a magnitude was measured and rejected**: a
+`(1/(1−f))²` form asked **1.25×** on `D16` at exactly the exposure where its σ_focus is minimised.
+
+### §3.3 RULE W, and it discriminated
+
+| candidate | W1 `D02`@0.5 ≥ 2× | W2 `D16`@2 < 1.25× | W3 converges | W4 `D16`@0.5 asks | verdict |
+|---|---|---|---|---|---|
+| shipped statistic | ✗ 1.00× | ✓ | ✓ | ✓ | fires on **neither** |
+| wing fraction, `(1/(1−f))²` | ✓ 4.00× | ✗ 1.25× | ✗ | ✗ | fires on **both** |
+| wing headroom vs the gate | ✓ 2.00× | ✓ | ✗ | ✗ | — |
+| wing probe ALONE | ✓ 2.00× | ✓ | ✓ | ✗ | — |
+| **`max(shipped, wing probe)`** | **✓ 2.00×** | **✓ 1.00×** | **✓** | **✓ 3.00×** | **ADOPTED** |
+
+**Five of seven failed, three of them AFTER passing W1** — the clause that looks like the whole point. Both halves
+of the winner are load-bearing: the accepted-star path alone fails W1, the probe alone fails W4.
+
+On `D02` the adopted statistic asks 2× at 0.5 / 1 / 2 s and goes **silent at 4 s**, which is exactly where this
+binary's σ_focus minimum sits (0.05208).
+
+### §3.4 The ladder MOVED, and the premises were re-checked rather than the rule reused
+
+Rule W was written against wave 7's σ ladder. [F54](followups.md) shows this binary's ladder differs — `D02`'s
+optimum is at **4 s** here, not 8 s. So the rule was applied to **this binary's own ladder**, after checking that
+every clause's premise survives on both:
+
+| premise | wave 7's ladder | this binary's ladder |
+|---|---|---|
+| W1: `D02` gains from more than 0.5 s | 44 % better at 8 s | **48 % better at 4 s** |
+| W2: `D16` is worse above its derived 2 s | 0.120 / 0.148 vs 0.064 | **0.204 / 0.197 vs 0.171** |
+| W3: `D02`'s 8 s rung is at or past the optimum | optimum at 8 s | **optimum at 4 s** |
+| W4: `D16`@0.5 s is worse than its 2 s | 0.352 vs 0.064 | **0.352 vs 0.171** |
+
+**All four hold on both.** A moved instrument is a reason to re-check the rule's premises, not a reason to quietly
+keep quoting the old numbers.
+
+### §3.5 The verdict is reproduced END TO END by the shipped code
+
+The offline scorer chose the candidate; the shipped `ExposureRecommender` then had to agree. Re-running the ten
+rungs with the product implementation gives **W1 2.00× · W2 1.00× · W3 pass · W4 3.00×** — the same four passes.
+The σ_focus landings are unchanged from the pre-implementation probe, so the statistic is inert on the optimizer,
+which is what it should be (it is computed after the search).
+
+**Tests: 8, four discriminating, each confirmed by NEUTRALIZING** — delete the probe ⇒ W1/W3/W4 fail; `max()` ⇒
+plain assignment ⇒ W4 alone fails; fire on any rejection ⇒ W2 alone fails.
+
+### §3.6 Still owed, and blocked structurally rather than by scheduling
+
+The §3.5 population check — the verdict across all 20 synthetic datasets and the real bank — cannot run while
+F32's arm is in flight: `optimize --per-run` writes back into the bank's run folders
+([F15](followups.md#f15--optimize---per-run-overwrites-each-runs-stored-settings)) with no flag to suppress it, so
+a population pass would race the arm on every folder. It runs after arm A, at arm A's exact invocation, which
+makes it a free inertness control too.
+
+---
+
+## §3b — F52(c): the advice wave 8 refused to ship
+
+Wave 8 shipped (a) and (b) and withheld (c) because advice from the statistic of the day *"would tell precisely
+the users who most need a longer exposure that theirs is already fine"* — on the reporting user's own rig that
+statistic read **S/N 1438.6 against a target of 10**. **The separation is kept exactly: facts about COST need no
+statistic and are already shown; ADVICE needs one.**
+
+`SearchExposureAdvice` is computed in `ComputeBaselineJAsync` — from the **seed evaluation, which runs before the
+search** — so the answer to *"should I abort?"* was available in the first minute rather than after two hours. It
+is absent when the wings are healthy, names **Cancel** (which exists), says what Cancel costs in the same
+sentence, and quotes no exposure number.
+
+**Tests: 4, three discriminating — and the multi-run one is corrected.** Its first version paired a shedding run
+with a HEALTHY one, which the aggregation skips entirely, so "worst" and "average" were identical and it passed
+under a deliberately-averaged implementation. **That is the second overclaim this wave caught by neutralizing.**
+
+---
+
 ## §4 — F53: wave 8's arm X does not reproduce from wave 8's own `exe`
 
 Found while re-running arm X's exact command to build this wave's wing instrument.

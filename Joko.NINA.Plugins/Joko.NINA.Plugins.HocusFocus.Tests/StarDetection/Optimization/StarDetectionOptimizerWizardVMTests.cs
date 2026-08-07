@@ -1763,61 +1763,61 @@ public class StarDetectionOptimizerWizardVMTests {
     }
 
     [Test]
-    public void ApplyRecaptureGeometry_F51_CarriesTheRecommendedStepAndOffset() {
-        // F51(b) — the re-capture used to override ONLY the exposure and take the step size from the PROFILE, so
+    public void ApplyRecaptureGeometry_F51_CarriesTheRecommendedStep() {
+        // F51(b) -- the re-capture used to override ONLY the exposure and take the step size from the PROFILE, so
         // the one recommendation that was asking to change on every run of the field session (100 -> 214 -> 459
         // -> 474 -> 482) was the one it could not carry. The only way to re-run at the recommended step was to
         // Accept a landing first, and that Accept is how Sensitivity 0.000 reached the user's profile.
         //
-        // DISCRIMINATING: neuter the method (or drop the call from RunLiveAttemptAsync) and this fails on both
-        // fields.
+        // DISCRIMINATING: neuter the method (or drop the call from RunLiveAttemptAsync) and this fails.
         var options = new AutoFocusEngineOptions {
             AutoFocusInitialOffsetSteps = 5,
             AutoFocusStepSize = 214,
             AutoFocusTimeout = TimeSpan.FromSeconds(600)
         };
-        StarDetectionOptimizerWizardVM.ApplyRecaptureGeometry(options, 459, 6);
+        StarDetectionOptimizerWizardVM.ApplyRecaptureGeometry(options, 459);
         Assert.Multiple(() => {
             Assert.That(options.AutoFocusStepSize, Is.EqualTo(459), "the recommended step, not the profile's");
-            Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(6));
+            Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(5),
+                "the OFFSET is deliberately untouched: StepSizeRecommender derives its step from the desired "
+                + "half-width over the CURRENT points-per-side, so applying the recommended offset as well would "
+                + "widen the sweep twice -- and ApplyFocusRecovery owns that axis");
             Assert.That(options.AutoFocusTimeout, Is.EqualTo(TimeSpan.FromSeconds(600)),
-                "the timeout is NOT scaled here - ApplyFocusRecovery runs next and scales it from this offset, "
-                + "so scaling in both places would double-count the same widening");
+                "the point count does not change, so there is nothing to re-scale");
         });
     }
 
     [Test]
     public void ApplyRecaptureGeometry_F51_NonPositiveIsACompleteNoOp_SoAnOrdinaryStartIsUnchanged() {
-        // An ordinary Live Start leaves both fields at 0, and that path must stay byte-identical to before this
-        // existed. The two are independent: an exposure-only re-capture passes 0 for the step size and must not
-        // disturb the profile's.
-        foreach (var (step, offset) in new[] { (0, 0), (-1, 0), (0, -3) }) {
+        // An ordinary Live Start leaves the field at 0, and that path must stay byte-identical to before this
+        // existed -- including an exposure-only re-capture, which passes 0.
+        foreach (var step in new[] { 0, -1 }) {
             var options = new AutoFocusEngineOptions { AutoFocusInitialOffsetSteps = 5, AutoFocusStepSize = 100 };
-            StarDetectionOptimizerWizardVM.ApplyRecaptureGeometry(options, step, offset);
+            StarDetectionOptimizerWizardVM.ApplyRecaptureGeometry(options, step);
             Assert.Multiple(() => {
-                Assert.That(options.AutoFocusStepSize, Is.EqualTo(100), $"step unchanged at ({step},{offset})");
-                Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(5), $"offset unchanged at ({step},{offset})");
+                Assert.That(options.AutoFocusStepSize, Is.EqualTo(100), $"step unchanged at {step}");
+                Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(5), $"offset unchanged at {step}");
             });
         }
     }
 
     [Test]
-    public void ApplyRecaptureGeometry_F51_ComposesWithFocusRecoveryInTheShippedOrDER() {
-        // RunLiveAttemptAsync applies the geometry FIRST and recovery SECOND, so recovery widens whatever offset
-        // the recommendation left — exactly as it widens the profile's on an ordinary Start. Reversing the two
-        // would let recovery's widening be overwritten by the recommended offset and silently drop the recovery
-        // frames the evaluator is about to TAG as recovery.
+    public void ApplyRecaptureGeometry_F51_ComposesWithFocusRecoveryWithoutDoubleWideningTheSweep() {
+        // RunLiveAttemptAsync applies the geometry FIRST and recovery SECOND. Because the geometry no longer
+        // touches the offset, recovery widens from the PROFILE's offset exactly as it does on an ordinary Start --
+        // which is the contract CaptureNewSweep_UsesTheSnapshottedRecoverySteps_NotTheLiveBox pins, and which the
+        // first version of this method broke by widening to 5 where the snapshot alone gives 1.
         var options = new AutoFocusEngineOptions {
             AutoFocusInitialOffsetSteps = 4, AutoFocusStepSize = 100, AutoFocusTimeout = TimeSpan.FromSeconds(600)
         };
-        StarDetectionOptimizerWizardVM.ApplyRecaptureGeometry(options, 459, 5);
+        StarDetectionOptimizerWizardVM.ApplyRecaptureGeometry(options, 459);
         StarDetectionOptimizerWizardVM.ApplyFocusRecovery(options, 2);
         Assert.Multiple(() => {
             Assert.That(options.AutoFocusStepSize, Is.EqualTo(459), "recovery never touches the step size");
-            Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(7), "5 recommended + 2 recovery per side");
+            Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(6), "4 profile + 2 recovery -- NOT 4+N+2");
             Assert.That(options.AutoFocusTimeout.Ticks,
-                Is.EqualTo((long)(TimeSpan.FromSeconds(600).Ticks * 15.0 / 11.0)),
-                "recovery scales the timeout from the RECOMMENDED offset (11 points), not the profile's 9");
+                Is.EqualTo((long)(TimeSpan.FromSeconds(600).Ticks * 13.0 / 9.0)),
+                "recovery scales the timeout from the PROFILE's offset, which the geometry left alone");
         });
     }
 

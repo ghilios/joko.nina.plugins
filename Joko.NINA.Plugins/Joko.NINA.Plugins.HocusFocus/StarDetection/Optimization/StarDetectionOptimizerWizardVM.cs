@@ -2199,20 +2199,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     return string.Empty;
                 }
                 var s = SelectedSummary;
-                if (s == null || !s.StepSizeOrOffsetChanged) {
+                if (s == null || s.RecommendedStepSize == s.CurrentStepSize) {
                     // Exposure-only: the box below already carries the number, and nothing else changes.
-                    return "The new sweep uses the exposure below; the step size and offset steps stay as they are. "
+                    return "The new sweep uses the exposure below; the step size stays as it is. "
                         + "Nothing is written to your profile — Accept still does that.";
                 }
-                var parts = new List<string>(2);
-                if (s.RecommendedStepSize != s.CurrentStepSize) {
-                    parts.Add($"step size {s.CurrentStepSize} → {s.RecommendedStepSize}");
-                }
-                if (s.RecommendedOffsetSteps != s.CurrentOffsetSteps) {
-                    parts.Add($"offset steps {s.CurrentOffsetSteps} → {s.RecommendedOffsetSteps}");
-                }
-                return $"The new sweep uses the recommended {string.Join(" and ", parts)}, at the exposure below. "
-                    + "Nothing is written to your profile — Accept still does that.";
+                // The STEP only. The recommended offset is deliberately not carried (see ApplyRecaptureGeometry),
+                // so promising it here would describe a sweep the re-capture does not take.
+                return $"The new sweep uses the recommended step size {s.CurrentStepSize} → {s.RecommendedStepSize}, "
+                    + "at the exposure below. Nothing is written to your profile — Accept still does that.";
             }
         }
 
@@ -2323,10 +2318,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         ///
         /// <para>Set to the recommendation, never to the profile: a re-capture that silently used the old geometry
         /// would look like the fix and reproduce the same sweep.</para>
+        ///
+        /// <para><b>The STEP SIZE only — the offset steps are deliberately NOT carried, and a test caught the
+        /// first version that did.</b> <see cref="StepSizeRecommender"/> derives its step from the desired
+        /// half-width over the CURRENT points-per-side, so the recommended step already expresses the whole
+        /// geometry change at the existing offset; applying the recommended offset on top would widen the sweep
+        /// twice. It also collides with <see cref="ApplyFocusRecovery"/>, which owns that axis and adds to
+        /// whatever offset it is handed — the failing assertion was a re-capture widening to 5 where the recovery
+        /// snapshot alone should have given 1.</para>
         /// </summary>
         private int recaptureStepSize;
-
-        private int recaptureOffsetSteps;
 
         private bool LastRunWasLive {
             get => lastRunWasLive;
@@ -2954,7 +2955,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // BEFORE ApplyFocusRecovery so recovery still widens whatever offset this leaves behind, exactly as it
             // widens the profile's on an ordinary Start. Both fields are 0 on a normal Live Start, so that path is
             // byte-identical. Cleared by the caller after the sweep so a later Start cannot inherit them.
-            ApplyRecaptureGeometry(options, recaptureStepSize, recaptureOffsetSteps);
+            ApplyRecaptureGeometry(options, recaptureStepSize);
 
             // Widen the captured sweep by the snapshotted recovery steps (never the live box) so the widened capture and
             // the tagged evaluation use the identical N, and scale the per-run timeout so the longer sweep doesn't time
@@ -2998,21 +2999,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <see cref="AutoFocusEngineOptions.AutoFocusStepSize"/> alone because recovery widens rather than
         /// refines — this is precisely a step-size change, because that is the recommendation being carried.</para>
         ///
-        /// <para>The per-run timeout is deliberately NOT scaled here. <see cref="ApplyFocusRecovery"/> scales it by
-        /// the POINT-COUNT ratio, and this method changes the point count only through
-        /// <paramref name="offsetSteps"/> — which the recommender moves by at most a step or two, and which the
-        /// recovery call immediately after re-scales from whatever offset this leaves. Scaling here as well would
-        /// double-count that same widening.</para></summary>
-        internal static void ApplyRecaptureGeometry(AutoFocusEngineOptions options, int stepSize, int offsetSteps) {
-            if (options == null) {
+        /// <para><b>It touches the step size and NOTHING else</b> — in particular not
+        /// <see cref="AutoFocusEngineOptions.AutoFocusInitialOffsetSteps"/>, which an earlier version of this
+        /// method did set from the recommendation. Two independent reasons, and a test caught it:
+        /// <list type="number">
+        /// <item><see cref="StepSizeRecommender"/> derives its step from the desired half-width over the CURRENT
+        /// points-per-side, so the recommended STEP already expresses the whole geometry change at the existing
+        /// offset. Applying the recommended offset as well widens the sweep twice.</item>
+        /// <item><see cref="ApplyFocusRecovery"/> owns the offset axis and ADDS to whatever it is handed, so the
+        /// two compose in a way no page describes —
+        /// <c>CaptureNewSweep_UsesTheSnapshottedRecoverySteps_NotTheLiveBox</c> failed with a re-capture widened
+        /// to 5 where the recovery snapshot alone should have given 1.</item>
+        /// </list>
+        /// The per-run timeout therefore needs no scaling here either: the point count does not change, and
+        /// <see cref="ApplyFocusRecovery"/> still scales it for its own widening.</para></summary>
+        internal static void ApplyRecaptureGeometry(AutoFocusEngineOptions options, int stepSize) {
+            if (options == null || stepSize <= 0) {
                 return;
             }
-            if (stepSize > 0) {
-                options.AutoFocusStepSize = stepSize;
-            }
-            if (offsetSteps > 0) {
-                options.AutoFocusInitialOffsetSteps = offsetSteps;
-            }
+            options.AutoFocusStepSize = stepSize;
         }
 
         internal static void ApplyFocusRecovery(AutoFocusEngineOptions options, int recoverySteps) {
@@ -4715,13 +4720,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // this is a per-run override on the sweep about to be taken, which is what makes re-capturing
             // independent of Accept.
             var geometry = SelectedSummary;
-            if (geometry != null && geometry.StepSizeOrOffsetChanged) {
-                recaptureStepSize = geometry.RecommendedStepSize;
-                recaptureOffsetSteps = geometry.RecommendedOffsetSteps;
-            } else {
-                recaptureStepSize = 0;
-                recaptureOffsetSteps = 0;
-            }
+            recaptureStepSize = geometry != null && geometry.RecommendedStepSize != geometry.CurrentStepSize
+                ? geometry.RecommendedStepSize
+                : 0;
 
             ErrorMessage = null;
             SetProgress(null, 0, 0);
@@ -4830,7 +4831,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // cleared on EVERY exit path (success as well as failure). Leaving it set would silently apply
                 // this run's recommended step size to a later ordinary Start, which no page ever offered.
                 recaptureStepSize = 0;
-                recaptureOffsetSteps = 0;
                 DisposeLoadedRuns(captured);
                 IsBusy = false;
                 Interlocked.Exchange(ref running, 0);
