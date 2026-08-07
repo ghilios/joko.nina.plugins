@@ -3062,6 +3062,59 @@ the price for a fourth-decimal gain — the same shape as
 time instead of recall.
 Reproduce: `D:\hf_w8\field\compare_runs.sh`, `D:\hf_w8\field\cost_*.json`, `D:\hf_w8\field\gate_*.json`.
 
+### F54 — F39(b)'s default flip MOVES a landing at a resolved factor of 1, where it is documented as a no-op
+**Status:** Open · found 2026-08-07 (wave 9) chasing [F53](#f53--wave-8s-arm-x-does-not-reproduce-from-wave-8s-own-exe-because-the-arm-ran-on-an-earlier-build-of-it)'s
+remainder · **measured and reproducible; the MECHANISM is not identified and is not claimed**
+
+Wave 8 flipped `optimize --per-run`'s default to apply each run's derived detection binning, and recorded the
+opt-out as leaving prior arms reproducible. On `D:\hf_w7\armE\t0.5\D02_rich_135mm` — **one binary, one pinned
+settings file, one set of frames, and a resolved factor of 1** — the two paths land in different places:
+
+| | landed gate | σ_focus | `bestJ` |
+|---|---|---|---|
+| default (flip ON), factor **1** from `synthetic_meta.json` | **33.333** | **0.10063** | 0.996486 |
+| `--no-run-detection-binning` | **16.667** | **0.10927** | 0.996328 |
+
+The second row reproduces wave 7's arm E and wave 8's arm X **exactly**, which is what makes this the explanation
+for F53's residue rather than a second unexplained thing.
+
+**Everything the harness prints about the seed is IDENTICAL between the two runs** — `Sensitivity=10`,
+`StarClippingMultiplier=2`, `NoiseClippingMultiplier=4`, `StructureLayers=4`, and the per-run
+`PixelScale 5.74486 arcsec/px (frame header)`. The only difference is the two `DetectionBinningResolver.ApplyFactor(_, 1)`
+calls the flip enables.
+
+**Why that is surprising.** `ApplyFactor(p, 1)` reads as the identity when `p.DetectionBinning` is already 1:
+`unbinned = PixelScale / max(1, 1)`, then `PixelScale = unbinned × 1`. `StarDetectorParams.DetectionBinning`
+**defaults to 1** (`IStarDetector.cs:495`), so the 0→1 hypothesis is dead. And
+`HocusFocusStarDetection.ApplyDetectionImageContext` **overwrites** `detectorParams.DetectionBinning` from the
+options override at detect time anyway, so the field the resolver writes is not even the one the detector uses.
+
+**What is NOT the cause**, each excluded rather than assumed:
+
+- **Not concurrency** — the two runs bracket each other under identical load, and a third control (F53) matched a
+  different binary to 6 dp with three `optimize` processes in flight.
+- **Not this wave's code** — `D:\hf_w8\exe` and wave 9's `exe2` agree with each other on the flip-ON value.
+- **Not `EffectiveStructureLayers`** — wave 8's F52(a) extraction is a faithful one (identical branch order and
+  expressions), and its `CostNoteFor` calls `Materialize`, which **clones** the seed and has no side effects.
+
+**Why it matters, and it is not academic.** Wave 8's adoption control reported *"every binning-1 dataset is
+bit-identical between arm A and arm B … 0 control violations of 13"* — **the same comparison this entry runs, with
+the opposite result.** The two differ in one respect worth chasing first: wave 8's control ran on the BANK folders
+while this runs on wave 7's rendered `armE` copies, and those copies already contain an `optimized_settings.json`
+written by a previous `--per-run` pass ([F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings)),
+which `HarnessSettingsStore.ResolveForRun` reads. If a per-run settings file can change what the flip does, that is
+the F42 shadowing concern arriving through a different door.
+
+**This wave's F32 arm is NOT affected, and that is measured rather than assumed.** RULE G reproduced all 8
+comparability runs to 6 dp **with the flip ON, on the bank folders**, against wave 5's values.
+
+**Next step.** (a) Reproduce on a BANK folder with and without the flag, to separate "the flip moves landings" from
+"a stale per-run `optimized_settings.json` moves landings". (b) If it is the per-run file, that is F15 causing a
+measurement error rather than merely destroying provenance, and it raises F15's priority sharply. (c) Either way,
+`ApplyFactor` at factor 1 should be provably inert or should not be called — a normalization step that changes an
+answer is worse than no normalization.
+Reproduce: `D:\hf_w9\wing\ctl_nobin.log` vs `D:\hf_w9\wing\opt_0.5_D02_rich_135mm.log`.
+
 ### F53 — Wave 8's arm X does not reproduce from wave 8's own `exe`, because the arm ran on an EARLIER build of it
 **Status:** Open · found 2026-08-07 (wave 9) re-running arm X's exact command to build the wing instrument ·
 **the reproduce line is stale, and nothing in the artifact says so**

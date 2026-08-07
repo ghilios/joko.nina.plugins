@@ -101,6 +101,12 @@ Tests: `dotnet.exe test "$(wslpath -w <abs>/Joko.NINA.Plugins/Joko.NINA.Plugins.
 - [ ] Unit tests that **discriminate** — each confirmed by neutralizing the change and re-running, not asserted.
 - [ ] **§3.5 population check:** verdict measured on all 20 synthetic datasets + the real bank; every newly-firing
       dataset needs a stated reason. `D10`/`D17` are the pre-registered expected fires.
+      **BLOCKED BEHIND STEP 1, and the block is structural rather than a scheduling choice.** `optimize --per-run`
+      writes `optimized_settings.json` back into the bank's run folders (F15) and there is no flag to suppress it,
+      so a population pass run while F32's arm is in flight would race it on every folder. It runs **after arm A**,
+      with `exe2` at arm A's exact invocation — which makes it **free as an inertness control too**: `exe2` differs
+      from the arm's `exe` only by the inert `FrameDiagnostics` diagnostic, so its landings must be bit-identical
+      to arm A's, and the bank keeps the shipped-default landing either way.
 
 ---
 
