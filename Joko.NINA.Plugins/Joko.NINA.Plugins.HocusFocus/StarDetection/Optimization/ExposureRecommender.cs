@@ -181,6 +181,45 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double InertGateBound { get; set; } = double.NaN;
 
         /// <summary>
+        /// F19 — the fraction of CANDIDATES FORMED on the sweep's WING frames that the Sensitivity gate rejected:
+        /// <c>rejected / (rejected + accepted)</c> over the outer
+        /// <see cref="ExposureRecommender.WingFrameFraction"/> of the non-recovery frames, ordered by distance
+        /// from the fitted focus. <see cref="double.NaN"/> when the run cannot place its frames on that axis (no
+        /// fitted focus, no step size, or no per-frame focuser positions) — never 0, because "we could not look"
+        /// and "we looked and nothing was shedding" must not be the same number.
+        ///
+        /// <para><b>Why this quantity and not another.</b> Every accepted star's gate statistic strictly exceeds
+        /// <see cref="StarDetector.EffectiveSensitivityGate"/> — that is what
+        /// <see cref="StarDetector.InertSensitivityBound"/> proves — so ANY order statistic over accepted stars,
+        /// at any rank, on any subset of frames, is bounded below by that gate. When the optimizer lands a gate at
+        /// or above <see cref="ExposureRecommender.TargetSensitivity"/>, <see cref="ExposureIsNotTheLimit"/> is
+        /// therefore true BY CONSTRUCTION, whatever the sky contains. Measured: <c>D02_rich_135mm</c> lands its
+        /// effective gate at 16.7 / 50.0 / 34.3 / 10.0 / 14.0 across a 16x exposure ladder over which σ_focus
+        /// improves 48 %. <b>The REJECTED candidates are the only population in the run that is not floored by the
+        /// gate</b>, and they are exactly the stars a longer exposure could convert.</para>
+        ///
+        /// <para><b>Why the WING frames.</b> The fit's precision rests on the sweep's outer points; the near-focus
+        /// frames are the richest and dominate any median across frames. Aggregating over a wing SET (not a single
+        /// frame) answers this class's own objection to a worst-frame statistic — a passing cloud or a satellite
+        /// trail cannot carry the recommendation.</para>
+        /// </summary>
+        public double WingRejectedFraction { get; set; } = double.NaN;
+
+        /// <summary>
+        /// True when <see cref="WingRejectedFraction"/> is at or above
+        /// <see cref="ExposureRecommender.WingSheddingThreshold"/> and the gate is NOT provably inert — the
+        /// sweep's outer frames are forming candidates and losing them to the gate, which is the one signal in a
+        /// run that says a longer exposure has something to work with.
+        ///
+        /// <para><b>The F28 guard is load-bearing, not decorative.</b> An inert gate rejects nothing by
+        /// construction, so a zero rejection count there is empty rather than reassuring. <c>D16_esprit550_ha3</c>
+        /// lands <c>Sensitivity = 0</c> with an effective gate of 0.17–2.5 at every rung of its ladder, so without
+        /// this guard its zeros would read as "the wings are fine" for a reason that has nothing to do with its
+        /// wings.</para>
+        /// </summary>
+        public bool WingIsShedding { get; set; }
+
+        /// <summary>
         /// True when the run's Sensitivity gate sat at or below <see cref="InertGateBound"/> AND
         /// <see cref="GateRejectedCount"/> is 0 — the gate could not have rejected anything, so its zero rejection
         /// count is empty by construction and is NOT evidence that the star field is exhausted (F28). Always false
@@ -352,6 +391,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// withholds the detection-binning recommendation the same way.
         /// </summary>
         public const int MinFramesForRecommendation = 3;
+
+        /// <summary>
+        /// The outer fraction of a run's non-recovery frames, by distance from the fitted focus, that counts as
+        /// the WING for <see cref="ExposureRecommendation.WingRejectedFraction"/>. A third of a 9-point sweep is
+        /// its outermost 3 frames — one full offset step past the shoulder on a default sweep, which is where the
+        /// V-curve's slope is measured and where a defocused star is faintest per pixel.
+        ///
+        /// <para>A SET rather than the single outermost frame, which is what answers this class's own objection to
+        /// a worst-frame aggregation: one passing cloud, satellite trail or guiding bump cannot carry the
+        /// recommendation, because the fraction is pooled over the whole wing.</para>
+        /// </summary>
+        public const double WingFrameFraction = 1.0 / 3.0;
+
+        /// <summary>
+        /// The <see cref="ExposureRecommendation.WingRejectedFraction"/> at or above which the wings count as
+        /// SHEDDING. Measured on wave 7's exposure ladder, still on disk: <c>D02_rich_135mm</c> — which gains 48 %
+        /// of σ_focus from more exposure — reads 0.67 / 0.29 / 0.30 at the three rungs below its optimum and
+        /// exactly 0.00 at and above it, while <c>D16_esprit550_ha3</c>, whose σ_focus MINIMUM is at its derived
+        /// exposure, reads 0.00 at every rung but one (0.006). The gap between the two populations is two orders
+        /// of magnitude, so this threshold is not finely tuned and is not meant to be.
+        /// </summary>
+        public const double WingSheddingThreshold = 0.20;
+
+        /// <summary>
+        /// The factor to probe with when the wings are shedding. A PROBE, not a derivation, for the same reason
+        /// <see cref="StarCountProbeFactor"/> is: the run records HOW MANY candidates the gate rejected out there,
+        /// not what SNR they sat at, so there is nothing to derive a magnitude from. Fabricating one was measured
+        /// and rejected — a <c>(1/(1−f))²</c> form asked <b>1.25x</b> on <c>D16</c> at exactly the exposure where
+        /// its σ_focus is minimised, which is the control this whole statistic has to pass.
+        ///
+        /// <para>Stays inside <see cref="MaxExposureFactor"/> so the user can repeat it before the run-relative cap
+        /// binds — the converge-over-runs shape the rest of this class already uses.</para>
+        /// </summary>
+        public const double WingProbeFactor = 2.0;
 
         /// <summary>True when <paramref name="sensitivity"/> is at or below <see cref="SensitivityFloorThreshold"/> — the search-floor band described there, not merely bit-exact zero.</summary>
         public static bool SensitivityIsAtFloor(double sensitivity) => sensitivity <= SensitivityFloorThreshold;
@@ -570,7 +643,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // own stopping rule — rather than to a verdict of exhaustion nothing in the run supports.
             var starCountIsTheLimit = signalIsSufficient && everyFrameShort && (gateIsHoldingStarsBack || gateIsProvablyInert);
             var starFieldIsExhausted = signalIsSufficient && everyFrameShort && !gateIsHoldingStarsBack && !gateIsProvablyInert;
-            var exposureIsNotTheLimit = signalIsSufficient && !everyFrameShort;
+
+            // F19 — THE WING TEST. Everything above is computed over ACCEPTED stars, and acceptance floors every
+            // one of them at StarDetector.EffectiveSensitivityGate; so when the optimizer lands a gate at or above
+            // TargetSensitivity, `signalIsSufficient` is true BY CONSTRUCTION and no rank, on no subset of frames,
+            // could ever say otherwise. That is why widening the TRIGGER (wave 8, rule R5) and changing NTarget
+            // (wave 7) were both refuted: neither touches the population being measured.
+            //
+            // The candidates the gate REJECTED on the wing frames are the only population in the run that is not
+            // floored by the gate, and they are exactly the stars a longer exposure can convert. See
+            // ExposureRecommendation.WingRejectedFraction.
+            var wingRejectedFraction = WingRejectedFractionOf(metrics, isRecovery);
+            // The `!gateIsProvablyInert` conjunct is REDUNDANT BY CONSTRUCTION and is kept as an invariant, not as
+            // a working guard -- found by neutralizing it and watching no test fail. A wing fraction at or above
+            // the threshold requires a non-zero entry in the SAME FrameLowSensitivityCounts array gateRejectedCount
+            // sums, so gateIsHoldingStarsBack is already true and gateIsProvablyInert already false. It stays
+            // because it states the F28 invariant at the point that depends on it: if the fraction ever stops
+            // being computed from that array, this is the line that must still hold.
+            var wingIsShedding = wingRejectedFraction >= WingSheddingThreshold && !gateIsProvablyInert;
+
+            // A shedding wing means exposure IS the limit, whatever the accepted stars say -- so this verdict has
+            // to yield to it, or the copy would report "star brightness is not the problem" directly above a row
+            // asking for more exposure, and StarSignalCopy's F49 gate remedy would fire on a run whose actual
+            // remedy is the exposure.
+            var exposureIsNotTheLimit = signalIsSufficient && !everyFrameShort && !wingIsShedding;
 
             // Sky-limited scaling answers the S/N question only. Under starCountIsTheLimit the ratio is <= 1, so it
             // would ask for a SHORTER exposure — backwards for a run whose problem is too few stars. That state
@@ -580,6 +676,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // never-shorter floor then collapses onto the current exposure -- so IncreasesExposure is false and no
             // caller can offer a longer exposure for a run that has demonstrably nothing to gain from one.
             var rawFactor = starCountIsTheLimit ? StarCountProbeFactor : ratio * ratio;
+            // The wing probe WIDENS, never replaces: max(existing, probe). That is what keeps a run the accepted-star
+            // statistic already serves from regressing -- D16_esprit550_ha3 at half its derived exposure correctly
+            // asks 3x from S_now alone, and its gate is inert out there so the wing test is silent; the probe alone
+            // would have lost that case. Both halves are load-bearing, and the pre-registered acceptance rule
+            // (wave-9 design SS3.2) fails each of them ALONE and passes only the max.
+            if (wingIsShedding) {
+                rawFactor = Math.Max(rawFactor, WingProbeFactor);
+            }
             var rawSeconds = currentExposureSeconds * rawFactor;
 
             var factorCap = currentExposureSeconds * MaxExposureFactor;
@@ -621,8 +725,63 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 GateRejectedCount = gateRejectedCount,
                 FlatRejectedCount = flatRejectedCount,
                 InertGateBound = inertGateBound,
-                GateIsProvablyInert = gateIsProvablyInert
+                GateIsProvablyInert = gateIsProvablyInert,
+                WingRejectedFraction = wingRejectedFraction,
+                WingIsShedding = wingIsShedding
             };
+        }
+
+        /// <summary>
+        /// F19 — the fraction of candidates FORMED on the sweep's wing frames that the Sensitivity gate rejected.
+        /// See <see cref="ExposureRecommendation.WingRejectedFraction"/> for why this population and not another.
+        ///
+        /// <para>Returns <see cref="double.NaN"/> — never 0 — when the run cannot be placed on the wing axis: a
+        /// non-finite <see cref="RunEvaluationMetrics.BestFocusPosition"/> (no usable fit), a non-positive
+        /// <see cref="RunEvaluationMetrics.StepSize"/>, absent focuser positions, or absent per-frame rejection
+        /// counts. "We could not look" and "we looked and nothing was shedding" must not be the same number,
+        /// because the caller turns one of them into an instruction. Every one of those absences is the DEFAULT for
+        /// a caller that does not populate the optional per-frame data, so this is inert unless the data supports
+        /// it.</para>
+        ///
+        /// <para>Recovery frames are excluded, matching <see cref="Recommend"/>'s own per-frame loop: they are
+        /// by-design far from focus, so including them would put the deliberately-starved frames in the population
+        /// whose starvation is being measured.</para>
+        /// </summary>
+        internal static double WingRejectedFractionOf(RunEvaluationMetrics metrics, IReadOnlyList<bool> isRecovery) {
+            var positions = metrics?.FrameFocuserPositions;
+            var lowSens = metrics?.FrameLowSensitivityCounts;
+            var counts = metrics?.FrameStarCounts;
+            if (positions == null || lowSens == null || counts == null
+                || !double.IsFinite(metrics.BestFocusPosition) || !(metrics.StepSize > 0.0)) {
+                return double.NaN;
+            }
+
+            // Non-recovery frames that carry all three of (position, rejection count, accepted count), keyed by
+            // |offset from the fitted focus|. A frame missing any of them cannot be placed or scored and is left
+            // out rather than defaulted to zero.
+            var usable = new List<(double Offset, int Rejected, int Accepted)>(positions.Count);
+            for (var i = 0; i < positions.Count; i++) {
+                if (IsRecoveryFrame(isRecovery, i) || i >= lowSens.Count || i >= counts.Count) {
+                    continue;
+                }
+                usable.Add((Math.Abs(positions[i] - metrics.BestFocusPosition), lowSens[i], counts[i]));
+            }
+            if (usable.Count == 0) {
+                return double.NaN;
+            }
+
+            usable.Sort((a, b) => b.Offset.CompareTo(a.Offset)); // farthest from focus first
+            // At least one frame, so a short sweep still answers rather than silently declining to.
+            var wingCount = Math.Max(1, (int)Math.Round(usable.Count * WingFrameFraction));
+            long rejected = 0, accepted = 0;
+            for (var i = 0; i < wingCount; i++) {
+                rejected += usable[i].Rejected;
+                accepted += usable[i].Accepted;
+            }
+            var formed = rejected + accepted;
+            // No candidates formed at all out here is not a shedding wing -- it is a frame with nothing on it, which
+            // is StarCountIsTheLimit's question, not this one.
+            return formed > 0 ? (double)rejected / formed : 0.0;
         }
 
         private static ExposureRecommendation NoRecommendation(double currentExposureSeconds, int usableFrameCount, int shortFrameCount) {
@@ -642,7 +801,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 GateRejectedCount = 0,
                 FlatRejectedCount = 0,
                 InertGateBound = double.NaN,
-                GateIsProvablyInert = false
+                GateIsProvablyInert = false,
+                // NaN, not 0: this run produced no recommendation at all, so it did not look at its wings either,
+                // and a consumer must not read a confident zero out of that.
+                WingRejectedFraction = double.NaN,
+                WingIsShedding = false
             };
         }
 
