@@ -3166,6 +3166,70 @@ the price for a fourth-decimal gain — the same shape as
 time instead of recall.
 Reproduce: `D:\hf_w8\field\compare_runs.sh`, `D:\hf_w8\field\cost_*.json`, `D:\hf_w8\field\gate_*.json`.
 
+### F55 — `optimize` is NOT reproducible when several instances run at once, and the SEED evaluation is what moves
+**Status:** Open · found 2026-08-07 (wave 9) when the confirmation arm's own pre-registered control fired ·
+**this voids the wave-9 F32 arm and constrains every future arm's design**
+
+Wave 9 ran F32's confirmation arm with a **fan-out of 4** — four `optimize --per-run` processes on distinct bank
+folders — to bring ~28 h of sequential compute down to ~7 h. The design pre-registered a free control for exactly
+this: arm A re-measures the 8 runs the sequential gate had already pinned.
+
+> **RULE G fired. 2 of the 8 do not reproduce.**
+>
+> | run | sequential gate | arm A, fan-out 4 |
+> |---|---|---|
+> | `toml999` | **0.997993** | **0.995784** |
+> | `D18_m24_deep_shed` | **0.999822** | **0.999882** |
+> | the other six | *(exact)* | *(exact)* |
+
+**And the second control says where it comes from.** `BaselineJ` is the objective of the run's CURRENT settings —
+**a single evaluation of the pinned seed, with no search involved**. The three arms differ only in `--keep-floor`
+and `--continue-rounds`, neither of which touches that evaluation, so it must be identical across all three. On
+**6 of 39 runs it is not**:
+
+| run | A | B | C |
+|---|---|---|---|
+| `D16_esprit550_ha3` | 0.988555 | **0.979173** | **0.979173** |
+| `D10_rc16_3250mm_sparse` | 0.958929 | **0.957201** | **0.957201** |
+| `D17_cdk14_oiii5` | 0.993062 | **0.994830** | 0.993062 |
+| `D14_cdk14_2563mm_e47` | 0.997901 | **0.997500** | 0.997901 |
+| `mufti` | 0.957087 | **0.957603** | **0.957603** |
+| `D15_cdk20_3454mm_e47` | 0.994703 | 0.994703 | **0.994474** |
+
+**The gaps are far too large to be float-summation order** (`D16` moves by 0.0094), and the pattern is sporadic
+rather than per-arm — A is the odd one out on three runs, B on two, C on one. This is
+[F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)'s tell firing at scale, and
+[F8](#f8--optimizer-landings-are-not-reproducible-across-invocations) one level deeper: not "a landing is a
+property of the trajectory", but **the seed evaluation itself is not a function of (frames, settings) alone.**
+
+**Two causes EXCLUDED by measurement, not by argument.** Re-running `toml999` today at arm A's exact invocation:
+
+- **Not the F15 folder state.** Run **sequentially and alone**, on folders that then held arm A's landing, it
+  returns **0.997993** — the gate's value. What a previous arm left in the run folder does not decide this.
+- **Not a build or settings difference.** Same binary, same pinned file, same `[1/1] optimizing attempt01`, same
+  `PixelScale 0.73944`, same resolved binning factor.
+
+**One four-way concurrent trial did NOT reproduce the deviation** (`toml999` returned 0.997993 again with three
+other `optimize` processes in flight). **That is not evidence against the fan-out**, and it is recorded here so it
+is not read as such: the effect appears on ~15 % of runs, so a single trial has no power to exclude it. Waves 5–8
+all ran their arms **sequentially** and all reported bit-identical controls; wave 9 is the first to fan out and
+the first to lose them.
+
+**What it costs.** The arm ran for **7 h 10 m** across three arms and 117 optimizations and **cannot be read
+against wave 5's φ table**. RULE G was written as *"a partial reproduction is a failure, not a warning — the
+eight are one instrument"*, and it is applied as written: **no φ verdict is published from this arm.**
+
+**Next step.** (a) Re-run the arm **sequentially** — ~28 h, and that is now the known price of a readable arm.
+(b) Find the nondeterminism: the run-evaluation path is parallel (`RunEvaluationDataParallelismTests`,
+`RunEvaluationDataCache`), and a seed evaluation that is not a pure function of (frames, settings) is a defect in
+its own right, independent of this arm. (c) Until (b), **treat concurrent `optimize` as invalid for any arm whose
+conclusion rests on comparing landings**, and say so in the run instructions beside
+[F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)'s
+settings-pinning rule. (d) Add a cheap standing guard: have `optimize` print `BaselineJ` where a scripted arm can
+diff it, so this control is free on every future arm rather than only when someone writes it down.
+Reproduce: `D:\hf_w9\f32_arms.log`, `D:\hf_w9\score_f32.py`, `D:\hf_w9\ctl_seq_toml999.log`,
+`D:\hf_w9\ctl_conc_toml999.log`.
+
 ### F54 — F39(b)'s default flip MOVES a landing at a resolved factor of 1, where it is documented as a no-op
 **Status:** Open · found 2026-08-07 (wave 9) chasing [F53](#f53--wave-8s-arm-x-does-not-reproduce-from-wave-8s-own-exe-because-the-arm-ran-on-an-earlier-build-of-it)'s
 remainder · **measured and reproducible; the MECHANISM is not identified and is not claimed**

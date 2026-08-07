@@ -14,9 +14,11 @@ own reporting refuted in the same wave, by printing a saturated set that include
 
 | item | state |
 |---|---|
+| **the full suite** | **3693 passed, 0 failed** (`develop` @ `018eaa0` was 3674 → **+19**) |
 | **the wave-8 CI gate** | **CHECKED. The absent check resolved itself** — #184's CI ran and passed 3674/0/0 ~51 s before the merge. Actions is in `major_outage` again NOW. See §0 |
-| **RULE G** — the comparability gate | **PASS, 8 of 8 to 6 dp.** The wave-8 binning-default trap is verified inert rather than argued inert. See §1.1 |
-| **F32's confirmation arm** | **RUNNING** at the time of writing (~5 h, 3 arms × 39 runs, fan-out 3). Scored by `D:\hf_w9\score_f32.py` against R1/R2/R3. See §1 |
+| **RULE G** — sequential gate | **PASS, 8 of 8 to 6 dp.** The wave-8 binning-default trap is verified inert rather than argued inert. See §1.1 |
+| **RULE G** — re-applied under the fan-out | **FAIL, 2 of 8.** Same rule, same runs, four processes in flight. See §1.5 |
+| **F32's confirmation arm** | **RAN (7 h 10 m, 117 optimizations) and its own pre-registered control VOIDED it.** RULE G fails 2 of 8; `BaselineJ` moves on 6 of 39. **No φ verdict is published.** New finding [F55](followups.md). See §1.5 |
 | **F19(c)** — floor and ceiling | **RESOLVED, and it was FREE. The floor stays, the ceiling stays, NOTHING re-renders.** And it produced a rank correlation the entry never had. See §2 |
 | **F19's remainder** — the wing statistic | See §3. The pre-registered candidate family was **refuted before implementation, by a proof plus data already on disk** |
 | **F49** — the empty remedy | **SHIPPED.** See §5 |
@@ -95,21 +97,69 @@ The third arm exists because wave 6 measured the two mechanisms as **complementa
 0–36 % (median 13.8 %) of the floor's gain where the floor helps, and the floor's two FAILURES are exactly where
 restarts do best.
 
-**The first draft narrowed arm C to the binding set, and that reduction was withdrawn.** `--continue-rounds 2` is
-~2.4× the per-run cost, so 39 runs sequentially is ~8 h — but at fan-out 3 it is ~2.6 h, inside F32's own ~6 h
-estimate for the whole arm. The narrowing bought nothing except a definitional argument about "binding" before arm
-A had run.
+**Arm C's scope was narrowed, un-narrowed, and re-narrowed, and the sequence is recorded because the middle step
+rested on an estimate that was wrong by 3×.** Drafted narrow (`--continue-rounds 2` is ~2.4× the per-run cost);
+withdrawn when fan-out projected the full arm to ~2.6 h; **re-narrowed once measured** — 9 runs in 1.8 h, i.e. ~8 h
+for arm C alone. The re-narrowed version rests on a better reason than cost: arm C's question (R2) has no content
+on a run where the floor never rejected a candidate.
 
-**Order C → B → A, with A LAST** ([F15](followups.md#f15--optimize---per-run-overwrites-each-runs-stored-settings)):
+**In the event the narrowing did not bind.** The binding set was read from arm B's own logs (`keep floor (F32):
+0.50; N candidate(s) rejected as infeasible`, N > 0) and came back as **all 39** — the floor rejects *some*
+candidate mid-search on essentially every run, even where it does not move the landing. **That predicate is looser
+than wave 5's, which was about the LANDING**, and it is recorded as a definitional miss rather than presented as a
+choice: arm C ran full scope after all.
+
+**Order B → C → A, with A LAST** ([F15](followups.md#f15--optimize---per-run-overwrites-each-runs-stored-settings)):
 `optimize --per-run` rewrites `optimized_settings.json` into the bank's run folders, so the last arm owns both
-banks. **The banks end holding the SHIPPED-DEFAULT landing.** If R1 adopts φ = 0.50 as a default, arm B is re-run
-alone before the PR — recorded here so the obligation cannot be lost after the fact.
+banks. **The banks end holding the SHIPPED-DEFAULT landing**, and they do — arm A finished last at 09:41Z.
 
-**The fan-out's control is free:** arm A re-measures the same 8 runs the gate measured sequentially. A
-disagreement is a concurrency artifact, not a result. An early independent signal is already in: §4's control ran
-with three `optimize` processes in flight and matched a different binary to six decimal places.
+**The fan-out's control is free, and it is the reason this section has a §1.5:** arm A re-measures the same 8 runs
+the gate measured sequentially.
 
-*(Results to follow when the arm completes; scored by `D:\hf_w9\score_f32.py` against R1/R2/R3.)*
+### §1.5 THE ARM RAN, AND ITS OWN PRE-REGISTERED CONTROL VOIDED IT
+
+All three arms completed — 117 optimizations, 02:31Z → 09:41Z, **7 h 10 m**. Then RULE G was applied.
+
+> **RULE G FIRES. 2 of the 8 comparability runs do not reproduce under the fan-out.**
+>
+> | run | sequential gate | arm A, fan-out 4 |
+> |---|---|---|
+> | `toml999` | **0.997993** | **0.995784** |
+> | `D18_m24_deep_shed` | **0.999822** | **0.999882** |
+> | the other six | *(exact)* | *(exact)* |
+>
+> The rule was written as *"a partial reproduction is a failure, not a warning — the eight are one instrument"*,
+> and it is applied as written. **No φ verdict is published from this arm.** R1, R2 and R3 are not reported,
+> because reporting them would be publishing a number whose instrument has already failed its own check — which
+> is the exact shape of the mistake wave 8's R5 refused to make.
+
+**The second control says where it comes from, and it is worse than a fan-out artifact.** `BaselineJ` is the
+objective of the run's CURRENT settings — one evaluation of the pinned seed, **no search involved**. The arms
+differ only in `--keep-floor` and `--continue-rounds`, neither of which touches it, so it must be identical
+across all three. **On 6 of 39 runs it is not** — `D16_esprit550_ha3` moves by 0.0094, far too large for
+float-summation order, and the odd arm out varies (A on three runs, B on two, C on one).
+
+**So the seed evaluation is not a function of (frames, settings) alone.** Filed as
+[F55](followups.md#f55--optimize-is-not-reproducible-when-several-instances-run-at-once-and-the-seed-evaluation-is-what-moves).
+
+**Two causes excluded by measurement.** Re-running `toml999` at arm A's exact invocation: **sequentially and
+alone**, on folders then holding arm A's landing, it returns **0.997993** — so neither the
+[F15](followups.md#f15--optimize---per-run-overwrites-each-runs-stored-settings) folder state nor any build or
+settings difference explains it. **One four-way concurrent trial did not reproduce the deviation either, and that
+is recorded as having no power rather than as exculpatory**: the effect appears on ~15 % of runs, so a single
+trial cannot exclude it. Waves 5–8 ran sequentially and all reported bit-identical controls; wave 9 is the first
+to fan out and the first to lose them.
+
+**The banks' final landing is still correct.** Arm A ran last (§0.3), so both banks hold the shipped-default
+landing, and the F15 obligation is discharged in the direction that needed no φ verdict.
+
+**What this cost and what it bought.** 7 h 10 m of compute and no φ verdict — against a measured, previously
+unknown constraint on **every arm this project will ever run**. The fan-out was introduced to make the arm
+affordable and it is precisely what made it unreadable; the free control the design attached to it is the only
+reason that is known rather than believed.
+
+**Owed:** the arm re-run **sequentially** (~28 h, now a known price), and F55(b) — the nondeterminism itself,
+which is a defect independent of this arm.
 
 ---
 
@@ -350,6 +400,12 @@ the Star signal block is not on screen at all, the row carries its own sentence.
 ---
 
 ## Lessons
+
+**0. A free control on a shortcut is worth more than the shortcut.** The fan-out existed to make F32's arm
+affordable, and it is exactly what made it unreadable — 7 h 10 m of compute, no φ verdict. The only reason that is
+KNOWN rather than believed is that the design attached a control to the shortcut before taking it, and the control
+cost one re-measurement of eight runs that were being run anyway. **Every shortcut in this project should be
+carrying one.**
 
 **1. A deferral priced on a PREDICTION is not priced.** Wave 8's §0.1 deferred F32 because it forecast that F19(c)
 would re-render the bank ahead of it. F19(c)'s check cost minutes and says nothing re-renders — so the deferral
