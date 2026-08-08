@@ -557,4 +557,132 @@ public class StepSizeRecommenderTests {
             sizeForExecutedSweep: true);
         Assert.That(b.StepSize, Is.EqualTo(a.StepSize));
     }
+
+    // ---- F49(c) / F51: what a CAPPED recommendation is able to say about itself -----------------------------
+
+    /// <summary>
+    /// The growth ratio is <c>MaxHalfWidthSampledHalfSpanMultiple · P / PointsPerSide</c> and NOTHING else — in
+    /// particular it does not depend on the extrapolated half-width, which is the whole reason it is quotable to
+    /// a user while a projected run count is not.
+    ///
+    /// <para>Both rows are load-bearing and neither is hypothetical. P = 4 is the shipped offset-only sweep and
+    /// gives 1.714; wave 7's F18 control arm has 22 capped rounds across six datasets on disk and every one lands
+    /// at 1.667–1.750, the scatter being integer rounding of the step. P = 5 is 4 offset + 1 focus-recovery step
+    /// and gives 2.143 — the geometry of the field session behind F49/F51, whose 11-point sweeps went
+    /// 100 → 214 → 459. A single hard-coded constant would have been wrong on one of the two.</para>
+    /// </summary>
+    [TestCase(4, 1.5 * 4 / 3.5)]
+    [TestCase(5, 1.5 * 5 / 3.5)]
+    public void Recommend_Capped_ReportsTheExactRatioTheNextRunWillApply(int pointsPerSide, double expectedRatio) {
+        const int stepSize = 214;
+        var fit = FitShallowHyperbola(minHfr: 1.9, edgeHfrRatio: 1.8, stepSize: stepSize, offsetSteps: pointsPerSide);
+
+        var rec = StepSizeRecommender.Recommend(fit, currentStepSize: stepSize);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.WasCapped, Is.True, "the premise: a sweep reaching only 1.8x the minimum HFR is capped");
+            Assert.That(rec.CappedGrowthRatio, Is.EqualTo(expectedRatio).Within(1e-9),
+                "the ratio is algorithm arithmetic, not a property of the fit");
+            // And it PREDICTS: the step the recommender returned is the ratio applied to the current step.
+            Assert.That(rec.StepSize, Is.EqualTo((int)Math.Round(stepSize * expectedRatio, MidpointRounding.AwayFromZero)).Within(1),
+                "the ratio must actually describe the move this recommendation just made");
+        });
+    }
+
+    /// <summary>
+    /// The field session behind F49/F51, replayed: 100 → 214 → 459 at 4 offset + 1 recovery step per side. The
+    /// entry derives 459 independently from the screenshot's focuser axis (11 points at spacing 214 ⇒ sampled
+    /// half-span 1070; ×1.5 ⇒ 1605; /3.5 ⇒ 458.6), so this is a check against a number the recommender did not
+    /// produce here.
+    ///
+    /// <para>It also pins the half of the user's complaint that is NOT a defect: the sequence TERMINATES. The
+    /// user saw four runs each asking to widen and read it as a runaway; it is a geometric approach to the point
+    /// where the sweep contains the 3x band, and their runs 3 and 4 asked +3 % and +5 %.</para>
+    /// </summary>
+    [Test]
+    public void Recommend_TheFieldSessionSequence_ReproducesAndTerminates() {
+        const double hfrMin = 1.9;
+        const double kappa = 0.0026;   // ~3.5 px at the +/-1070 edge of the session's second sweep
+        const int pointsPerSide = 5;   // 4 offset + 1 focus recovery, i.e. the session's 11-point sweeps
+
+        var step = 100;
+        var seen = new List<int> { step };
+        var cappedRounds = 0;
+        for (var round = 0; round < 12; round++) {
+            var fit = FitTruthSweep(hfrMin, kappa, P0, step, pointsPerSide);
+            var rec = StepSizeRecommender.Recommend(fit, step);
+            if (rec.WasCapped) {
+                cappedRounds++;
+                Assert.That(rec.CappedGrowthRatio, Is.EqualTo(1.5 * pointsPerSide / 3.5).Within(1e-9),
+                    "every capped round reports the same exact ratio");
+            }
+            if (rec.StepSize == step) {
+                break;
+            }
+            step = rec.StepSize;
+            seen.Add(step);
+        }
+        TestContext.WriteLine("sequence: " + string.Join(" -> ", seen));
+
+        Assert.Multiple(() => {
+            Assert.That(seen.Count, Is.GreaterThanOrEqualTo(3), "the session took at least three widening rounds");
+            Assert.That(seen[1], Is.EqualTo(214).Within(2), "100 x 2.143 = 214.3 -- the session's first recommendation");
+            Assert.That(seen[2], Is.EqualTo(459).Within(3), "214 x 2.143 = 458.6 -- the session's second");
+            Assert.That(cappedRounds, Is.GreaterThan(0), "the widening rounds are the CAPPED ones");
+            Assert.That(seen.Count, Is.LessThan(12), "it terminates; the user's 'runaway' is a geometric approach");
+        });
+    }
+
+    /// <summary>
+    /// <see cref="StepSizeRecommendation.SampledHfrRange"/> is what the sweep MEASURED, so unlike the half-width
+    /// it involves no extrapolation — which is why the copy leads with it. Paired with the uncapped case so the
+    /// test says which side of <see cref="StepSizeRecommender.HfrThresholdMultiple"/> each lands on.
+    /// </summary>
+    [TestCase(1.8, false)]
+    [TestCase(3.6, true)]
+    public void Recommend_ReportsTheHfrRangeTheSweepActuallyMeasured(double edgeHfrRatio, bool expectReached) {
+        var fit = FitShallowHyperbola(minHfr: 1.9, edgeHfrRatio: edgeHfrRatio, stepSize: 214, offsetSteps: 4);
+
+        var rec = StepSizeRecommender.Recommend(fit, currentStepSize: 214);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.SampledHfrRange, Is.EqualTo(edgeHfrRatio).Within(0.05),
+                "max(HFR)/min(HFR) over the fitted points");
+            Assert.That(rec.ReachedHfrBand, Is.EqualTo(expectReached));
+            // The two agree: a sweep that did not reach the band is exactly one whose half-width was capped.
+            Assert.That(rec.WasCapped, Is.EqualTo(!expectReached),
+                "SampledHfrRange >= 3 and WasCapped must not disagree about whether the band was sampled");
+        });
+    }
+
+    /// <summary>
+    /// An UNCAPPED recommendation has no growth ratio, because there is no next capped run for one to describe.
+    /// NaN rather than 1.0: "this is not widening geometrically" and "it widens by a factor of one" would be the
+    /// same number, and the caller turns one of them into a sentence.
+    /// </summary>
+    [Test]
+    public void Recommend_NotCapped_HasNoGrowthRatioAtAll() {
+        var fit = FitCleanHyperbola();
+        var rec = StepSizeRecommender.Recommend(fit, currentStepSize: 100);
+        Assert.Multiple(() => {
+            Assert.That(rec.WasCapped, Is.False, "the premise");
+            Assert.That(double.IsNaN(rec.CappedGrowthRatio), Is.True, "NaN, never 1.0");
+        });
+    }
+
+    /// <summary>
+    /// A degenerate recommendation reports NEITHER quantity. It never fitted anything, so both "what did this
+    /// sweep measure" and "what will the next run multiply by" are unanswerable rather than zero — the same
+    /// NaN-never-0 rule <see cref="StepSizeRecommendation.MaxUsefulHalfSpan"/> already follows.
+    /// </summary>
+    [Test]
+    public void Recommend_DegenerateFit_ReportsNeitherMeasurement() {
+        var rec = StepSizeRecommender.Recommend(null, currentStepSize: 77);
+        Assert.Multiple(() => {
+            Assert.That(rec.StepSize, Is.EqualTo(77), "unchanged, as before");
+            Assert.That(double.IsNaN(rec.SampledHfrRange), Is.True);
+            Assert.That(double.IsNaN(rec.CappedGrowthRatio), Is.True);
+            Assert.That(rec.ReachedHfrBand, Is.False, "an unmeasurable range is not a reached band");
+        });
+    }
 }

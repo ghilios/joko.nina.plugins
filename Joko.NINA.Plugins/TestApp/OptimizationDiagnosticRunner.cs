@@ -231,12 +231,20 @@ namespace TestApp {
             // back into each run's own folder (F15) leaves a bank holding whichever prepass went last, and the
             // only way to tell two arms apart is to INFER the arm from a knob — an inference that broke the moment
             // F23 wave 1 ran three arms differing by more than one flag.
+            // F53: the BUILD, not just the version. `ProducerVersion` cannot tell two builds of one version
+            // apart, which is exactly how wave 8's arm X came to be irreproducible from its own recorded `exe`
+            // -- a later step in the same wave rebuilt that directory and nothing recorded it. The MVID changes
+            // on every build; the detector version says which OUTPUT contract produced the numbers (wave 9's
+            // whole results doc needed a hand-written banner for want of it).
+            var build = OptimizerProvenance.CurrentBuild();
             var provenance = new OptimizerProvenance {
                 Producer = "TestApp optimize",
                 CommandLine = string.Join(" ", args ?? Array.Empty<string>()),
                 SettingsFingerprint = HarnessSettingsStore.Fingerprint(harnessSettings),
                 ProducerVersion = (System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(
-                    System.Reflection.Assembly.GetEntryAssembly()))?.InformationalVersion
+                    System.Reflection.Assembly.GetEntryAssembly()))?.InformationalVersion,
+                BuildId = build.BuildId,
+                DetectorVersion = build.DetectorVersion
             };
             Console.WriteLine($"provenance: {provenance}");
             var accessor = harnessSettings.Accessor;

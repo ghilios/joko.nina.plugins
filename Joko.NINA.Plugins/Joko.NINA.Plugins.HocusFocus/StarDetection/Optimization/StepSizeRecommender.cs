@@ -64,6 +64,44 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// "narrowed to what your rig can still see" rather than presenting a smaller number with no reason.
         /// </summary>
         public bool WasDetectBounded { get; set; }
+
+        /// <summary>
+        /// The HFR dynamic range this sweep actually MEASURED: max(HFR) / min(HFR) over the fitted points.
+        /// <see cref="double.NaN"/> when it cannot be measured (no outputs, or a non-positive minimum).
+        ///
+        /// <para><b>F49(c) — why this number and not the half-width.</b> The step is sized from the offset at
+        /// which HFR reaches <see cref="StepSizeRecommender.HfrThresholdMultiple"/>x its minimum. When a sweep
+        /// never gets there, that offset is read off the fitted model well outside the data, and
+        /// <see cref="WasCapped"/> is the recommender declining to trust it. This quantity says the same thing
+        /// DIRECTLY and from measurement alone: a sweep whose ends reach 1.9x the minimum did not sample the
+        /// band, full stop, and no extrapolation is involved in saying so. The field session behind F49/F51 ran
+        /// 1.9 -> 3.5 px, i.e. 1.8x, and was told to widen on all four runs.</para>
+        /// </summary>
+        public double SampledHfrRange { get; set; } = double.NaN;
+
+        /// <summary>
+        /// True when the sweep measured HFR out to <see cref="StepSizeRecommender.HfrThresholdMultiple"/>x its
+        /// minimum, i.e. the band the step is sized from was actually sampled rather than extrapolated to.
+        /// False when <see cref="SampledHfrRange"/> is NaN: an unmeasurable range is not a reached band.
+        /// </summary>
+        public bool ReachedHfrBand => SampledHfrRange >= StepSizeRecommender.HfrThresholdMultiple;
+
+        /// <summary>
+        /// The EXACT factor by which the next capped run will multiply this recommendation, or
+        /// <see cref="double.NaN"/> when <see cref="WasCapped"/> is false or it cannot be derived.
+        ///
+        /// <para><b>It is a property of the ALGORITHM, not of the fit.</b> While the cap binds,
+        /// <c>halfWidth = 1.5 · ½ · span</c> and <c>span = 2·P·step</c> for P points per side, so
+        /// <c>step' = (1.5·P / PointsPerSide) · step</c> — 1.714x at 4 offset steps, 2.143x at 4 offset + 1
+        /// recovery. Nothing in it depends on the extrapolated half-width the cap exists to distrust, which is
+        /// precisely why this is quotable to a user and a projected run count is not.</para>
+        ///
+        /// <para><b>Measured, not only derived.</b> Wave 7's F18 control arm has 22 capped rounds across six
+        /// datasets on disk, and every one of them lands at 1.667–1.750 (the scatter is integer rounding of the
+        /// step). The field session behind F49/F51 ran 100 → 214 → 459 at P = 5: 100 × 2.143 = 214.3, and
+        /// 214 × 2.143 = 458.6.</para>
+        /// </summary>
+        public double CappedGrowthRatio { get; set; } = double.NaN;
     }
 
     /// <summary>
@@ -110,8 +148,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
     /// and the step is W / 3.5 (so the band holds ~3-4 points per side).
     /// </summary>
     public static class StepSizeRecommender {
-        // The focus-sensitive band runs from the minimum HFR up to this multiple of it; its half-width sets the step.
-        private const double HfrThresholdMultiple = 3.0;
+        /// <summary>
+        /// The focus-sensitive band runs from the minimum HFR up to this multiple of it; its half-width sets the
+        /// step. PUBLIC because it is the number a capped recommendation is converging TOWARD, and F49(c) asks
+        /// for that to be said out loud rather than left as an internal constant.
+        /// </summary>
+        public const double HfrThresholdMultiple = 3.0;
 
         // Targeted points per side within the focus-sensitive band [x0, x0 + W]: W / PointsPerSide steps.
         private const double PointsPerSide = 3.5;
@@ -238,7 +280,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
             }
 
-            var step = (int)Math.Round(halfWidth / ResolvePointsPerSide(detectability, sizeForExecutedSweep), MidpointRounding.AwayFromZero);
+            var pointsPerSide = ResolvePointsPerSide(detectability, sizeForExecutedSweep);
+            var step = (int)Math.Round(halfWidth / pointsPerSide, MidpointRounding.AwayFromZero);
             step = ClampStep(step, focuserMaxStep);
 
             return new StepSizeRecommendation {
@@ -248,8 +291,52 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 WasCapped = wasCapped,
                 DetectHalfWidth = detectHalfWidth,
                 MaxUsefulHalfSpan = maxUsefulHalfSpan,
-                WasDetectBounded = wasDetectBounded
+                WasDetectBounded = wasDetectBounded,
+                SampledHfrRange = MeasureSampledHfrRange(bestFit),
+                CappedGrowthRatio = wasCapped ? CappedGrowthRatioOf(searchSpan, currentStepSize, pointsPerSide) : double.NaN
             };
+        }
+
+        /// <summary>
+        /// max(HFR) / min(HFR) over the points the fit was given, or NaN when that cannot be formed.
+        /// See <see cref="StepSizeRecommendation.SampledHfrRange"/> for why this is the honest companion to
+        /// <see cref="StepSizeRecommendation.WasCapped"/>.
+        /// </summary>
+        private static double MeasureSampledHfrRange(AlglibHyperbolicFitting bestFit) {
+            var outputs = bestFit.Outputs;
+            if (outputs == null || outputs.Length == 0) {
+                return double.NaN;
+            }
+            double lo = double.PositiveInfinity, hi = double.NegativeInfinity;
+            foreach (var y in outputs) {
+                if (double.IsNaN(y) || double.IsInfinity(y) || y <= 0.0) {
+                    return double.NaN; // a non-positive or non-finite HFR makes the ratio meaningless, not zero
+                }
+                if (y < lo) lo = y;
+                if (y > hi) hi = y;
+            }
+            return lo > 0.0 ? hi / lo : double.NaN;
+        }
+
+        /// <summary>
+        /// The exact multiplier the NEXT capped run will apply — <c>MaxHalfWidthSampledHalfSpanMultiple · P /
+        /// pointsPerSide</c>, with P (points per side actually executed) read back off the sweep as
+        /// <c>½·span / currentStepSize</c> rather than assumed.
+        ///
+        /// <para>Reading P back off the sweep is what makes this correct for the run in hand instead of for a
+        /// default configuration: the field session behind F49/F51 executed 4 offset + 1 recovery step per side,
+        /// so its P was 5 and its ratio 2.143 — not the 1.714 a 4-offset sweep gives. Both appear in the
+        /// evidence, and a single hard-coded constant would have been wrong on one of them.</para>
+        /// </summary>
+        private static double CappedGrowthRatioOf(double searchSpan, int currentStepSize, double pointsPerSide) {
+            if (!(searchSpan > 0.0) || currentStepSize < 1 || !(pointsPerSide > 0.0)) {
+                return double.NaN;
+            }
+            var executedPointsPerSide = 0.5 * searchSpan / currentStepSize;
+            if (!(executedPointsPerSide > 0.0)) {
+                return double.NaN;
+            }
+            return MaxHalfWidthSampledHalfSpanMultiple * executedPointsPerSide / pointsPerSide;
         }
 
         /// <summary>

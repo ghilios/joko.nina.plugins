@@ -188,6 +188,47 @@ a different order. That mechanism is load-sensitive, cross-process visible (a sh
 stable within a process, and bimodal rather than drifting. It is the shape of the observed defect and it is
 cheap to test.
 
+### §2.4a The specific instance — `KappaSigmaNoiseEstimate`
+
+*Written down after reading the source and **before any probe ran**, so it can be refuted rather than confirmed.*
+
+`CvImageUtility.KappaSigmaNoiseEstimate` is §2.4's shape made concrete, and it is a **bimodal amplifier by
+construction**:
+
+```
+while (numIterations < maxIterations) {
+    Cv2.MeanStdDev(image, out mean, out sigma, backgroundMask);   // an OpenCV PARALLEL REDUCTION
+    if (++numIterations > 1 && Math.Abs(sigma - lastSigma) <= allowedError)  break;   // allowedError = 1e-5
+    threshold = mean + clippingMultiplier * sigma;                // one more iteration moves sigma MACROSCOPICALLY
+}
+```
+
+An infinitesimal change in `sigma` — from a different stripe partitioning, or from PR #187's ≤ 3e-8 — can flip
+the convergence test, and the run then takes **one more iteration**, which changes `threshold` and therefore
+`sigma` by a large amount. **Two discrete outcomes from an arbitrarily small perturbation.** That matches every
+observed property of F55 at once: bimodal rather than drifting; two attractors; load-sensitive (OpenCV's pool
+sees machine load); stable within a process (pool size fixed at init); and invisible to the plugin's own
+`Parallel.For` degree, which wave 9 swept and found inert. σ feeds noise clipping ⇒ the star gate ⇒ the star
+list ⇒ `J`.
+
+**The rate is consistent with the measurements, which is what makes it worth testing rather than merely
+plausible.** A flip needs the iteration-to-iteration σ difference to land within ~1e-8 of the 1e-5 tolerance —
+order 1e-3 per call. One `optimize` run makes thousands of these calls (250 candidates × 9 frames × regions), so
+several flips per run is the expectation, while a single seed evaluation makes tens and should flip rarely.
+Measured: **44 % of landings and 15 % of seed evaluations**.
+
+**How to test it, in preference order.** *Observe the mechanism*, don't just perturb a knob: log `numIterations`
+and the per-iteration σ, run the 40-second probe, and diff an attractor-A run against an attractor-B run. If
+`numIterations` differs, the convergence test is the amplifier and that is a direct observation. The
+single-thread probe (§2.5(3)) is the corroborating perturbation, not the primary evidence.
+
+**Eliminated by reading while looking for this, and recorded because it is the most F55-shaped thing in the
+path:** `CvImageUtility.CalculateStatistics` selects its median with a **quickselect whose pivot comes from
+`Random.Shared`** — process-level shared state, consumed in a thread-interleaving-dependent order, exactly the
+signature. It is nevertheless **inert**: quickselect returns the value at rank *n*, which is the same value
+whatever the pivots were, and `Mat.GetArray` hands back a **copy**, so the in-place permutation never reaches
+the image. The comment at that line already says so; this is the confirmation that it is right.
+
 ### §2.5 The experiments, in cost order
 
 1. **The cross-build probe (decisive for §0.2's fork, ~20 min).** Run the determinism probe on `toml999` with

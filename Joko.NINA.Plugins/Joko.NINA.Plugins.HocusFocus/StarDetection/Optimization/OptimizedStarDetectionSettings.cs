@@ -374,9 +374,45 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// like it came from a different configuration.</summary>
         public string SettingsFingerprint { get; set; }
 
-        /// <summary>Assembly informational version of whatever produced this, so a landing also identifies the
-        /// build it came from.</summary>
+        /// <summary>Assembly informational version of whatever produced this.
+        ///
+        /// <para><b>This field does NOT identify the build, and F53 is the proof.</b> It used to claim it did.
+        /// Two builds of the same source — or of two different sources between version bumps — carry the same
+        /// informational version, so wave 8's arm X and the binary that later overwrote its `exe` directory were
+        /// indistinguishable by this field. Use <see cref="BuildId"/> for build identity.</para></summary>
         public string ProducerVersion { get; set; }
+
+        /// <summary>
+        /// The <b>build</b> that produced this: the plugin assembly's Module Version ID, which the compiler
+        /// regenerates on every build even when the source is byte-identical.
+        ///
+        /// <para><b>F53.</b> Wave 8's arm X was recorded with <c>Reproduce: D:\hf_w8\armX\arm_x.sh</c>, and
+        /// running that script on that binary today does not reproduce its numbers, because a later step in the
+        /// same wave rebuilt the directory and an artifact directory keeps only the LAST build. Identifying that
+        /// took reading the log for the ABSENCE of an unrelated line. With this field it is a diff. The entry's
+        /// durable lesson — <i>a "Reproduce:" line names a COMMAND, not a result</i> — is not repealed by
+        /// stamping the build; what is repealed is having to infer the build from its side effects.</para>
+        /// </summary>
+        public string BuildId { get; set; }
+
+        /// <summary>
+        /// <c>StarDetector.StarDetectorVersion</c> at the time of the run — the detector's OUTPUT contract.
+        ///
+        /// <para>Wave 10 exists because wave 9 measured everything on version 1 and <c>develop</c> then shipped
+        /// version 2 (PR #187's <c>AtrousWaveletFast</c>: equivalent to ≤ 3e-8, deliberately not bit-identical).
+        /// Every wave-9 number carries a hand-written provenance banner for want of this field. A reader diffs a
+        /// field; nobody diffs a banner — the same argument that gave F39(a) its <c>DetectionBinningSource</c>.</para>
+        /// </summary>
+        public int? DetectorVersion { get; set; }
+
+        /// <summary>
+        /// The identity of the currently-loaded plugin build: <see cref="BuildId"/> and
+        /// <see cref="DetectorVersion"/>, read off this assembly. Static so the harness and the shipping wizard
+        /// stamp the same two values from the same place rather than each deriving its own.
+        /// </summary>
+        public static (string BuildId, int DetectorVersion) CurrentBuild() => (
+            typeof(OptimizerProvenance).Assembly.ManifestModule.ModuleVersionId.ToString("N"),
+            StarDetector.StarDetectorVersion);
 
         public OptimizerProvenance Clone() => (OptimizerProvenance)MemberwiseClone();
 
@@ -385,6 +421,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var parts = new System.Collections.Generic.List<string>();
             if (!string.IsNullOrWhiteSpace(Producer)) { parts.Add(Producer); }
             if (!string.IsNullOrWhiteSpace(ProducerVersion)) { parts.Add($"v{ProducerVersion}"); }
+            if (!string.IsNullOrWhiteSpace(BuildId)) { parts.Add($"build#{BuildId}"); }
+            if (DetectorVersion.HasValue) { parts.Add($"detector v{DetectorVersion.Value}"); }
             if (!string.IsNullOrWhiteSpace(CommandLine)) { parts.Add(CommandLine); }
             if (!string.IsNullOrWhiteSpace(SettingsFingerprint)) { parts.Add($"settings#{SettingsFingerprint}"); }
             return parts.Count > 0 ? string.Join(" | ", parts) : "(no provenance)";

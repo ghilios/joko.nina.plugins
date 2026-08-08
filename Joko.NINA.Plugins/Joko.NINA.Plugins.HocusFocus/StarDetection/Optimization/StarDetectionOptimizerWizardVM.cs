@@ -293,11 +293,51 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <see cref="StepSizeRecommender.MaxHalfWidthSampledHalfSpanMultiple"/>).</summary>
         public bool StepSizeWasCapped { get; set; }
 
+        /// <summary>The HFR dynamic range this sweep MEASURED (max/min), or NaN — see
+        /// <see cref="StepSizeRecommendation.SampledHfrRange"/>.</summary>
+        public double StepSizeSampledHfrRange { get; set; } = double.NaN;
+
+        /// <summary>The exact factor the next capped run will multiply the step by, or NaN — see
+        /// <see cref="StepSizeRecommendation.CappedGrowthRatio"/>.</summary>
+        public double StepSizeCappedGrowthRatio { get; set; } = double.NaN;
+
         /// <summary>Plain-language step-size readout: "{current} → {recommended}" when changed, else
-        /// "{recommended} (unchanged)", with a capped note when the sweep could not support the full move.</summary>
-        public string StepSizeText => StepSizeWasCapped
-            ? FormatRecommendation(CurrentStepSize, RecommendedStepSize) + " (capped by this sweep's width; re-run auto-focus to refine)"
-            : FormatRecommendation(CurrentStepSize, RecommendedStepSize);
+        /// "{recommended} (unchanged)", with a capped note when the sweep could not support the full move.
+        ///
+        /// <para><b>F49(c).</b> The old note said only "capped by this sweep's width; re-run auto-focus to
+        /// refine". A field session took that instruction four times — 100 → 214 → 459 → 474 → 482, at 30–120
+        /// minutes a run — and experienced it as a runaway, because nothing on the page said what the number was
+        /// converging TOWARD, that the cap makes this a deliberate partial step, or that it terminates. It does
+        /// terminate, geometrically: while the cap binds each run multiplies the step by exactly
+        /// <see cref="StepSizeRecommendation.CappedGrowthRatio"/> until the sweep reaches
+        /// <see cref="StepSizeRecommender.HfrThresholdMultiple"/>x the minimum HFR, and then the cap stops
+        /// binding. That last session's runs 3 and 4 asked +3 % and +5 %, i.e. it HAD converged.</para>
+        ///
+        /// <para><b>What is quoted and what is not.</b> The sampled range and the growth ratio are both
+        /// MEASURED — the first from the sweep's own HFRs, the second from the algorithm's arithmetic — and each
+        /// clause is dropped when its quantity is unavailable rather than filled with a guess. A projected run
+        /// COUNT is deliberately not offered: it would have to be computed from the extrapolated half-width,
+        /// which is the one quantity the cap exists to distrust.</para></summary>
+        public string StepSizeText {
+            get {
+                var baseText = FormatRecommendation(CurrentStepSize, RecommendedStepSize);
+                if (!StepSizeWasCapped) {
+                    return baseText;
+                }
+                var parts = new System.Collections.Generic.List<string>();
+                if (double.IsFinite(StepSizeSampledHfrRange) && StepSizeSampledHfrRange > 0.0) {
+                    parts.Add($"this sweep reaches {StepSizeSampledHfrRange:F1}× its minimum HFR and the step is " +
+                              $"sized from where HFR reaches {StepSizeRecommender.HfrThresholdMultiple:F0}×");
+                } else {
+                    parts.Add($"this sweep is too narrow to contain the {StepSizeRecommender.HfrThresholdMultiple:F0}× " +
+                              "minimum-HFR band the step is sized from");
+                }
+                if (double.IsFinite(StepSizeCappedGrowthRatio) && StepSizeCappedGrowthRatio > 1.0) {
+                    parts.Add($"each run widens by about {StepSizeCappedGrowthRatio:F1}× until it gets there");
+                }
+                return baseText + " (partial step: " + string.Join("; ", parts) + "; re-run auto-focus to refine)";
+            }
+        }
 
         /// <summary>Plain-language offset-steps readout (same before→after / "(unchanged)" convention).</summary>
         public string OffsetStepsText => FormatRecommendation(CurrentOffsetSteps, RecommendedOffsetSteps);
@@ -3876,6 +3916,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RecommendedStepSize = recommendation.StepSize,
                 RecommendedOffsetSteps = recommendation.OffsetSteps,
                 StepSizeWasCapped = recommendation.WasCapped,
+                StepSizeSampledHfrRange = recommendation.SampledHfrRange,
+                StepSizeCappedGrowthRatio = recommendation.CappedGrowthRatio,
                 CurrentStepSize = currentStepSize,
                 CurrentOffsetSteps = currentOffsetSteps,
                 ImprovedOverSeed = res.ImprovedOverSeed,
