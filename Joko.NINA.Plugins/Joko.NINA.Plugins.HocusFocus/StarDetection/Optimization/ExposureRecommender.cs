@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -206,20 +206,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double WingRejectedFraction { get; set; } = double.NaN;
 
         /// <summary>
-        /// True when <see cref="WingRejectedFraction"/> is at or above
-        /// <see cref="ExposureRecommender.WingSheddingThreshold"/> and the gate is NOT provably inert — the
-        /// sweep's outer frames are forming candidates and losing them to the gate, which is the one signal in a
-        /// run that says a longer exposure has something to work with.
-        ///
-        /// <para><b>The F28 guard is load-bearing, not decorative.</b> An inert gate rejects nothing by
-        /// construction, so a zero rejection count there is empty rather than reassuring. <c>D16_esprit550_ha3</c>
-        /// lands <c>Sensitivity = 0</c> with an effective gate of 0.17–2.5 at every rung of its ladder, so without
-        /// this guard its zeros would read as "the wings are fine" for a reason that has nothing to do with its
-        /// wings.</para>
-        /// </summary>
-        public bool WingIsShedding { get; set; }
-
-        /// <summary>
         /// True when the run's Sensitivity gate sat at or below <see cref="InertGateBound"/> AND
         /// <see cref="GateRejectedCount"/> is 0 — the gate could not have rejected anything, so its zero rejection
         /// count is empty by construction and is NOT evidence that the star field is exhausted (F28). Always false
@@ -404,27 +390,39 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// </summary>
         public const double WingFrameFraction = 1.0 / 3.0;
 
-        /// <summary>
-        /// The <see cref="ExposureRecommendation.WingRejectedFraction"/> at or above which the wings count as
-        /// SHEDDING. Measured on wave 7's exposure ladder, still on disk: <c>D02_rich_135mm</c> — which gains 48 %
-        /// of σ_focus from more exposure — reads 0.67 / 0.29 / 0.30 at the three rungs below its optimum and
-        /// exactly 0.00 at and above it, while <c>D16_esprit550_ha3</c>, whose σ_focus MINIMUM is at its derived
-        /// exposure, reads 0.00 at every rung but one (0.006). The gap between the two populations is two orders
-        /// of magnitude, so this threshold is not finely tuned and is not meant to be.
-        /// </summary>
-        public const double WingSheddingThreshold = 0.20;
-
-        /// <summary>
-        /// The factor to probe with when the wings are shedding. A PROBE, not a derivation, for the same reason
-        /// <see cref="StarCountProbeFactor"/> is: the run records HOW MANY candidates the gate rejected out there,
-        /// not what SNR they sat at, so there is nothing to derive a magnitude from. Fabricating one was measured
-        /// and rejected — a <c>(1/(1−f))²</c> form asked <b>1.25x</b> on <c>D16</c> at exactly the exposure where
-        /// its σ_focus is minimised, which is the control this whole statistic has to pass.
-        ///
-        /// <para>Stays inside <see cref="MaxExposureFactor"/> so the user can repeat it before the run-relative cap
-        /// binds — the converge-over-runs shape the rest of this class already uses.</para>
-        /// </summary>
-        public const double WingProbeFactor = 2.0;
+        // ── F19: THE WING VERDICT IS WITHDRAWN (wave 10) ────────────────────────────────────────────────────
+        //
+        // Wave 9 shipped WingIsShedding (fraction >= 0.20) and a 2x probe, validated on TWO datasets. Wave 10 ran
+        // the population check wave 9 recorded as still owed, over both full banks, and it fired:
+        //
+        //   * it fires on the great majority of runs, so it is a constant rather than a diagnosis;
+        //   * FOUR real-bank runs reject FEWER candidates in their WINGS than in their CORES -- LinwoodFocus 0.70,
+        //     vsn07 0.94, toml999 0.96, cwhite_2026 0.98 as a wing/inner ratio -- and every one of them fires. The
+        //     statistic cannot separate "the wings are losing faint stars a longer exposure would convert" from
+        //     "the detector rejects noise everywhere", and on the bank it measures the second;
+        //   * the threshold does NO WORK. Measured fractions are 0.000, 0.000, then 0.352-0.879 with nothing in
+        //     between, so EVERY threshold in (0, 0.352) selects the same runs. What the test actually asks is
+        //     "did the gate reject anything at all?", which is F28's question and which GateIsProvablyInert
+        //     already answers with its own field.
+        //
+        // WHY IT LOOKED RIGHT: the unit fixtures span a rejected fraction of 0.002 ("healthy wings") to 0.75
+        // ("shedding"), and 0.20 sits sensibly between them. NO REAL RUN RESEMBLES THE HEALTHY POLE. A unit test
+        // cannot notice that its fixtures span a range the data does not occupy; only a population can.
+        //
+        // WHAT IS WITHDRAWN: the VERDICT (WingIsShedding, its threshold, and the probe factor) and the three
+        // things that acted on it -- the 2x ask, the ExposureIsNotTheLimit override, and the wizard's
+        // "consider cancelling this search" advice (F52(c), which therefore returns to wave 8's position of being
+        // withheld for want of a statistic -- the same decision, made again, on better evidence).
+        //
+        // WHAT IS KEPT: WingRejectedFraction, the MEASUREMENT. It is real, it is correctly computed, and the
+        // successor is specified against it. A public bool named "is shedding" that nothing acts on would be
+        // worse than either shipping or removing it, so the boolean goes and the number stays.
+        //
+        // THE SUCCESSOR, pre-registered in the wave-10 design SS1.2a and DELIBERATELY NOT ADOPTED HERE: the
+        // wing-to-inner RATIO, which is what the claim was always about. It must clear RULE W1-W4 unchanged, plus
+        // W5 (its threshold must sit above the bank's median wing/inner ratio, or it is the same defect in a new
+        // coordinate) and W6 (it may NOT be validated on the population that refuted its predecessor). A
+        // statistic tuned on the data that killed the last one has been fitted, not tested.
 
         /// <summary>True when <paramref name="sensitivity"/> is at or below <see cref="SensitivityFloorThreshold"/> — the search-floor band described there, not merely bit-exact zero.</summary>
         public static bool SensitivityIsAtFloor(double sensitivity) => sensitivity <= SensitivityFloorThreshold;
@@ -654,19 +652,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // floored by the gate, and they are exactly the stars a longer exposure can convert. See
             // ExposureRecommendation.WingRejectedFraction.
             var wingRejectedFraction = WingRejectedFractionOf(metrics, isRecovery);
-            // The `!gateIsProvablyInert` conjunct is REDUNDANT BY CONSTRUCTION and is kept as an invariant, not as
-            // a working guard -- found by neutralizing it and watching no test fail. A wing fraction at or above
-            // the threshold requires a non-zero entry in the SAME FrameLowSensitivityCounts array gateRejectedCount
-            // sums, so gateIsHoldingStarsBack is already true and gateIsProvablyInert already false. It stays
-            // because it states the F28 invariant at the point that depends on it: if the fraction ever stops
-            // being computed from that array, this is the line that must still hold.
-            var wingIsShedding = wingRejectedFraction >= WingSheddingThreshold && !gateIsProvablyInert;
-
-            // A shedding wing means exposure IS the limit, whatever the accepted stars say -- so this verdict has
-            // to yield to it, or the copy would report "star brightness is not the problem" directly above a row
-            // asking for more exposure, and StarSignalCopy's F49 gate remedy would fire on a run whose actual
-            // remedy is the exposure.
-            var exposureIsNotTheLimit = signalIsSufficient && !everyFrameShort && !wingIsShedding;
+            // NO VERDICT IS DERIVED FROM IT (wave 10 -- see the withdrawal note above the constants). The fraction
+            // is reported; nothing acts on it. Wave 9's `wingIsShedding` overrode the line below, which is how a
+            // statistic that fires on most runs came to flip most users' exposure verdict.
+            var exposureIsNotTheLimit = signalIsSufficient && !everyFrameShort;
 
             // Sky-limited scaling answers the S/N question only. Under starCountIsTheLimit the ratio is <= 1, so it
             // would ask for a SHORTER exposure — backwards for a run whose problem is too few stars. That state
@@ -676,14 +665,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // never-shorter floor then collapses onto the current exposure -- so IncreasesExposure is false and no
             // caller can offer a longer exposure for a run that has demonstrably nothing to gain from one.
             var rawFactor = starCountIsTheLimit ? StarCountProbeFactor : ratio * ratio;
-            // The wing probe WIDENS, never replaces: max(existing, probe). That is what keeps a run the accepted-star
-            // statistic already serves from regressing -- D16_esprit550_ha3 at half its derived exposure correctly
-            // asks 3x from S_now alone, and its gate is inert out there so the wing test is silent; the probe alone
-            // would have lost that case. Both halves are load-bearing, and the pre-registered acceptance rule
-            // (wave-9 design SS3.2) fails each of them ALONE and passes only the max.
-            if (wingIsShedding) {
-                rawFactor = Math.Max(rawFactor, WingProbeFactor);
-            }
+            // The wing PROBE is withdrawn (wave 10). It raised the ask to exactly 2x on every run it fired on --
+            // the accepted-star term measured 0.000-0.30 on all of them, so max() always chose the probe -- which
+            // means the recommendation carried no information beyond "it fired".
             var rawSeconds = currentExposureSeconds * rawFactor;
 
             var factorCap = currentExposureSeconds * MaxExposureFactor;
@@ -726,8 +710,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 FlatRejectedCount = flatRejectedCount,
                 InertGateBound = inertGateBound,
                 GateIsProvablyInert = gateIsProvablyInert,
-                WingRejectedFraction = wingRejectedFraction,
-                WingIsShedding = wingIsShedding
+                WingRejectedFraction = wingRejectedFraction
             };
         }
 
@@ -804,8 +787,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 GateIsProvablyInert = false,
                 // NaN, not 0: this run produced no recommendation at all, so it did not look at its wings either,
                 // and a consumer must not read a confident zero out of that.
-                WingRejectedFraction = double.NaN,
-                WingIsShedding = false
+                WingRejectedFraction = double.NaN
             };
         }
 

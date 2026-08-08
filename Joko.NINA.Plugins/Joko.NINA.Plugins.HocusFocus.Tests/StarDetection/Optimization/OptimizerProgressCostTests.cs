@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -122,7 +122,7 @@ public class OptimizerProgressCostTests {
     // what Cancel costs -- and withheld (c), because advice derived from the exposure statistic of the day "would
     // tell precisely the users who most need a longer exposure that theirs is already fine": on the reporting
     // user's own rig that statistic read S/N 1438.6 against a target of 10. The separation is kept exactly: facts
-    // about COST need no statistic; ADVICE needs one, and now has ExposureRecommendation.WingIsShedding.
+    // about COST need no statistic; ADVICE needs one -- and as of wave 10 it does not have one again.
 
     /// <summary>A 9-frame seed evaluation whose OUTER third sheds <paramref name="wingRejected"/> candidates
     /// against <paramref name="wingAccepted"/> accepted, placed on the wing axis.</summary>
@@ -142,62 +142,59 @@ public class OptimizerProgressCostTests {
         };
     }
 
+    // ── F52(c) IS WITHHELD AGAIN (wave 10). These three tests are REWRITTEN, not deleted. ─────────────────
+    //
+    // Wave 8 refused to ship this advice for want of a statistic; wave 9 shipped it on
+    // ExposureRecommendation.WingIsShedding; wave 10's full-bank population check refuted that statistic and
+    // withdrew the verdict. This advice tells the user to CANCEL a running two-hour optimization and is computed
+    // from the SEED evaluation -- i.e. in the first minute -- so a statistic that fires on the great majority of
+    // bank runs meant advising most users to abandon a search before it had done anything.
+    //
+    // The tests stay because the WITHDRAWAL is the thing that now needs guarding: the successor statistic
+    // re-enables this by changing one condition, and these are what will stop it shipping silently.
+
     [Test]
-    public void SearchExposureAdvice_SheddingWings_TellsTheUserToConsiderStopping_AndWhatCancelCosts() {
-        // The user's actual question, asked two hours into a search: "should I abort and try again with a longer
-        // exposure?". It is answered from the SEED evaluation, which runs BEFORE the search, so the answer existed
-        // in the first minute.
+    public void SearchExposureAdvice_IsWITHHELD_EvenOnTheFixtureThatUsedToTriggerIt() {
+        // The exact fixture that produced the advice in wave 9 -- a wing fraction of 0.75.
         //
-        // DISCRIMINATING: make BuildSearchExposureAdvice return string.Empty and every assertion fails.
+        // DISCRIMINATING: restore the WingIsShedding condition and this fails.
         var text = StarDetectionOptimizerWizardVM.BuildSearchExposureAdvice(
             new[] { SeedMetrics(wingRejected: 600, wingAccepted: 200) },
             HocusFocusStarDetection.BuildDefaultStarDetectorParams(), currentExposureSeconds: 2.0);
 
+        Assert.That(text, Is.Empty,
+            "no advice may be given until it has a statistic that survives a population -- wave 8's position, "
+            + "reached again on better evidence");
+    }
+
+    [Test]
+    public void SearchExposureAdvice_IsWithheldForEVERYWingFraction_NotJustTheHealthyOne() {
+        // The withdrawal has to be unconditional on the statistic, not a raised threshold. A higher bar would
+        // still be measuring the detector's global reject rate -- the bank's fractions are 0.000 or 0.352-0.879,
+        // so any threshold in that gap selects the same runs, and one above it would still not be measuring
+        // WINGS. Four real-bank runs reject FEWER candidates in their wings than in their cores.
         Assert.Multiple(() => {
-            Assert.That(text, Does.Contain("outer frames"), "it names the population the verdict rests on");
-            Assert.That(text, Does.Contain("longer exposure"));
-            Assert.That(text, Does.Contain("Cancel"), "the house rule: name a control that exists");
-            Assert.That(text, Does.Contain("nothing is written to your profile"),
-                "not knowing this is why the user sat through the two hours");
-            Assert.That(text, Does.Not.Contain("S/N"),
-                "the accepted-star S/N is exactly the number that would have said 'yours is already fine'");
+            foreach (var (rejected, accepted) in new[] { (1, 500), (300, 700), (600, 200), (900, 100) }) {
+                Assert.That(StarDetectionOptimizerWizardVM.BuildSearchExposureAdvice(
+                    new[] { SeedMetrics(rejected, accepted) },
+                    HocusFocusStarDetection.BuildDefaultStarDetectorParams(), 2.0),
+                    Is.Empty, $"wing fraction {(double)rejected / (rejected + accepted):F2}");
+            }
         });
     }
 
     [Test]
-    public void SearchExposureAdvice_HealthyWings_SaysNOTHING() {
-        // A note that always fires says nothing -- the same rule the cost note follows ("absent entirely when the
-        // search is in a cheap region"). This is also the case wave 8 refused to ship advice for.
-        //
-        // DISCRIMINATING: drop the WingIsShedding test and this fails.
+    public void SearchExposureAdvice_MultiRun_IsWithheldToo_SoTheWorstRunAggregationCannotLeakBack() {
+        // Wave 9's aggregation took the WORST run rather than an average, on the sound reasoning that one
+        // settings bundle lands on all of them. That reasoning is untouched and will be needed again; what is
+        // withdrawn is the statistic it aggregated. Pinned so a successor cannot re-enable the aggregation
+        // without also re-enabling the condition deliberately.
         var text = StarDetectionOptimizerWizardVM.BuildSearchExposureAdvice(
-            new[] { SeedMetrics(wingRejected: 1, wingAccepted: 500) },
+            new[] { SeedMetrics(wingRejected: 600, wingAccepted: 200),
+                    SeedMetrics(wingRejected: 300, wingAccepted: 700) },
             HocusFocusStarDetection.BuildDefaultStarDetectorParams(), currentExposureSeconds: 2.0);
 
         Assert.That(text, Is.Empty);
-    }
-
-    [Test]
-    public void SearchExposureAdvice_MultiRun_TakesTheWORSTRun_NotTheAverage() {
-        // A multi-run optimization lands ONE settings bundle across all of them, so the run that is worst off is
-        // what makes the search's answer untrustworthy. Averaging would understate it.
-        //
-        // BOTH RUNS MUST BE SHEDDING for this to discriminate, and that correction came from neutralizing it: the
-        // aggregation `continue`s past any run whose wings are healthy, so pairing a shedding run with a HEALTHY
-        // one leaves the worst and the average identical and the test proves nothing. An earlier version of this
-        // test did exactly that and passed under a deliberately-averaged implementation.
-        //
-        // DISCRIMINATING as written: 0.75 and 0.30 average to 0.525, which renders "53%", not "75%".
-        var text = StarDetectionOptimizerWizardVM.BuildSearchExposureAdvice(
-            new[] { SeedMetrics(wingRejected: 600, wingAccepted: 200),   // 600/800 = 0.75
-                    SeedMetrics(wingRejected: 300, wingAccepted: 700) }, // 300/1000 = 0.30
-            HocusFocusStarDetection.BuildDefaultStarDetectorParams(), currentExposureSeconds: 2.0);
-
-        Assert.Multiple(() => {
-            Assert.That(text, Is.Not.Empty);
-            Assert.That(text, Does.Contain("75%"), "the WORST run's fraction, not a blend");
-            Assert.That(text, Does.Not.Contain("53%"));
-        });
     }
 
     [Test]

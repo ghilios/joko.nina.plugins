@@ -3541,8 +3541,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// precisely the users who most need a longer exposure that theirs is already fine"*: on the reporting
         /// user's own rig that statistic read <b>S/N 1438.6 against a target of 10</b>. The separation wave 8 drew
         /// is kept exactly: <b>facts about COST need no new statistic and are already shown; ADVICE needs
-        /// one</b>. It is now built on <see cref="ExposureRecommendation.WingIsShedding"/>, which measures the
-        /// population the gate did NOT admit.</para>
+        /// one</b>.</para>
+        ///
+        /// <para><b>WITHDRAWN in wave 10, and currently always empty.</b> Wave 9 built it on
+        /// <c>ExposureRecommendation.WingIsShedding</c>; wave 10's full-bank population check refuted that
+        /// statistic and removed the verdict, so this advice is withheld again for exactly the reason wave 8
+        /// withheld it. See <see cref="BuildSearchExposureAdvice"/> for the measurement and the successor.</para>
         ///
         /// <para><b>It names Cancel, which exists</b> — the house rule at
         /// <see cref="ShowOptimizeAgainAtRecommendedBinning"/>: never describe an action whose control is hidden.
@@ -3576,26 +3580,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// </summary>
         internal static string BuildSearchExposureAdvice(
                 IReadOnlyList<RunEvaluationMetrics> seedMetrics, StarDetectorParams seedParams, double currentExposureSeconds) {
-            if (seedMetrics == null || seedMetrics.Count == 0) {
+            // ── F52(c) IS WITHHELD AGAIN (wave 10) ──────────────────────────────────────────────────────────
+            //
+            // Wave 8 refused to ship this advice for want of a statistic. Wave 9 shipped it on
+            // ExposureRecommendation.WingIsShedding. Wave 10's full-bank population check refuted that statistic
+            // and withdrew the verdict (see the withdrawal note in ExposureRecommender), so this returns to
+            // wave 8's position for wave 8's reason -- the same decision, made again, on better evidence.
+            //
+            // WHY THIS MATTERED MORE THAN THE EXPOSURE NUMBER. This advice tells the user to CANCEL a running
+            // two-hour optimization, and it is computed from the SEED evaluation, i.e. in the first minute. The
+            // statistic behind it fired on the great majority of bank runs, so the shipped behaviour was to
+            // advise most users to abandon their search before it had done anything. A note that always fires
+            // says nothing; one that always fires AND costs the user their run is worse than nothing.
+            //
+            // The method, its call sites and its tests are kept rather than deleted: the successor statistic
+            // (the wing-to-inner RATIO, pre-registered in the wave-10 design SS1.2a) re-enables this by changing
+            // the condition below and nothing else. Returning empty is a WITHDRAWAL, not a removal.
+            if (seedMetrics == null || seedMetrics.Count == 0 || !(currentExposureSeconds > 0.0)) {
                 return string.Empty;
             }
-            var worstFraction = double.NaN;
-            foreach (var m in seedMetrics) {
-                var rec = ExposureRecommender.Recommend(m, new ObjectiveConstants(), currentExposureSeconds, seedParams);
-                if (!rec.WingIsShedding) {
-                    continue;
-                }
-                if (!double.IsFinite(worstFraction) || rec.WingRejectedFraction > worstFraction) {
-                    worstFraction = rec.WingRejectedFraction;
-                }
-            }
-            if (!double.IsFinite(worstFraction)) {
-                return string.Empty;
-            }
-            return $"The outer frames of this sweep are losing {worstFraction:P0} of the stars they find to the "
-                + "brightness gate, so a longer exposure is likely to help this focus more than a longer search will. "
-                + "Cancel stops the search only: nothing is written to your profile, and the frames already captured "
-                + "stay on disk.";
+            _ = seedParams; // retained: the successor's condition needs it, exactly as the withdrawn one did
+            return string.Empty;
         }
 
         private void UpdateSearchExposureAdvice(IReadOnlyList<RunEvaluationMetrics> seedMetrics, StarDetectorParams seedParams) {
