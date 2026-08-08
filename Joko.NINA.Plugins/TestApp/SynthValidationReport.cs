@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -75,6 +75,13 @@ namespace TestApp.SynthBank {
         [JsonProperty("detectHalfWidth")] public double DetectHalfWidth { get; set; } = double.NaN;
         [JsonProperty("maxUsefulHalfSpan")] public double MaxUsefulHalfSpan { get; set; } = double.NaN;
         [JsonProperty("wasDetectBounded")] public bool WasDetectBounded { get; set; }
+
+        // F49(c)/F51. The two quantities a CAPPED recommendation can honestly say about itself: what the sweep
+        // actually MEASURED, and the exact factor the next capped run will apply. Recorded here so the bank can
+        // score the copy's claims instead of taking them on faith -- in particular so the geometric widening
+        // ratio can be checked against every capped round rather than against the field session's three.
+        [JsonProperty("sampledHfrRange")] public double SampledHfrRange { get; set; } = double.NaN;
+        [JsonProperty("cappedGrowthRatio")] public double CappedGrowthRatio { get; set; } = double.NaN;
     }
 
     /// <summary>design step 4b: <see cref="NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.ExposureRecommender"/>,

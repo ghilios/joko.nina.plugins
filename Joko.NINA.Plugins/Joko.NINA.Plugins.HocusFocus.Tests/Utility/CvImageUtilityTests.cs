@@ -4,6 +4,9 @@ using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
 using OpenCvSharp;
 using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using Size = OpenCvSharp.Size;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
@@ -418,6 +421,64 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
                 Assert.That(result.Sigma, Is.EqualTo(sigma).Within(0.01));
                 Assert.That(result.BackgroundMean, Is.EqualTo(mean).Within(0.01));
             });
+        }
+
+        /// <summary>
+        /// F55 — the GAIN of the kappa-sigma convergence test, measured rather than argued.
+        ///
+        /// <para><c>KappaSigmaNoiseEstimate</c> stops when <c>|sigma - lastSigma| &lt;= allowedError</c> (1e-5).
+        /// That is a THRESHOLD on a floating-point quantity, so an arbitrarily small perturbation of the input —
+        /// a different OpenCV reduction stripe count, or PR #187's ≤ 3e-8 wavelet residual — can flip it and buy
+        /// the run one more iteration. This test measures what that one iteration is WORTH: if the answer were
+        /// "less than allowedError", the flip would be harmless and F55 would have to be something else.</para>
+        ///
+        /// <para><b>It is deliberately not a search for the boundary.</b> A test that hunts for the exact input
+        /// that straddles the tolerance would be fragile and would prove less: the amplifier's existence follows
+        /// from (a) the stopping rule being a threshold, which is plain in the source, and (b) the gain measured
+        /// here. How OFTEN it fires in a real run is an empirical question the 40-second determinism probe
+        /// answers, not one a unit test should pretend to.</para>
+        /// </summary>
+        [Test]
+        public void KappaSigmaNoiseEstimate_OneExtraIteration_MovesSigmaFarMoreThanTheToleranceThatDecidesIt() {
+            const int width = 128, height = 128;
+            const float mean = 0.5f, noise = 0.05f;
+            const double allowedError = 0.00001; // the production default this test is about
+            using var mat = new Mat(new Size(width, height), MatType.CV_32F);
+            var rng = new Random(20260808);
+            unsafe {
+                var p = (float*)mat.DataPointer;
+                for (var i = 0; i < width * height; ++i) {
+                    var u1 = 1.0 - rng.NextDouble();
+                    var u2 = rng.NextDouble();
+                    var n = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Cos(2.0 * Math.PI * u2);
+                    // A few bright pixels, so the kappa-sigma clip has something to reject and the iterations
+                    // actually move -- a pure Gaussian field converges immediately and would hide the effect.
+                    var star = (i % 977 == 0) ? 0.9 : 0.0;
+                    p[i] = (float)Math.Max(0.01, mean + noise * n + star);
+                }
+            }
+
+            var perIteration = new List<double>();
+            for (var k = 1; k <= 5; k++) {
+                perIteration.Add(CvImageUtility.KappaSigmaNoiseEstimate(mat, maxIterations: k).Sigma);
+            }
+            TestContext.WriteLine("sigma by iteration cap: " + string.Join(", ",
+                perIteration.Select(s => s.ToString("G9", CultureInfo.InvariantCulture))));
+
+            // The largest single-iteration move, over the iterations the estimate actually uses.
+            var biggestStep = 0.0;
+            for (var i = 1; i < perIteration.Count; i++) {
+                biggestStep = Math.Max(biggestStep, Math.Abs(perIteration[i] - perIteration[i - 1]));
+            }
+            TestContext.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                "largest one-iteration move {0:G6}; the tolerance deciding whether to take it is {1:G6}; gain x{2:F0}",
+                biggestStep, allowedError, biggestStep / allowedError));
+
+            Assert.That(biggestStep, Is.GreaterThan(100.0 * allowedError),
+                "one extra kappa-sigma iteration must move sigma by FAR more than the tolerance that decides " +
+                "whether to take it -- that gap is the amplifier F55 needs, turning a sub-ULP input difference " +
+                "into two discrete outcomes. If this ever fails, the convergence test is no longer a plausible " +
+                "F55 mechanism and the entry should say so.");
         }
 
         [Test]

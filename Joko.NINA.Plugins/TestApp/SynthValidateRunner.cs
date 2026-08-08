@@ -778,7 +778,8 @@ namespace TestApp.SynthBank {
             round.StepRecommendation = new StepRecommendationSnapshot {
                 StepSize = stepRec.StepSize, OffsetSteps = stepRec.OffsetSteps, HalfWidth = stepRec.HalfWidth, WasCapped = stepRec.WasCapped,
                 DetectHalfWidth = stepRec.DetectHalfWidth, MaxUsefulHalfSpan = stepRec.MaxUsefulHalfSpan,
-                WasDetectBounded = stepRec.WasDetectBounded
+                WasDetectBounded = stepRec.WasDetectBounded,
+                SampledHfrRange = stepRec.SampledHfrRange, CappedGrowthRatio = stepRec.CappedGrowthRatio
             };
 
             // Gated EXACTLY as OptimizationDiagnosticRunner.BuildAggregateRow gates it: only when the landed

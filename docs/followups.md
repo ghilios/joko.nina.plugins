@@ -3356,6 +3356,62 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
+### F57 — A detector change bounded at ≤ 3e-8 per pixel moved 6 of 8 product landings, and one SEED evaluation by 0.014
+**Status:** Open · found 2026-08-08 (wave 10) re-establishing RULE G's fixed point on `StarDetectorVersion` 2 ·
+**not a defect in [PR #187](https://github.com/ghilios/hocus-focus/pull/187)'s own claim — a measurement of what
+that claim does and does not bound**
+
+[F56](#f56--the-à-trous-wavelet-residual-convolves-a-dense-kernel-that-is-995--zeros-and-that-is-the-structurelayers-cost-curve)
+shipped `AtrousWaveletFast` and bumped `StarDetectorVersion` 1→2, recording that the two wavelet paths agree to
+**≤ 3e-8** and are deliberately not bit-identical. Wave 10 re-ran wave 5's eight-run comparability gate on the new
+detector, sequentially, at the identical invocation and the byte-identical pinned settings file
+(`md5 df7c7cd1…`), with a reading fixed in advance.
+
+> **RULE G10-B, written before the numbers arrived:** 0 landings moved ⇒ inert; **1–3 ⇒ the expected
+> pattern-search amplification** ([F8](#f8--optimizer-landings-are-not-reproducible-across-invocations));
+> **≥ 5 ⇒ the "≤ 3e-8" claim describes the per-pixel RESIDUAL and not the detector's BEHAVIOUR.**
+
+| run | `BaselineJ` v1 → v2 | `BestJ` v1 → v2 |
+|---|---|---|
+| `toml999` | **0.997840 → 0.983477** | 0.997993 → 0.995784 |
+| `CWhiteFocus` | 0.994320 → *(same)* | 0.998476 → 0.996068 |
+| `mccomiskey` | 0.846082 → *(same)* | 0.994025 → **0.976746** |
+| `D18` / `D19` / `D20` | *(same)* | 0.999822 → 0.999882 · 0.999557 → 0.999487 · 0.999766 → 0.999738 |
+| `uneven` / `muggsie` | *(same)* | *(unchanged)* |
+
+**THE RULE FIRES AT ITS TOP TIER: 6 of 8.** And `mccomiskey`'s landing moves by **0.017** — larger than the
+entire Δ`J` any wave has ever argued about.
+
+**The seed evaluation is the sharper half.** `BaselineJ` is a **single evaluation of the pinned seed, no search**,
+so no trajectory amplifies it. On `toml999` it moves **0.0144** between two binaries whose every printed seed
+input is identical — same settings file and export stamp, `Sensitivity=10`, `StarClippingMultiplier=2`,
+`NoiseClippingMultiplier=4`, `StructureLayers=4`, inferred step 21, exposure 5 s, `PixelScale 0.73944` from the
+frame header, detection binning `1 from harness_settings.json`.
+
+**What this is NOT.** It is not evidence that PR #187 is wrong: the paths do agree to ≤ 3e-8 per pixel, and the
+version was bumped precisely because they are not bit-identical. It is not a reason to revert — the swap buys
+**2.5× / 9.7× / 40×** at layers 4 / 6 / 8. And landings moving is F8 in kind, if not in degree.
+
+**What it IS.** *A numerical-equivalence bound on an intermediate is not an equivalence bound on the answer.* The
+Sensitivity gate is a THRESHOLD, so an eighth-decimal difference in the residual turns into a whole star being
+admitted or rejected, and from there into `J`. Any future change justified by "equivalent to N decimal places"
+inherits this: **the bound belongs on the quantity the product reports, not on the intermediate**, and the
+eight-run gate is the cheap way to measure it (≈ 40 minutes).
+
+**Confound, and how it is settled.** `BaselineJ` is read on folders a previous arm wrote into
+([F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings)), so the binary is not the only thing that
+differs between the two measurements. `harness_settings.json` is excluded outright (`toml999`'s is dated
+2026-07-31, before wave 8). `optimized_settings.json` is not, and F55's own investigation measured it inert only
+on `D16`/v1. The control is to run `toml999` on wave 9's v1 binary against TODAY's folder state: same folder,
+different binary. **Until that reports, the seed-evaluation half of this entry is held open.**
+
+**Next step.** (a) Run the cross-build control above and close or re-open the seed half. (b) Adopt the eight-run
+gate as the standing acceptance check for any detector change claiming numerical equivalence — it is the
+instrument that turns "equivalent" into a number. (c) Where a `Reproduce:` line names a `D:\hf_w*\exe`,
+`strings <dll> | grep AtrousWaveletFast` distinguishes a v1 build from a v2 build **retroactively**, without
+running it; that is how wave 10 verified rather than assumed which of the four wave-9 build directories were v1.
+Reproduce: `D:\hf_w10\gate_repro_w10.sh`, `D:\hf_w10\gate\`, against `D:\hf_w9\gate\`.
+
 ### F55 — `optimize` is NOT reproducible when several instances run at once, and the SEED evaluation is what moves
 **Status:** Open · found 2026-08-07 (wave 9) when the confirmation arm's own pre-registered control fired ·
 **this voids the wave-9 F32 arm and constrains every future arm's design**
