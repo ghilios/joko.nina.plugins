@@ -3667,6 +3667,40 @@ eight are one instrument"*, and it is applied as written: **no φ verdict is pub
 > per-iteration data race and does fit some process-level state (a warm-up path, a static initialised from
 > observed load, a JIT/tiering effect, or something else acquired once).
 >
+> ### (b) NARROWED 2026-08-08 (wave 10): the BUILD does not select the attractor
+>
+> Wave 9's sharpest open clue was that the "sequential" value had been seen at BOTH attractors across sessions,
+> with five consecutive repeats at one of them **"from one build"** — raising the possibility that part of what
+> this entry calls nondeterminism is build-to-build variation. **It is not.** Fifteen runs — five each on wave
+> 9's binary, wave 10's, and a wavelet-bisect build, interleaved in one session on identical folder copies —
+> returned `0.9834767969`, identical to ten decimal places. Two binaries a wave apart agree exactly.
+>
+> **And the seed evaluation is a pure function of (frames, settings, PROFILE).** Under a fixed profile it is
+> perfectly reproducible across binaries, folder states and sessions; the profile term is
+> [F57](#f57--a---settings-pinned-arm-is-not-pinned-the-active-nina-profile-moves-baselinej-by-0014-and-every-cross-wave-comparison-inherits-it),
+> and it explains the cross-SESSION observation wave 9 could not place. **What remains is only the behaviour
+> under CONCURRENCY**, which none of these controls touch — so this entry is narrower and no less real.
+>
+> ### The specific mechanism, named and half-measured
+>
+> `CvImageUtility.KappaSigmaNoiseEstimate` is a **bimodal amplifier by construction**: an OpenCV parallel
+> reduction (`Cv2.MeanStdDev`) feeds a convergence test at `|Δσ| ≤ 1e-5`, so an arbitrarily small change in σ can
+> flip the comparison, buy one more iteration, and move `threshold` — and therefore σ — macroscopically. Two
+> discrete outcomes from an infinitesimal perturbation, load-sensitive (OpenCV's pool sees machine load), stable
+> within a process, and invisible to the plugin's own `Parallel.For` degree, which wave 9 swept and found inert.
+> σ feeds noise clipping ⇒ the star gate ⇒ the star list ⇒ `J`.
+>
+> **The GAIN is now measured and permanently pinned**: a unit test asserts that one extra kappa-sigma iteration
+> moves σ by **≥ 100×** the tolerance that decides whether to take it, and says in as many words that if it ever
+> stops being true, this mechanism is no longer plausible and the entry should say so. **The trigger RATE is
+> still owed** — that is what the 40-second probe measures, and it is the cheapest remaining step.
+>
+> **Eliminated by reading, and recorded because it is the most F55-shaped thing in the path:**
+> `CvImageUtility.CalculateStatistics` picks its median with a **quickselect whose pivot comes from
+> `Random.Shared`** — process-level shared state consumed in a thread-interleaving-dependent order, exactly the
+> signature. It is **inert**: quickselect returns the value at rank *n* whatever the pivots were, and
+> `Mat.GetArray` hands back a **copy**, so the in-place permutation never reaches the image.
+
 > **Next step.** (a) ~~Re-run the arm sequentially~~ — **DONE**, and it passed both controls (see F32).
 (b) **Find the nondeterminism — this now outranks (a) in value, because the reproducer makes it cheap and
 because a bimodal race can flip a sequential run too.** Bisect with `determinism_probe.sh`: it is 40 s per trial. (c) Until (b), **treat concurrent `optimize` as invalid for any arm whose

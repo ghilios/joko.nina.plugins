@@ -1,5 +1,12 @@
 # Synthetic AF bank — followups wave 10 (plan)
 
+> **CLOSED 2026-08-08.** Results: [`docs/synthetic-af-bank-followups-wave10-results.md`](../docs/synthetic-af-bank-followups-wave10-results.md).
+> Step 0 ✅ (G10-A PASS 8/8; **G10-B fired and is VOID** — its own control refuted the attribution, see F57).
+> Step 1 ✅ (**RULE P FIRES**, the wing verdict is withdrawn). Step 2 ▲ partial (the build hypothesis is dead
+> and F53(a) shipped; the KappaSigma trigger rate is still owed). Step 3 ✅ (F49(c) shipped; F21 diagnosed; the
+> deadband refuted before implementation, so RULE S was never applied). Step 4 ✅ (3722/0).
+> **Not run, and named as such:** the landing-level wavelet bisect (§3.2) and the KappaSigma rate probe.
+
 Design: [`docs/synthetic-af-bank-followups-wave10-design.md`](../docs/synthetic-af-bank-followups-wave10-design.md).
 Register: [`docs/followups.md`](followups.md).
 Branch: `ghilios/synthetic-af-bank-followups-wave10` off `develop` @ `02c62d8`.
