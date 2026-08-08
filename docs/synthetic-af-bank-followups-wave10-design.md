@@ -152,6 +152,22 @@ is not "is the wing fraction high" but "is it higher than the INNER third's"**, 
 > **Adopting a replacement on the refuting data would be fishing**, and this wave does not do it. The
 > measurement (`WingRejectedFraction`) stays; only the ACTION is withdrawn.
 
+### §1.2b What "withdraw the action" reaches — THREE sites, not one
+
+Enumerated before the verdict, because the third one was not obvious and is the most consequential:
+
+| # | site | what it does today |
+|---|---|---|
+| 1 | `rawFactor = max(rawFactor, WingProbeFactor)` | raises the recommended exposure to **2× current** |
+| 2 | `exposureIsNotTheLimit = … && !wingIsShedding` | flips the user-facing verdict from *"your exposure is fine"* to *"exposure is the limit"*, which also re-routes `StarSignalCopy.RemedyFor` (F49) |
+| 3 | `StarDetectionOptimizerWizardVM.BuildSearchExposureAdvice` | **tells the user to CANCEL a running two-hour optimization** |
+
+**Site 3 is why this matters more than an exposure number.** F52(c) shipped in wave 9 on the explicit reasoning
+that *"facts about COST need no statistic; ADVICE needs one"* — and the statistic it was given is the one under
+test. It is computed from the **seed** evaluation, i.e. in the first minute, and if it fires on most runs then
+most users are advised to abandon their optimization before it has done anything. A statistic that fires
+everywhere is not merely uninformative there; it is expensive.
+
 ### §1.3 Why `D10` and `D17` are the pre-registered fires
 
 They are the bank's only two **ceiling**-clamped datasets: their own derivation asks 335.6 s and 40.4 s and both
