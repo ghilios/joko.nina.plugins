@@ -200,11 +200,19 @@ chosen against fixtures spanning a rejected fraction of 0.005 to 0.75. Whether t
 occupy is not a question a unit test can ask, and it was not asked until a full-bank population was measured.
 
 **3. Ask an instrument what it would say if the thing it checks were completely broken — and then make it say
-it.** This wave's trace diff would have reported divergence on every pair of runs (it diffed timer-driven log
-lines); its concurrency guard would have reported SAFE on every invocation (`grep -c` exits 1 on no match, so
-`|| echo 0` produced `"0\n0"` and the comparison errored through). Both were caught, and the guard was then
-**validated against a positive control** — a deliberately-started `optimize` — before being trusted. The
-question is cheap; asking it only of other people's instruments is the mistake.
+it.** Three of this wave's own instruments failed that question, and all three were caught:
+
+- the **trace diff** would have reported divergence on every pair of runs, because it diffed log lines that come
+  partly from a wall-clock timer;
+- the **concurrency guard** would have reported SAFE on every invocation — `grep -c` exits 1 on no match, so
+  `$(… || echo 0)` produced `"0\n0"` and the numeric comparison errored through. It was then **validated against
+  a positive control**, a deliberately-started `optimize`, before being trusted;
+- the **RULE P scorer** treated a dataset that had not been measured yet as one that *did not fire*, so a partial
+  run reported P1 as REFUTED. That is the scorer's own NaN-never-0 rule — the one it enforces on
+  `WingRejectedFraction` — being violated by the scorer. It now reports UNEVALUATED and refuses to present a
+  partial pass as a population verdict.
+
+The question is cheap. Asking it only of other people's instruments is the mistake.
 
 **4. Check whether a cheap instrument already exists — including one a previous wave left on disk.** The exact
 geometric ratio a capped step recommendation applies (`1.5 × P / PointsPerSide`) was validated against **22
