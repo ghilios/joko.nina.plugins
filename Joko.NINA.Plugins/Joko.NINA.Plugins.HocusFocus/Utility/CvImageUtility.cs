@@ -519,6 +519,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             return ClampInPlace(lhs, min, max);
         }
 
+        /// <summary>
+        /// LEGACY reference implementation, no longer used in production: convolves each à trous layer with a
+        /// DENSE zero-padded kernel (2^(i+2)+1 taps, only 5 non-zero) via Cv2.SepFilter2D, so per-layer cost
+        /// doubles with the layer index. Production detection uses <see cref="AtrousWaveletFast"/> (equivalent
+        /// to float rounding, ≤3e-8; see docs/atrous-wavelet-fast-design.md). Retained ONLY as the independent
+        /// oracle for the AtrousWaveletFast equivalence tests and the TestApp bench-wavelet comparison.
+        /// </summary>
         public static Mat ComputeResidualAtrousB3SplineDyadicWaveletLayer(Mat src, int numLayers) {
             var previousLayer = src;
             Mat tempMat = new Mat();

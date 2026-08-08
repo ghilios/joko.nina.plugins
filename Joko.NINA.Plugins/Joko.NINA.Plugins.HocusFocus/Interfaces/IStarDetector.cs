@@ -316,16 +316,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // Number of wavelet layers for structure detection
         public int StructureLayers { get; set; } = 4;
 
-        // Fast à trous wavelet implementation (opt-in, default OFF while under validation). When true, the
-        // structure-removal residual is computed by AtrousWaveletFast (sparse 5-tap dilated convolution, SIMD +
-        // multithreaded — constant work per layer) instead of the legacy Cv2.SepFilter2D dense zero-padded
-        // kernels whose per-layer cost doubles with each layer. The two agree to float rounding but are not
-        // bit-identical, so this is an EARLY param (changes the structure map): listed in
-        // StarDetector.EarlyCacheKeyProperties. When OFF, detection is bit-identical to the legacy path.
-        // NOT a persisted option: no StarDetectionOptions/BuildStarDetectorParams mapping and no Options UI —
-        // reachable only from tests and the TestApp bench harness until AF-bank validation flips the default.
-        public bool FastAtrousWavelets { get; set; } = false;
-
         // Defocus-aware structure detection (opt-in, default OFF). When true, the à-trous wavelet residual that is
         // subtracted to remove large-scale structure is computed at StructureLayers + StructureLayerBoost layers,
         // so the residual is COARSER and large/donut (heavily defocused) stars survive the subtraction and form

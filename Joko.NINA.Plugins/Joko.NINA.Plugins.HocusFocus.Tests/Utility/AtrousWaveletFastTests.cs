@@ -1,19 +1,18 @@
-using NINA.Joko.Plugins.HocusFocus.Interfaces;
-using NINA.Joko.Plugins.HocusFocus.Tests.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.Tests.Synthetic;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
 using OpenCvSharp;
 using System;
-using System.Threading.Tasks;
 using Size = OpenCvSharp.Size;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
 
     /// <summary>
-    /// AtrousWaveletFast must be numerically equivalent (within float rounding) to the legacy
-    /// CvImageUtility.ComputeResidualAtrousB3SplineDyadicWaveletLayer (dense zero-padded Cv2.SepFilter2D),
-    /// including BORDER_REFLECT handling, and deterministic regardless of parallelism.
+    /// AtrousWaveletFast (the production wavelet) must be numerically equivalent (within float rounding) to the
+    /// retained reference oracle CvImageUtility.ComputeResidualAtrousB3SplineDyadicWaveletLayer (dense
+    /// zero-padded Cv2.SepFilter2D), including BORDER_REFLECT handling, and deterministic regardless of
+    /// parallelism. Detection-level pinning lives in the StarDetectorEquivalenceTests golden signatures, which
+    /// run through this implementation.
     /// </summary>
     [TestFixture]
     public class AtrousWaveletFastTests {
@@ -153,27 +152,5 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
             }
         }
 
-        [Test]
-        public async Task Detection_FastWavelets_MatchesLegacySignature() {
-            // End-to-end A/B on the deterministic small field: the wavelet only shapes candidate formation
-            // (measurement reads the source image), so float-rounding-level structure-map differences should
-            // leave the full detection signature unchanged on this well-separated field.
-            var legacyParams = StarDetectorEquivalence.StandardParams();
-            var fastParams = StarDetectorEquivalence.StandardParams();
-            fastParams.FastAtrousWavelets = true;
-
-            using var f1 = StarDetectorEquivalence.BuildSmallField();
-            var legacy = await StarDetectorEquivalence.RunDetect(f1, legacyParams);
-            using var f2 = StarDetectorEquivalence.BuildSmallField();
-            var fast = await StarDetectorEquivalence.RunDetect(f2, fastParams);
-
-            Assert.That(StarDetectorEquivalence.Signature(fast), Is.EqualTo(StarDetectorEquivalence.Signature(legacy)));
-        }
-
-        [Test]
-        public void ParamClassification_FastAtrousWavelets_IsEarly() {
-            Assert.That(NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetector.IsEarlyCacheKeyParameter(
-                nameof(StarDetectorParams.FastAtrousWavelets)), Is.True);
-        }
     }
 }

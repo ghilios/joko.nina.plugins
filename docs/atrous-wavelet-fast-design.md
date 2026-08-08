@@ -41,18 +41,23 @@ structure actually needs — and OpenCV 4.6's `SepFilter2D` runs single-threaded
 ### Numerical status vs legacy
 
 The tap-summation **order** differs from OpenCV's dense kernel loop, so results agree to float rounding but
-are **not bit-identical**: measured max abs diff ≤ ~1e-6 on [0,1] images across all tested size/layer
+are **not bit-identical**: measured max abs diff ≤ 3e-8 on [0,1] images across all tested size/layer
 combinations (tolerance 5e-6 asserted in tests; an indexing/border bug would show up orders of magnitude
 above that). Rounding-level structure-map differences can in principle flip a near-threshold binarization
-pixel, so the swap is gated:
+pixel — empirically they never moved a single star in any A/B (below).
 
-- `StarDetectorParams.FastAtrousWavelets` (**default OFF** while under validation) — production detection is
-  bit-identical with the flag off.
-- The flag is **EARLY-cache-keyed** (`StarDetector.EarlyCacheKeyProperties`) so optimizer contexts are never
-  reused across implementations.
-- End-to-end A/B on the deterministic equivalence field: **identical detection signatures** (stars, HFRs,
-  metrics, all rejection bounds) between legacy and fast paths. Star *measurement* reads the source image —
-  the wavelet only shapes candidate formation — so signature equality is the expected outcome, not luck.
+**The swap shipped outright** (no flag, no branch): production detection always uses `AtrousWaveletFast`,
+through the repo's sanctioned mechanism for output-affecting changes — a `StarDetector.StarDetectorVersion`
+bump (1 → 2), which invalidates saved detection-result caches so replays gracefully re-detect. The legacy
+implementation is retained in `CvImageUtility` **only** as the independent oracle for the equivalence tests
+and the `bench-wavelet` comparison. (An earlier cut gated this behind a `StarDetectorParams.FastAtrousWavelets`
+flag with EARLY-cache-keying; it was removed in favor of the version bump once the A/B evidence was in.)
+
+A/B evidence gathered while both paths were wired into detection: on the deterministic equivalence field and
+on 26 MP synthetic grids at layers 4/6/8, **identical detection signatures** (stars, HFRs, metrics, all
+rejection bounds; matched center deltas exactly 0.0). Star *measurement* reads the source image — the wavelet
+only shapes candidate formation — so signature equality is the expected outcome, not luck. The
+`StarDetectorEquivalenceTests` golden signatures now pin the fast path permanently.
 
 ## Alternatives considered
 
@@ -110,12 +115,13 @@ Two things to read out of the detect table:
 
 ## Validation
 
-- `AtrousWaveletFastTests` (15 tests): numeric equivalence vs legacy across sizes/layers incl. tiny
-  multi-bounce borders and odd (non-SIMD-multiple) widths; exact `Reflect` parity with OpenCV; source
+- `AtrousWaveletFastTests` (13 tests): numeric equivalence vs the retained oracle across sizes/layers incl.
+  tiny multi-bounce borders and odd (non-SIMD-multiple) widths; exact `Reflect` parity with OpenCV; source
   not modified; determinism across runs and parallelism; fused-subtract bit-identity; NaN-pixel clamp
-  parity between SIMD lanes and scalar tail; end-to-end detection signature parity; EARLY-key
-  classification.
-- Full unit test suite: 3688 tests passed, 0 failures (re-run green after the review fixes below).
+  parity between SIMD lanes and scalar tail. Detection-level pinning: the `StarDetectorEquivalenceTests`
+  golden signatures, which now run through the fast path unchanged.
+- Full unit test suite green after the swap (3685 tests, 0 failures; also green after the review fixes
+  below), including the golden-signature detection pins now exercising the fast path.
 - Adversarial multi-agent review (3 dimensions → per-finding verification): 6 findings raised, 5 confirmed
   and fixed. The two substantive ones:
   - **Cancellation race (critical, fixed):** the first cut passed the detection CancellationToken into the
@@ -129,19 +135,22 @@ Two things to read out of the detect table:
     propagates) while the SIMD lanes and the legacy `Cv2.Max/Min` clamp map NaN → 0, making output depend
     on column position and vector width for NaN inputs (reachable only via raw float `Detect(Mat)` inputs,
     e.g. TestApp replay of a float FITS). Scalar tail now uses the comparison-based clamp.
-- **Not yet done (needs the machine with `D:\Autofocus Bank`):** `bank-verify` regression across the 22-run
-  bank comparing flag OFF vs ON (recall/precision/J deltas expected ≈ 0, same criterion as past
-  rounding-level changes). Recommended before flipping the default ON.
+- **Not yet done (needs the machine with `D:\Autofocus Bank`):** the post-merge `bank-verify` sanity check
+  described under "Rollout" (recall/precision/J deltas vs pre-swap baselines expected ≈ 0, same criterion as
+  past rounding-level changes).
 
-## Rollout recommendation
+## Rollout (done) and follow-through
 
-1. Land flag-gated (default OFF) — zero production impact, available to the bench harness and tests.
-2. Run the AF-bank validation (flag ON vs OFF) on the bank machine; expect no metric movement beyond
-   run-to-run noise.
-3. Flip the default ON (or remove the legacy path + flag outright — no persisted option was added, so no
-   Options UI is involved) and update the F52 "~2× per layer" wizard guidance, which stops being true:
-   with the sparse path, per-layer cost is flat, so `DefocusAwareStructure` boosts and higher
-   `StructureLayers` stop being the optimizer's dominant wall-clock knob.
+1. **Swapped outright** with a `StarDetectorVersion` 1 → 2 bump; legacy retained only as the test/bench
+   oracle. No persisted option was added, so no Options UI is involved.
+2. **F52 cost narration retired:** the wizard's "searching N structure layers deeper costs roughly 2^N× per
+   evaluation" note (`OptimizationProgress.CostNote` → `ProgressCostNote` → its XAML row) was removed —
+   per-layer cost is now nearly flat, so the note's premise is gone. The F52 progress cadence,
+   elapsed/s-per-evaluation readout, and abort note all remain; the F52(c) abort-and-re-expose *advice*
+   remains blocked on F19 as before.
+3. **Post-merge sanity check (recommended, needs the machine with `D:\Autofocus Bank`):** a `bank-verify`
+   regression comparing against pre-swap baselines; expected movement ≈ 0 beyond run-to-run noise, same
+   criterion as past rounding-level changes.
 
 ## Follow-up opportunities (measured, not yet implemented)
 

@@ -136,26 +136,17 @@ namespace TestApp {
         }
 
         private static async Task RunDetectAb(Mat field, int structureLayers, int iters) {
-            var legacyParams = MakeDetectParams(structureLayers, fastWavelets: false);
-            var fastParams = MakeDetectParams(structureLayers, fastWavelets: true);
-
-            var (legacyMs, legacyResult) = await TimeDetect(field, legacyParams, iters);
-            var (fastMs, fastResult) = await TimeDetect(field, fastParams, iters);
-
-            var legacyStars = legacyResult.DetectedStars ?? new List<Star>();
-            var fastStars = fastResult.DetectedStars ?? new List<Star>();
-            double maxCenterDelta = MatchStars(legacyStars, fastStars);
-            Console.WriteLine($"detect A/B layers={structureLayers}: legacy={legacyMs:F0} ms ({legacyStars.Count} stars) | fast={fastMs:F0} ms " +
-                              $"({fastStars.Count} stars) | speedup={legacyMs / fastMs:F2}x | " +
-                              $"maxMatchedCenterDelta={(double.IsNaN(maxCenterDelta) ? "UNMATCHED" : maxCenterDelta.ToString("E2"))}");
+            // Production detection always uses AtrousWaveletFast now; the legacy-vs-fast comparison lives at the
+            // Mat level above (the legacy oracle is retained in CvImageUtility for exactly that purpose).
+            var p = new StarDetectorParams {
+                ModelPSF = false,
+                NoiseClippingMultiplier = 4.0,
+                StructureLayers = structureLayers,
+            };
+            var (medianMs, result) = await TimeDetect(field, p, iters);
+            var stars = result.DetectedStars ?? new List<Star>();
+            Console.WriteLine($"detect layers={structureLayers}: {medianMs:F0} ms ({stars.Count} stars)");
         }
-
-        private static StarDetectorParams MakeDetectParams(int structureLayers, bool fastWavelets) => new StarDetectorParams {
-            ModelPSF = false,
-            NoiseClippingMultiplier = 4.0,
-            StructureLayers = structureLayers,
-            FastAtrousWavelets = fastWavelets,
-        };
 
         private static async Task<(double MedianMs, HocusFocusStarDetectorResult Result)> TimeDetect(Mat field, StarDetectorParams p, int iters) {
             var detector = new StarDetector(new AlglibAPI());
@@ -173,35 +164,6 @@ namespace TestApp {
             }
             times.Sort();
             return (times[times.Count / 2], result);
-        }
-
-        /// <summary>Greedy nearest matching; returns max matched center distance, or NaN when counts differ
-        /// or a star has no counterpart within 1 px.</summary>
-        private static double MatchStars(List<Star> a, List<Star> b) {
-            if (a.Count != b.Count) {
-                return double.NaN;
-            }
-            var remaining = new List<Star>(b);
-            double maxDelta = 0.0;
-            foreach (var star in a) {
-                int bestIdx = -1;
-                double bestDist = double.MaxValue;
-                for (int i = 0; i < remaining.Count; ++i) {
-                    var dx = remaining[i].Center.X - star.Center.X;
-                    var dy = remaining[i].Center.Y - star.Center.Y;
-                    var dist = Math.Sqrt(dx * dx + dy * dy);
-                    if (dist < bestDist) {
-                        bestDist = dist;
-                        bestIdx = i;
-                    }
-                }
-                if (bestIdx < 0 || bestDist > 1.0) {
-                    return double.NaN;
-                }
-                maxDelta = Math.Max(maxDelta, bestDist);
-                remaining.RemoveAt(bestIdx);
-            }
-            return maxDelta;
         }
 
         private static double TimeMedian(Action action, int iters) {

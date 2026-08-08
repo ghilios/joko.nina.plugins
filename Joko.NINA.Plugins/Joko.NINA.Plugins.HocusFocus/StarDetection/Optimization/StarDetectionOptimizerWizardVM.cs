@@ -1420,15 +1420,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 isOptimizing = value;
                 RaisePropertyChanged();
                 // F52: every one of these reads IsOptimizing, so they must re-evaluate when it flips — otherwise a
-                // finished search leaves "2 h 14 min elapsed" and a cost note on screen next to the results.
+                // finished search leaves "2 h 14 min elapsed" on screen next to the results.
                 if (!isOptimizing) {
                     progressElapsed = TimeSpan.Zero;
                     progressSecondsPerEvaluation = double.NaN;
-                    progressCostNote = null;
                 }
                 RaisePropertyChanged(nameof(ProgressTimingText));
-                RaisePropertyChanged(nameof(ProgressCostNote));
-                RaisePropertyChanged(nameof(HasProgressCostNote));
                 RaisePropertyChanged(nameof(ProgressAbortNote));
             }
         }
@@ -1511,34 +1508,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
-        private string progressCostNote;
-
-        /// <summary>
-        /// F52 — why the search is currently expensive, when it is. Straight from
-        /// <see cref="OptimizationProgress.CostNote"/>; empty when the search is in a cheap region.
-        ///
-        /// <para><b>A statement of COST, never a recommendation.</b> "Abort and re-run at a longer exposure" is the
-        /// piece users ask for, and it is deliberately NOT here: it cannot be derived from the shipped exposure
-        /// statistic, which reports "exposure is not the limit" on exactly the rich fields that gain most from a
-        /// longer exposure (measured on <c>D02_rich_135mm</c>: the 20th-brightest star's S/N is 991.8 against a
-        /// target of 10 and the derived ask is 0.000 s, while σ_focus improves 44% at 8× the exposure — and on
-        /// live hardware the same statistic read 1438.6). Advice built on it would tell the users who most need a
-        /// longer exposure that theirs is already fine, at the moment they are deciding whether to spend another
-        /// two hours. Facts about cost need no such statistic; the advice does, and it waits for one.</para>
-        /// </summary>
-        public string ProgressCostNote {
-            get => IsOptimizing ? (progressCostNote ?? string.Empty) : string.Empty;
-            private set {
-                if (progressCostNote != value) {
-                    progressCostNote = value;
-                    RaisePropertyChanged();
-                    RaisePropertyChanged(nameof(HasProgressCostNote));
-                }
-            }
-        }
-
-        /// <summary>Whether there is a cost note to show — the row collapses rather than reserving blank space.</summary>
-        public bool HasProgressCostNote => !string.IsNullOrEmpty(ProgressCostNote);
+        // F52's ProgressCostNote ("searching N structure layers deeper costs roughly 2^N x") used to live here;
+        // retired when the sparse AtrousWaveletFast swap made per-layer cost nearly flat. The F52(c) abort-and-
+        // re-expose ADVICE remains blocked on F19 (the shipped exposure statistic reports "exposure is not the
+        // limit" on exactly the rich fields that gain most from a longer exposure — measured on D02_rich_135mm:
+        // 20th-brightest S/N 991.8 vs target 10, derived ask 0.000 s, while σ_focus improves 44% at 8×).
 
         /// <summary>
         /// F52 — what cancelling costs, stated while the user is deciding rather than left to be guessed.
@@ -3407,11 +3381,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 ProgressSeedJ = progressBaselineJOverride ?? currentBaselineJ;
                 ProgressSeedSigma = progressBaselineSigmaOverride ?? currentBaselineSigma;
                 Phase = FriendlyPhase(p.Phase);
-                // F52 — time and cost. Assigned last so the timing text, which reads ProgressCurrent/ProgressTotal
+                // F52 — timing. Assigned last so the timing text, which reads ProgressCurrent/ProgressTotal
                 // above, is computed from this report's counts rather than the previous one's.
                 progressElapsed = p.Elapsed;
                 progressSecondsPerEvaluation = p.SecondsPerEvaluation;
-                ProgressCostNote = p.CostNote;
                 RaisePropertyChanged(nameof(ProgressTimingText));
             });
 

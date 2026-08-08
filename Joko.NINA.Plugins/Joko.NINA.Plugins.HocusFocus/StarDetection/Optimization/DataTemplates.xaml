@@ -679,15 +679,6 @@
                         Visibility="{Binding IsOptimizing, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                     <TextBlock
                         MaxWidth="520"
-                        Margin="0,4,0,0"
-                        HorizontalAlignment="Center"
-                        Opacity="0.75"
-                        Text="{Binding ProgressCostNote, Mode=OneWay}"
-                        TextAlignment="Center"
-                        TextWrapping="Wrap"
-                        Visibility="{Binding HasProgressCostNote, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
-                    <TextBlock
-                        MaxWidth="520"
                         Margin="0,6,0,0"
                         HorizontalAlignment="Center"
                         FontStyle="Italic"

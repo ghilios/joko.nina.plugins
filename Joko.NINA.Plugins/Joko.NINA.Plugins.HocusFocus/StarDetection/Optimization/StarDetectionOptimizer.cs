@@ -156,20 +156,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// </summary>
         public double SecondsPerEvaluation { get; set; } = double.NaN;
 
-        /// <summary>
-        /// F52 — a plain-language note naming WHY the search is currently expensive, or null when it is not. Today
-        /// this is the structure-layer depth (<see cref="StarDetector.EffectiveStructureLayers"/>), whose residual
-        /// is recomputed at <c>2^layers</c> and which measures ~2× per layer.
-        ///
-        /// <para><b>Deliberately a statement of COST, never a recommendation.</b> "You should abort and re-expose"
-        /// is [F52](c), and it is blocked on
-        /// <c>F19</c>: the shipped exposure statistic reports "exposure is not the limit" on exactly the rich
-        /// fields that gain most from a longer exposure (measured: S_now 991.8 against a target of 10 on
-        /// <c>D02_rich_135mm</c>, raw ask 0.000 s, while σ_focus improves 44% at 8×). Advice built on it would tell
-        /// the users who most need a longer exposure that theirs is already fine. Facts about cost need no such
-        /// statistic and are safe to show now; the advice is not.</para>
-        /// </summary>
-        public string CostNote { get; set; }
+        // F52's "which knob made it expensive" CostNote used to live here. It was keyed to the structure-layer
+        // depth, whose legacy dense-SepFilter2D residual cost ~2× per layer; the sparse AtrousWaveletFast
+        // implementation made per-layer cost nearly flat (whole-detect 648/670/738 ms at layers 4/6/8, 26 MP),
+        // so the note's premise — and the note — were retired with the swap (docs/atrous-wavelet-fast-design.md).
+        // The F52(c) "abort and re-expose" ADVICE remains blocked on F19 regardless (the shipped exposure
+        // statistic reports "exposure is not the limit" on exactly the rich fields that gain most).
     }
 
     /// <summary>Outcome of an optimization run.</summary>
@@ -377,10 +369,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             private double lastBestJ, lastSeedJ, lastBestSigma = double.NaN;
             private int lastLoggedEvaluations;
 
-            // The effective structure-layer depth of the SEED, so the cost note can express the current candidate
-            // RELATIVE to where this search started rather than against an absolute that means nothing to a user.
-            private int seedEffectiveLayers = -1;
-
             /// <summary>How often (in completed evaluations) a long search emits an INFO line and refreshes the
             /// live time readout. Small enough that a two-hour run is traceable minute-by-minute, large enough that
             /// a fast run adds a handful of lines rather than hundreds.</summary>
@@ -392,32 +380,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             public TimeSpan Elapsed => searchClock.Elapsed;
 
-            /// <summary>
-            /// F52 — names why the search is currently expensive, or null when it is not.
-            ///
-            /// <para>The structure-removal residual is recomputed at <c>2^layers</c>
-            /// (<see cref="StarDetector.EffectiveStructureLayers"/>), measured at ~2× per layer on the synthetic
-            /// bank, so a candidate two layers deeper than the seed costs roughly 4× per evaluation. Expressed as
-            /// a factor relative to THIS search's seed, and rounded to a whole number — the measurement supports
-            /// "roughly 4×", not 3.8×.</para>
-            ///
-            /// <para>A statement of cost, never a recommendation: see <see cref="OptimizationProgress.CostNote"/>
-            /// for why the "abort and re-expose" advice is a separate, blocked item.</para>
-            /// </summary>
-            private string CostNoteFor(double[] theta) {
-                if (theta == null || seedEffectiveLayers <= 0) {
-                    return null;
-                }
-                var layers = StarDetector.EffectiveStructureLayers(Materialize(theta));
-                var deeper = layers - seedEffectiveLayers;
-                if (deeper <= 0) {
-                    return null;
-                }
-                var factor = Math.Pow(2.0, deeper);
-                return string.Format(CultureInfo.CurrentCulture,
-                    "Searching at {0} structure layers ({1} deeper than this run started at), which costs roughly {2:0}x per evaluation.",
-                    layers, deeper, factor);
-            }
 
             public SearchContext(
                 StarDetectionOptimizer owner,
@@ -484,9 +446,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 var runMetrics = await evaluator(p, token).ConfigureAwait(false);
                 evaluatorSeconds += (searchClock.Elapsed - evalStart).TotalSeconds;
                 Evaluations++;
-                if (isSeed) {
-                    seedEffectiveLayers = StarDetector.EffectiveStructureLayers(p);
-                }
                 MaybeReportProgress(theta);
 
                 double j;
@@ -636,8 +595,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     BestSigmaFocus = lastBestSigma,
                     Phase = phase,
                     Elapsed = Elapsed,
-                    SecondsPerEvaluation = SecondsPerEvaluation,
-                    CostNote = CostNoteFor(bestTheta)
+                    SecondsPerEvaluation = SecondsPerEvaluation
                 });
             }
 
@@ -661,15 +619,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     return;
                 }
                 lastLoggedEvaluations = Evaluations;
-                var costNote = CostNoteFor(theta);
                 var budget = settings.MaxEvaluations > 0
                     ? $"/{settings.MaxEvaluations.ToString(CultureInfo.InvariantCulture)}"
                     : string.Empty;
                 Logger.Info(
                     $"Optimizer progress: phase '{lastPhase ?? "search"}', evaluation {Evaluations}{budget}, "
                     + $"elapsed {Elapsed:hh\\:mm\\:ss}, {SecondsPerEvaluation:0.0}s/evaluation, "
-                    + $"best J {lastBestJ:0.######}"
-                    + (costNote == null ? string.Empty : $" -- {costNote}"));
+                    + $"best J {lastBestJ:0.######}");
                 progress?.Report(new OptimizationProgress {
                     Evaluations = Evaluations,
                     MaxEvaluations = settings.MaxEvaluations,
@@ -678,8 +634,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     BestSigmaFocus = lastBestSigma,
                     Phase = lastPhase,
                     Elapsed = Elapsed,
-                    SecondsPerEvaluation = SecondsPerEvaluation,
-                    CostNote = costNote
+                    SecondsPerEvaluation = SecondsPerEvaluation
                 });
             }
 

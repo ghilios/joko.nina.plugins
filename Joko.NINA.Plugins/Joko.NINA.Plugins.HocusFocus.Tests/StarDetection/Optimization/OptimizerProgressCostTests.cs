@@ -95,53 +95,10 @@ public class OptimizerProgressCostTests {
         });
     }
 
-    [Test]
-    public async Task Progress_NamesTheExpensiveKnobWhenTheSearchGoesDeeper_AndQuantifiesIt() {
-        var progress = await RunSearch();
-        var noted = progress.Reports.Where(r => !string.IsNullOrEmpty(r.CostNote)).ToList();
-
-        // The landscape's optimum is at StructureLayers 7 against a seed of 4, so the search MUST visit deeper
-        // candidates -- if it never reports the cost, a user watching a two-hour run still has no idea why.
-        // DISCRIMINATING: returning null from CostNoteFor, or comparing against an absolute instead of the seed,
-        // fails this.
-        Assert.That(noted, Is.Not.Empty, "a search that walks into deeper structure layers must say so");
-        Assert.That(noted[0].CostNote, Does.Contain("structure layers"));
-        Assert.That(noted[0].CostNote, Does.Contain("x per evaluation"),
-            "the note must QUANTIFY the cost -- naming the knob without the factor does not tell the user whether to wait");
-    }
-
-    [Test]
-    public async Task Progress_SaysNothingAboutCostWhenNoCandidateIsDeeperThanTheSeed() {
-        // Search restricted to two axes that cannot touch structure depth, so no candidate can be more expensive
-        // than the seed. A note here would be noise on every fast run, and a readout that always says "expensive"
-        // says nothing.
-        //
-        // Seeding at the top of the StructureLayers range is NOT enough to arrange this and the first version of
-        // this test wrongly assumed it was: the search reached 9 effective layers from a seed of 8 by turning on
-        // the DefocusAwareStructure axis, whose boost stacks on top. The note was right and the test was wrong --
-        // which is the note doing its job, since that is exactly the move that made the field session expensive.
-        //
-        // DISCRIMINATING against a note keyed to an ABSOLUTE layer count rather than to this run's own seed, which
-        // is why the seed turns the donut master ON: that puts its effective depth at 6 while StructureLayers
-        // still reads 4, so an implementation comparing against the shipped default of 4 reports "2 deeper" for a
-        // search that has not moved at all. (Checked: with a plain layers-4 seed the two implementations coincide
-        // and this test cannot tell them apart -- the first version of it could not, and said it could.)
-        var twoAxes = OptimizerVariable.CreateCuratedSet()
-            .Where(v => v.Name == nameof(StarDetectorParams.Sensitivity)
-                     || v.Name == nameof(StarDetectorParams.StarClippingMultiplier))
-            .ToList();
-        var progress = new SyncProgress();
-        await new StarDetectionOptimizer().OptimizeAsync(
-            new StarDetectorParams {
-                Sensitivity = 2.0, StarClippingMultiplier = 2.0,
-                StructureLayers = 4, DefocusAwareDonutDetection = true
-            },
-            twoAxes, Evaluator(),
-            new OptimizerSettings { MaxEvaluations = 400, CoarseGridLevels = 4, StepFloorFraction = 0.125 },
-            progress, CancellationToken.None);
-
-        Assert.That(progress.Reports.Where(r => !string.IsNullOrEmpty(r.CostNote)), Is.Empty);
-    }
+    // The two CostNote tests ("names the expensive knob when the search goes deeper" / "says nothing when no
+    // candidate is deeper") were retired with the note itself: the sparse AtrousWaveletFast swap made per-layer
+    // wavelet cost nearly flat, so structure-layer depth stopped being a cost driver worth narrating
+    // (docs/atrous-wavelet-fast-design.md).
 
     [Test]
     public void EffectiveStructureLayers_CountsTheBoostThatIsActuallyInForce() {
