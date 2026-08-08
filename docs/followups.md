@@ -3410,7 +3410,38 @@ eight are one instrument"*, and it is applied as written: **no φ verdict is pub
 > PROCESSES run, so the cause is more likely a shared cross-process resource or a genuine order dependence
 > somewhere below the fit.
 
-**Next step.** (a) ~~Re-run the arm sequentially~~ — **RUNNING** as of 2026-08-07 10:18Z, ~28 h.
+> ### INVESTIGATED 2026-08-07, NOT FIXED — but the search space is much smaller, and the reproducer is cheap
+>
+> Everything below was run with the machine otherwise idle, against the 40-second reproducer.
+>
+> **ELIMINATED, each by measurement rather than by reading:**
+>
+> | candidate | how it was excluded |
+> |---|---|
+> | the star-evaluation `Parallel.For` degree | swept **1, 2, 4, 8, 48** sequentially — **all identical** to 16 dp |
+> | the per-run `optimized_settings.json` (F54's lead) | run **with and without** the file present — identical |
+> | the disk detection cache (`<image>_star_detection_result.json`) | `AutoFocusEngine` reads it; the optimizer path does **not**, and the probe's copies have none |
+> | OpenCL / GPU dispatch | there is **no** `UMat`/OpenCL path anywhere in the plugin |
+> | the frame-level fan-out | each task writes **only its own index**; no shared mutable state |
+> | `StarDetectorMetrics.Merge` + thread-locals | additive over ints, and `SortBounds()` normalizes bounds order afterwards |
+> | rented-array sorts | both use the **bounded** `Array.Sort(a, 0, count)` overload |
+> | `MedianInPlace` over a rented array | both callers pass freshly-allocated `new double[n]` |
+> | a load-sensitive timeout | none in the detection/evaluation/fit path; the only `Stopwatch` is trace-only |
+>
+> **A METHODOLOGICAL TRAP WORTH RECORDING.** The parallelism sweep was first run by setting `HF_STAREVAL_PAR` from
+> WSL — and **WSL environment variables do not reach a Windows process without `WSLENV`**, so the first sweep
+> silently measured the SAME configuration five times and would have "proved" that degree does not matter. It was
+> caught by noticing the result contradicted a hardcoded build, and re-run with `WSLENV` set. *An instrument that
+> is not connected reports perfect agreement* — the same failure family as wave 8's three, in a new disguise.
+>
+> **STILL UNEXPLAINED, and it is the sharpest remaining clue:** across sessions the "sequential" value has been
+> observed at BOTH attractors — many repeats at `0.9791727072`, and five consecutive repeats at `0.9885546719`
+> from one build. Within any one session sequential runs are perfectly self-consistent. So whatever selects the
+> attractor appears to be **stable within a process/session and variable across them**, which does not fit a
+> per-iteration data race and does fit some process-level state (a warm-up path, a static initialised from
+> observed load, a JIT/tiering effect, or something else acquired once).
+>
+> **Next step.** (a) ~~Re-run the arm sequentially~~ — **DONE**, and it passed both controls (see F32).
 (b) **Find the nondeterminism — this now outranks (a) in value, because the reproducer makes it cheap and
 because a bimodal race can flip a sequential run too.** Bisect with `determinism_probe.sh`: it is 40 s per trial. (c) Until (b), **treat concurrent `optimize` as invalid for any arm whose
 conclusion rests on comparing landings**, and say so in the run instructions beside
