@@ -9,12 +9,19 @@ Register: [`docs/followups.md`](followups.md).
 >
 > Every number below was measured on **`StarDetectorVersion` 2** (PR #187's `AtrousWaveletFast`), from
 > `D:\hf_w10\exe`, built from `02c62d8` — `TestApp.dll` sha256 `5e58b669…`, `NINA.Joko.Plugins.HocusFocus.dll`
-> sha256 `ccb3e3e9…`. **That directory was never rebuilt** ([F53](followups.md#f53--wave-8s-arm-x-does-not-reproduce-from-wave-8s-own-exe-because-the-arm-ran-on-an-earlier-build-of-it)(c));
-> later wave-10 builds went to `exe2` / `exe_v1wav`.
+> sha256 `ccb3e3e9…` — **under the NINA profile `astrodet (ce3f3e63-8fd3-4b72-a0ca-d90db9441382)`.**
+> `D:\hf_w10\exe` **was never rebuilt** ([F53](followups.md#f53--wave-8s-arm-x-does-not-reproduce-from-wave-8s-own-exe-because-the-arm-ran-on-an-earlier-build-of-it)(c));
+> later wave-10 builds went to `exe_v1wav` (the wavelet bisect) and `exe3` (item 3).
 >
-> This banner is written by hand for the LAST time: F53(a) shipped in this wave, so `optimize` now prints — and
-> every landing now stores — a `BuildId` (the assembly MVID, which the compiler regenerates on every build) and a
-> `DetectorVersion`. A reader diffs a field; nobody diffs a banner.
+> **The profile is in this banner because of what this wave found.** It was not in wave 9's, and that omission is
+> exactly [F57](followups.md#f57--a---settings-pinned-arm-is-not-pinned-the-active-nina-profile-moves-baselinej-by-0014-and-every-cross-wave-comparison-inherits-it):
+> `--settings` pins the DETECTOR knobs, the harness still loads whichever profile is ACTIVE, and that moves
+> `BaselineJ` by 0.0144. **No number here may be compared to a number measured under a different profile** — a
+> rule this wave learned by breaking it.
+>
+> This banner is written by hand for the LAST time: F53(a) shipped here, so `optimize` now prints — and every
+> landing now stores — a `BuildId` (the assembly MVID, regenerated on every build), a `DetectorVersion`, a
+> `ProfileId`, and a `ConcurrencyCheck`. **A reader diffs a field; nobody diffs a banner.**
 
 ## Status of this document
 
