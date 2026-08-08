@@ -53,6 +53,36 @@ namespace TestApp {
         // Run discovery (attempt-anchored, >=3-position guard) lives in the pure, unit-testable
         // OptimizationRunDiscovery helper. Frame matching uses its ImageFileRegex (kept as the single copy).
 
+        /// <summary>
+        /// Held for the process lifetime once claimed, so a second `optimize` sees it. Never released
+        /// explicitly: process exit releases it, and an abandoned mutex is what the next process wants to see.
+        /// </summary>
+        private static Mutex exclusiveOptimizeMutex;
+
+        /// <summary>
+        /// F55 — is this process alone? Returns <c>"exclusive"</c>, <c>"concurrent"</c> or <c>"unknown"</c>, and
+        /// the third value is not a formality: a check that cannot run must not report the same thing as a check
+        /// that ran and found nothing, because a scorer turns one of them into "this arm is readable".
+        ///
+        /// <para>A named mutex rather than a process-name scan: it does not care what the binary is called, it
+        /// costs nothing, and an ABANDONED mutex — the previous holder died without exiting cleanly — correctly
+        /// reads as "the machine is mine now" rather than as contention.</para>
+        /// </summary>
+        private static string ClaimExclusiveOptimize() {
+            try {
+                exclusiveOptimizeMutex = new Mutex(false, @"Global\NINA.Joko.HocusFocus.TestApp.Optimize");
+                try {
+                    return exclusiveOptimizeMutex.WaitOne(0) ? "exclusive" : "concurrent";
+                } catch (AbandonedMutexException) {
+                    return "exclusive"; // the previous holder died; the wait succeeded and this process owns it
+                }
+            } catch (Exception ex) {
+                // Unsupported platform, denied Global\ namespace, anything else -- say so rather than guess.
+                Logger.Debug($"Could not perform the F55 concurrency check: {ex.Message}");
+                return "unknown";
+            }
+        }
+
         public static async Task Run(string[] args) {
             try {
                 await RunImpl(args);
@@ -244,9 +274,15 @@ namespace TestApp {
                 ProducerVersion = (System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(
                     System.Reflection.Assembly.GetEntryAssembly()))?.InformationalVersion,
                 BuildId = build.BuildId,
-                DetectorVersion = build.DetectorVersion
+                DetectorVersion = build.DetectorVersion,
+                ConcurrencyCheck = ClaimExclusiveOptimize()
             };
             Console.WriteLine($"provenance: {provenance}");
+            if (provenance.ConcurrencyCheck != "exclusive") {
+                Console.WriteLine($"WARNING: concurrency check = {provenance.ConcurrencyCheck}. F55: concurrent " +
+                    "`optimize` moves 44% of LANDINGS and 15% of seed evaluations, so any arm read on landings " +
+                    "is INVALID. The value is recorded in every landing this run writes.");
+            }
             var accessor = harnessSettings.Accessor;
             var starDetectionOptions = new StarDetectionOptions(profileService, accessor);
             var afOptions = new AutoFocusOptions(profileService);

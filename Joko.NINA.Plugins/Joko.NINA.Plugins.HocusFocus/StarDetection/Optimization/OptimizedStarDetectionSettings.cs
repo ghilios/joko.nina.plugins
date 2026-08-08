@@ -406,6 +406,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public int? DetectorVersion { get; set; }
 
         /// <summary>
+        /// Whether this run had the machine to itself: <c>"exclusive"</c>, <c>"concurrent"</c>, or
+        /// <c>"unknown"</c>. Null when the producer does not check.
+        ///
+        /// <para><b>F55.</b> Concurrent `optimize` processes move **44 % of landings** and 15 % of seed
+        /// evaluations, so an arm read on landings is invalid if it ran beside another one. F55(c) asks for that
+        /// to be "said in the run instructions" — and wave 10 then ran a 39-run pass TWICE AT ONCE anyway,
+        /// because a background launcher that reported "completed" had only had its launcher shell exit. The
+        /// rule was known, written down, and still violated, because **the violation was invisible**. A field on
+        /// the landing makes it visible after the fact, to a scorer, without anyone having to have been
+        /// watching.</para>
+        ///
+        /// <para><b>Three values, not two</b>, for the same reason
+        /// <c>ExposureRecommendation.WingRejectedFraction</c> is NaN-never-0 and
+        /// <c>StepSizeRecommendation.MaxUsefulHalfSpan</c> is NaN-never-0: *"we could not look"* and *"we looked
+        /// and were alone"* must not be the same value, because a scorer turns one of them into a verdict.</para>
+        /// </summary>
+        public string ConcurrencyCheck { get; set; }
+
+        /// <summary>
         /// The identity of the currently-loaded plugin build: <see cref="BuildId"/> and
         /// <see cref="DetectorVersion"/>, read off this assembly. Static so the harness and the shipping wizard
         /// stamp the same two values from the same place rather than each deriving its own.
@@ -423,6 +442,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (!string.IsNullOrWhiteSpace(ProducerVersion)) { parts.Add($"v{ProducerVersion}"); }
             if (!string.IsNullOrWhiteSpace(BuildId)) { parts.Add($"build#{BuildId}"); }
             if (DetectorVersion.HasValue) { parts.Add($"detector v{DetectorVersion.Value}"); }
+            // Loud in the one-liner rather than tucked into the JSON: "concurrent" means the landing beside it
+            // is not comparable to anything (F55), and that has to be readable in a log tail.
+            if (!string.IsNullOrWhiteSpace(ConcurrencyCheck) && ConcurrencyCheck != "exclusive") {
+                parts.Add($"CONCURRENCY={ConcurrencyCheck.ToUpperInvariant()}");
+            }
             if (!string.IsNullOrWhiteSpace(CommandLine)) { parts.Add(CommandLine); }
             if (!string.IsNullOrWhiteSpace(SettingsFingerprint)) { parts.Add($"settings#{SettingsFingerprint}"); }
             return parts.Count > 0 ? string.Join(" | ", parts) : "(no provenance)";
