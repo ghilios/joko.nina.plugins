@@ -10,6 +10,29 @@ confirmation arm a fourth time on the ground that "wave 9 does not end it either
 [F19](followups.md#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one)(b)'s
 own reporting refuted in the same wave, by printing a saturated set that includes F32's entire synthetic half.*
 
+> ## PROVENANCE — READ BEFORE REPRODUCING ANY NUMBER BELOW
+>
+> Every measurement in this document was taken on **`StarDetectorVersion` 1**, i.e. the legacy dense-`SepFilter2D`
+> à-trous path. This branch has since been rebased onto a `develop` that ships
+> [PR #187](https://github.com/ghilios/hocus-focus/pull/187)'s `AtrousWaveletFast` and bumps
+> **`StarDetectorVersion` to 2**. The two wavelet paths agree to **≤ 3e-8** but are deliberately **not
+> bit-identical** — which is precisely why the version was bumped.
+>
+> **So the numbers here are not expected to reproduce exactly on the current tree**, and that includes RULE G's
+> eight comparability values, the confirmation arm's landings, and the wing statistic's Rule W table. A pattern
+> search amplifies a 3e-8 perturbation into a different landing; that is
+> [F8](followups.md#f8--optimizer-landings-are-not-reproducible-across-invocations) and
+> [F55](followups.md#f55--optimize-is-not-reproducible-when-several-instances-run-at-once-and-the-seed-evaluation-is-what-moves),
+> not a defect in this wave.
+>
+> **What this does and does not invalidate.** The wave's CONCLUSIONS rest on comparisons made *within* one binary
+> — arm A vs arm B vs arm C, and the wing statistic against its own control — and those comparisons are
+> internally consistent and unaffected. What is void is the ability to re-run a single number today and expect the
+> same digits. **A future arm must re-establish RULE G's fixed point on `StarDetectorVersion` 2 before comparing
+> anything to wave 5's φ table** — this is [F41](followups.md#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)
+> and [F53](followups.md#f53--wave-8s-arm-x-does-not-reproduce-from-wave-8s-own-exe-because-the-arm-ran-on-an-earlier-build-of-it),
+> stated in advance for once rather than discovered afterwards.
+
 ## Status of this document
 
 | item | state |

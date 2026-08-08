@@ -3234,9 +3234,11 @@ time instead of recall.
 Reproduce: `D:\hf_w8\field\compare_runs.sh`, `D:\hf_w8\field\cost_*.json`, `D:\hf_w8\field\gate_*.json`.
 
 ### F56 — The à-trous wavelet residual convolves a DENSE kernel that is 99.5 % zeros, and that IS the `StructureLayers` cost curve
-**Status:** Open · found 2026-08-07 (wave 9) answering a question about GPU/SIMD builds · **the diagnosis is
-confirmed and the first fix was MEASURED AT +50 % SLOWER AND REVERTED** — the à-trous kernel really is 99.5 %
-zeros, but the stage is memory-bandwidth bound, so the FLOP count did not predict runtime
+**Status:** **DONE — fixed properly in [PR #187](https://github.com/ghilios/hocus-focus/pull/187)
+(`AtrousWaveletFast`, `StarDetectorVersion` 1→2), which validated this entry's DIAGNOSIS and refuted this entry's
+first FIX.** The kernel really is 99.5 % zeros; the stage is memory-bandwidth bound, so wave 9's five-pass
+rewrite ran +50 % SLOWER and was reverted, while the sparse 5-tap SIMD path that replaced it measures
+**2.5× / 9.7× / 40×** at layers 4 / 6 / 8 · found 2026-08-07 (wave 9) answering a question about GPU/SIMD builds
 
 `StarDetector` step 4's structure-removal residual is the detector's dominant cost.
 [F52](#f52--a-two-hour-optimization-logs-one-line-and-offers-no-cost-context-and-the-search-is-not-cost-aware)
@@ -3308,7 +3310,41 @@ optimizer run pays this, hundreds of times — it is a large share of the two-ho
 deeper layers are the RIGHT answer at detection binning 2, and the cost is what makes that expensive to adopt.
 (c) It reframes F52(d): a cost term in `J` would be penalising an artifact rather than physics.
 
-**Next step, revised by the measurement.** (a) **BENCHMARK FIRST** — the 8-run sequential gate is 33 minutes and
+> ### RESOLVED by PR #187 — and the shape it shipped in is the one wave 9's failure pointed at
+>
+> `Utility/AtrousWaveletFast.cs` replaces the dense `SepFilter2D` with a **sparse 5-tap SIMD path** — one fused
+> pass per axis, taps gathered at stride `2^L`, exactly the "single fused strided pass, NOT composed `Cv2` calls"
+> this entry's revised next-step called for. Design: [`docs/atrous-wavelet-fast-design.md`](atrous-wavelet-fast-design.md).
+>
+> | `StructureLayers` | legacy `SepFilter2D` | fast | speedup |
+> |---|---|---|---|
+> | 4 (shipped default) | 130 ms | 52 ms | **2.5×** |
+> | 6 | 781 ms | 81 ms | **9.7×** |
+> | 8 | 4267 ms | 107 ms | **40×** |
+>
+> **Legacy cost doubles per layer — the F52 curve — and the fast path is nearly flat** (52 → 81 → 107 ms), which
+> is the entry's central claim confirmed by benchmark rather than by arithmetic. It wins **even single-threaded**,
+> so the gain does not depend on core count.
+>
+> **Three of wave 9's conclusions are now settled by it.**
+>
+> 1. **The diagnosis was right and the implementation was wrong.** Wave 9 counted FLOPs, predicted 20–100×, and
+>    shipped a five-pass version that was measured **+50 % slower**. The correct version is 2.5–40× faster. The
+>    difference is entirely one fused pass versus five composed ones — i.e. memory traffic, which the FLOP count
+>    never looked at.
+> 2. **It confirms the memory-bandwidth reading**, from the other side: *"both passes stream at memory bandwidth
+>    once the tap count is fixed, which is why 24 threads only add ~1.5× over one thread."* That is also the
+>    strongest available argument against a custom SIMD or CUDA OpenCV build — the bottleneck is bandwidth, not
+>    instruction width.
+> 3. **[F52](#f52--a-two-hour-optimization-logs-one-line-and-offers-no-cost-context-and-the-search-is-not-cost-aware)'s
+>    cost note is retired with it**, and [F52](#f52--a-two-hour-optimization-logs-one-line-and-offers-no-cost-context-and-the-search-is-not-cost-aware)(d)
+>    (a cost term in `J`) loses most of its motivation: structure-layer depth is no longer a cost driver worth
+>    narrating or penalising, which is exactly the "you would be penalising an artifact" risk wave 9 flagged.
+>
+> **`StarDetectorVersion` 1→2** ships it through the sanctioned door: the paths agree to ≤ 3e-8 but are not
+> bit-identical, so the bump invalidates cached detections rather than letting a changed output pass silently.
+
+**Superseded next steps (kept for the record).** (a) **BENCHMARK FIRST** — the 8-run sequential gate is 33 minutes and
 is the instrument that settled this; run it before writing any further optimisation, not after. (b) If it is
 attempted again, the shape is a **single fused strided pass** (one hand-written pointer loop per axis, 5 taps at
 stride `2^L`, one read and one write), NOT composed `Cv2` calls — the composed form is what lost. (c) Find the
