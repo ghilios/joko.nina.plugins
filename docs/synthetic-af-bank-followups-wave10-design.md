@@ -168,6 +168,15 @@ test. It is computed from the **seed** evaluation, i.e. in the first minute, and
 most users are advised to abandon their optimization before it has done anything. A statistic that fires
 everywhere is not merely uninformative there; it is expensive.
 
+**What withdrawal means concretely, decided before the verdict:** delete the VERDICT (`WingIsShedding`,
+`WingSheddingThreshold`, `WingProbeFactor`) and keep the MEASUREMENT (`WingRejectedFraction`). A public boolean
+named *"is shedding"* that nothing acts on would be worse than either shipping or removing it — the successor
+introduces its own verdict field, and until then the number stands on its own with no claim attached.
+
+**And F52(c) returns to wave 8's position rather than to nothing.** Wave 8 withheld the abort advice for want of
+a statistic; wave 9 shipped it on this one; if RULE P fires, it is withheld again for the same reason it was
+withheld the first time. That is not a regression — it is the same decision, made again, on better evidence.
+
 ### §1.3 Why `D10` and `D17` are the pre-registered fires
 
 They are the bank's only two **ceiling**-clamped datasets: their own derivation asks 335.6 s and 40.4 s and both
