@@ -669,14 +669,28 @@
                         Visibility="{Binding IsOptimizing, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                     <!--  F52 — the search's COST, which the count and the clock above cannot convey: what a step is
                           costing, an upper bound on what is left, and (only when true) why it is expensive right now.
-                          Deliberately no recommendation to abort or re-expose: that needs a wing-frame statistic the
-                          exposure recommender does not have yet (F52 (c), blocked on F19).  -->
+                          The ADVICE half is the separate row further down (SearchExposureAdvice): facts about cost
+                          need no statistic and are these rows; advice needs one, and now has it (F52 (c)).  -->
                     <TextBlock
                         Margin="0,2,0,0"
                         HorizontalAlignment="Center"
                         Opacity="0.75"
                         Text="{Binding ProgressTimingText, Mode=OneWay}"
                         Visibility="{Binding IsOptimizing, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                    <!--  F52(c) — the one piece of ADVICE, and the only row here that tells the user to consider
+                          stopping. Computed from the SEED evaluation, which runs before the search does, so the
+                          answer to "should I abort?" was available in the first minute rather than after two hours.
+                          Hidden whenever the sweep's wings are healthy: a note that always fires says nothing.
+                          It names Cancel (which exists) and says what Cancel costs in the same sentence, because
+                          not knowing that is why the user sat through the two hours.  -->
+                    <TextBlock
+                        MaxWidth="520"
+                        Margin="0,6,0,0"
+                        HorizontalAlignment="Center"
+                        Text="{Binding SearchExposureAdvice, Mode=OneWay}"
+                        TextAlignment="Center"
+                        TextWrapping="Wrap"
+                        Visibility="{Binding HasSearchExposureAdvice, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                     <TextBlock
                         MaxWidth="520"
                         Margin="0,6,0,0"
@@ -875,47 +889,6 @@
                                 Text="{Binding ExposureBodyText, Mode=OneWay}"
                                 TextWrapping="Wrap"
                                 Visibility="{Binding HasExposureBody, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
-                            <!--  The action: capture a fresh sweep at a longer exposure and re-optimize on it. The
-                                  WHOLE ROW is hidden (ShowCaptureNewSweep) whenever the MODE makes re-capturing
-                                  inapplicable — Replay, which has no rig to capture from, and "use current
-                                  settings", which has nothing to re-tune. Both are chosen on the Select Source step
-                                  and are fixed for the life of this Summary, so a button disabled by either would
-                                  sit dead for the whole run; the body copy above names the mode to switch to
-                                  instead. This is the branch the detection-binning block takes for use-current too.
-                                  Only TRANSIENT unavailability (disconnected camera/focuser, no save folder) leaves
-                                  the button visible and DISABLED via the command's CanExecute — there the control
-                                  can come back, so the copy that names it still has a referent.
-                                  The box is editable and LostFocus-bound, so THE BUTTON LABEL DELIBERATELY CARRIES
-                                  NO NUMBER: a numbered label goes stale the instant the user starts typing and then
-                                  contradicts the box beside it. Consequence in the label, value in the box — do not
-                                  "fix" this by interpolating the seconds into the button.  -->
-                            <StackPanel Margin="0,4,0,2" Orientation="Horizontal"
-                                        Visibility="{Binding ShowCaptureNewSweep, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
-                                <TextBlock
-                                    Width="200"
-                                    VerticalAlignment="Center"
-                                    Text="New sweep exposure"
-                                    ToolTip="{StaticResource SDOpt_CaptureNewSweep_Tooltip}" />
-                                <ninactrl:UnitTextBox
-                                    MinWidth="80"
-                                    HorizontalAlignment="Left"
-                                    VerticalAlignment="Center"
-                                    ToolTip="{StaticResource SDOpt_CaptureNewSweep_Tooltip}"
-                                    Unit="s">
-                                    <Binding Path="RecaptureExposureSeconds" UpdateSourceTrigger="LostFocus">
-                                        <Binding.ValidationRules>
-                                            <rules:GreaterThanZeroRule />
-                                        </Binding.ValidationRules>
-                                    </Binding>
-                                </ninactrl:UnitTextBox>
-                                <Button
-                                    Margin="8,0,0,0"
-                                    VerticalAlignment="Center"
-                                    Command="{Binding CaptureNewSweepCommand}"
-                                    ToolTip="{StaticResource SDOpt_CaptureNewSweep_Tooltip}">
-                                    <TextBlock Margin="12,6" Text="Capture a new sweep and optimize" />
-                                </Button>
-                            </StackPanel>
                         </StackPanel>
 
                         <!--  Auto-focus block: the recommended step size / offset steps PLUS the toggle that applies
@@ -953,6 +926,65 @@
                                 ToolTip="{StaticResource SDOpt_ApplyStepSize_Tooltip}" />
                         </StackPanel>
 
+                        <!--  F51 — the re-run action: capture a fresh sweep AT THE RECOMMENDED SETTINGS and
+                              re-optimize on it. IT LIVES HERE, not in the Star signal block where it used to,
+                              for two reasons that cost a user two unwanted Accepts:
+                                * that block's visibility is HasLowStarSignal (Sensitivity <= 1.0), so on a
+                                  healthy-gate run with a step-size recommendation the button was hidden along
+                                  with a block that was about something else entirely; and
+                                * its own condition was IncreasesExposure, which is exactly what F19's saturation
+                                  makes false on a rich field — so the button disappeared precisely when the run
+                                  most needed re-running.
+                              Beside the step-size/offset rows is also where it BELONGS: those are the values the
+                              re-capture now carries (F51(b)), and the exposure row sits directly above it.
+                              ShowCaptureNewSweep still hides the WHOLE row whenever the MODE makes re-capturing
+                              inapplicable — Replay, which has no rig, and "use current settings", which has
+                              nothing to re-tune; both are fixed on Select Source for the life of the Summary, so
+                              a button disabled by either would sit dead all run. Only TRANSIENT unavailability
+                              (disconnected camera/focuser, no save folder) leaves it visible and DISABLED via the
+                              command's CanExecute, where the control can come back.
+                              RE-CAPTURING IS NOT ADOPTING: this writes nothing: Accept is still the only writer.
+                              The box is editable and LostFocus-bound, so THE BUTTON LABEL DELIBERATELY CARRIES NO
+                              NUMBER: a numbered label goes stale the instant the user starts typing and then
+                              contradicts the box beside it. Consequence in the label, value in the box — do not
+                              "fix" this by interpolating the seconds into the button.  -->
+                        <StackPanel
+                            Margin="0,0,0,8"
+                            Visibility="{Binding ShowCaptureNewSweep, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <TextBlock
+                                MaxWidth="560"
+                                Margin="0,0,0,4"
+                                HorizontalAlignment="Left"
+                                Text="{Binding CaptureNewSweepCarriesText, Mode=OneWay}"
+                                TextWrapping="Wrap" />
+                            <StackPanel Margin="0,2" Orientation="Horizontal">
+                                <TextBlock
+                                    Width="200"
+                                    VerticalAlignment="Center"
+                                    Text="New sweep exposure"
+                                    ToolTip="{StaticResource SDOpt_CaptureNewSweep_Tooltip}" />
+                                <ninactrl:UnitTextBox
+                                    MinWidth="80"
+                                    HorizontalAlignment="Left"
+                                    VerticalAlignment="Center"
+                                    ToolTip="{StaticResource SDOpt_CaptureNewSweep_Tooltip}"
+                                    Unit="s">
+                                    <Binding Path="RecaptureExposureSeconds" UpdateSourceTrigger="LostFocus">
+                                        <Binding.ValidationRules>
+                                            <rules:GreaterThanZeroRule />
+                                        </Binding.ValidationRules>
+                                    </Binding>
+                                </ninactrl:UnitTextBox>
+                                <Button
+                                    Margin="8,0,0,0"
+                                    VerticalAlignment="Center"
+                                    Command="{Binding CaptureNewSweepCommand}"
+                                    ToolTip="{StaticResource SDOpt_CaptureNewSweep_Tooltip}">
+                                    <TextBlock Margin="12,6" Text="Capture a new sweep and optimize" />
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+
                         <!--  Detection binning: a first-class recommendation, structurally parallel to the
                               auto-focus block above (bold header, label/value row, then the consequence). Hidden
                               outright when the baseline fit was degenerate — no measured HFR, nothing to say.
@@ -986,6 +1018,23 @@
                                 <TextBlock Margin="12,6" Text="{Binding OptimizeAgainAtRecommendedBinningText}" />
                             </Button>
                         </StackPanel>
+
+                        <!--  F32 — when this landing took the SHEDDING CORNER, say that another pass is likely to
+                              beat it. The mechanism F32 chased since wave 3 is real (the shedding corner is a
+                              greedy trap, not a rational trade), but wave 9's confirmation arm refuted the
+                              proposed FIX — a keep floor — on three pre-registered rules, and measured the
+                              alternative as strictly better: restarts recovered 228% of the floor's median gain.
+                              "Continue optimizing" IS a restart, it was always on screen, and nothing told the
+                              user when it was worth pressing. Hidden unless the landing actually shed and a round
+                              remains, so it cannot become noise.  -->
+                        <TextBlock
+                            MaxWidth="560"
+                            Margin="0,8,0,4"
+                            HorizontalAlignment="Left"
+                            FontStyle="Italic"
+                            Text="{Binding ContinueOptimizingAdviceText, Mode=OneWay}"
+                            TextWrapping="Wrap"
+                            Visibility="{Binding HasContinueOptimizingAdvice, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
                         <!--  Changed parameters table  -->
                         <TextBlock

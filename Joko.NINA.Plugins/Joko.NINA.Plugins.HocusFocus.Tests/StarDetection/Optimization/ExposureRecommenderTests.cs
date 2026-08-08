@@ -856,6 +856,228 @@ public class ExposureRecommenderTests {
         });
     }
 
+    // ── F19: the WING test ──────────────────────────────────────────────────────────────────────────────────
+    //
+    // Everything above this line is computed over ACCEPTED stars, and acceptance floors every one of them at
+    // StarDetector.EffectiveSensitivityGate. So when the optimizer lands a gate at or above TargetSensitivity,
+    // ExposureIsNotTheLimit is true BY CONSTRUCTION -- no rank, on no subset of frames, could say otherwise. That
+    // is why wave 7's "change NTarget" and wave 8's "widen the trigger" were both refuted by their own
+    // pre-registered tests: neither touches the population being measured.
+    //
+    // The candidates the gate REJECTED on the wing frames are the only population in a run that is NOT floored by
+    // the gate. Acceptance rule W (wave-9 design SS3.2), fixed before the statistic was written and validated on
+    // wave 7's exposure ladder, which is still on disk.
+
+    /// <summary>
+    /// A 9-frame sweep placed on the wing axis: focuser positions at ±4 steps around a fitted focus, with the
+    /// OUTER third (3 frames) carrying <paramref name="wingRejected"/> gate rejections against
+    /// <paramref name="wingAccepted"/> accepted stars, and the inner frames shedding nothing.
+    /// </summary>
+    private static RunEvaluationMetrics WingMetrics(
+            int wingRejected, int wingAccepted, int innerAccepted = 500,
+            double snr = 40.0, bool placeable = true) {
+        const int n = 9;
+        var frames = Enumerable.Range(0, n).Select(_ => (IReadOnlyList<double>)FullFrame(snr)).ToArray();
+        var positions = Enumerable.Range(0, n).Select(i => 1000 + (i - 4) * 10).ToArray();
+        // |offset| ordering: the 3 outermost are i = 0, 8 and (4 away vs 3 away) i = 1.
+        var rejected = new int[n];
+        var accepted = Enumerable.Repeat(innerAccepted, n).ToArray();
+        foreach (var i in new[] { 0, 8, 1 }) {
+            rejected[i] = wingRejected;
+            accepted[i] = wingAccepted;
+        }
+        return new RunEvaluationMetrics {
+            FrameStarSnrs = frames,
+            FrameStarCounts = accepted,
+            FrameLowSensitivityCounts = rejected,
+            FrameTooFlatCounts = new int[n],
+            FrameFocuserPositions = positions,
+            BestFocusPosition = placeable ? 1000.0 : double.NaN,
+            StepSize = 10.0
+        };
+    }
+
+    [Test]
+    public void Recommend_W1_SheddingWings_AskForMoreExposureEvenThoughEveryAcceptedStarClearsTheTarget() {
+        // THE DEFECT, in one fixture. Every accepted star measures S/N 40 against a target of 10, so the shipped
+        // statistic reports "exposure is not the limit" -- while the sweep's OUTER frames are forming 800
+        // candidates and losing 600 of them to the gate. Measured on D02_rich_135mm, whose wings shed 67% of their
+        // candidates at its derived exposure and whose sigma_focus is 48% better at 8x it.
+        //
+        // DISCRIMINATING: delete the wing probe and this fails on BOTH assertions.
+        var rec = ExposureRecommender.Recommend(
+            WingMetrics(wingRejected: 600, wingAccepted: 200), DefaultConstants(), currentExposureSeconds: 0.5);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.WingRejectedFraction, Is.EqualTo(0.75).Within(1e-9));
+            Assert.That(rec.WingIsShedding, Is.True);
+            Assert.That(rec.RecommendedSeconds, Is.GreaterThanOrEqualTo(2.0 * 0.5), "W1: at least 2x current");
+            Assert.That(rec.IncreasesExposure, Is.True);
+            Assert.That(rec.ExposureIsNotTheLimit, Is.False,
+                "a shedding wing means exposure IS the limit, whatever the accepted stars say -- otherwise the copy "
+                + "would say 'star brightness is not the problem' directly above a row asking for more exposure");
+        });
+    }
+
+    [Test]
+    public void Recommend_W2_HealthyWings_AskForNothingMore_EvenAtAFlooredGate() {
+        // THE CONTROL, and it is the whole reason the arm-E ladder was rendered. D16_esprit550_ha3's sigma_focus
+        // MINIMUM sits at its derived exposure and gets WORSE above it, so a statistic that fires here has traded
+        // one blind spot for another. Its wings reject nothing.
+        //
+        // DISCRIMINATING: drop the WingSheddingThreshold test (fire on any rejection at all) and this fails.
+        var rec = ExposureRecommender.Recommend(
+            WingMetrics(wingRejected: 1, wingAccepted: 200), DefaultConstants(), currentExposureSeconds: 2.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.WingRejectedFraction, Is.LessThan(ExposureRecommender.WingSheddingThreshold));
+            Assert.That(rec.WingIsShedding, Is.False);
+            Assert.That(rec.IncreasesExposure, Is.False, "W2: no material increase where sigma_focus is minimised");
+            Assert.That(rec.ExposureIsNotTheLimit, Is.True);
+        });
+    }
+
+    [Test]
+    public void Recommend_W3_TheProbeCONVERGES_UnlikeTheStatisticItWidens() {
+        // S_now SATURATES HARDER as exposure rises -- measured 992 -> 1226 -> 1864 -> 2309 on D02 -- so it could
+        // never converge toward asking for more even if its trigger were widened. The wing fraction does the
+        // opposite: as exposure rises the gate stops rejecting, so the ask falls away. Measured on D02: 0.67 /
+        // 0.29 / 0.30 below its optimum and EXACTLY 0.00 at and above it.
+        //
+        // DISCRIMINATING: make the probe unconditional and the second half fails.
+        var shedding = ExposureRecommender.Recommend(
+            WingMetrics(wingRejected: 600, wingAccepted: 200), DefaultConstants(), currentExposureSeconds: 0.5);
+        var converged = ExposureRecommender.Recommend(
+            WingMetrics(wingRejected: 0, wingAccepted: 800), DefaultConstants(), currentExposureSeconds: 4.0);
+
+        Assert.Multiple(() => {
+            Assert.That(shedding.IncreasesExposure, Is.True, "asks while the wings shed");
+            Assert.That(converged.WingRejectedFraction, Is.EqualTo(0.0).Within(1e-12));
+            Assert.That(converged.IncreasesExposure, Is.False, "and stops once they do not");
+        });
+    }
+
+    [Test]
+    public void Recommend_W4_TheProbeWIDENS_AndNeverRegressesARunTheSnrPathAlreadyServes() {
+        // The probe ALONE fails W4: D16 at half its derived exposure correctly asks 3x from S_now (6.5 against a
+        // target of 10), and its gate is INERT out there, so the wing test is silent. max(existing, probe) keeps
+        // that case. Both halves are load-bearing.
+        //
+        // DISCRIMINATING: replace the max() with a plain assignment of the probe factor and this fails -- 4x
+        // collapses to 2x.
+        const int n = 9;
+        var starved = new RunEvaluationMetrics {
+            FrameStarSnrs = Enumerable.Range(0, n).Select(_ => (IReadOnlyList<double>)FullFrame(5.0)).ToArray(),
+            FrameStarCounts = Enumerable.Repeat(200, n).ToArray(),
+            FrameLowSensitivityCounts = Enumerable.Repeat(300, n).ToArray(),  // wings shed too
+            FrameTooFlatCounts = new int[n],
+            FrameFocuserPositions = Enumerable.Range(0, n).Select(i => 1000 + (i - 4) * 10).ToArray(),
+            BestFocusPosition = 1000.0,
+            StepSize = 10.0
+        };
+
+        var rec = ExposureRecommender.Recommend(starved, DefaultConstants(), currentExposureSeconds: 1.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.WingIsShedding, Is.True, "fixture guard: the probe is live here");
+            // S_now = 5 against a target of 10 => (10/5)^2 = 4x, which must WIN over the 2x probe.
+            Assert.That(rec.RawSeconds, Is.EqualTo(4.0).Within(1e-9),
+                "the S/N derivation is larger here, so max() must keep it rather than let the probe cap it at 2x");
+        });
+    }
+
+    [Test]
+    public void Recommend_TheF28GuardIsLoadBearing_AnInertGateShedsNothingByConstruction() {
+        // A rejection count of ZERO is empty when the gate is inert -- StarDetector's clipping guarantees every
+        // candidate measures at least PeakResponse x EffectiveClipMultiplier, so a Sensitivity at or below that
+        // rejects nothing regardless of what the frames contain (F28). D16_esprit550_ha3 lands Sensitivity 0 with
+        // an effective gate of 0.17-2.5 at EVERY rung of its ladder, so without this guard its zeros would read as
+        // "the wings are fine" for a reason that has nothing to do with its wings.
+        //
+        // THIS TEST PINS BEHAVIOUR, NOT THE CONJUNCT -- and that correction came from neutralizing it. Removing
+        // `!gateIsProvablyInert` from WingIsShedding fails NOTHING, because the conjunct is redundant by
+        // construction: a wing fraction at or above the threshold needs a non-zero entry in the same
+        // FrameLowSensitivityCounts array gateRejectedCount sums, so an inert gate (which requires that count to be
+        // zero) can never coexist with a shedding wing. The THRESHOLD is what makes this case pass. An earlier
+        // version of this comment claimed the guard was what discriminated here; it does not, and the code now says
+        // so at the conjunct.
+        var inertParams = HocusFocusStarDetection.BuildDefaultStarDetectorParams();
+        inertParams.Sensitivity = 0.0;   // at or below PeakResponse x StarClip => provably inert
+
+        var rec = ExposureRecommender.Recommend(
+            WingMetrics(wingRejected: 0, wingAccepted: 200), DefaultConstants(),
+            currentExposureSeconds: 2.0, detectorParams: inertParams);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.GateIsProvablyInert, Is.True, "fixture guard");
+            Assert.That(rec.WingIsShedding, Is.False);
+        });
+    }
+
+    [Test]
+    public void Recommend_WingFractionIsNaN_NotZero_WhenTheRunCannotBePlacedOnTheWingAxis() {
+        // "We could not look" and "we looked and nothing was shedding" must not be the same number, because the
+        // caller turns one of them into an instruction. A run with no usable fit has no wing axis at all.
+        //
+        // DISCRIMINATING: return 0.0 instead of NaN from the guard and this fails.
+        var rec = ExposureRecommender.Recommend(
+            WingMetrics(wingRejected: 600, wingAccepted: 200, placeable: false),
+            DefaultConstants(), currentExposureSeconds: 0.5);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.WingRejectedFraction, Is.NaN);
+            Assert.That(rec.WingIsShedding, Is.False, "an unplaceable run cannot claim its wings are shedding");
+        });
+    }
+
+    [Test]
+    public void Recommend_WithoutPerFrameWingData_IsBYTEIDENTICALToThePreWingBehaviour() {
+        // Every caller that does not populate FrameFocuserPositions / FrameStarCounts / BestFocusPosition -- which
+        // is every fixture above this section, and every pre-wave-9 producer -- must be completely unaffected.
+        // The wing test is opt-in ON THE DATA, not on a flag.
+        var frame = FullFrame(40.0);
+        var metrics = BuildMetrics(new[] { frame, frame, frame });
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 3.0);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.WingRejectedFraction, Is.NaN);
+            Assert.That(rec.WingIsShedding, Is.False);
+            Assert.That(rec.ExposureIsNotTheLimit, Is.True, "unchanged from before the wing test existed");
+            Assert.That(rec.IncreasesExposure, Is.False);
+        });
+    }
+
+    [Test]
+    public void WingRejectedFraction_PoolsOverTheWingSET_SoOneFlukeFrameCannotCarryIt() {
+        // The class's own remarks defend the median-across-frames aggregation because a worst-FRAME rule "would
+        // hand the entire recommendation to whichever single frame had a passing cloud, a satellite trail, or a
+        // guiding bump". The wing statistic answers that objection by pooling over the outer THIRD rather than
+        // taking an extremum: one ruined frame among three moves the fraction, it does not decide it.
+        //
+        // DISCRIMINATING: change the pooling to a max-over-wing-frames and this fails -- 0.75 on one frame would
+        // carry it over the 0.20 threshold on its own.
+        const int n = 9;
+        var rejected = new int[n];
+        var accepted = Enumerable.Repeat(500, n).ToArray();
+        rejected[0] = 600; accepted[0] = 200;   // ONE ruined outermost frame
+        var metrics = new RunEvaluationMetrics {
+            FrameStarSnrs = Enumerable.Range(0, n).Select(_ => (IReadOnlyList<double>)FullFrame(40.0)).ToArray(),
+            FrameStarCounts = accepted,
+            FrameLowSensitivityCounts = rejected,
+            FrameTooFlatCounts = new int[n],
+            FrameFocuserPositions = Enumerable.Range(0, n).Select(i => 1000 + (i - 4) * 10).ToArray(),
+            BestFocusPosition = 1000.0,
+            StepSize = 10.0
+        };
+
+        var rec = ExposureRecommender.Recommend(metrics, DefaultConstants(), currentExposureSeconds: 2.0);
+
+        // 600 rejected against 200 + 500 + 500 accepted = 600/1800 = 0.333 -- still over the threshold here, but
+        // it is a POOLED third, not one frame's 0.75.
+        Assert.That(rec.WingRejectedFraction, Is.EqualTo(600.0 / 1800.0).Within(1e-9));
+    }
+
     /// <summary>Builds an inclusive ascending double range [start, end] -- a small local helper to keep the
     /// 40-value quantile test readable.</summary>
     private static double[] Range(int start, int end) {

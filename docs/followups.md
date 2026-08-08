@@ -652,9 +652,10 @@ Reproduce: `D:\hf_w5\f24_arms.sh`, analysed by `D:\hf_w5\analyze_f24.py`.
 > D06/D09/D14 — none of which was ever suspect — and is untouched.
 
 ### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
-**Status:** **OPEN — the wave-7 "working as intended" position was REFUTED by its own pre-registered test**
-(2026-08-06). A rich field gains 44% of σ_focus from 8× the derived exposure, and the block is never even
-surfaced there · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
+**Status:** **(a) refuted (wave 8) · (b) DONE (wave 8) · (c) RESOLVED "the floor stays", free, no re-render
+(wave 9) · THE REMAINDER IS FIXED (wave 9): the wing rejected fraction, chosen by a rule fixed before it, and the
+reason both earlier fixes failed is now a THEOREM about the gate.** Population check across both banks still owed
+· found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
 
 `ExposureRecommender`'s `S_now` is the median, across non-recovery frames, of each frame's
 **`NTarget`-th-brightest** accepted-star SNR, with `NTarget = 20`. Any reasonably wide field contains 20 stars
@@ -840,6 +841,138 @@ derived-exposure rung on either dataset, this entry REOPENS.**
 >   invalidate that arm (every φ arm sees the same frames) but it must be stated there.
 >
 > **This list IS (c)'s work list**, produced by (b) rather than by a separate investigation.
+
+> ## THE REMAINDER IS FIXED (2026-08-07, wave 9), AND THE REASON BOTH EARLIER FIXES FAILED IS A THEOREM
+>
+> ### The gate floor theorem
+>
+> `StarDetector.InertSensitivityBound` proves every candidate reaching the Sensitivity gate satisfies
+> `sensitivity > PeakResponse × EffectiveClipMultiplier`, and acceptance additionally requires it to exceed
+> `StarDetectorParams.Sensitivity`. So **every accepted star's gate statistic strictly exceeds
+> `EffectiveSensitivityGate = max(Sensitivity, InertSensitivityBound)`** — and therefore **ANY order statistic
+> over accepted stars, at ANY rank, on ANY subset of frames, is bounded below by that gate.**
+>
+> **Corollary: when the optimizer lands a gate at or above `TargetSensitivity` (10), `ExposureIsNotTheLimit` is
+> true BY CONSTRUCTION, whatever the sky contains.** `D02_rich_135mm` lands its effective gate at **16.7 / 50.0 /
+> 34.3 / 10.0 / 14.0** across a 16× exposure ladder over which σ_focus improves **48 %**.
+>
+> **This is why both earlier fixes were refuted by their own pre-registered tests.** Wave 7's "change `NTarget`"
+> and wave 8's "widen the trigger" each moved the rank or the display and left the POPULATION untouched. It is
+> strictly stronger than wave 7's leg 2, which established only that the *faintest accepted star* is pinned by the
+> gate; the theorem says every statistic over accepted stars is. **And it killed wave 9's own first candidate
+> family before a line of it was implemented** — all four candidates were order statistics over accepted stars.
+>
+> ### What ships: the WING REJECTED FRACTION
+>
+> The candidates the gate **rejected** on the sweep's wing frames are the only population in a run that is not
+> floored by the gate, and they are exactly the stars a longer exposure can convert.
+> `ExposureRecommendation.WingRejectedFraction` = `rejected / (rejected + accepted)` pooled over the outer third
+> of the non-recovery frames by distance from the fitted focus; `WingIsShedding` at ≥ 0.20.
+>
+> - **Pooled over a wing SET, not a worst frame** — which answers this class's own documented objection that a
+>   worst-frame rule "would hand the entire recommendation to whichever single frame had a passing cloud".
+> - **A PROBE (×2), not a formula**, following `StarCountProbeFactor`'s precedent: the run records HOW MANY
+>   candidates were rejected out there, not what SNR they sat at, so there is nothing to derive a magnitude from.
+>   **Fabricating one was measured and rejected** — a `(1/(1−f))²` form asked **1.25×** on `D16` at exactly the
+>   exposure where its σ_focus is minimised, which is the control the whole statistic has to pass.
+> - **It WIDENS rather than replaces:** `max(existing, probe)`. Both halves are load-bearing.
+> - **NaN, never 0**, when the run cannot be placed on the wing axis. "We could not look" and "we looked and
+>   nothing was shedding" must not be the same number, because the caller turns one of them into an instruction.
+> - **Inert unless the data supports it:** a caller that does not populate the per-frame wing axis is
+>   byte-identical to before.
+>
+> ### RULE W, fixed BEFORE the statistic was written, and applied to this binary's own ladder
+>
+> Validated on wave 7's exposure ladder, still on disk at `D:\hf_w7\armE\t{0.5,1,2,4,8}`. **No re-render.**
+>
+> | | W1 `D02`@0.5 s ≥ 2× | W2 `D16`@2 s < 1.25× | W3 converges | W4 `D16`@0.5 s asks | verdict |
+> |---|---|---|---|---|---|
+> | shipped statistic | ✗ 1.00× | ✓ | ✓ | ✓ | fires on NEITHER |
+> | wing fraction, `(1/(1−f))²` magnitude | ✓ 4.00× | ✗ 1.25× | ✗ | ✗ | fires on BOTH |
+> | wing headroom vs the gate | ✓ 2.00× | ✓ | ✗ | ✗ | — |
+> | wing probe ALONE | ✓ 2.00× | ✓ | ✓ | ✗ | — |
+> | **`max(shipped, wing probe)`** | **✓ 2.00×** | **✓ 1.00×** | **✓** | **✓ 3.00×** | **ADOPTED** |
+>
+> **Five of seven candidates failed, three of them AFTER passing W1** — the clause that looks like the whole point.
+> On `D02` the adopted statistic asks 2× at 0.5 / 1 / 2 s and goes **silent at 4 s**, which is exactly where this
+> binary's σ_focus minimum sits (0.05208).
+>
+> **The ladder MOVED between binaries** ([F54](#f54--f39bs-default-flip-moves-a-landing-at-a-resolved-factor-of-1-where-it-is-documented-as-a-no-op)),
+> so the rule was applied to this binary's own σ values rather than to wave 7's — after checking that **all four
+> clauses' premises survive on both ladders**. `D02` gains 48 % here against wave 7's 44 %; `D16`'s minimum is at
+> its derived 2 s on both, and 4 s / 8 s are worse on both.
+>
+> **The verdict is reproduced END TO END by the shipped code**, not only by the offline scorer: re-running the ten
+> rungs with `ExposureRecommender` itself gives the same four passes.
+>
+> **Tests: 8, four discriminating**, each confirmed by neutralizing — delete the probe ⇒ W1/W3/W4 fail; `max()` ⇒
+> plain assignment ⇒ W4 alone fails; fire on any rejection ⇒ W2 alone fails. That also caught an overclaim in one
+> of this wave's own test comments: the F28 conjunct is **redundant by construction** and fails nothing when
+> removed, so both the code and the test now say so.
+>
+> **Still owed: the §3.5 population check** — the verdict measured across all 20 synthetic datasets and the real
+> bank. It is blocked behind F32's confirmation arm, structurally rather than by scheduling: `optimize --per-run`
+> writes back into the bank's run folders ([F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings))
+> and there is no flag to suppress it, so a population pass while that arm is in flight would race it on every
+> folder. Reproduce: `D:\hf_w9\wing2\`, `D:\hf_w9\wing\score_wing.py`.
+
+> ## (c) RESOLVED 2026-08-07 (wave 9): THE FLOOR STAYS, THE CEILING STAYS, AND NOTHING RE-RENDERS
+>
+> (c) was filed as expensive — moving `MinExposureSeconds` re-derives and re-renders 11 datasets. **The check
+> that decides whether to spend that is free, and it was run first.** Rule F19c, fixed before it ran: *(c)
+> resolves as "the floor stays" unless a floor-clamped dataset can be shown, from data already on disk, to have
+> its σ_focus minimum BELOW 0.5 s.*
+>
+> **The floor. Every one of the 11 clamped datasets asks for LESS than 0.5 s**, so a lower floor moves all eleven
+> **down** — and the one dataset with a measured exposure ladder moves the other way: wave 7's arm E has `D02`
+> improving **44 % of σ_focus at 8 s**, four orders of magnitude above its 0.001 s ask. **Lowering the floor makes
+> `D02` worse; raising it is not what a floor is for** (a floor stops an absurdly short exposure, it does not
+> supply an exposure the derivation failed to find). **The floor is the symptom, not the defect.**
+>
+> **And the free check produced a number the entry never had.** `synth-bank --dry-run` on the wave-9 binary
+> reproduces the saturated set exactly (**13 of 20**, 11 floor + 2 ceiling), and printed beside the on-frame star
+> count the 20th-brightest is drawn from it says what this entry has always ARGUED:
+>
+> | dataset | on-frame stars | raw ask | clamp |
+> |---|---|---|---|
+> | `D10_rc16_3250mm_sparse` | **26** | **335.6 s** | ceiling |
+> | `D13_apo200_1800mm` | 177 | 0.264 s | floor |
+> | `D07_rc10_2000mm` | 428 | 0.066 s | floor |
+> | `D14_cdk14_2563mm_e47` | 640 | 0.055 s | floor |
+> | **`D17_cdk14_oiii5`** | **799** | **40.4 s** | **ceiling** |
+> | `D03` / `D20` / `D05` / `D02` | 969 / 1151 / 2346 / 3590 | 0.003 / 0.004 / 0.014 / **0.001** s | floor |
+> | `D19` / `D04` / `D01` / `D18` | 4914 / 7480 / 19201 / **27084** | 0.008 / 0.004 / 0.003 / 0.004 s | floor |
+>
+> **Spearman ρ(on-frame star count, raw ask) = −0.68 over the 13.** The two CEILING datasets are the two
+> sparsest-or-faintest; all eleven FLOOR datasets are the rich ones. *"Sized by field richness rather than by
+> whether the stars the fit depends on are above the noise"* is no longer an argument — it is a rank correlation
+> over the whole bank, in both directions at once.
+>
+> **The one exception is the honest one, and it is this entry's own poster child.** `D17_cdk14_oiii5` has 799
+> on-frame stars — more than four of the floor-clamped datasets — and still asks for 40.4 s, because an OIII
+> filter genuinely starves it. So richness is not the WHOLE story; it is simply the dominant term, and the
+> statistic has no way to tell the two apart. That is the wing-statistic problem, not a clamp problem.
+>
+> ### The CEILING, which had never been examined
+>
+> Separable from the floor and **not obviously the same defect** — at the floor the arithmetic asks for less than
+> any sane exposure; at the ceiling it asks for more than an AF sweep can spend.
+>
+> - **Product: `MaxRecommendedExposureSeconds = 30 s` STAYS. Verified, not changed.** `D10`'s 335.6 s over a
+>   9-point sweep is ~50 minutes of pure integration and `AutoFocusEngineOptions.AutoFocusTimeout` would kill the
+>   run. The cap is doing its job, and `StarSignalCopy.DescribeExposureDerivation` already names *which* bound
+>   bound it (F19(b) verified that).
+> - **Bank fidelity: `D10` and `D17` are RENDERED at 30 s while their own physics asks 335.6 / 40.4 s.** Two of
+>   the twenty datasets are deliberately photon-starved relative to their derivation and no write-up had ever said
+>   so. **Recorded, not re-rendered:** a `D10` rendered at 335 s would be a dataset no user could capture.
+> - **Rule CEIL, fixed in advance:** the ceiling moves only if a dataset's σ_focus is measured to improve
+>   materially between 30 s and its raw ask. No such ladder exists, and rendering one would re-render the bank
+>   [F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains)'s
+>   confirmation arm was running on. **Deferred with a stated price**, which is the thing wave 8's §0.1 got wrong
+>   by deferring on a prediction instead.
+>
+> **So (c) costs nothing and re-renders nothing, and the wave's item 1 was worth running for its own sake rather
+> than as a prerequisite.** Reproduce: `D:\hf_w9\dryrun_w9.txt`.
 
 ### F20 — Below `MinHFR` the autofocus objective collapses to exactly zero, with no diagnostic
 **Status:** Done (parts 1 and 2) · found 2026-08-02 running `optimize --per-run` over the
@@ -1340,10 +1473,11 @@ fail in two directions — biased, then saturated — which is why `precisionNul
 precision figure rather than being something a reader has to think to ask for.
 
 ### F32 — `J` is saturated near 1.0, so the optimizer trades enormous recall for numerically trivial gains
-**Status:** Open — **mechanism shipped default OFF (wave 5)**; the confirmation arm was **re-validated as the right
-experiment (wave 6)** against a restarts-only alternative and is still owed. The
-entry's own premise is corrected below: on 5 of 7 binding runs there was no trade to bound, the search was
-merely stuck · found 2026-08-03 re-reading the wave-1 real-bank control arm
+**Status:** **ANSWERED 2026-08-07 (wave 9): the confirmation arm ran on both full banks and phi = 0.50 does NOT
+ship.** R1(c) fails catastrophically (σ_focus x2000 worse on `vsn07`), R3 fails on the newly-covered population,
+and R2 INVERTS wave 6 — restarts recover 228 % of the floor's gain, so the floor is not a distinct mechanism.
+`MinDetectionKeepFraction` stays default OFF permanently. **The greedy trap itself is confirmed and stands**; the
+floor is simply the wrong instrument for it · found 2026-08-03 re-reading the wave-1 real-bank control arm
 
 The objective's landings are not close calls. Across the 17 scorable real-bank runs, `optimize --per-run` gives
 up a **median 0.243 of recall@SNR≥12** to gain a **median ΔJ of +0.0125** — and the worst cases are far starker
@@ -1508,6 +1642,72 @@ of the derivation does not move) and **F39(b) needed no re-render at all** (the 
 frames' exposures were already derived at binning 2). Nothing in wave 7 has re-rendered a frame, so `D18` / `D19`
 / `D20` — this arm's entire synthetic half — are bit-for-bit what wave 5 and wave 6 measured, and its other five
 runs are on the real bank, which wave 7 never touches. **The arm is runnable and comparable TODAY.**
+
+> ## THE CONFIRMATION ARM RAN (2026-08-07, wave 9). BOTH CONTROLS PASS, AND phi = 0.50 DOES NOT SHIP.
+>
+> Deferred across waves 5, 6, 7 and 8; run sequentially over **both full banks** (39 runs x 3 arms = 117
+> optimizations, 9 h 24 m) after [F55](#f55--optimize-is-not-reproducible-when-several-instances-run-at-once-and-the-seed-evaluation-is-what-moves)
+> voided a first attempt at fan-out 4.
+>
+> ### The controls, which is what makes any of it readable
+>
+> | control | fan-out attempt | **sequential** |
+> |---|---|---|
+> | **RULE G** — arm A vs wave 5's feature-OFF arm | FAIL 2 of 8 | **PASS 8 of 8 to 6 dp** |
+> | **`BaselineJ`** — [F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)'s tell | 6 of 39 moved | **0 of 39 moved** |
+>
+> ### The verdict: 11 of 39 runs bind, and phi = 0.50 FAILS on three independent pre-registered rules
+>
+> | rule | measured | verdict |
+> |---|---|---|
+> | **R1(a)** median Δ`J` (B − A) on binding runs | **+0.000076** | pass |
+> | **R1(c)** worst σ_focus regression | **`vsn07` 0.00083 → 1.71721** | **FAIL** |
+> | **R2** restarts' recovery of the floor's median gain | **228 %** | **the floor is NOT a distinct mechanism** |
+> | **R3** newly-covered binding runs | 6: **2 improved, 4 regressed** | **FAIL** |
+>
+> **R1(c) fails catastrophically, not marginally.** The bar was 20 %. `vsn07` degrades σ_focus by a factor of
+> **2000** (0.00083 → 1.71721) and `FlyData` by a factor of 7.7 (0.16738 → 1.28554). On these runs the floor does
+> not trade recall for `J` — **it destroys the focus fit**, which is the one thing the objective exists to protect.
+>
+> **R3 fails, and it is wave 8's `StructureLayers` lesson repeating exactly.** On the runs wave 5 never covered
+> the floor regresses 4 and improves 2. Wave 5's evidence was 7 binding runs on a subset chosen because the floor
+> looked good there; the population that did not motivate the hypothesis refuted it.
+>
+> **R2 INVERTS wave 6's finding, and this is the wave's most interesting result.** At 8 runs, `--continue-rounds 2`
+> recovered **0–36 %** (median 13.8 %) of the floor's gain, which is what justified keeping the floor as a distinct
+> mechanism worth confirming. At full-bank scale restarts recover **228 %** — they are strictly BETTER than the
+> floor, on the floor's own binding set. Wave 6's conclusion was drawn from 7 runs and reverses on 11.
+>
+> **So: `MinDetectionKeepFraction` stays default OFF, permanently rather than pending.** It remains available as
+> `--keep-floor` on the harness. **The greedy trap this entry discovered is real and is NOT withdrawn** — restarts
+> demonstrably improve `J` on most binding runs — but the keep floor is the wrong instrument for it, and the
+> honest product change is to expose RESTARTS (the wizard's "Continue optimizing" button already is one) rather
+> than a feasibility constraint that can cost 2000× of σ_focus.
+>
+> ### WHAT SHIPS INSTEAD: the restart, exposed (2026-08-07, wave 9)
+>
+> R2 says restarts recover **228 %** of the floor's gain, so the mechanism ships as the affordance the user
+> already had. **"Continue optimizing" IS a restart** — each pass re-seeds from the prior best with a fresh
+> curated set, resetting the pattern-search stride — and it has always been on the Summary page. Nothing told the
+> user when pressing it was worth anything.
+>
+> `StarDetectionOptimizerWizardVM.ContinueOptimizingAdviceText` is that missing half: when the landing kept less
+> than **half** the stars its own seed did (φ = 0.50 reused as a DIAGNOSTIC, the one role this arm supports for
+> it), the Summary says so and points at the button.
+>
+> - It **names a control that is present AND enabled** — gated on `CanContinueOptimization`, so it disappears at
+>   the 3-round cap and while a pass is running (the house rule at `ShowOptimizeAgainAtRecommendedBinning`).
+> - It **never names `MinDetectionKeepFraction`**, which has no XAML binding and which this arm measured as
+>   harmful as a default.
+> - It promises a **direction, not a magnitude** — restarts helped on most binding runs, not all.
+> - It is **absent on healthy landings**, because a note that always fires says nothing.
+>
+> **Tests: 4, two of them discriminating**, each confirmed by neutralizing: removing the shedding threshold fails
+> `ContinueAdvice_HealthyLanding_SaysNOTHING`; removing the `CanContinueOptimization` guard fails
+> `ContinueAdvice_NeverPromisesAnActionThatCannotBeTaken`.
+>
+> **F15:** arm A ran LAST, so both banks hold the SHIPPED-DEFAULT landing — the correct resting state, and no
+> re-land is owed since nothing was adopted. Reproduce: `D:\hf_w9\f32_arms.sh` (FANOUT=1), `D:\hf_w9\score_f32.py`.
 
 **When F18's re-render does happen, the rule for this arm is fixed in advance:** the datasets whose `step*` moves
 get their pre-wave frames preserved (`D:\hf_w7\oldframes`, as wave 6 did) and the arm runs on those; an arm run
@@ -2865,9 +3065,45 @@ than on `IncreasesExposure` alone. (b) Make the re-capture apply the recommended
 exposure, or say plainly that it will not. (c) Neither should require Accept: re-capturing is not adopting.
 Reproduce: NINA log `20260806-122836-3.3.0.1048.73484-202608.log`; frames in `E:\AutoFocusSaves\`.
 
+**ALL THREE SHIPPED 2026-08-07 (wave 9), and (a) turned out to have TWO causes rather than one.** The entry
+names `IncreasesExposure`; the property also required `HasExposureBlock`, which is
+`OptimizationSummary.HasLowStarSignal` — **Sensitivity ≤ 1.0**. So the button was hidden by the exposure
+condition on run 2 *and* by the BLOCK's own condition on runs 1, 3 and 4, whose gates were healthy and which
+therefore never had a re-run affordance at all. The entry's table records those three runs recommending 214, 474
+and 482 with no way to act on any of them, and nothing in the entry had noticed the second gate.
+
+| part | what shipped |
+|---|---|
+| **(a)** | `ShowCaptureNewSweep` = `lastRunWasLive && !IsUseCurrentMode && (IncreasesExposure ‖ StepSizeOrOffsetChanged)`. The `HasExposureBlock` conjunct is **gone**, and the row **moved out of the Star signal block** into the Auto-focus block — beside the step-size and offset rows, which are the values it now carries. The two MODE conditions stay (Replay has no rig; use-current has nothing to re-tune), because those are fixed for the life of the Summary |
+| **(b)** | `ApplyRecaptureGeometry(options, stepSize)` in `RunLiveAttemptAsync`, applied **before** `ApplyFocusRecovery`. Set from the SELECTED summary by `CaptureNewSweepAsync` and cleared on **every** exit path, so an ordinary Live Start is byte-identical |
+| **(b), the "or say plainly" half** | shipped **as well as** carrying it: `CaptureNewSweepCarriesText` states the geometry the next sweep will use (`"step size 214 → 459 … at the exposure below"`) and that nothing is written to the profile. A sweep geometry the user cannot see is how this defect stayed invisible for a whole session |
+| **(c)** | already true and now reachable — the command persists nothing and Accept remains the only writer. What forced the Accepts was (a) hiding the control, not (c) |
+
+**The house rule survives in both directions**, which is what the row's relocation had to preserve:
+`StarSignalCopy`'s Live sentence naming the button fires on `increases && live && !useCurrent`, which is a strict
+subset of the new visibility — so the copy can never name a hidden button. And in the new step-only state, where
+the Star signal block is not on screen at all, the row carries its own sentence.
+
+> **CORRECTION, caught by an existing test on the full-suite run.** The first version of (b) also carried the
+> recommended **offset steps**, and `CaptureNewSweep_UsesTheSnapshottedRecoverySteps_NotTheLiveBox` failed with a
+> re-capture widened to **5** where the recovery snapshot alone gives **1**. It is wrong for two independent
+> reasons, and the test found both: `StepSizeRecommender` derives its step from the desired half-width over the
+> **current** points-per-side, so the recommended STEP already expresses the whole geometry change at the existing
+> offset — carrying the offset too widens the sweep twice; and `ApplyFocusRecovery` **owns** the offset axis and
+> ADDS to whatever it is handed. **The re-capture now carries the step size and nothing else**, and the copy says
+> so rather than promising a sweep it does not take.
+
+**Tests: 3 discriminating on `ApplyRecaptureGeometry`** (carries the step; complete no-op at non-positive, so the
+Start path is unchanged; composes with `ApplyFocusRecovery` without double-widening — which is the assertion the
+correction above turned into a permanent guard).
+
+**Still open, and it is the entry's real subject:** the step recommender asking to widen on **every** run because
+the sweep never reaches `3 × HFR_min`. (a)–(c) make the iteration cheap; they do not make it terminate. That is
+[F21](#f21--stepsizerecommenders-half-width-is-not-stable-against-noise-even-at-r--10000)/F49(c).
+
 ### F52 — A two-hour optimization logs ONE line and offers no cost context, and the search is not cost-aware
-**Status:** **(a) and (b) DONE 2026-08-06 (wave 8); (c) BLOCKED on [F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one);
-(d) open** · found 2026-08-06 (wave 8) from the same field session · partly measured, partly **unmeasurable after
+**Status:** **(a) and (b) DONE 2026-08-06 (wave 8); (c) DONE 2026-08-07 (wave 9) once F19's remainder
+landed; (d) open** · found 2026-08-06 (wave 8) from the same field session · partly measured, partly **unmeasurable after
 the fact, which is the finding**
 
 Run 4 (step 459, 2 s) ran from 14:38:11 to past 16:30 — **over two hours**. Run 3, on the **same step size, same
@@ -2959,7 +3195,28 @@ note and did not, because its seed sat at the shipped default of 4 where the two
 seed now turns the donut master on (effective depth 6, `StructureLayers` still 4) so the absolute implementation
 reports "2 deeper" for a search that has not moved, and the test fails as claimed.
 
-**(c) Recommend whether to abort and re-run at a longer exposure — BLOCKED ON
+> **(c) SHIPPED 2026-08-07 (wave 9), on the statistic it was waiting for.**
+> [F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one)'s
+> remainder landed as `ExposureRecommendation.WingIsShedding` — the fraction of candidates the gate rejected on the
+> sweep's WING frames, which is the one population in a run not floored by the gate. **The separation this entry
+> drew is kept exactly: facts about COST need no new statistic and are already shown; ADVICE needs one.**
+>
+> `StarDetectionOptimizerWizardVM.SearchExposureAdvice` is computed in `ComputeBaselineJAsync` — i.e. from the
+> **SEED evaluation, which runs BEFORE the search** — so the answer to *"should I abort and try again with a
+> longer exposure?"* was available in the first minute rather than after two hours, which was the complaint.
+>
+> It is **absent when the wings are healthy** (a note that always fires says nothing), it **names Cancel**, which
+> exists, and it says **what Cancel costs in the same sentence**, because not knowing that is why the user sat
+> through the two hours. It quotes **no recommended exposure**: the wing probe is a probe precisely because the
+> rejected candidates' SNRs are not recorded, and the Summary's exposure row is where a number belongs once the
+> run finishes.
+>
+> **Tests: 4, three discriminating** — and the multi-run one is CORRECTED. Its first version paired a shedding run
+> with a healthy one, which the aggregation skips entirely, so "worst" and "average" were identical and it passed
+> under a deliberately-averaged implementation. It now pairs two shedding runs (0.75 and 0.30) and fails as
+> claimed.
+
+**(c) ~~Recommend whether to abort and re-run at a longer exposure~~ — was BLOCKED ON
 [F19](#f19--the-exposure-recommendation-is-decided-by-the-20-brightest-stars-so-a-rich-field-can-never-earn-one),
 and shipping it before that would be actively harmful.** This is the piece the user asked for by name. It cannot
 be built on the existing exposure statistic: on this very rig that statistic reported *"2 s (unchanged; measured
@@ -2975,6 +3232,386 @@ the price for a fourth-decimal gain — the same shape as
 [F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains), in wall
 time instead of recall.
 Reproduce: `D:\hf_w8\field\compare_runs.sh`, `D:\hf_w8\field\cost_*.json`, `D:\hf_w8\field\gate_*.json`.
+
+### F56 — The à-trous wavelet residual convolves a DENSE kernel that is 99.5 % zeros, and that IS the `StructureLayers` cost curve
+**Status:** **DONE — fixed properly in [PR #187](https://github.com/ghilios/hocus-focus/pull/187)
+(`AtrousWaveletFast`, `StarDetectorVersion` 1→2), which validated this entry's DIAGNOSIS and refuted this entry's
+first FIX.** The kernel really is 99.5 % zeros; the stage is memory-bandwidth bound, so wave 9's five-pass
+rewrite ran +50 % SLOWER and was reverted, while the sparse 5-tap SIMD path that replaced it measures
+**2.5× / 9.7× / 40×** at layers 4 / 6 / 8 · found 2026-08-07 (wave 9) answering a question about GPU/SIMD builds
+
+`StarDetector` step 4's structure-removal residual is the detector's dominant cost.
+[F52](#f52--a-two-hour-optimization-logs-one-line-and-offers-no-cost-context-and-the-search-is-not-cost-aware)
+measured it on `D15_cdk20_3454mm_e47`: **27 / 46 / 117 / 254 / 526 s** for `StructureLayers` 4→8, *"roughly a
+doubling per layer"*, and shipped a UI note explaining that cost to users.
+
+**The doubling is an implementation artifact.** `CvImageUtility.GetB3SplineFilter(L)` builds a 1-D kernel of
+length `(1 << (L+2)) + 1` in which **exactly five taps are non-zero** — the B3-spline `0.0625 / 0.25 / 0.375 /
+0.25 / 0.0625` spaced `2^L` apart — and its own comment states the intent: *"Rather than copy the matrix to
+convolve it, we can pad the separated filter with zeroes."* `Cv2.SepFilter2D` then performs a **dense** separable
+FIR over the whole kernel.
+
+| layer | kernel taps | useful taps | wasted multiply-adds |
+|---|---|---|---|
+| **4** (shipped default) | 65 | 5 | **13×** |
+| 6 | 257 | 5 | **51×** |
+| 8 | 1025 | 5 | **205×** |
+
+Cost is linear in kernel length, and the kernel doubles per layer — which reproduces F52's measured curve exactly.
+
+**"À trous" MEANS "with holes", and the algorithm exists to be O(1) per layer**: convolve 5 taps at stride `2^L`.
+OpenCV's `sepFilter2D` has no dilation parameter, which is presumably why the zero-padding was chosen, but a
+hand-written strided 5-tap separable pass has no such limit and is trivially vectorizable.
+
+> ### IMPLEMENTED, MEASURED, AND REVERTED THE SAME DAY — the FLOP analysis above does not predict wall time
+>
+> The strided rewrite was built, CI-verified (3682 passed / 0 failed; equivalence green at layers 1–6), merged,
+> and then **measured against the pre-F56 binary on the 8-run sequential gate — the same runs, same invocation,
+> sequential both times.**
+>
+> | run | pre-F56 | F56 strided | change |
+> |---|---|---|---|
+> | `toml999` | 154 s | 232 s | **+51 %** |
+> | `CWhiteFocus` | 495 s | 795 s | **+61 %** |
+> | `uneven` | 339 s | 641 s | **+89 %** |
+> | `muggsie` | 65 s | 101 s | **+55 %** |
+> | `mccomiskey` | 326 s | 351 s | **+8 %** |
+> | `D18_m24_deep_shed` | 334 s | 442 s | **+32 %** |
+> | **total** | **1713 s** | **2562 s** | **+50 %** |
+>
+> **Uniformly slower. Not one run faster. REVERTED.**
+>
+> **Why the arithmetic was irrelevant.** The à-trous residual is **memory-bandwidth bound, not FLOP bound.**
+> `sepFilter2D` makes ONE pass per axis with the kernel resident in registers; the strided version as implemented
+> made **five full-image read-modify-write passes per axis**, plus two `CopyMakeBorder` allocations per layer. It
+> traded 13× fewer multiply-adds for 5× the memory traffic, and at these image sizes memory wins. The 13–205×
+> figures are correct as FLOP counts and **do not predict runtime** — which is the whole reason the entry was
+> filed as "ANALYSIS, NOT MEASUREMENT".
+>
+> **What IS established, and is worth keeping:**
+> 1. **The rewrite is LANDING-NEUTRAL.** RULE G on the F56 binary passes **8 of 8 to 6 dp** — bit-identical
+>    landings, `BaselineJ` included. So the à-trous can be reimplemented freely without invalidating any prior
+>    arm; only speed is at stake.
+> 2. **The kernel really is 99.5 % zeros**, and F52's measured 2×-per-layer curve really is that padding. That
+>    part of the diagnosis stands.
+> 3. **The right implementation is a SINGLE FUSED strided pass**, not five composed `Cv2` calls: one hand-written
+>    pointer loop per axis gathering 5 taps at stride `2^L`, giving `sepFilter2D`'s memory traffic (one read, one
+>    write) with 5 multiply-adds instead of `2^(L+2)+1`. That is the version that should win at every layer, and
+>    it is what "O(1) per layer" was always supposed to mean.
+>
+> **Lesson, and it is this entry's real content: a FLOP count is not a benchmark.** The waste was real and the
+> conclusion was still wrong, because the bottleneck was somewhere the analysis never looked. Measure the thing
+> you are about to optimise before optimising it — the gate that measured this cost 33 minutes and would have
+> cost nothing to run first.
+
+**Why it matters beyond speed.** (a) `OptimizerVariable` searches `StructureLayers` over `[1, 8]`, so every
+optimizer run pays this, hundreds of times — it is a large share of the two-hour runs F52 was filed about.
+(b) [F46](#f46--detection-binning-buys-faint-stars-and-quietly-sells-bright-ones-to-the-shapesize-gates) showed
+deeper layers are the RIGHT answer at detection binning 2, and the cost is what makes that expensive to adopt.
+(c) It reframes F52(d): a cost term in `J` would be penalising an artifact rather than physics.
+
+> ### RESOLVED by PR #187 — and the shape it shipped in is the one wave 9's failure pointed at
+>
+> `Utility/AtrousWaveletFast.cs` replaces the dense `SepFilter2D` with a **sparse 5-tap SIMD path** — one fused
+> pass per axis, taps gathered at stride `2^L`, exactly the "single fused strided pass, NOT composed `Cv2` calls"
+> this entry's revised next-step called for. Design: [`docs/atrous-wavelet-fast-design.md`](atrous-wavelet-fast-design.md).
+>
+> | `StructureLayers` | legacy `SepFilter2D` | fast | speedup |
+> |---|---|---|---|
+> | 4 (shipped default) | 130 ms | 52 ms | **2.5×** |
+> | 6 | 781 ms | 81 ms | **9.7×** |
+> | 8 | 4267 ms | 107 ms | **40×** |
+>
+> **Legacy cost doubles per layer — the F52 curve — and the fast path is nearly flat** (52 → 81 → 107 ms), which
+> is the entry's central claim confirmed by benchmark rather than by arithmetic. It wins **even single-threaded**,
+> so the gain does not depend on core count.
+>
+> **Three of wave 9's conclusions are now settled by it.**
+>
+> 1. **The diagnosis was right and the implementation was wrong.** Wave 9 counted FLOPs, predicted 20–100×, and
+>    shipped a five-pass version that was measured **+50 % slower**. The correct version is 2.5–40× faster. The
+>    difference is entirely one fused pass versus five composed ones — i.e. memory traffic, which the FLOP count
+>    never looked at.
+> 2. **It confirms the memory-bandwidth reading**, from the other side: *"both passes stream at memory bandwidth
+>    once the tap count is fixed, which is why 24 threads only add ~1.5× over one thread."* That is also the
+>    strongest available argument against a custom SIMD or CUDA OpenCV build — the bottleneck is bandwidth, not
+>    instruction width.
+> 3. **[F52](#f52--a-two-hour-optimization-logs-one-line-and-offers-no-cost-context-and-the-search-is-not-cost-aware)'s
+>    cost note is retired with it**, and [F52](#f52--a-two-hour-optimization-logs-one-line-and-offers-no-cost-context-and-the-search-is-not-cost-aware)(d)
+>    (a cost term in `J`) loses most of its motivation: structure-layer depth is no longer a cost driver worth
+>    narrating or penalising, which is exactly the "you would be penalising an artifact" risk wave 9 flagged.
+>
+> **`StarDetectorVersion` 1→2** ships it through the sanctioned door: the paths agree to ≤ 3e-8 but are not
+> bit-identical, so the bump invalidates cached detections rather than letting a changed output pass silently.
+
+**Superseded next steps (kept for the record).** (a) **BENCHMARK FIRST** — the 8-run sequential gate is 33 minutes and
+is the instrument that settled this; run it before writing any further optimisation, not after. (b) If it is
+attempted again, the shape is a **single fused strided pass** (one hand-written pointer loop per axis, 5 taps at
+stride `2^L`, one read and one write), NOT composed `Cv2` calls — the composed form is what lost. (c) Find the
+crossover: F52's 27 → 526 s curve means dense must lose *somewhere*, so a hybrid that keeps `sepFilter2D` at low
+layers and switches at the crossover may be the only version that wins. (d) Equivalence is already established —
+RULE G passed 8/8 on the strided binary — so a future attempt needs only a benchmark, not a re-validation.
+**On custom SIMD / CUDA OpenCV builds:** the stock native build already dispatches AVX2/AVX-512, and this
+result is the argument against assuming any build-level change helps — the stage is bound by memory, not by
+instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
+buying or building anything.
+
+### F55 — `optimize` is NOT reproducible when several instances run at once, and the SEED evaluation is what moves
+**Status:** Open · found 2026-08-07 (wave 9) when the confirmation arm's own pre-registered control fired ·
+**this voids the wave-9 F32 arm and constrains every future arm's design**
+
+Wave 9 ran F32's confirmation arm with a **fan-out of 4** — four `optimize --per-run` processes on distinct bank
+folders — to bring ~28 h of sequential compute down to ~7 h. The design pre-registered a free control for exactly
+this: arm A re-measures the 8 runs the sequential gate had already pinned.
+
+> **RULE G fired. 2 of the 8 do not reproduce.**
+>
+> | run | sequential gate | arm A, fan-out 4 |
+> |---|---|---|
+> | `toml999` | **0.997993** | **0.995784** |
+> | `D18_m24_deep_shed` | **0.999822** | **0.999882** |
+> | the other six | *(exact)* | *(exact)* |
+
+**And the second control says where it comes from.** `BaselineJ` is the objective of the run's CURRENT settings —
+**a single evaluation of the pinned seed, with no search involved**. The three arms differ only in `--keep-floor`
+and `--continue-rounds`, neither of which touches that evaluation, so it must be identical across all three. On
+**6 of 39 runs it is not**:
+
+| run | A | B | C |
+|---|---|---|---|
+| `D16_esprit550_ha3` | 0.988555 | **0.979173** | **0.979173** |
+| `D10_rc16_3250mm_sparse` | 0.958929 | **0.957201** | **0.957201** |
+| `D17_cdk14_oiii5` | 0.993062 | **0.994830** | 0.993062 |
+| `D14_cdk14_2563mm_e47` | 0.997901 | **0.997500** | 0.997901 |
+| `mufti` | 0.957087 | **0.957603** | **0.957603** |
+| `D15_cdk20_3454mm_e47` | 0.994703 | 0.994703 | **0.994474** |
+
+**The gaps are far too large to be float-summation order** (`D16` moves by 0.0094), and the pattern is sporadic
+rather than per-arm — A is the odd one out on three runs, B on two, C on one. This is
+[F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)'s tell firing at scale, and
+[F8](#f8--optimizer-landings-are-not-reproducible-across-invocations) one level deeper: not "a landing is a
+property of the trajectory", but **the seed evaluation itself is not a function of (frames, settings) alone.**
+
+**Two causes EXCLUDED by measurement, not by argument.** Re-running `toml999` today at arm A's exact invocation:
+
+- **Not the F15 folder state.** Run **sequentially and alone**, on folders that then held arm A's landing, it
+  returns **0.997993** — the gate's value. What a previous arm left in the run folder does not decide this.
+- **Not a build or settings difference.** Same binary, same pinned file, same `[1/1] optimizing attempt01`, same
+  `PixelScale 0.73944`, same resolved binning factor.
+
+**One four-way concurrent trial did NOT reproduce the deviation** (`toml999` returned 0.997993 again with three
+other `optimize` processes in flight). **That is not evidence against the fan-out**, and it is recorded here so it
+is not read as such: the effect appears on ~15 % of runs, so a single trial has no power to exclude it. Waves 5–8
+all ran their arms **sequentially** and all reported bit-identical controls; wave 9 is the first to fan out and
+the first to lose them.
+
+**What it costs.** The arm ran for **7 h 10 m** across three arms and 117 optimizations and **cannot be read
+against wave 5's φ table**. RULE G was written as *"a partial reproduction is a failure, not a warning — the
+eight are one instrument"*, and it is applied as written: **no φ verdict is published from this arm.**
+
+> ### CONFIRMED 2026-08-07 by a 40-SECOND reproducer, and it is BIMODAL
+>
+> Rather than spend ~28 h to find out, the question was asked directly: **is the seed evaluation a pure function
+> of (frames, settings)?** `D:\hf_w9\det\determinism_probe.sh` runs `optimize --per-run --max-evals 1` — so the
+> search does nothing and `BaselineJ` is the whole measurement — on `D16_esprit550_ha3`, the arm's biggest mover,
+> **five times sequentially and then five times at once**, each repeat on its own copy of the run folder reset to
+> an identical state. The banks are never touched.
+>
+> | phase | `BaselineJ` |
+> |---|---|
+> | **5× SEQUENTIAL** | `0.9791727071693058` five times — **identical** |
+> | **5× CONCURRENT** | `0.9885546719484486` ×3 and `0.9791727071693058` ×2 — **two values in one batch** |
+>
+> **Those are exactly arm A's 0.988555 and arm B/C's 0.979173.** The probe reproduces the entire 7-hour
+> discrepancy from identical inputs in 40 seconds.
+>
+> ### THE FULL RATE, from a complete identical arm: 44 % of landings, not 15 %
+>
+> Wave 9's sequential re-run reproduces arm B (`--keep-floor 0.50`) in full, so the fan-out and sequential
+> versions of **the same 39 runs, same flag, same binary, same pinned settings** can be diffed directly:
+>
+> | quantity | differing |
+> |---|---|
+> | **`BaselineJ`** — one evaluation of the pinned seed, no search | **6 of 39 (15 %)** |
+> | **`BestJ`** — the landing the arm is actually read on | **17 of 39 (44 %)** |
+>
+> **The landing rate is triple the seed rate, and that is the important part.** Many runs have a
+> *bit-identical* `BaselineJ` and a *different* landing — `CWhiteFocus` 0.999740 vs 0.999867, `standard_example1`
+> 0.999846 vs 0.996456, `caboose` 0.996300 vs 0.994857, and `LinwoodFocus` **0.952882 vs 0.917207**, a gap of
+> 0.036. So the nondeterminism is not confined to the seed evaluation: it perturbs evaluations *during* the
+> search, and the pattern search amplifies one perturbed evaluation into a different landing.
+>
+> **RULE G caught 2 of 8 and the true rate is 44 %** — the gate was, if anything, lucky. Any arm run at fan-out
+> is not "mostly fine with a couple of outliers"; it is close to a coin flip per run.
+>
+> *(The two arms also differ in what a previous pass had left in the run folders. That was tested separately on
+> `toml999` — sequential and alone, on folders holding a contaminated landing, it returns the correct value — so
+> folder state is excluded as the cause.)*
+>
+> **Three things follow.**
+>
+> 1. **Sequential execution is deterministic** (5 of 5, and the wave-9 gate independently reproduced wave 5's
+>    eight values across two waves and two binaries). **Waves 5–8 stand**, and the ~28 h sequential re-run is
+>    valid — it is now RUNNING.
+> 2. **The defect is BIMODAL, not drift.** Two discrete attractors, not a spread — so it is a race between two
+>    code paths, not floating-point summation order. That also means it can flip a *sequential* run if the machine
+>    is busy for another reason, which is why this outranks the re-run in importance.
+> 3. **A 40-second reproducer exists**, which is the thing that was actually missing. Any candidate fix is now
+>    testable in a minute instead of a wave.
+>
+> **Excluded by reading the source (no runs — nothing may execute beside the sequential arm):** there is no
+> OpenCL/`UMat` path at all; `AlglibHyperbolicFitting`'s parallel candidate-model pass writes into **indexed
+> arrays** and resolves consensus by intersection + `Array.FindIndex`, so `Parallel.For` completion order cannot
+> change it (the comments say so deliberately); and there is no load-sensitive timeout in the
+> detection/evaluation/fit path — the only `Stopwatch` there is trace-only. **The mechanism is still open.**
+> Degree-of-parallelism knobs derive from `Environment.ProcessorCount`, which does not change when other
+> PROCESSES run, so the cause is more likely a shared cross-process resource or a genuine order dependence
+> somewhere below the fit.
+
+> ### INVESTIGATED 2026-08-07, NOT FIXED — but the search space is much smaller, and the reproducer is cheap
+>
+> Everything below was run with the machine otherwise idle, against the 40-second reproducer.
+>
+> **ELIMINATED, each by measurement rather than by reading:**
+>
+> | candidate | how it was excluded |
+> |---|---|
+> | the star-evaluation `Parallel.For` degree | swept **1, 2, 4, 8, 48** sequentially — **all identical** to 16 dp |
+> | the per-run `optimized_settings.json` (F54's lead) | run **with and without** the file present — identical |
+> | the disk detection cache (`<image>_star_detection_result.json`) | `AutoFocusEngine` reads it; the optimizer path does **not**, and the probe's copies have none |
+> | OpenCL / GPU dispatch | there is **no** `UMat`/OpenCL path anywhere in the plugin |
+> | the frame-level fan-out | each task writes **only its own index**; no shared mutable state |
+> | `StarDetectorMetrics.Merge` + thread-locals | additive over ints, and `SortBounds()` normalizes bounds order afterwards |
+> | rented-array sorts | both use the **bounded** `Array.Sort(a, 0, count)` overload |
+> | `MedianInPlace` over a rented array | both callers pass freshly-allocated `new double[n]` |
+> | a load-sensitive timeout | none in the detection/evaluation/fit path; the only `Stopwatch` is trace-only |
+>
+> **A METHODOLOGICAL TRAP WORTH RECORDING.** The parallelism sweep was first run by setting `HF_STAREVAL_PAR` from
+> WSL — and **WSL environment variables do not reach a Windows process without `WSLENV`**, so the first sweep
+> silently measured the SAME configuration five times and would have "proved" that degree does not matter. It was
+> caught by noticing the result contradicted a hardcoded build, and re-run with `WSLENV` set. *An instrument that
+> is not connected reports perfect agreement* — the same failure family as wave 8's three, in a new disguise.
+>
+> **STILL UNEXPLAINED, and it is the sharpest remaining clue:** across sessions the "sequential" value has been
+> observed at BOTH attractors — many repeats at `0.9791727072`, and five consecutive repeats at `0.9885546719`
+> from one build. Within any one session sequential runs are perfectly self-consistent. So whatever selects the
+> attractor appears to be **stable within a process/session and variable across them**, which does not fit a
+> per-iteration data race and does fit some process-level state (a warm-up path, a static initialised from
+> observed load, a JIT/tiering effect, or something else acquired once).
+>
+> **Next step.** (a) ~~Re-run the arm sequentially~~ — **DONE**, and it passed both controls (see F32).
+(b) **Find the nondeterminism — this now outranks (a) in value, because the reproducer makes it cheap and
+because a bimodal race can flip a sequential run too.** Bisect with `determinism_probe.sh`: it is 40 s per trial. (c) Until (b), **treat concurrent `optimize` as invalid for any arm whose
+conclusion rests on comparing landings**, and say so in the run instructions beside
+[F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)'s
+settings-pinning rule. (d) Add a cheap standing guard: have `optimize` print `BaselineJ` where a scripted arm can
+diff it, so this control is free on every future arm rather than only when someone writes it down.
+Reproduce: `D:\hf_w9\f32_arms.log`, `D:\hf_w9\score_f32.py`, `D:\hf_w9\ctl_seq_toml999.log`,
+`D:\hf_w9\ctl_conc_toml999.log`.
+
+### F54 — F39(b)'s default flip MOVES a landing at a resolved factor of 1, where it is documented as a no-op
+**Status:** Open · found 2026-08-07 (wave 9) chasing [F53](#f53--wave-8s-arm-x-does-not-reproduce-from-wave-8s-own-exe-because-the-arm-ran-on-an-earlier-build-of-it)'s
+remainder · **measured and reproducible; the MECHANISM is not identified and is not claimed**
+
+Wave 8 flipped `optimize --per-run`'s default to apply each run's derived detection binning, and recorded the
+opt-out as leaving prior arms reproducible. On `D:\hf_w7\armE\t0.5\D02_rich_135mm` — **one binary, one pinned
+settings file, one set of frames, and a resolved factor of 1** — the two paths land in different places:
+
+| | landed gate | σ_focus | `bestJ` |
+|---|---|---|---|
+| default (flip ON), factor **1** from `synthetic_meta.json` | **33.333** | **0.10063** | 0.996486 |
+| `--no-run-detection-binning` | **16.667** | **0.10927** | 0.996328 |
+
+The second row reproduces wave 7's arm E and wave 8's arm X **exactly**, which is what makes this the explanation
+for F53's residue rather than a second unexplained thing.
+
+**Everything the harness prints about the seed is IDENTICAL between the two runs** — `Sensitivity=10`,
+`StarClippingMultiplier=2`, `NoiseClippingMultiplier=4`, `StructureLayers=4`, and the per-run
+`PixelScale 5.74486 arcsec/px (frame header)`. The only difference is the two `DetectionBinningResolver.ApplyFactor(_, 1)`
+calls the flip enables.
+
+**Why that is surprising.** `ApplyFactor(p, 1)` reads as the identity when `p.DetectionBinning` is already 1:
+`unbinned = PixelScale / max(1, 1)`, then `PixelScale = unbinned × 1`. `StarDetectorParams.DetectionBinning`
+**defaults to 1** (`IStarDetector.cs:495`), so the 0→1 hypothesis is dead. And
+`HocusFocusStarDetection.ApplyDetectionImageContext` **overwrites** `detectorParams.DetectionBinning` from the
+options override at detect time anyway, so the field the resolver writes is not even the one the detector uses.
+
+**What is NOT the cause**, each excluded rather than assumed:
+
+- **Not concurrency** — the two runs bracket each other under identical load, and a third control (F53) matched a
+  different binary to 6 dp with three `optimize` processes in flight.
+- **Not this wave's code** — `D:\hf_w8\exe` and wave 9's `exe2` agree with each other on the flip-ON value.
+- **Not `EffectiveStructureLayers`** — wave 8's F52(a) extraction is a faithful one (identical branch order and
+  expressions), and its `CostNoteFor` calls `Materialize`, which **clones** the seed and has no side effects.
+
+**Why it matters, and it is not academic.** Wave 8's adoption control reported *"every binning-1 dataset is
+bit-identical between arm A and arm B … 0 control violations of 13"* — **the same comparison this entry runs, with
+the opposite result.** The two differ in one respect worth chasing first: wave 8's control ran on the BANK folders
+while this runs on wave 7's rendered `armE` copies, and those copies already contain an `optimized_settings.json`
+written by a previous `--per-run` pass ([F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings)),
+which `HarnessSettingsStore.ResolveForRun` reads. If a per-run settings file can change what the flip does, that is
+the F42 shadowing concern arriving through a different door.
+
+**This wave's F32 arm is NOT affected, and that is measured rather than assumed.** RULE G reproduced all 8
+comparability runs to 6 dp **with the flip ON, on the bank folders**, against wave 5's values.
+
+**Next step.** (a) Reproduce on a BANK folder with and without the flag, to separate "the flip moves landings" from
+"a stale per-run `optimized_settings.json` moves landings". (b) If it is the per-run file, that is F15 causing a
+measurement error rather than merely destroying provenance, and it raises F15's priority sharply. (c) Either way,
+`ApplyFactor` at factor 1 should be provably inert or should not be called — a normalization step that changes an
+answer is worse than no normalization.
+Reproduce: `D:\hf_w9\wing\ctl_nobin.log` vs `D:\hf_w9\wing\opt_0.5_D02_rich_135mm.log`.
+
+### F53 — Wave 8's arm X does not reproduce from wave 8's own `exe`, because the arm ran on an EARLIER build of it
+**Status:** Open · found 2026-08-07 (wave 9) re-running arm X's exact command to build the wing instrument ·
+**the reproduce line is stale, and nothing in the artifact says so**
+
+Wave 8's F19 arm X is recorded with `Reproduce: D:\hf_w8\armX\arm_x.sh`, which invokes
+`D:\hf_w8\exe\TestApp.exe`. **Running that script's exact command on that exact binary today does not reproduce
+the write-up's numbers.**
+
+| | `D02_rich_135mm` @ 0.5 s, `--max-evals 120`, same pinned settings |
+|---|---|
+| wave 8's arm X log | `bestJ = 0.996328`, effective gate **16.667**, σ_focus 0.10927 |
+| `D:\hf_w8\exe` **today** | `bestJ = 0.996486`, effective gate **33.333**, σ_focus 0.10063 |
+| wave 9's `exe2` (this branch) | `bestJ = 0.996486` — **identical to the line above** |
+
+**The tell is in the log, and it is unambiguous.** Wave 8's arm X log contains **no `detection binning (F39b)`
+line at all**; both of today's runs print one. That line is unconditional once wave 8's own F39(b) default flip
+landed, so **arm X was executed against a build of `D:\hf_w8\exe` that predates the flip**, and the directory was
+rebuilt later in the wave. The artifact directory keeps only the LAST build, so the script and the numbers it
+produced now disagree with nothing recording that they should.
+
+**Three things this is NOT.**
+
+1. **Not concurrency.** The control above was run with three `optimize` processes already in flight and matched a
+   run of a different binary to six decimal places. If a fan-out perturbed landings, these two could not agree.
+2. **Not this wave's code.** `D:\hf_w8\exe` and wave 9's `exe2` — different binaries, one of them predating every
+   line of wave 9 — give the same answer.
+3. **Not `ApplyFactor`.** `DetectionBinningResolver.ApplyFactor(p, 1)` is the identity when `p.DetectionBinning`
+   is already 1 (`unbinnedPixelScale = PixelScale / 1`, then `PixelScale = unbinnedPixelScale × 1`), which the
+   pinned settings guarantee. That is also why wave 8's own adoption-arm control found the 13 binning-1 datasets
+   bit-identical. The flip is a marker for WHICH BUILD ran, not the cause of the movement.
+
+**Does it overturn wave 8's F19 verdict? No, and the reason is worth stating.** Arm X's finding was that `D02`
+reports `ExposureIsNotTheLimit` with a raw ask of 0.000 s at every rung. Both landings put the EFFECTIVE gate
+(16.667 and 33.333) far above `TargetSensitivity = 10`, and every accepted star's gate statistic strictly exceeds
+that gate — so `ExposureIsNotTheLimit` is true by construction in both. **R5 fired for a structural reason, not a
+numerical one, so a different landing reaches the same verdict.** What is void is the reproducibility of the
+specific table, not its conclusion.
+
+**Why it matters.** [F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary) says a prior
+wave's control arm is not a control for a later wave's binary. This is the sharper case: **a prior wave's arm is
+not a control for its OWN recorded binary either**, when the arm directory is a build output that later steps in
+the same wave overwrite. Every `Reproduce:` line in `docs/` that names a `D:\hf_w*\exe` inherits this.
+
+**Next step.** (a) Stamp the build into the run: have `optimize` print the informational version / commit of the
+binary it is running, so a log says which build produced it. (b) Until then, treat a `D:\hf_w*\exe` reproduce line
+as naming a COMMAND, not a result — re-derive the numbers rather than quoting them across waves. (c) Prefer
+per-arm build directories that are never rebuilt mid-wave, which
+[F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)
+already asks for on a different ground.
+Reproduce: `D:\hf_w9\wing\ctl_w8bin.log` against `D:\hf_w8\armX\opt_0.5_D02_rich_135mm.log`.
 
 ### F50 — A false-negative gate count is an UPPER BOUND on what relieving that gate buys, not an estimate
 **Status:** Open · found 2026-08-06 (wave 8) refuting F46's `MinimumStarBoundingBoxSize` hypothesis · **a reading
@@ -3065,9 +3702,33 @@ runs**. This is the same instability
 the narrow side rather than [F25](#f25--from-a-far-too-wide-sweep-the-step-recommender-widens-it-further-instead-of-recovering)'s
 wide side, and the user experienced it as a runaway rather than as convergence.
 
-**Next step.** Three separable pieces. **(a)** Give the floored-gate + `ExposureIsNotTheLimit` state a remedy of
-its own — the honest one names the gate, not the exposure ("the optimizer lowered the acceptance gate to admit
-~7× more candidates; set Brightness Sensitivity by hand and re-run in Current mode to compare"). **(b)** Decide
+> ### (a) SHIPPED 2026-08-07 (wave 9) — and the branch is narrower than this entry proposed, on purpose
+>
+> `RemedyFor` gains a fourth, last-ranked branch for the floored-gate + `ExposureIsNotTheLimit` state:
+>
+> > *"The gate was lowered to admit more candidates, not because star brightness was missing. Set Brightness
+> > Sensitivity by hand in the star detection options and run this wizard again in "use current settings" mode to
+> > compare that landing against this one."*
+>
+> **It names only controls that EXIST**, per the house rule at `ShowOptimizeAgainAtRecommendedBinning`.
+> `BrightnessSensitivity` is bound in `OptionsDataTemplates.xaml`
+> (`StarDetectionOptions.BrightnessSensitivity`); `MinDetectionKeepFraction` is **not named**, because it has no
+> XAML binding anywhere — verified, not assumed.
+>
+> **It REQUIRES a measurement, which this entry's proposed wording did not.** The sentence CLAIMS that brightness
+> was not what was missing, and that is knowable only from `ExposureIsNotTheLimit` (S_now ≥ the default target).
+> On a run with no derivable recommendation at all — too few usable frames, no per-star SNRs, an unknown exposure
+> to scale from — all that is known is that the gate is floored, so those runs keep their diagnosis-only body.
+> **Asserting it there would break the entry's own "no star-poor claim without evidence" rule from the opposite
+> direction**, and two existing golden tests caught exactly that on the first attempt.
+>
+> **Tests: 4, three of them discriminating.** The pre-existing whole-body golden for this state is the sharpest —
+> it asserted a string that ENDED after the admission sentence, which is the defect written down as an
+> expectation. Plus: the remedy is last-ranked and does not displace an available exposure remedy; an unmeasured
+> run gets no gate remedy; and the copy names no control that does not exist.
+
+**Next step.** Three separable pieces. **(a)** ~~Give the floored-gate + `ExposureIsNotTheLimit` state a remedy of
+its own~~ — **DONE, see above**; the honest one names the gate, not the exposure. **(b)** Decide
 whether a user-facing floor on the search's Sensitivity (or F32's keep fraction, exposed) is the right lever, since
 today there is none. **(c)** When the step recommendation is capped by the sweep width, say what it is converging
 TOWARD (`3 × HFR_min`) and that the cap means "partial step, this will take another run" — the exposure

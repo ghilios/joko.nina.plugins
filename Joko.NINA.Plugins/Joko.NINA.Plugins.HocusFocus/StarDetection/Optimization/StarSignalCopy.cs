@@ -250,7 +250,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <see cref="StarDetectionOptimizerWizardVM.CanCaptureNewSweep"/> is only the TRANSIENT unavailability (no
         /// engine, a disconnected camera or focuser, no save folder), which renders the button disabled rather than
         /// hidden — so the sentence still has a referent, and the referent can come back.</para></item>
+        /// <item><b>Set the gate by hand and compare (F49).</b> The catch-all, and the only remedy here that is
+        /// NOT about exposure or binning. The three above are ranked exposure/binning instructions and ALL THREE
+        /// fall through on a rich, well-exposed field where the optimizer CHOSE a floor gate — this method used to
+        /// return <see cref="string.Empty"/> there, on a page whose contract is "diagnosis plus exactly one
+        /// instruction". It names the GATE (the actual lever on this population) and it names controls that
+        /// EXIST: <c>BrightnessSensitivity</c> is bound in <c>OptionsDataTemplates.xaml</c>, and "use current
+        /// settings" is a Select Source mode — never F32's <c>MinDetectionKeepFraction</c>, which has no XAML
+        /// binding at all.</item>
         /// </list>
+        ///
+        /// <para><b>The empty return is now reached only by an UNMEASURED run</b> (no derivable recommendation at
+        /// all). Every state that HAS a measurement ends on exactly one instruction, which is the contract the page
+        /// was written to and the one F49 found broken. The unmeasured case keeps its diagnosis-only body on
+        /// purpose: the F49 sentence claims that brightness was not the problem, and nothing on an unmeasured run
+        /// establishes that.</para>
         /// </summary>
         private static string RemedyFor(
             OptimizationSummary summary, ExposureRecommendation advice, bool lastRunWasLive, bool isUseCurrentMode) {
@@ -279,6 +293,42 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                         + "; or, if you shoot narrowband, auto-focus through a broadband filter with a filter offset instead.";
                 }
                 return text;
+            }
+            // F49 — the gate remedy, and the ONLY branch here that is not about exposure or binning.
+            //
+            // The three branches above are ranked exposure/binning instructions, and on a RICH, WELL-EXPOSED field
+            // where the optimizer CHOSE a floor gate every one of them falls through: ExposureIsNotTheLimit is
+            // true, so IncreasesExposure is false (killing 1 and 3) and branch 2's !ExposureIsNotTheLimit is false
+            // too. This method then returned string.Empty on a page whose contract is "diagnosis plus exactly one
+            // instruction" — the block's TRIGGER is the Sensitivity gate while its CONTENT was exposure-only. A
+            // field report on the shipped Default profile hit it: Sensitivity 15.667 -> 0.000, StarClip 6.750 ->
+            // 0.250, stars per frame 834 -> 5766, and the copy correctly said "star brightness is not the problem:
+            // your brightest stars measure S/N 1438.6" and then stopped.
+            //
+            // THE REMEDY NAMES THE GATE, NOT THE EXPOSURE, because on this population the exposure is not the
+            // lever and saying otherwise is what F19 does wrong from the other side.
+            //
+            // AND IT NAMES A CONTROL THAT EXISTS (the house rule at ShowOptimizeAgainAtRecommendedBinning: never
+            // describe an action whose control is hidden). "Brightness Sensitivity" is bound in
+            // OptionsDataTemplates.xaml (StarDetectionOptions.BrightnessSensitivity), and "use current settings"
+            // is a mode on the Select Source step — the same kind of referent branch 3 already uses when it names
+            // Optimize mode. It deliberately does NOT name F32's MinDetectionKeepFraction, which has NO XAML
+            // binding anywhere and is --keep-floor on the harness only; and that floor would not bind here in any
+            // case, since it rejects landings keeping FEWER stars than the seed while this one keeps ~7x MORE.
+            // The pathology is admission, not shedding.
+            //
+            // REQUIRES A MEASUREMENT, and this is not a formality. The sentence CLAIMS that star brightness was
+            // not what was missing, which is only knowable from ExposureIsNotTheLimit (S_now >= the default
+            // target). On an unmeasured run — fewer than MinFramesForRecommendation usable frames, no per-star
+            // SNRs, or an unknown exposure to scale from — all that is known is that the gate is floored, and
+            // asserting anything about brightness there would be exactly the "no star-poor claim without
+            // evidence" rule broken in the opposite direction. Those runs keep the diagnosis-only body they have
+            // always had. (StarFieldIsExhausted is not reached either: it leaves ExposureIsNotTheLimit false, so
+            // branch 2 above claims it.)
+            if (advice != null && advice.HasRecommendation && advice.ExposureIsNotTheLimit) {
+                return "The gate was lowered to admit more candidates, not because star brightness was missing. "
+                    + "Set Brightness Sensitivity by hand in the star detection options and run this wizard again in "
+                    + "\"use current settings\" mode to compare that landing against this one.";
             }
             return string.Empty;
         }
