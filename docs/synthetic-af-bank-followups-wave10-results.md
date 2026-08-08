@@ -174,3 +174,44 @@ under the validated guard; nothing in §2 is measured on the contaminated data.
 ## §4 — Item 3: the step recommender
 
 *(pending)*
+
+---
+
+## Lessons
+
+*(assembled as they were learned; numbers filled in from the sections above)*
+
+**0. A rule that depends on the operator noticing a violation is not a control; it is a hope.** F55(c) — "treat
+concurrent `optimize` as invalid, and say so in the run instructions" — was written into this wave's design, its
+plan, and the header of the script that ran the pass. The pass then ran twice at once. The fix is not more
+discipline; it is `ConcurrencyCheck` stamped into every landing, so a scorer can refuse contaminated data
+without anyone having been watching. The register already contains the same move three times: `BaselineJ` as a
+free control (F41), `DetectionBinningSource` as a field rather than a sentence (F39(a)), `BuildId` rather than a
+version string (F53).
+
+**1. A numerical-equivalence bound on an intermediate is not an equivalence bound on the answer.** PR #187's
+wavelet paths agree to ≤ 3e-8 per pixel and the claim is true. Six of eight product landings still moved, and one
+seed evaluation — no search, nothing to amplify it — moved by 0.0144. The star gate is a **threshold**, and a
+threshold converts an eighth-decimal difference into a whole star. Any future change justified as "equivalent to
+N decimals" needs the bound on the quantity the product REPORTS.
+
+**2. A unit fixture's range is not the population's range.** *(see §2)* The wing statistic's threshold was
+chosen against fixtures spanning a rejected fraction of 0.005 to 0.75. Whether that is the range real runs
+occupy is not a question a unit test can ask, and it was not asked until a full-bank population was measured.
+
+**3. Ask an instrument what it would say if the thing it checks were completely broken — and then make it say
+it.** This wave's trace diff would have reported divergence on every pair of runs (it diffed timer-driven log
+lines); its concurrency guard would have reported SAFE on every invocation (`grep -c` exits 1 on no match, so
+`|| echo 0` produced `"0\n0"` and the comparison errored through). Both were caught, and the guard was then
+**validated against a positive control** — a deliberately-started `optimize` — before being trusted. The
+question is cheap; asking it only of other people's instruments is the mistake.
+
+**4. Check whether a cheap instrument already exists — including one a previous wave left on disk.** The exact
+geometric ratio a capped step recommendation applies (`1.5 × P / PointsPerSide`) was validated against **22
+capped rounds across six datasets** already sitting in wave 7's artifacts, at zero compute. The same files
+refuted this wave's own deadband proposal before a line of it was written.
+
+**5. Name the successor before you need it, and bar it from the data that killed its predecessor.** The
+ratio-form wing statistic was written down mid-pass, with its acceptance rule, precisely so it could not be
+adopted on the population that refuted the original. A statistic tuned on the data that killed the last one has
+been fitted, not tested — which is wave 9's R3, one level up.
