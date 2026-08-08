@@ -40,7 +40,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // re-detect. The version is stamped onto HocusFocusStarDetectionResult.DetectorVersion and folded into
         // HocusFocusStarDetectionResult.CacheKey, so a later reuse-side task can reject any saved
         // _star_detection_result.json that was produced by a different detector version (or different params).
-        public const int StarDetectorVersion = 1;
+        // v2: the structure-removal wavelet swapped from dense zero-padded Cv2.SepFilter2D kernels to
+        // AtrousWaveletFast (sparse 5-tap) — equivalent to float rounding (≤3e-8) but not bit-identical.
+        public const int StarDetectorVersion = 2;
 
         private readonly IAlglibAPI alglibAPI;
 
@@ -607,9 +609,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // axis is off (the optimizer can raise it further via that axis). Gated by the master ⇒
                     // bit-identical when off.
                     var effectiveStructureLayers = EffectiveStructureLayers(p);
-                    using (var residualLayer = ComputeResidualAtrousB3SplineDyadicWaveletLayer(structureMap, effectiveStructureLayers)) {
-                        MaybeSaveIntermediateImage(residualLayer, p, "04-structure-wavelet-residual.tif");
-                        CvImageUtility.SubtractInPlace(structureMap, residualLayer);
+                    // Deliberately NOT passing the cancellation token to the wavelet: the two noise-estimate
+                    // tasks started above are still running and read srcImage/noiseReducedImage, and a cancellation
+                    // unwind from inside the wavelet would dispose those Mats under the tasks (native
+                    // use-after-free). This window stays non-cancellable (it is ~100 ms); the token is honored
+                    // again at the points after the task awaits.
+                    if (string.IsNullOrEmpty(p.SaveIntermediateFilesPath)) {
+                        // Fused: residual + subtract + clamp in one final pass, no residual Mat.
+                        AtrousWaveletFast.ComputeResidualAndSubtractInPlace(structureMap, effectiveStructureLayers);
+                    } else {
+                        // Debug-intermediate path: materialize the residual so it can be saved before subtracting.
+                        using (var residualLayer = AtrousWaveletFast.ComputeResidual(structureMap, effectiveStructureLayers)) {
+                            MaybeSaveIntermediateImage(residualLayer, p, "04-structure-wavelet-residual.tif");
+                            CvImageUtility.SubtractInPlace(structureMap, residualLayer);
+                        }
                     }
 
                     MaybeSaveIntermediateImage(structureMap, p, "04-structure-wavelet-subtracted.tif");
@@ -1544,12 +1557,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// plus whichever defocus boost is in force. The single source of truth for that rule: step 4 of
         /// <c>Detect</c> uses it, and so does the optimizer's cost readout, so the two cannot drift.
         ///
-        /// <para><b>Why anything outside the detector cares.</b> The residual is recomputed at <c>2^layers</c>, so
-        /// this number is the dominant term in a detection's COST, not merely in its behaviour. Measured on the
-        /// synthetic bank (<c>D15_cdk20_3454mm_e47</c>, 9 frames, binning 1) the wall time per layer runs
-        /// 27 / 46 / 117 / 254 / 526 s for layers 4…8 — <b>roughly a doubling per layer</b>. A parameter search
-        /// that wanders two layers deeper is spending ~4× per evaluation for a gain the objective reports in its
-        /// fourth decimal, and nothing told the user that (F52).</para>
+        /// <para><b>History.</b> Under the legacy dense-SepFilter2D wavelet this number was also the dominant
+        /// COST term (~2× wall per layer, F52: 27/46/117/254/526 s for layers 4…8 on the synthetic bank), which
+        /// is why the optimizer's cost readout consumed it. The sparse <see cref="Utility.AtrousWaveletFast"/>
+        /// implementation made per-layer cost nearly flat (52/81/107 ms at 26 MP for layers 4/6/8; whole-detect
+        /// 648/670/738 ms), so the layer count is now a behavioural knob, not a wall-clock one, and the F52
+        /// cost note was retired.</para>
         /// </summary>
         public static int EffectiveStructureLayers(StarDetectorParams p) {
             if (p == null) {
