@@ -334,6 +334,39 @@ and **barred from this pass's rows**.
 
 ---
 
+---
+
+## CLOSED AGAINST WHAT ACTUALLY HAPPENED (2026-08-08)
+
+Results: [`docs/synthetic-af-bank-followups-wave11-results.md`](../docs/synthetic-af-bank-followups-wave11-results.md).
+
+| task | planned | what happened |
+|---|---|---|
+| 0 pre-gate probe | predict `Default` | **as predicted**, and it returned `toml999 = 0.99784` — wave 9's value. An unpinned gate would have reproduced the wrong wave |
+| 1 file F58 | from wave 9's logs | done, and **two** more datasets confirmed it from `ctl_conc_*.log` at zero compute |
+| 2 gate | RULE G11 | **PASS 8/8 to 6 dp**; all eight `BaselineJ` reproduce wave 10 too |
+| 3 `--cv-threads` | flag + printed count | shipped; positive control passes (1→1, 4→4, absent→48). **Never needed** — recorded, not used |
+| 4a confirm | K1–K4 | **all PASS**, and K4 exposed a real limit in wave 10's guard (§3.2) |
+| 4b fix | harness accessor + `FitInputs` | shipped — **and the density test found F59**, a separate defect that dropped five detector knobs from the pinned file for six waves |
+| 4c re-measure | K5, K7, K8, K6 | **K5/K7 PASS**. **K6 was not needed**: no residual divergence exists to explain, so `KappaSigmaNoiseEstimate` is withdrawn as F55's mechanism |
+| 5 bisect | RULE C | **C0/C1/C3 PASS, C2 SINGLE-FIELD** — one integer, residue exactly `0.0` |
+| 6a–6b measurement + threshold | ship, then size | measurement shipped; **the threshold could not be sized — RULE W2 is unsatisfiable** |
+| 6c population pass | 39 runs, ~3 h | **NOT RUN.** Item 3 was refuted first on a necessary clause; the pass could not change the verdict and W6 bars its rows from sizing the next candidate. **K8 was run standalone instead** (8 runs, ~40 min) |
+| 7 suite | count, not tick | **3740 = 3722 + 18**, every added test named |
+
+**Three things went differently from the plan, and all three are recorded in the results rather than absorbed:**
+
+1. **F59 is a defect the plan did not anticipate**, found by a test written for *density* rather than presence.
+   `pinned_settings.json` is missing `MaxDistortion`, `StarCenterTolerance`, `SaturationThreshold`,
+   `HotpixelThreshold` and `Sensitivity`. Waves 5–11 stay internally valid (all used the same file and the same
+   code defaults); what is false is that the file *describes* the detector.
+2. **The 39-run pass was dropped**, and what that costs is stated in the results (§5.6): no population
+   distribution for `WingRejectedRatio`.
+3. **`exe_fix2` exists** because F59 landed after `exe_fixed` was built. Per F53(c) an arm's directory is never
+   rebuilt, so a new one was made and K5/K7 were re-run on it — both reproduced exactly.
+
+---
+
 ## What would make this wave wrong, in one place
 
 - The pre-gate probe prints `astrodet` ⇒ §0.1's model is wrong and F58 does not get filed as written.

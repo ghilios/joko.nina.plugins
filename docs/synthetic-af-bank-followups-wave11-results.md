@@ -192,4 +192,240 @@ such line at all, wave 10 §1.4).
 
 ---
 
-*(§3 item 1 · §4 item 2 · §5 item 3 · §6 the suite — pending)*
+## §3 — Item 1: F55(b). RULE K passes on all four clauses, and then the fix removes the phenomenon
+
+### §3.1 The probe (`D:\hf_w11\det\determinism_probe_w11_w11.sh`), 22:41–22:45Z
+
+Wave 9's 40-second reproducer on the wave-11 pre-fix binary, with each repeat's `Profile:` line captured.
+`D16_esprit550_ha3`, `--max-evals 1`, five pristine copies, **the banks never touched**.
+
+**The prediction was written before the probe ran**, from the `LastUsed` ordering snapshotted in
+`profiles_before.txt`: phase C should draw the top five profiles, which split **2 / 3** on
+`MaxOutlierRejections`.
+
+| phase | repeat | profile loaded | `MaxOutlierRejections` | `BaselineJ` | `ConcurrencyCheck` |
+|---|---|---|---|---|---|
+| **S** (sequential) | 1–5 | `astrodet` ×5 | 0 | `0.9791727071693058` ×5 | `exclusive` ×5 |
+| **C** (concurrent) | C_1 | `AA1600MM Copy` | **0** | `0.9791727071693058` | `concurrent` |
+| | C_2 | `astrodet` | **0** | `0.9791727071693058` | `concurrent` |
+| | C_3 | `Default-2026-08-05T10:57:42` | **1** | `0.9885546719484486` | `exclusive` |
+| | C_4 | `Default` | **1** | `0.9885546719484486` | `concurrent` |
+| | C_5 | `AA1600MM` | **1** | `0.9885546719484486` | `concurrent` |
+| **P** (concurrent, `--profile-id`) | P_1…P_4 | — | — | — **rc = 1**, *"No active NINA profile could be loaded"* | — |
+| | P_5 | `astrodet` | 0 | `0.9791727071693058` | `exclusive` |
+
+> **Five concurrent processes, FIVE DIFFERENT PROFILES, and a 2 / 3 split exactly as predicted — into wave 9's
+> two attractor values, to sixteen decimal places.**
+
+| clause | verdict | evidence |
+|---|---|---|
+| **K1** distinct `BaselineJ` == distinct `MaxOutlierRejections` | **PASS** | 2 vs 2; `MOR=0 → 0.9791727071693058`, `MOR=1 → 0.9885546719484486`, no collisions |
+| **K2** phase S is single-profile, single-valued | **PASS** | 1 profile, 1 value, 5 of 5 |
+| **K3** pinning under fan-out fails LOUDLY | **PASS** | exactly 1 success, 4 hard failures, no wrong-profile success |
+| **K4** `ConcurrencyCheck`'s first positive control | **PASS** | phase S `exclusive`; phase C contains `concurrent` |
+
+### §3.2 K4 found a real limit in wave 10's shipped guard
+
+Phase C returned **four `concurrent` and one `exclusive`** — and that is correct: `WaitOne(0)` is won by exactly
+one of *N* contenders, so **in any fan-out precisely one landing truthfully reports `exclusive`.**
+
+**So `ConcurrencyCheck == "exclusive"` on a SINGLE landing is not evidence that the machine was quiet.** It says
+*this process won the mutex*. The field must be read **across a whole arm**, and in wave 10's own two-driver
+contamination the first driver's landings would have read `exclusive` throughout — an operator sampling that
+driver would have seen a clean bill of health. The field is honest; it is its **scope** that needed pinning down,
+and only running it in both directions revealed that. *An instrument that is right about the wrong scope is a new
+way to be wrong.*
+
+### §3.3 The fix, and K5 is the clause it is judged on
+
+`AutoFocusOptions` is now built on the **harness accessor** rather than on the active profile, the four fit inputs
+are carried in the pinned settings file, and every landing records them as `FitInputs` — **values, not a hash,
+because a hash says something moved and values say which one**. `HarnessFitInputs` is one type used both to build
+the fit and to render the field, so they cannot diverge; a guard test would only have watched for divergence.
+
+**K5 — post-fix, five concurrent repeats, unpinned:**
+
+| repeat | profile loaded | `BaselineJ` | `FitInputs` |
+|---|---|---|---|
+| F_1 | `AA1600MM Copy` | `0.9791727071693058` | `MaxOutlierRejections=0;…=0.95;…=True;…=Hybrid` |
+| F_2 | `astrodet` | `0.9791727071693058` | *(identical)* |
+| F_3 | `AA1600MM` | `0.9791727071693058` | *(identical)* |
+| F_4 | `Default-2026-08-05T10:57:42` | `0.9791727071693058` | *(identical)* |
+| F_5 | `Default` | `0.9791727071693058` | *(identical)* |
+
+> **K5 PASS. Five different profiles — spanning BOTH `MaxOutlierRejections` groups — and ONE `BaselineJ`,
+> identical to the sequential value.** The hazard is *still fully present*; it no longer reaches `J`.
+>
+> **That the five profiles still differ is what makes the clause discriminating.** A "fix" that pinned the
+> profile would have produced one profile and one answer, passed a weaker version of this test, and left every
+> future arm exposed the moment two ran at once.
+
+**K7 — the crispest statement of "pinned".** `toml999` at `--max-evals 1` under `--profile-id astrodet` and under
+`--profile-id Default`, post-fix: **`0.9834767968919785` both times, identical to full double precision.** Before
+the fix those two differ by **0.0144**.
+
+### §3.4 The residual (K6), and what is NOT claimed
+
+`optimize --verbose` already emits `Structure Map K-Sigma Noise Estimate: <σ> … NumIterations=<n>` per detection,
+so the σ instrument needed no code. **It was not needed:** phase F is single-valued to full double precision
+across five profiles, so there is no residual divergence at the seed level for `KappaSigmaNoiseEstimate` — or
+anything else below the fit — to explain.
+
+**`KappaSigmaNoiseEstimate` is therefore withdrawn as F55's mechanism.** Its measured gain stays as a true fact
+about the function, pinned by wave 10's unit test; it is a plausible amplifier for some *other* perturbation.
+**The trigger RATE wave 10 recorded as owed was owed for a mechanism that was not firing** — and that is the
+sharpest lesson available here: *a measured gain is not a measured cause, and it is easy to mistake one for the
+other after paying to measure it.*
+
+**What is NOT claimed.** K5 is a **seed-level** result (`--max-evals 1`). F55's LANDING rate was **44 %**, triple
+its seed rate, and no landing-level fan-out was measured with the fix in place. **Fan-out is therefore still not
+authorised**, and the population pass in §5 ran sequentially and paid the ~3 h.
+
+`--cv-threads <n>` shipped as the F55-family probe knob and was validated by its positive control — the printed
+`Cv2.GetNumThreads()` follows the flag (1 → `1`, 4 → `4`, absent → `48`). It was **not needed** either, and it is
+recorded rather than used, because wave 9's env-var route silently measured one configuration five times.
+
+---
+
+## §4 — Item 2: F57(c). The answer is one integer, and the negative control is what makes it readable
+
+`toml999`, `--max-evals 1` so `BaselineJ` is the whole measurement, on **copies** (F15), on the **pre-fix**
+binary — because this arm measures what the PROFILE supplies. The bisect profiles are fresh GUIDs dropped into
+NINA's profile folder and deleted afterwards; **the user's two real profiles were never edited**, and
+`make_bisect_profile.py` refuses to run if their shape is not what it expects.
+
+**The read-level audit came first, because it is free**, and it left exactly one unpinned options surface:
+
+| profile-sourced input | reaches the objective? | why not |
+|---|---|---|
+| **`AutoFocusOptions`** → 4 values | **YES** | the only unpinned surface; 2 of the 4 differ between the profiles |
+| detector knobs via `StarDetectionOptions` | no | `FileOptionsAccessor` falls back to **code defaults**, never the profile |
+| `PixelScale` | no | resolved per run from the frame header (both printed `0.73944`) |
+| image loading | no | **`ImageSettings` is byte-identical between the two profiles**, and `toml999` is mono |
+| `AutoFocusBinningConflict` | no | feeds a user prompt; does not resolve binning |
+| `FocuserSettings.AutoFocusStepSize` (479 vs 188) | no | the harness infers the step from the frames |
+
+| arm | profile loaded | C4 | `BaselineJ` (exact) |
+|---|---|---|---|
+| reference | `astrodet` | PASS | `0.9834767968919785` |
+| reference | `Default` | PASS | `0.9978404571046091` |
+| **C1** `astrodet` + `MOR=1` + `conf=0.99` | `w11-C1-mor1-conf099` | PASS | **`0.9978404571046091`** |
+| **C2** `astrodet` + `MOR=1` | `w11-C2-mor1` | PASS | **`0.9978404571046091`** |
+| **C3** `astrodet` + `conf=0.99` *(negative control)* | `w11-C3-conf099` | PASS | **`0.9834767968919785`** |
+
+| clause | verdict | evidence |
+|---|---|---|
+| **C0** the reference points hold | **PASS** | `astrodet` reproduces wave 10 exactly; `Default` to 4.6e-12 (wave 10 quoted 10 dp) |
+| **C3** NEGATIVE CONTROL: confidence alone moves nothing | **PASS** | identical to `J_astro` — unreachable at a budget of 0, as predicted |
+| **C1** both fields == `J_def` to full double precision | **PASS** | **residue exactly `0.0`** |
+| **C2** single-field attribution | **SINGLE-FIELD** | `MOR=1` alone == `J_def`; the confidence is inert |
+
+> **F57(c) is answered: `AutoFocusOptions.MaxOutlierRejections`, one integer, accounts for 100 % of the 0.0144.**
+> `OutlierRejectionConfidence` is real but inert behind it — a rejection budget of zero makes the confidence
+> unreachable, which is exactly what C3 was written to check and exactly what it found.
+>
+> **C3 is why C1 and C2 are readable at all.** Had the confidence moved anything, the harness would not have been
+> doing what it claimed and both other clauses would have been discarded. Wave 10's gate came back at its
+> pre-registered top tier and was still wrong; what killed it was a control built to *exclude*.
+
+**And it is [F45](followups.md#f45--the-grubbs-test-rejects-the-in-focus-point-of-a-near-perfect-curve-and-the-blind-walk-then-buys-an-extra-exposure)
+wearing a different hat**: whether the fit may drop one Grubbs outlier was being decided by machine state that
+nothing recorded, and allowing the rejection improves the fit — which is the direction observed on every dataset
+where the two groups were compared.
+
+---
+
+## §5 — Item 3: F19's successor is refuted before implementation, by the rule fixed in advance to size it
+
+### §5.1 The ladder was already on disk, and it said what to expect
+
+W1–W4 are validated on wave 7's exposure ladder. Wave 7's own aggregates predate `FrameDiagnostics`, but **wave 9
+left a 10-rung probe at `D:\hf_w9\wing2\` that has it** — so the wing/inner ratio could be read at **zero
+compute**, before a threshold was chosen and before anything was run.
+
+**It was not published from there.** `wing2` ran on the v1 binary under an **unrecorded profile**, which is
+precisely the provenance F58 condemns, and publishing a refutation from it would have been the joke telling
+itself. It became the **pre-registered prediction** for a pinned re-measurement instead, written into
+`ladder_w11.sh`'s header before that ran.
+
+### §5.2 The pinned re-measurement, and every rung reproduces
+
+`exe_fix2`, `pinned_settings_w11.json`, `--profile-id astrodet`, `--max-evals 120` (wave 9's budget exactly), on
+wave 7's frames — **no re-render**.
+
+| dataset | rung | wing | inner | **`WingRejectedRatio`** | offline recomputation | wave-9 prediction | | σ_focus |
+|---|---|---|---|---|---|---|---|---|
+| `D02_rich_135mm` | 0.5 s | 0.6729 | 0.4290 | **1.5683035695977232** | 1.5683035695977232 | 1.5683 | SAME | 0.10063 |
+| | 1 s | 0.2909 | 0.2816 | 1.0328751392282651 | 1.0328751392282651 | 1.0329 | SAME | 0.09594 |
+| | 2 s | 0.3048 | 0.3465 | 0.8798132420671898 | 0.8798132420671898 | 0.8798 | SAME | 0.09191 |
+| | 4 s | 0.0000 | 0.0027 | 0.0 | 0.0 | 0.0 | SAME | **0.05208** |
+| | 8 s | 0.0000 | 0.0235 | 0.0 | 0.0 | 0.0 | SAME | 0.06465 |
+| `D16_esprit550_ha3` | 0.5 s | 0.0000 | 0.0000 | 1.0 | 1.0 | 1.0 | SAME | 0.35169 |
+| | 1 s | 0.0000 | 0.0000 | 1.0 | 1.0 | 1.0 | SAME | 0.26026 |
+| | **2 s** | **0.0064** | **0.0000** | **+∞** | +∞ | +∞ | SAME | **0.17117** |
+| | 4 s | 0.0000 | 0.0000 | 1.0 | 1.0 | 1.0 | SAME | 0.20421 |
+| | 8 s | 0.0000 | 0.0000 | 1.0 | 1.0 | 1.0 | SAME | 0.19659 |
+
+**Ten of ten reproduce, across a binary change (v1 → v2) and a profile change.** And the **shipped field agrees
+with an independent offline recomputation on every rung** — two routes to one number, for free.
+
+### §5.3 RULE W has no satisfying threshold
+
+| clause | requirement | measured | implies |
+|---|---|---|---|
+| **W1** `D02`@0.5 s must fire | ratio ≥ T | **1.5683** | T ≤ 1.5683 |
+| **W5** must sit above the bank median | — | 1.39 | T > 1.39 |
+| **W2** `D16`@2 s must stay SILENT | ratio < T | **+∞** | **T > +∞ — impossible** |
+
+> **W1 ∧ W5 leave the window (1.39, 1.5683]. W2 empties it. `WingRejectedRatio` is REFUTED BEFORE
+> IMPLEMENTATION, by the rule wave 10 fixed in advance to size it** — the same shape as wave 10's own deadband,
+> where the rule written to accept a mechanism had no valid input and that *was* the answer.
+
+**And the mechanism is worse than the arithmetic.** On a clean, well-exposed narrowband run the core rejects
+**nothing**, so **any** wing rejection at all — 0.64 % here — becomes an infinite ratio. The ratio form is
+maximally unstable exactly where the statistic is required to be silent, and `D16` @ 2 s is not an arbitrary
+rung: it is where `D16`'s σ_focus is **minimised** (0.17117, against 0.35169 / 0.26026 / 0.20421 / 0.19659), so
+firing there asks the user to make their focus worse. **The absolute fraction got this rung RIGHT** (0.0064 ≪
+0.20). *On the one control that matters, the successor is not merely no better than its predecessor — it is
+strictly worse.*
+
+### §5.4 What ships, and what does not
+
+| | |
+|---|---|
+| **ships** | `ExposureRecommendation.WingRejectedRatio` as a **MEASUREMENT ONLY**, with a four-state contract — `NaN` (could not look) / `+∞` (the core rejects nothing and the wings do) / `1.0` (both reject nothing: equal rates) / the ratio. Newtonsoft writes the first two as the **strings** `"NaN"` and `"Infinity"`, pinned by a serialization test |
+| **does NOT ship** | any verdict, threshold, probe factor, or action. Nothing in the product reads it |
+
+**The predicted hazard class landed on a different dataset than the two named, and that is the point.** The
+design named `D17` (ratio 0.59) and `D20` (inner fraction exactly 0.000) as the hazards. The killer was `D16`@2 s
+— **the same shape as `D20`** (inner exactly 0.000 ⇒ infinite) on a dataset the design had listed under a
+different clause. *Naming the hazard CLASS in advance worked even though the specific dataset was wrong*, which
+is more than naming a dataset would have bought.
+
+### §5.5 The successor-of-the-successor, named and NOT evaluated here
+
+`WingRejectedExcess` = wing − inner was named in the design **before this ladder was read**. It is bounded in
+[−1, 1], defined when the inner third rejects nothing, and cannot fire when wings and cores reject at the same
+rate. **Its verdict is deliberately not computed in this document.** The ladder is now the data that refuted the
+ratio, and W6's whole content is that a successor may not be validated on the data that killed its predecessor —
+which applies to the ladder exactly as it applied to the 39-run population. *A statistic tuned on the data that
+killed the last one has been fitted, not tested*, and this register has now had to write that sentence three
+times.
+
+### §5.6 The 39-run population pass was NOT run, and here is the trade
+
+The plan had item 3 decided by a 39-run pass over both banks (~3 h), with K8 riding along inside it for free.
+**Item 3 was refuted first, on a NECESSARY clause**, so that pass could no longer change the verdict — and W6
+bars using its rows to size `WingRejectedExcess` in any case. What it would still have bought is the population
+*range* of a refuted measurement, for three hours, while re-landing both banks under a new settings fingerprint.
+
+**So K8 was run on its own** (the eight RULE G11 runs, ~40 min) and the pass was dropped.
+
+> **What is lost, stated plainly: this wave publishes NO 39-run distribution for `WingRejectedRatio`.** Anyone
+> sizing a future wing statistic must measure their own population — which is what W6 requires of them anyway.
+> Recorded here rather than left as a silently smaller pass, because *"a scope that quietly shrinks is how a
+> partial result gets read as a complete one."*
+
+---
+
+*(§6 the suite — pending)*

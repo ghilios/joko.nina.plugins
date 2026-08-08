@@ -654,8 +654,11 @@ Reproduce: `D:\hf_w5\f24_arms.sh`, analysed by `D:\hf_w5\analyze_f24.py`.
 ### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
 **Status:** **(a) refuted (wave 8) · (b) DONE (wave 8) · (c) RESOLVED "the floor stays", free, no re-render
 (wave 9) · THE REMAINDER IS OPEN AGAIN (wave 10): wave 9's wing verdict was REFUTED by the population check it
-recorded as owed, and is WITHDRAWN.** The gate-floor THEOREM stands; the wing rejected fraction stays as a
-measurement; the successor (the wing-to-inner RATIO) is pre-registered and deliberately not adopted
+recorded as owed, and is WITHDRAWN · AND THE SUCCESSOR IS REFUTED TOO (wave 11), before implementation, by
+RULE W2 on the exposure ladder: `D16` at 2 s has an inner rejected fraction of EXACTLY 0.000, so the ratio is
+INFINITE and fires where more exposure is measurably wrong. NO THRESHOLD SATISFIES RULE W.** The gate-floor
+THEOREM stands; `WingRejectedFraction` AND `WingRejectedRatio` both stay as measurements with no verdict
+attached; `WingRejectedExcess` = wing - inner is named as the next candidate and deliberately not evaluated
 · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
 
 `ExposureRecommender`'s `S_now` is the median, across non-recovery frames, of each frame's
@@ -976,6 +979,57 @@ derived-exposure rung on either dataset, this entry REOPENS.**
 > **So F19's remainder is OPEN again**, and honestly so: this wave did not fix F19, it corrected a wrong fix and
 > left a sharper question with a control that did not exist before.
 > Reproduce: `D:\hf_w10\wing_pop.sh`, `D:\hf_w10\score_wing_pop.py`, `D:\hf_w10\pop_score.txt`.
+
+> ## THE SUCCESSOR IS REFUTED TOO (2026-08-08, wave 11) — BEFORE IMPLEMENTATION, BY RULE W ITSELF
+>
+> `WingRejectedRatio` = wing-third ÷ inner-third was pre-registered with RULE W1–W6. Wave 11 shipped the
+> **measurement** and then applied the rule to size its threshold. **The rule has no satisfying input.**
+>
+> W1–W4 are validated on wave 7's exposure ladder. Wave 7's own aggregates predate `FrameDiagnostics`, but wave 9
+> left a 10-rung probe at `D:\hf_w9\wing2\` that has it, so the ratio was readable at **zero compute** — and was
+> then **re-measured on pinned provenance** (`exe_fix2`, `pinned_settings_w11.json`, `--profile-id astrodet`,
+> `--max-evals 120`, wave 7's frames, no re-render), because `wing2` ran on the v1 binary under an unrecorded
+> profile and that is exactly the provenance [F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections)
+> condemns. **All ten rungs reproduced**, across a binary change and a profile change, and the shipped field
+> agreed with an independent offline recomputation on every one.
+>
+> | clause | requirement | measured | implies |
+> |---|---|---|---|
+> | **W1** `D02`@0.5 s must fire | ratio ≥ T | **1.5683** | T ≤ 1.5683 |
+> | **W5** above the bank median | — | 1.39 | T > 1.39 |
+> | **W2** `D16`@2 s must stay SILENT | ratio < T | **+∞** | **T > +∞ — impossible** |
+>
+> **W1 ∧ W5 leave the window (1.39, 1.5683]. W2 empties it.**
+>
+> `D16` at 2 s has an inner rejected fraction of **exactly 0.000** against a wing fraction of **0.0064**, so its
+> ratio is infinite and it fires at every finite threshold. **That rung is where `D16`'s σ_focus is MINIMISED**
+> (0.17117 against 0.35169 / 0.26026 / 0.20421 / 0.19659), so firing there asks the user to make their focus
+> worse — which is the control the whole statistic exists to pass.
+>
+> **The mechanism is worse than the arithmetic.** On a clean, well-exposed narrowband run the core rejects
+> NOTHING, so ANY wing rejection at all becomes an infinite ratio: the ratio form is maximally unstable exactly
+> where the statistic must be silent. **The absolute fraction got this rung RIGHT** (0.0064 ≪ 0.20). On the one
+> control that matters the successor is not merely no better than its predecessor — **it is strictly worse**.
+>
+> **What ships:** `WingRejectedRatio` as a MEASUREMENT ONLY, four-state (`NaN` = could not look / `+∞` = the core
+> rejects nothing and the wings do / `1.0` = both reject nothing, i.e. equal rates / the ratio). Newtonsoft writes
+> the first two as the STRINGS `"NaN"` and `"Infinity"`, pinned by a serialization test — *a scorer that coerces
+> either disables its own falsification rule*, and wave 10's scorer, reused verbatim, would have mapped `+∞` to
+> NaN and hidden exactly the runs this form fails on. **No verdict, no threshold, no action ships.**
+>
+> **The predicted hazard class landed on a different dataset than the two named.** Wave 11's design named `D17`
+> (ratio 0.59) and `D20` (inner exactly 0.000). The killer was `D16`@2 s — the **same shape as `D20`** on a
+> dataset listed under a different clause. *Naming the hazard CLASS in advance worked even though the specific
+> dataset was wrong.*
+>
+> **`WingRejectedExcess` = wing − inner is named as the next candidate and is NOT evaluated anywhere in wave 11.**
+> The ladder is now the data that refuted the ratio, and W6 applies to the ladder exactly as it applied to the
+> 39-run population.
+>
+> **The 39-run population pass was NOT run**, and the trade is recorded rather than left as a silently smaller
+> pass: the refutation came on a NECESSARY clause, so the pass could not have changed the verdict, and W6 bars
+> its rows from sizing the next candidate. **This wave therefore publishes no 39-run distribution for the ratio.**
+> Reproduce: `D:\hf_w11\pop\ladder_w11.sh`, `D:\hf_w11\pop\ladder_score.txt`, `D:\hf_w11\pop\score_wing_pop_w11.py`.
 
 > ## (c) RESOLVED 2026-08-07 (wave 9): THE FLOOR STAYS, THE CEILING STAYS, AND NOTHING RE-RENDERS
 >
@@ -3453,6 +3507,71 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
+### F59 — The settings export drops every knob whose setter VALIDATES, so `pinned_settings.json` has been missing five detector knobs since wave 5
+**Status:** **Fixed (wave 11)** · found 2026-08-08 by a unit test written for
+[F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections)'s
+fit inputs, which failed on a property nobody was looking at
+
+`HarnessSettingsStore.ExportFromProfile` snapshots the options **through the class's own property surface**, so
+the class emits the right keys with the right types and the snapshot cannot drift from what it reads. To make the
+snapshot DENSE it writes a *poison* value first — a value equal to the shipped default would otherwise never fire
+the change-detecting setter, never reach the file, and leave the file inheriting whatever the default is **at load
+time**.
+
+**The poison was `current + 1`, and these setters THROW.**
+
+```
+MaxDistortion              must be within [0, 1]        0.65  -> poison 1.65 -> ArgumentException
+OutlierRejectionConfidence must be in (0.5, 1.0)        0.95  -> poison 1.95 -> ArgumentException
+```
+
+One `try` wrapped both the poison write and the real write, so the exception was caught by a `catch` whose comment
+says *"a property that refuses a round trip … skip it"* — **and the property was skipped entirely. Neither the
+poison NOR the value was written.** A poison-only failure is not a refusal to round-trip: the real value would
+have been accepted.
+
+**`StarDetectionOptions` has 28 validating setters.** Measured against `D:\hf_w11\pinned_settings.json` — the file
+that is byte-identical across waves 5–11 and that every arm has called "the pinned detector":
+
+| knob | in the pinned file? |
+|---|---|
+| `MaxDistortion`, `StarCenterTolerance`, `SaturationThreshold`, `HotpixelThreshold`, `Sensitivity` | **NO** |
+| `MinHFR`, `StarPeakResponse`, `BrightnessSensitivity`, … | yes |
+
+### What it does and does not invalidate
+
+- **Waves 5–11 are internally valid.** The missing keys resolve to **code defaults**, the same file and the same
+  defaults were used throughout, so every arm ran the same detector as every other arm.
+- **What is false is that the file DESCRIBES the detector.** It does not, for those five knobs — and
+  `ExportFromProfile`'s own docstring promises the bootstrap is *"behaviour-preserving, or the first run after
+  this change would silently differ from the last one before it"*, which for a validated knob it was not.
+- **The hazard is live rather than historical:** change any of those five code defaults and every pre-wave-11
+  pinned file silently starts describing a different detector. That is precisely the drift
+  [F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)
+  exists to prevent, defeated inside the mechanism written to prevent it.
+
+### Fixed
+
+Poison candidates are **tried in turn** until one lands inside the property's own valid range (the numeric spread
+runs both directions and through the unit interval), the poison is **verified by read-back** rather than assumed,
+and **the real write has its own `try`** so a poison failure can never cost it again.
+
+**The wave-11 pinned file deliberately does NOT gain the five recovered knobs.** Adding them would change the
+detector and move the coordinate system RULE G11 was just established on; they stay at code defaults, as they
+have been for seven waves, consistently. The fix changes what a FUTURE bootstrap exports.
+
+**How it was found is the point.** The test that failed was written to assert **density** — *"a value equal to the
+code default must still reach the file"* — and not presence. Presence would have passed: the four fit inputs it
+was written for include one (`MaxOutlierRejections = 1`) that IS the code default. *A test written for the
+property you care about finds the bug you were not looking for; a test written for the happy path does not.*
+
+### Next step
+
+None for the export. **But the five knobs are now known to have been at code defaults for waves 5–11**, which is
+worth stating in any write-up that describes `pinned_settings.json` as a full snapshot. Reproduce:
+`Joko.NINA.Plugins.HocusFocus.Tests/Harness/HarnessFitInputsTests.cs`
+(`CopyOptionSurface_CarriesAKnobWhoseSetterTHROWSOnTheObviousPoison`).
+
 ### F58 — Concurrent `optimize` processes each acquire a DIFFERENT NINA profile, and the profile decides the fit: F55's "two attractors" are two values of `MaxOutlierRejections`
 **Status:** Open · found 2026-08-08 (wave 11) **at zero compute, out of logs wave 9 left on disk** ·
 **this is the MECHANISM behind [F55](#f55--optimize-is-not-reproducible-when-several-instances-run-at-once-and-the-seed-evaluation-is-what-moves)
@@ -3591,6 +3710,14 @@ returns ONE value **while still loading five different profiles** — a fix that
 pass a weaker test and prove nothing.
 (c) **Then say what is left.** `KappaSigmaNoiseEstimate`'s measured gain (F55) stays as a fact about the
 function; it is withdrawn only as *this* defect's explanation, and only once the residual check has run.
+(d) **FOUR OTHER HARNESS RUNNERS HAVE THE SAME DEFECT AND ARE NOT FIXED HERE**, flagged rather than swept in
+because each needs its own validation and wave 11's budget went to `optimize`:
+`BankVerifyRunner` (twice — the recall/precision harness whose numbers feed the golden audits),
+`SynthValidateRunner`, `InspectAlignRunner`, `TiltCalibrationRunner`. Every one builds
+`new AutoFocusOptions(profileService)` and therefore takes its fit from whichever profile is ACTIVE. Until they
+are converted, **they must be run with `--profile-id`**, and two of their results measured under different
+profiles are not comparable. *(`HocusFocusPlugin.cs` also constructs it from the profile and is CORRECT — in the
+live app those are the user's settings.)*
 Reproduce: `D:\hf_w9\det\{S,C}_{1..5}.log`, `D:\hf_w9\ctl_{seq,conc}_*.log`, `D:\hf_w11\profiles_before.txt`,
 `D:\hf_w11\pregate\pregate.log`.
 
