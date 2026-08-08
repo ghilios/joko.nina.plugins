@@ -1019,6 +1019,23 @@
                             </Button>
                         </StackPanel>
 
+                        <!--  F32 — when this landing took the SHEDDING CORNER, say that another pass is likely to
+                              beat it. The mechanism F32 chased since wave 3 is real (the shedding corner is a
+                              greedy trap, not a rational trade), but wave 9's confirmation arm refuted the
+                              proposed FIX — a keep floor — on three pre-registered rules, and measured the
+                              alternative as strictly better: restarts recovered 228% of the floor's median gain.
+                              "Continue optimizing" IS a restart, it was always on screen, and nothing told the
+                              user when it was worth pressing. Hidden unless the landing actually shed and a round
+                              remains, so it cannot become noise.  -->
+                        <TextBlock
+                            MaxWidth="560"
+                            Margin="0,8,0,4"
+                            HorizontalAlignment="Left"
+                            FontStyle="Italic"
+                            Text="{Binding ContinueOptimizingAdviceText, Mode=OneWay}"
+                            TextWrapping="Wrap"
+                            Visibility="{Binding HasContinueOptimizingAdvice, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+
                         <!--  Changed parameters table  -->
                         <TextBlock
                             Margin="0,4,0,4"

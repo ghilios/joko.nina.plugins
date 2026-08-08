@@ -844,6 +844,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     ContinueOptimizationCommand.NotifyCanExecuteChanged();
                     RaisePropertyChanged(nameof(CanContinueOptimization));
                     RaisePropertyChanged(nameof(RoundsSummaryText));
+            RaisePropertyChanged(nameof(ContinueOptimizingAdviceText));
+            RaisePropertyChanged(nameof(HasContinueOptimizingAdvice));
+                    // F32 — the restart advice turns on the SAME two things RoundsSummaryText does (the selected
+                    // variant and how many rounds remain), so it is re-raised wherever that is.
+                    RaisePropertyChanged(nameof(ContinueOptimizingAdviceText));
+                    RaisePropertyChanged(nameof(HasContinueOptimizingAdvice));
                     RaisePropertyChanged(nameof(HasRoundsSummary));
                 }
             }
@@ -1613,6 +1619,59 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>True while another "Continue optimizing" pass is allowed (an Optimized variant exists, the cap
         /// hasn't been reached, and nothing is running). Drives the Continue button's enabled state.</summary>
         public bool CanContinueOptimization => !IsBusy && IsSummary && HasOptimized && RoundsCompleted < MaxOptimizationRounds;
+
+        /// <summary>
+        /// F32 — the keep fraction below which a landing counts as having taken the SHEDDING CORNER: it kept less
+        /// than half the stars its own seed did.
+        ///
+        /// <para>This is wave 5's recommended keep floor (φ = 0.50) reused as a DIAGNOSTIC rather than as a
+        /// constraint, which is the one role wave 9's confirmation arm supports. As a constraint it failed three
+        /// pre-registered rules — most sharply R1(c), where it degraded σ_focus by a factor of 2000 on
+        /// <c>vsn07</c>. As a description of "this search fell into the greedy trap", the same threshold is
+        /// exactly what wave 5 selected it for.</para>
+        /// </summary>
+        internal const double SheddingLandingKeepFraction = 0.5;
+
+        /// <summary>
+        /// F32 — one sentence telling the user that another optimization pass is likely to IMPROVE this result,
+        /// shown only when the landing took the shedding corner and another pass is actually allowed.
+        ///
+        /// <para><b>Why this exists, and why it is a note rather than a constraint.</b> F32 found that the
+        /// optimizer's shedding landings are substantially a GREEDY TRAP rather than a rational trade: a
+        /// constrained search can beat the unconstrained one, which a true global maximum could not allow. Wave 5
+        /// proposed fixing that with a feasibility floor (<c>MinDetectionKeepFraction</c>). Wave 9's confirmation
+        /// arm — both full banks, sequential, both controls passing — <b>refuted the floor as a default</b> and
+        /// found the alternative strictly better: over the binding runs, simply RESTARTING the search recovered
+        /// <b>228 %</b> of the floor's median gain, where wave 6 had measured only 0–36 % on a 7-run subset.</para>
+        ///
+        /// <para>So the mechanism ships as the affordance the user already has. <b>"Continue optimizing" is a
+        /// restart</b> — each pass re-seeds from the prior best with a fresh curated set, resetting the pattern
+        /// search's stride — and it was always on screen; nothing told the user when it was worth pressing. This
+        /// note is that missing half, and it names a control that is present and enabled
+        /// (<see cref="CanContinueOptimization"/>), per the house rule at
+        /// <see cref="ShowOptimizeAgainAtRecommendedBinning"/>.</para>
+        ///
+        /// <para>It promises a DIRECTION, never a magnitude: restarts helped on most binding runs but not all, and
+        /// the gain is a fourth-decimal `J` move whose value is in the star list rather than the objective. Empty
+        /// whenever the landing did not shed, no round remains, or no keep fraction was measured — a note that
+        /// always fires says nothing.</para>
+        /// </summary>
+        public string ContinueOptimizingAdviceText {
+            get {
+                if (!CanContinueOptimization || selectedVariant != OptimizationVariant.Optimized) {
+                    return string.Empty;
+                }
+                var keep = optimizedResult?.LandingKeepFraction ?? double.NaN;
+                if (!double.IsFinite(keep) || keep >= SheddingLandingKeepFraction) {
+                    return string.Empty;
+                }
+                return $"This result keeps only {keep:P0} of the stars your current settings detect. Searches that "
+                    + "shed stars like this often stop short of the best result rather than at it — clicking "
+                    + "\"Continue optimizing\" restarts the search from here and frequently finds a better one.";
+            }
+        }
+
+        public bool HasContinueOptimizingAdvice => ContinueOptimizingAdviceText.Length > 0;
 
         /// <summary>Header shown above the Changed-parameters table once more than one optimization pass has run:
         /// e.g. "3 rounds  •  J: 0.940 → 0.985 → 0.990". Empty for a single round (no chain to summarize).</summary>

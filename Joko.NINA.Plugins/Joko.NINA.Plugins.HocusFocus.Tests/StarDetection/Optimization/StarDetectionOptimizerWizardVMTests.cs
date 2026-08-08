@@ -3863,6 +3863,95 @@ public class StarDetectionOptimizerWizardVMTests {
         SetPrivate(vm, "feedbackCurve", curve);
     }
 
+    // ── F32: expose RESTARTS, not the keep floor ────────────────────────────────────────────────────────────
+    //
+    // F32 found the optimizer's shedding landings are substantially a GREEDY TRAP rather than a rational trade.
+    // Wave 5 proposed fixing that with a feasibility floor (MinDetectionKeepFraction). Wave 9's confirmation arm
+    // -- both full banks, sequential, RULE G 8/8 and BaselineJ 0-of-39 -- REFUTED the floor as a default on three
+    // pre-registered rules, and measured the alternative as strictly better: restarts recovered 228% of the
+    // floor's median gain, where wave 6 had measured 0-36% on a 7-run subset.
+    //
+    // "Continue optimizing" IS a restart and was always on screen. What was missing is any signal that pressing
+    // it was worth it, which is what these tests pin.
+
+    /// <summary>Puts a VM into "optimized, one round done, landing kept <paramref name="keep"/> of the seed".</summary>
+    private static void GiveOptimizedLanding(StarDetectionOptimizerWizardVM vm, double keep) {
+        SetPrivate(vm, "optimizedResult", new OptimizationResult {
+            BestParams = new StarDetectorParams(), BestJ = 0.99, SeedJ = 0.98, LandingKeepFraction = keep
+        });
+    }
+
+    [Test]
+    public async Task ContinueAdvice_SheddingLanding_TellsTheUserARestartIsLikelyToBeatIt() {
+        // The shedding corner: this landing kept 30% of the stars the seed did. A constrained search beat the
+        // unconstrained one on runs like this, which a true global maximum cannot allow -- so the search stopped
+        // short, and restarting it is the measured remedy.
+        //
+        // DISCRIMINATING: make ContinueOptimizingAdviceText return string.Empty and every assertion fails.
+        var vm = NewVM(new RecordingLoader(), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\shed-run";
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.CanContinueOptimization, Is.True, "fixture guard: a round must remain");
+        GiveOptimizedLanding(vm, keep: 0.30);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.HasContinueOptimizingAdvice, Is.True);
+            Assert.That(vm.ContinueOptimizingAdviceText, Does.Contain("30%"), "it quotes what this landing kept");
+            Assert.That(vm.ContinueOptimizingAdviceText, Does.Contain("Continue optimizing"),
+                "it names a control that is on screen AND enabled (the house rule)");
+            Assert.That(vm.ContinueOptimizingAdviceText, Does.Not.Contain("keep floor"),
+                "MinDetectionKeepFraction has no user-facing control and was REFUTED as a default; naming it "
+                + "would point the user at something they cannot reach and that wave 9 measured as harmful");
+        });
+    }
+
+    [Test]
+    public async Task ContinueAdvice_HealthyLanding_SaysNOTHING() {
+        // A landing that kept most of its seed's stars did not take the shedding corner, so there is no greedy
+        // trap to escape and a note here would be noise. Restarts helped on the BINDING runs, not on all runs.
+        //
+        // DISCRIMINATING: drop the SheddingLandingKeepFraction test and this fails.
+        var vm = NewVM(new RecordingLoader(), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\healthy-run";
+        await vm.StartAsync(CancellationToken.None);
+        GiveOptimizedLanding(vm, keep: 0.95);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.HasContinueOptimizingAdvice, Is.False);
+            Assert.That(vm.ContinueOptimizingAdviceText, Is.Empty);
+        });
+    }
+
+    [Test]
+    public async Task ContinueAdvice_NeverPromisesAnActionThatCannotBeTaken() {
+        // The house rule at ShowOptimizeAgainAtRecommendedBinning: never describe an action whose control is
+        // hidden or dead. The advice names the Continue button, so it must vanish the moment that button cannot
+        // run -- including at the MaxOptimizationRounds cap, where the button greys out.
+        //
+        // DISCRIMINATING: drop the CanContinueOptimization conjunct and this fails on the busy case.
+        var vm = NewVM(new RecordingLoader(), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\cap-run";
+        await vm.StartAsync(CancellationToken.None);
+        GiveOptimizedLanding(vm, keep: 0.30);
+        Assert.That(vm.HasContinueOptimizingAdvice, Is.True, "fixture guard: it is showing before the cap");
+
+        SetPrivate(vm, "isBusy", true);   // a pass is running: Continue is disabled
+        Assert.That(vm.HasContinueOptimizingAdvice, Is.False,
+            "the sentence must not name a button the user cannot press right now");
+    }
+
+    [Test]
+    public async Task ContinueAdvice_NoMeasuredKeepFraction_SaysNothingRatherThanGuessing() {
+        // A run whose keep fraction was never measured (NaN) has not been shown to shed anything. The advice
+        // tells the user to spend another optimization pass, so silence is the right default.
+        var vm = NewVM(new RecordingLoader(), frameReviewBuilder: new FakeReviewBuilder().Build);
+        vm.SourcePaths[0] = @"C:\nokeep-run";
+        await vm.StartAsync(CancellationToken.None);
+        GiveOptimizedLanding(vm, keep: double.NaN);
+
+        Assert.That(vm.HasContinueOptimizingAdvice, Is.False);
+    }
+
     private static void SetPrivate(object target, string field, object value) =>
         target.GetType()
             .GetField(field, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)

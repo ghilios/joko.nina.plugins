@@ -1684,6 +1684,28 @@ runs are on the real bank, which wave 7 never touches. **The arm is runnable and
 > honest product change is to expose RESTARTS (the wizard's "Continue optimizing" button already is one) rather
 > than a feasibility constraint that can cost 2000× of σ_focus.
 >
+> ### WHAT SHIPS INSTEAD: the restart, exposed (2026-08-07, wave 9)
+>
+> R2 says restarts recover **228 %** of the floor's gain, so the mechanism ships as the affordance the user
+> already had. **"Continue optimizing" IS a restart** — each pass re-seeds from the prior best with a fresh
+> curated set, resetting the pattern-search stride — and it has always been on the Summary page. Nothing told the
+> user when pressing it was worth anything.
+>
+> `StarDetectionOptimizerWizardVM.ContinueOptimizingAdviceText` is that missing half: when the landing kept less
+> than **half** the stars its own seed did (φ = 0.50 reused as a DIAGNOSTIC, the one role this arm supports for
+> it), the Summary says so and points at the button.
+>
+> - It **names a control that is present AND enabled** — gated on `CanContinueOptimization`, so it disappears at
+>   the 3-round cap and while a pass is running (the house rule at `ShowOptimizeAgainAtRecommendedBinning`).
+> - It **never names `MinDetectionKeepFraction`**, which has no XAML binding and which this arm measured as
+>   harmful as a default.
+> - It promises a **direction, not a magnitude** — restarts helped on most binding runs, not all.
+> - It is **absent on healthy landings**, because a note that always fires says nothing.
+>
+> **Tests: 4, two of them discriminating**, each confirmed by neutralizing: removing the shedding threshold fails
+> `ContinueAdvice_HealthyLanding_SaysNOTHING`; removing the `CanContinueOptimization` guard fails
+> `ContinueAdvice_NeverPromisesAnActionThatCannotBeTaken`.
+>
 > **F15:** arm A ran LAST, so both banks hold the SHIPPED-DEFAULT landing — the correct resting state, and no
 > re-land is owed since nothing was adopted. Reproduce: `D:\hf_w9\f32_arms.sh` (FANOUT=1), `D:\hf_w9\score_f32.py`.
 
