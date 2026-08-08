@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -275,7 +275,10 @@ namespace TestApp {
                     System.Reflection.Assembly.GetEntryAssembly()))?.InformationalVersion,
                 BuildId = build.BuildId,
                 DetectorVersion = build.DetectorVersion,
-                ConcurrencyCheck = ClaimExclusiveOptimize()
+                ConcurrencyCheck = ClaimExclusiveOptimize(),
+                // F57: --settings pins the detector knobs and NOT the arm. The active profile moves BaselineJ by
+                // 0.0144 on toml999, so which profile ran is part of a landing's identity.
+                ProfileId = $"{activeProfile.Name} ({activeProfile.Id})"
             };
             Console.WriteLine($"provenance: {provenance}");
             if (provenance.ConcurrencyCheck != "exclusive") {

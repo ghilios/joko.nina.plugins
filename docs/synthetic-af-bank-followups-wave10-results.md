@@ -20,13 +20,16 @@ Register: [`docs/followups.md`](followups.md).
 
 | item | state |
 |---|---|
-| **RULE G10-A** — the fixed point reproducing against itself | see §1.3 |
-| **RULE G10-B** — how many landings a ≤ 3e-8 change moves | **FIRES AT THE TOP TIER: 6 of 8.** And the seed evaluation — no search at all — moved on `toml999`. See §1 |
-| **item 1** — F19's population check | see §2 |
-| **item 2** — F55(b), the nondeterminism | see §3 |
-| **item 3** — the step recommender | see §4 |
-| **F53** — the build stamp | **SHIPPED.** And the field that claimed to identify the build is shown not to. See §3.4 |
-| **F49(c)** — what a capped step says | **SHIPPED**, with a ratio that is exact and measured against 22 on-disk rounds. See §4 |
+| **RULE G10-A** — the fixed point reproducing against itself | **PASS, 8 of 8 to 6 dp.** See §2.4 |
+| **RULE G10-B** — how many landings a ≤ 3e-8 change moves | fired at its top tier (6 of 8) and is **VOID**: its own pre-registered control refuted the attribution. **The wavelet is exonerated; the active NINA profile is the cause.** See §1.2–§1.3 |
+| **item 1** — F19's population check | **RULE P FIRES (P2: 30 of 39 = 76.9 %). The wing verdict is WITHDRAWN**, along with the 2× ask, the verdict override and F52(c)'s abort advice. See §2 |
+| **item 2** — F55(b), the nondeterminism | **NOT solved.** The build-selects-the-attractor hypothesis is DEAD (15 runs, 3 binaries, identical to 10 dp); the amplifier's GAIN is measured and pinned by a test; the trigger RATE is still owed. See §3 |
+| **item 3** — the step recommender | **F49(c) SHIPPED** with an exact ratio; **F21's hypothesis refuted** (its round 0 reproduces, its collapse does not); **the deadband REFUTED before implementation** by the rule fixed to size it. See §4 |
+| **F53** — the build stamp | **SHIPPED** (`BuildId` + `DetectorVersion`, joined by `ProfileId` for F57). The field that claimed to identify the build is shown not to. See §3.3 |
+| **F49(c)** — what a capped step says | **SHIPPED**, with a ratio that is exact and measured against 22 on-disk rounds. See §4.1 |
+| **F55(c)** — concurrency | **SHIPPED as a FIELD.** This wave violated its own rule and needed it. See §1b |
+| **F57** — new | **A `--settings`-pinned arm is not pinned: the active NINA profile moves `BaselineJ` by 0.0144.** See §1.3 |
+| **the full suite** | **3722 passed, 0 failed** (`develop` was 3708 → **+14**, every one accounted for) |
 
 ---
 
@@ -50,60 +53,67 @@ sequentially, nothing else running ([F55](followups.md#f55--optimize-is-not-repr
 | `D19_cygnus_deep_shed` | 0.999187 | 0.999187 | = | 0.999557 | **0.999487** | **MOVED** |
 | `D20_m24_bright_control` | 0.999454 | 0.999454 | = | 0.999766 | **0.999738** | **MOVED** |
 
-### §1.2 RULE G10-B fires at its top tier, and the reading was fixed before the numbers arrived
+### §1.2 RULE G10-B fired at its top tier — AND IT IS VOID. The cause is not the wavelet.
 
-> **6 of 8 landings moved.** The pre-registered table said: 0 ⇒ inert; **1–3 ⇒ the expected pattern-search
-> amplification** ([F8](followups.md#f8--optimizer-landings-are-not-reproducible-across-invocations)); **≥ 5 ⇒
-> the "≤ 3e-8" claim describes the per-pixel RESIDUAL and not the detector's BEHAVIOUR, and PR #187 needs
-> re-examining as a change that moves product landings.**
+> **6 of 8 landings moved.** The pre-registered table said: 0 ⇒ inert; 1–3 ⇒ the expected pattern-search
+> amplification ([F8](followups.md#f8--optimizer-landings-are-not-reproducible-across-invocations)); **≥ 5 ⇒ the
+> "≤ 3e-8" claim describes the per-pixel RESIDUAL and not the detector's BEHAVIOUR.**
 
-**And the seed evaluation moved, which is the sharper half.** `BaselineJ` is a **single evaluation of the pinned
-seed with no search involved**, so nothing amplifies it. On `toml999` it moves by **0.0144** — six orders of
-magnitude above 3e-8 — between two binaries whose every printed seed input is identical: same settings file
-(same export stamp, same "0 advanced knobs overridden" warning), `Sensitivity=10`,
-`StarClippingMultiplier=2`, `NoiseClippingMultiplier=4`, `StructureLayers=4`, inferred step 21, exposure 5 s,
-`PixelScale 0.73944 arcsec/px (frame header)`, detection binning `1 from harness_settings.json`.
+That reading was written before the numbers and the numbers came back at its top tier, so it was published: a
+detector change bounded at 3e-8 per pixel appeared to move six product landings and one **seed evaluation** — a
+single evaluation of the pinned seed, no search, nothing to amplify it — by **0.0144**. Every printed seed input
+was identical.
 
-**This is not a defect in PR #187's own claim.** The two wavelet paths do agree to ≤ 3e-8 per pixel, and the
-version bump exists precisely because they are not bit-identical. What the gate measures is the **consequence**:
-a detector whose per-pixel output moves in the eighth decimal moves 6 of 8 product landings and one seed
-evaluation in the second. *A numerical-equivalence bound on an intermediate is not an equivalence bound on the
-answer* — the star gate is a threshold, and a threshold turns an eighth-decimal difference into a whole star
-appearing or not appearing.
+**Then the control that had been pre-registered for exactly this refuted it (§3.1).** Fifteen runs — five each on
+wave 9's v1 binary, wave 10's v2 binary, and a **bisect build** (wave 10's tree with the wavelet reverted to the
+legacy dense path), interleaved in one session on identical folder copies — all returned **`0.9834767969`,
+identical to ten decimal places.**
 
-**What it changes.** Wave 5's φ table, wave 6's arm R and wave 9's F32 verdict are all readable **within** their
-own binaries and none of them is retracted. What is now measured rather than assumed is that they cannot be
-compared **across** the version boundary at all — which is what wave 9's provenance banner asked for and what
-this table supplies with a number.
+- **The wavelet is exonerated outright.** v2 and the bisect differ *only* in the wavelet and agree exactly.
+- **The binary is exonerated.** v1 and v2 agree exactly.
+- **Folder state is exonerated**, one artifact at a time: removing `optimized_settings.json`,
+  `hocusfocus_star_detection.json`, `autofocus_report_Region0.json` or `run_meta.json` changed nothing, and the
+  frames and `harness_settings.json` predate both waves.
 
-### §1.3 The confound the seed result has to survive, and the control that settles it
+**What was left is the one input nobody compares:**
 
-`BaselineJ` is read on folders that a previous arm wrote into
-([F15](followups.md#f15--optimize---per-run-overwrites-each-runs-stored-settings)), and wave 9's gate ran on a
-wave-8-era folder state while wave 10's ran on wave 9's arm-A landing. So the honest reading is that **two things
-differ between the two measurements — the binary and the folder state** — and one of them is not the wavelet.
+| | wave 9's gate | wave 10's gate |
+|---|---|---|
+| `--settings` | `hf_w9\pinned_settings.json` | `hf_w10\pinned_settings.json` — **byte-identical**, `md5 df7c7cd1…` |
+| **`Profile:`** | **`Default (b10b1d6d-…)`** | **`astrodet (ce3f3e63-…)`** |
 
-- **`harness_settings.json` is excluded outright.** `toml999`'s is dated **2026-07-31 12:43**, i.e. untouched
-  since before wave 8, so it is byte-identical across both gates.
-- **`optimized_settings.json` is the live one.** F55's own investigation measured it as inert (run with and
-  without the file present, identical) — but on `D16` and on the v1 binary, not here.
-- **The decisive control is §3.1's cross-build probe**, which runs `toml999` on wave 9's v1 binary against
-  TODAY's folder state. Same folder, different binary: if it returns wave 9's 0.997840, folder state is excluded
-  and the BINARY is the cause; if it returns 0.983477, the folder state is the cause and the binary is
-  exonerated. **The seed-evaluation claim above is held open until that control reports.**
+**Re-running `toml999` today under `--profile-id b10b1d6d-…` returns `0.9978404571` — wave 9's value to 6 dp.**
 
-**And "the binary" is not yet "the wavelet", which is a second step.** The two exes differ by PR #187 *plus*
-whatever wave-9 code landed after `D:\hf_w9\exe` was built (its `.dll` is stamped 2026-08-06 19:40, and several
-wave-9 commits post-date it). Those additions are all post-search or UI — wave 9 verified the wing statistic is
-computed *after* the search and is inert on it, and F49/F51/F52(c) are copy — so PR #187 is the only plausible
-search-relevant term. **Plausible is not measured**, which is why §3.2's bisect build exists: the wave-10 tree
-with `StarDetector.cs`'s two call sites reverted to the legacy dense path isolates the wavelet from every other
-difference at once. Until it reports, this section attributes to *the binary*, not to *the wavelet*.
+**So G10-B is VOID, not merely uncertain.** It compared two waves that ran under different NINA profiles, and it
+therefore measures the profile at least as much as the binary. Nothing in this wave implicates PR #187. Filed as
+[F57](followups.md#f57--a---settings-pinned-arm-is-not-pinned-the-active-nina-profile-moves-baselinej-by-0014-and-every-cross-wave-comparison-inherits-it),
+rewritten from what it originally claimed.
 
-*(`D:\hf_w9\exe`, `exe2`, `exe_f56` and `exe_bisect` were each confirmed to be v1 builds before any of this was
-attributed — `strings <dll> | grep AtrousWaveletFast` returns 0 on all four and 1 on `D:\hf_w10\exe`. That is a
-retroactive build-identity check that works on every artifact directory already on disk, and it is how F53's
-question was answered for the binaries that predate F53's stamp.)*
+### §1.3 The finding that replaces it, and it is larger
+
+**`--settings` pins the DETECTOR knobs. This project has treated that as pinning the arm. It does not.** The
+harness also loads whichever NINA profile is ACTIVE, and that profile moves `BaselineJ` — the objective of a
+fixed seed on fixed frames, with no search anywhere in it — by **0.0144**, which is larger than the entire Δ`J`
+any wave has ever argued about.
+
+[F42](followups.md#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)
+**predicted this in words** — *"`TryLoad("")` picks whichever profile is ACTIVE — two runs of the same data
+minutes apart were seeded from different telescopes"* — and the remedy it prompted, pinning the detector
+settings, does not close it. **The prediction was right, the remedy was incomplete, and the residue went
+unmeasured until a control written for an unrelated hypothesis forced it out.**
+
+Every cross-wave `BaselineJ`/landing comparison in the register is exposed to this. Waves 5–9's controls passed,
+which is evidence the active profile happened to be stable across them — **it is not evidence that it was
+pinned.** `ProfileId` now goes into `OptimizerProvenance` beside this wave's `BuildId` and `DetectorVersion`:
+the same argument, one input further out.
+
+**RULE G10-A is NOT affected and still passes 8 of 8** (§2.4). It compares two runs *within* wave 10, under one
+profile — which is exactly why this wave's own measurements remain readable while its cross-wave one does not.
+
+**And the lesson is about the shape of the control, not about profiles.** The three-way probe was designed to
+separate the wavelet from the binary. It answered a question nobody had asked, because it was built to *exclude
+things* rather than to confirm a favourite. A control that can only confirm would have returned "6 of 8, as
+predicted" and this wave would have shipped a false finding about PR #187.
 
 ### §1.4 A smaller thing the gate caught about its own instrument
 
@@ -261,15 +271,133 @@ is not yet `toml999`'s seed evaluation on the v1 binary (§3.1's control), but i
 
 ---
 
-## §3 — Item 2: F55(b)
+## §3 — Item 2: F55(b), the nondeterminism
 
-*(pending)*
+### §3.1 The cross-build probe, which answered a question nobody asked
+
+Five sequential repeats each of wave 9's **v1** binary, wave 10's **v2**, and a **bisect build** (wave 10's tree
+with `StarDetector.cs`'s two wavelet call sites reverted to the legacy dense path), **interleaved in one
+session** — blocked runs would have confounded the binary with elapsed time and machine warm-up, which is the
+class of confound F55 is made of — each on its own pristine copy of `toml999`, `--max-evals 1` so `BaselineJ` is
+the whole measurement.
+
+> **All 15 returned `0.9834767969`. Identical to ten decimal places.**
+
+**Three things follow.**
+
+1. **The BUILD does not select the attractor.** Wave 9's sharpest open clue was five sequential repeats at the
+   *other* attractor *"from one build"*, raising the possibility that part of F55 is build-to-build variation.
+   Here two binaries a wave apart agree exactly. **That hypothesis is dead**, and F55's mechanism is still open.
+2. **The wavelet is exonerated** (§1.2), and with it F57's original claim.
+3. **The seed evaluation IS a pure function of (frames, settings, profile).** Under a fixed profile it is
+   perfectly reproducible across binaries, folder states and sessions — which sharpens F55 rather than solving
+   it: whatever moves under CONCURRENCY is not moving under any of these.
+
+### §3.2 What was NOT run, and why
+
+**The landing-level wavelet bisect was not run.** `exe_v1wav` exists and the command is one line, but it is
+8 runs × 2 binaries ≈ 80 minutes, and it was not pre-registered. Running it would have displaced item 3, which
+was. **The seed-level answer is already in and is exact**; what remains open is only whether the pattern search
+amplifies an identical seed into different landings — which is [F8](followups.md#f8--optimizer-landings-are-not-reproducible-across-invocations),
+not a new question. It is written into F57's next step with its exact invocation.
+
+**`KappaSigmaNoiseEstimate` was not probed on the bank.** Design §2.4a names it as the specific bimodal
+amplifier: an OpenCV parallel reduction feeding a convergence test at `|Δσ| ≤ 1e-5`, where one flipped comparison
+buys an extra iteration and moves σ macroscopically. **The gain is now measured and permanent** — a unit test
+asserts that one extra iteration moves σ by ≥ 100× the tolerance that decides whether to take it, so if that ever
+stops being true the entry says so. **The trigger RATE is still unmeasured**, and that is what the 40-second
+probe would give.
+
+**Eliminated by reading, and recorded because it is the most F55-shaped thing in the path:**
+`CvImageUtility.CalculateStatistics` selects its median with a **quickselect whose pivot comes from
+`Random.Shared`** — process-level shared state consumed in a thread-interleaving-dependent order, exactly the
+signature. It is nevertheless **inert**: quickselect returns the value at rank *n* whatever the pivots were, and
+`Mat.GetArray` returns a **copy**, so the in-place permutation never reaches the image.
+
+### §3.3 F53 — the build stamp, shipped
+
+`OptimizerProvenance.ProducerVersion` claimed to identify the build and **cannot**: two builds of one version
+share it, which is exactly how wave 8's arm X became irreproducible from its own recorded `exe`. `BuildId` (the
+assembly **MVID**, regenerated on every build) and `DetectorVersion` now go into every landing and are printed by
+`optimize`. **And `ProfileId` joins them** — F57, the same argument one input further out.
+
+**A retroactive instrument, for the artifacts that predate the stamp:** `strings <dll> | grep AtrousWaveletFast`
+distinguishes a v1 build from a v2 build without running it. It is how wave 10 established that all four wave-9
+build directories are v1 rather than assuming it.
 
 ---
 
 ## §4 — Item 3: the step recommender
 
-*(pending)*
+### §4.1 F49(c) — SHIPPED, and the ratio it quotes is exact
+
+A capped recommendation now states that it is a **partial step**, names what it converges toward
+(`3 × HFR_min`), reports the HFR dynamic range **the sweep actually measured**, and quotes the **exact** factor
+the next capped run will apply.
+
+**The mechanism is arithmetic, not a mystery.** While the cap binds,
+`step′ = (MaxHalfWidthSampledHalfSpanMultiple × P / PointsPerSide) × step` — **1.714× at 4 offset steps, 2.143×
+at 4 offset + 1 recovery** — and nothing in it depends on the extrapolated half-width the cap exists to distrust.
+That is why the ratio is quotable to a user and **a projected run count is not**.
+
+**Measured against 22 capped rounds already on disk**, at zero compute: wave 7's F18 control arm has 22 capped
+rounds across six datasets and every one lands at a realized ratio of **1.667–1.750** (the scatter is integer
+rounding of the step). The field session behind F49/F51 ran **100 → 214 → 459** at P = 5: 100 × 2.143 = 214.3,
+214 × 2.143 = 458.6. The entry derives 459 independently from the screenshot's focuser axis, so those are two
+routes to the same number.
+
+**And the sequence terminates**, which is the half of the user's complaint that is not a defect: the widening is
+geometric until the sweep contains the band, and their runs 3 and 4 asked +3 % and +5 %. A unit test replays the
+session and asserts the cap releases.
+
+### §4.2 F21 — round 0 reproduces EXACTLY; the collapse does not
+
+F21's own reproduce line, run on this binary: `D17_cdk14_oiii5`, S0, `--max-rounds 2`.
+
+| | F21 as recorded | wave 10 |
+|---|---|---|
+| round 0 `HalfWidth` | 143.6 | **143.583** |
+| round 0 step | 41 | **41** |
+| round 1 | `HalfWidth` **12.1**, step **3** | **did not occur — converged in 1 round** |
+
+**The instrument is right and the pathology did not recur** — the same shape as F25, whose 4×→7× over-reach also
+failed to reproduce on re-measurement. So F21's headline remains a real observation of a real run and **not** a
+reproducible case.
+
+**Its stated hypothesis is not supported.** F21 blames `FindHalfWidth`'s coarse walk terminating early. But
+`FindHalfWidth` is exact for a hyperbola — it returns `√8 · HFR_min / κ` — so its output is **proportional to the
+fitted vertex HFR**. Wave 7's control arm, on disk, shows exactly that: over uncapped rounds `halfWidth / vertexY`
+holds to **×1.03–×1.14** within a dataset while `halfWidth` itself spans up to **×1.69**, and the ratio differs
+strongly *between* datasets as `√8/κ` should. **The walk is not what moves; the FIT's vertex is** — and
+`R² = 1.0000` is no evidence against that, because R² measures fit to the sampled points and says nothing about
+whether the vertex is identifiable from them. *Confirmed on six datasets, but not on F21's own, because F21's own
+case would not reproduce.*
+
+### §4.3 The deadband — REFUTED before implementation, by the rule fixed to size it
+
+Design §3.3(B) fixed the rule in advance: *"a deadband narrower than the recommender's own reproducibility is a
+deadband that does nothing"*, so the threshold must sit **at or above the measured run-to-run spread**.
+
+**The rule has no valid input, and that is the answer.** Measured:
+
+- **With a fixed seed the recommender is BIT-REPRODUCIBLE** — all six S0 half-widths are identical to full double
+  precision between wave 7's v1 binary and wave 10's v2 (130.132 / 129.313 / 399.122 / 396.872 / 168.835 /
+  73.358). Spread **zero**, so a rule-compliant deadband is zero and does nothing.
+- **The variability F21 describes comes from a different noise realization**, and its only recorded instance did
+  not reproduce (§4.2).
+- **And the asks it would have to suppress are large and possibly correct.** On S0 — where the bootstrap IS each
+  dataset's expected optimum — the recommender asks for a median **19.9 %** change (max 40 %). A deadband wide
+  enough to cover that would suppress **4 of 6** of them, which is RULE S's **S2** clause (*"the A3 final-step
+  assertion must pass on at least as many cells"*) failing by construction. Whether the recommender or the bank
+  is right about those 20 % gaps is F18's open question, and a deadband would bury it.
+
+**So RULE S was never applied: the mechanism it was written to accept was refuted before implementation.** That
+is the same shape as wave 9's §3.4 — the cheap refutation arriving before the expensive confirmation, including
+of one's own plan — and it cost one measurement on data already on disk.
+
+**Explicitly NOT closed:** F25's fit-quality gate, F26's deferral bound, and F18's `W_detect` default all stay
+open and untouched. F18/F21/F25/F26/F49(c)/F51 are one component read six ways, and a shipped copy change is not
+four entries closed.
 
 ---
 
@@ -285,11 +413,19 @@ without anyone having been watching. The register already contains the same move
 free control (F41), `DetectionBinningSource` as a field rather than a sentence (F39(a)), `BuildId` rather than a
 version string (F53).
 
-**1. A numerical-equivalence bound on an intermediate is not an equivalence bound on the answer.** PR #187's
-wavelet paths agree to ≤ 3e-8 per pixel and the claim is true. Six of eight product landings still moved, and one
-seed evaluation — no search, nothing to amplify it — moved by 0.0144. The star gate is a **threshold**, and a
-threshold converts an eighth-decimal difference into a whole star. Any future change justified as "equivalent to
-N decimals" needs the bound on the quantity the product REPORTS.
+**1. Design the control to EXCLUDE, not to confirm — and this wave's headline is what that bought.** The gate
+came back at RULE G10-B's top tier (6 of 8 landings moved), with a seed evaluation moving 0.0144 on inputs that
+printed identical. That was written up as "a ≤ 3e-8 detector change moves product answers", and it was **wrong**.
+The pre-registered three-way probe — v1, v2, and a wavelet bisect, interleaved — returned fifteen identical
+values and killed it, and one-artifact-at-a-time folder elimination killed the alternatives, leaving the one
+input nobody compares: **the active NINA profile**. A control built to confirm would have returned "6 of 8, as
+predicted" and this wave would have shipped a false finding about PR #187.
+
+**1b. A rule can be right and its remedy still incomplete.** F42 wrote down *"`TryLoad("")` picks whichever
+profile is ACTIVE"* and prompted `--settings` pinning. That pins the DETECTOR knobs and leaves the profile
+floating, and the residue moves `BaselineJ` — a fixed seed on fixed frames — by more than any Δ`J` this project
+has argued about. **A prediction is not a measurement, and a partial remedy reads exactly like a complete one
+until something forces the difference out.**
 
 **2. A unit fixture's range is not the population's range.** *(see §2)* The wing statistic's threshold was
 chosen against fixtures spanning a rejected fraction of 0.005 to 0.75. Whether that is the range real runs

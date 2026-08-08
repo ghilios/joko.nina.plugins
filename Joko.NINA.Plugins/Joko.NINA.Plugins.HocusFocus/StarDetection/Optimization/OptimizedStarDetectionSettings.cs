@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -425,6 +425,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public string ConcurrencyCheck { get; set; }
 
         /// <summary>
+        /// The NINA profile the run was loaded under, as <c>"name (id)"</c>. Null when the producer does not
+        /// record it.
+        ///
+        /// <para><b>F57.</b> <c>--settings</c> pins the DETECTOR knobs, and this project treated that as pinning
+        /// the arm. It does not: the harness also loads whichever profile is ACTIVE, and wave 10 measured that
+        /// moving <c>BaselineJ</c> — the objective of a fixed seed on fixed frames, with no search — by
+        /// <b>0.0144</b> on <c>toml999</c>, which is larger than the entire Δ<c>J</c> any wave has argued about.
+        /// It was found only because a control pre-registered for a different hypothesis refuted that
+        /// hypothesis and left the profile as the last surviving difference.</para>
+        ///
+        /// <para>F42 predicted this in words — <i>"TryLoad("") picks whichever profile is ACTIVE"</i> — and the
+        /// remedy it prompted (pin the detector settings) did not close it. A field closes it: a reader diffs a
+        /// field, and nobody diffs a prediction.</para>
+        /// </summary>
+        public string ProfileId { get; set; }
+
+        /// <summary>
         /// The identity of the currently-loaded plugin build: <see cref="BuildId"/> and
         /// <see cref="DetectorVersion"/>, read off this assembly. Static so the harness and the shipping wizard
         /// stamp the same two values from the same place rather than each deriving its own.
@@ -447,6 +464,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (!string.IsNullOrWhiteSpace(ConcurrencyCheck) && ConcurrencyCheck != "exclusive") {
                 parts.Add($"CONCURRENCY={ConcurrencyCheck.ToUpperInvariant()}");
             }
+            if (!string.IsNullOrWhiteSpace(ProfileId)) { parts.Add($"profile {ProfileId}"); }
             if (!string.IsNullOrWhiteSpace(CommandLine)) { parts.Add(CommandLine); }
             if (!string.IsNullOrWhiteSpace(SettingsFingerprint)) { parts.Add($"settings#{SettingsFingerprint}"); }
             return parts.Count > 0 ? string.Join(" | ", parts) : "(no provenance)";

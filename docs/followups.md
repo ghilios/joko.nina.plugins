@@ -1201,6 +1201,42 @@ returned 12.1 on a fit at R² = 1.0000, and a bound on a wrong answer is not an 
 next step — instrument `FindHalfWidth` on the two saved `D17` sweeps and confirm or refute the coarse-walk
 hypothesis — is still owed**, and the entry stays Open.
 
+> ### DIAGNOSED 2026-08-08 (wave 10): the coarse walk is EXACT, and this entry's own case will not reproduce
+>
+> This entry's next step — *"instrument `FindHalfWidth` ... confirm or refute the coarse-walk hypothesis"* — is
+> discharged, and **the hypothesis is refuted.**
+>
+> **`FindHalfWidth` is exact for a hyperbola.** It returns `√8 · HFR_min / κ`, so its output is PROPORTIONAL to
+> the fitted vertex HFR. Wave 7's F18 control arm, already on disk, shows exactly that: over uncapped rounds
+> `halfWidth / vertexY` holds to **×1.03–×1.14** within a dataset while `halfWidth` itself spans up to **×1.69**,
+> and the ratio differs strongly BETWEEN datasets as `√8/κ` should. **The walk is not what moves — the FIT's
+> vertex is.** `R² = 1.0000` is no evidence against that: R² measures fit to the SAMPLED points and says nothing
+> about whether the vertex is identifiable from them, which on a sweep that never leaves the focus zone it is not.
+>
+> **This entry's own reproduce line was run, and round 0 reproduces EXACTLY:**
+>
+> | | as recorded | wave 10 |
+> |---|---|---|
+> | round 0 `HalfWidth` / step | 143.6 / 41 | **143.583 / 41** |
+> | round 1 | **12.1 / 3** | **did not occur — converged in 1 round** |
+>
+> So the instrument is right and **the pathology did not recur** — the same shape as
+> [F25](#f25--from-a-far-too-wide-sweep-the-step-recommender-widens-it-further-instead-of-recovering), whose
+> 4×→7× over-reach also failed to re-measure. The headline stays a real observation of a real run and is **not**
+> a reproducible case, which is why the diagnosis rests on six OTHER datasets.
+>
+> **And with a fixed seed the recommender is BIT-REPRODUCIBLE**: all six S0 half-widths are identical to full
+> double precision between wave 7's v1 binary and wave 10's v2 (130.132 / 129.313 / 399.122 / 396.872 / 168.835 /
+> 73.358). The instability this entry names is a property of the NOISE REALIZATION, not of the arithmetic.
+>
+> **A deadband was proposed to bound the symptom and REFUTED before implementation** by the rule fixed to size
+> it (wave-10 design §3.3B: *"a deadband narrower than the recommender's own reproducibility does nothing"*).
+> With a fixed seed that spread is ZERO, so a compliant deadband is zero; and on S0 — where the bootstrap IS each
+> dataset's expected optimum — the recommender asks a median **19.9 %** (max 40 %), so a deadband wide enough to
+> matter would suppress 4 of 6 of those and bury F18's open question about which of the two is right.
+> **Still owed: WHY the fitted vertex moves**, which is a fit-identifiability question and not a search one.
+> Reproduce: `D:\hf_w10\step_probe.sh`, `D:\hf_w10\score_step.py`.
+
 ### F22 — Detection binning is a hard threshold on a measurement that under-reads, so boundary rigs get the wrong factor
 **Status:** Open · found 2026-08-02 running the synthetic bank's S0 control
 
@@ -3417,71 +3453,76 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
-### F57 — A detector change bounded at ≤ 3e-8 per pixel moved 6 of 8 product landings, and one SEED evaluation by 0.014
-**Status:** Open · found 2026-08-08 (wave 10) re-establishing RULE G's fixed point on `StarDetectorVersion` 2 ·
-**not a defect in [PR #187](https://github.com/ghilios/hocus-focus/pull/187)'s own claim — a measurement of what
-that claim does and does not bound**
+### F57 — A `--settings`-pinned arm is NOT pinned: the active NINA profile moves `BaselineJ` by 0.014, and every cross-wave comparison inherits it
+**Status:** Open · found 2026-08-08 (wave 10) while running the pre-registered control for a DIFFERENT
+hypothesis, which it refuted · **this is [F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)'s
+warning, measured for the first time**
 
-[F56](#f56--the-à-trous-wavelet-residual-convolves-a-dense-kernel-that-is-995--zeros-and-that-is-the-structurelayers-cost-curve)
-shipped `AtrousWaveletFast` and bumped `StarDetectorVersion` 1→2, recording that the two wavelet paths agree to
-**≤ 3e-8** and are deliberately not bit-identical. Wave 10 re-ran wave 5's eight-run comparability gate on the new
-detector, sequentially, at the identical invocation and the byte-identical pinned settings file
-(`md5 df7c7cd1…`), with a reading fixed in advance.
+**How this was found is the point, so it is told in order.**
 
-> **RULE G10-B, written before the numbers arrived:** 0 landings moved ⇒ inert; **1–3 ⇒ the expected
-> pattern-search amplification** ([F8](#f8--optimizer-landings-are-not-reproducible-across-invocations));
-> **≥ 5 ⇒ the "≤ 3e-8" claim describes the per-pixel RESIDUAL and not the detector's BEHAVIOUR.**
+Wave 10 re-ran wave 5's eight-run comparability gate on `StarDetectorVersion` 2 and found **6 of 8 landings
+moved**, plus `toml999`'s `BaselineJ` — *a single evaluation of the pinned seed, no search, nothing to amplify
+it* — moving from **0.997840 to 0.983477**. Every printed seed input was identical: same settings file and export
+stamp, `Sensitivity=10`, `StarClippingMultiplier=2`, `NoiseClippingMultiplier=4`, `StructureLayers=4`, inferred
+step 21, exposure 5 s, `PixelScale 0.73944` from the frame header, detection binning 1. The obvious reading was
+that [PR #187](https://github.com/ghilios/hocus-focus/pull/187)'s ≤ 3e-8 wavelet change had moved a product
+answer by six orders of magnitude more than its bound, and that was written up as this entry.
 
-| run | `BaselineJ` v1 → v2 | `BestJ` v1 → v2 |
+**The pre-registered control refuted it.** A three-way probe ran `toml999` **five times each** on wave 9's v1
+binary, wave 10's v2 binary, and a **bisect build** — wave 10's tree with `StarDetector.cs`'s two call sites
+reverted to the legacy dense wavelet — interleaved, in one session, on identical folder copies:
+
+> **All fifteen runs returned `0.9834767969`. Identical to ten decimal places.**
+
+So the binary does not decide it, and **the wavelet is exonerated outright**: v2 and the bisect differ only in the
+wavelet and agree exactly. Folder state was then excluded one artifact at a time — removing
+`optimized_settings.json`, `hocusfocus_star_detection.json`, `autofocus_report_Region0.json` and `run_meta.json`
+each changed nothing, and the frames and `harness_settings.json` predate both waves.
+
+**What was left was the one input nobody compares.**
+
+| | wave 9's gate | wave 10's gate |
 |---|---|---|
-| `toml999` | **0.997840 → 0.983477** | 0.997993 → 0.995784 |
-| `CWhiteFocus` | 0.994320 → *(same)* | 0.998476 → 0.996068 |
-| `mccomiskey` | 0.846082 → *(same)* | 0.994025 → **0.976746** |
-| `D18` / `D19` / `D20` | *(same)* | 0.999822 → 0.999882 · 0.999557 → 0.999487 · 0.999766 → 0.999738 |
-| `uneven` / `muggsie` | *(same)* | *(unchanged)* |
+| `--settings` | `hf_w9\pinned_settings.json` | `hf_w10\pinned_settings.json` — **byte-identical**, `md5 df7c7cd1…` |
+| **`Profile:`** | **`Default (b10b1d6d-…)`** | **`astrodet (ce3f3e63-…)`** |
 
-**THE RULE FIRES AT ITS TOP TIER: 6 of 8.** And `mccomiskey`'s landing moves by **0.017** — larger than the
-entire Δ`J` any wave has ever argued about.
+**Re-running `toml999` today with `--profile-id b10b1d6d-…` returns `0.9978404571` — wave 9's value, to 6 dp.**
 
-**The seed evaluation is the sharper half.** `BaselineJ` is a **single evaluation of the pinned seed, no search**,
-so no trajectory amplifies it. On `toml999` it moves **0.0144** between two binaries whose every printed seed
-input is identical — same settings file and export stamp, `Sensitivity=10`, `StarClippingMultiplier=2`,
-`NoiseClippingMultiplier=4`, `StructureLayers=4`, inferred step 21, exposure 5 s, `PixelScale 0.73944` from the
-frame header, detection binning `1 from harness_settings.json`.
+### What it means
 
-**What this is NOT.** It is not evidence that PR #187 is wrong: the paths do agree to ≤ 3e-8 per pixel, and the
-version was bumped precisely because they are not bit-identical. It is not a reason to revert — the swap buys
-**2.5× / 9.7× / 40×** at layers 4 / 6 / 8. And landings moving is F8 in kind, if not in degree.
+`--settings` pins the DETECTOR knobs, and this project has treated that as pinning the arm — [F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)
+even says so in the run instructions. **It does not.** The harness also loads whichever NINA profile happens to be
+ACTIVE (`profileService.TryLoad("")`), and that profile moves `BaselineJ` — the objective of a fixed seed on fixed
+frames — by **0.0144**, which is larger than the entire Δ`J` any wave has ever argued about.
 
-**What it IS.** *A numerical-equivalence bound on an intermediate is not an equivalence bound on the answer.* The
-Sensitivity gate is a THRESHOLD, so an eighth-decimal difference in the residual turns into a whole star being
-admitted or rejected, and from there into `J`. Any future change justified by "equivalent to N decimal places"
-inherits this: **the bound belongs on the quantity the product reports, not on the intermediate**, and the
-eight-run gate is the cheap way to measure it (≈ 40 minutes).
+F42's own text predicted this exactly — *"`TryLoad("")` picks whichever profile is ACTIVE — two runs of the same
+data minutes apart were seeded from different telescopes"* — and the fix it prompted was to pin the detector
+settings, which does not close it. **The prediction was right, the remedy was incomplete, and nobody measured
+the residue until an unrelated control forced it.**
 
-**Two confounds, and how each is settled.**
+### What it invalidates
 
-1. **Folder state.** `BaselineJ` is read on folders a previous arm wrote into
-   ([F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings)), so the binary is not the only thing
-   that differs. `harness_settings.json` is excluded outright (`toml999`'s is dated 2026-07-31, before wave 8);
-   `optimized_settings.json` is not, and F55's investigation measured it inert only on `D16`/v1. The control is
-   to run `toml999` on wave 9's v1 binary against TODAY's folder state — same folder, different binary.
-2. **"The binary" is not yet "the wavelet".** `D:\hf_w9\exe`'s dll is stamped 2026-08-06 19:40 and several
-   wave-9 commits post-date it, so the two exes differ by PR #187 *plus* some wave-9 code. Those additions are
-   all post-search or UI (wave 9 verified the wing statistic is computed after the search and is inert on it),
-   which makes PR #187 the only plausible search-relevant term — **and plausible is not measured.** A bisect
-   build of the wave-10 tree with `StarDetector.cs`'s two call sites reverted to the legacy dense path isolates
-   the wavelet from everything else.
+- **The wavelet claim this entry originally made: withdrawn in full.** PR #187 is not implicated in anything.
+- **Wave 10's RULE G10-B ("6 of 8 landings moved") is VOID**, not merely uncertain: it compared two waves that
+  ran under different profiles, so it measures the profile at least as much as the binary.
+- **Every cross-wave `BaselineJ`/landing comparison in this register is exposed**, including wave 6's arm-R
+  round-0 control and wave 9's gate, unless the active profile happened to match. Those controls PASSED, which
+  is evidence the profile was stable across waves 5–9 — it is not evidence that it was pinned.
+- **Wave 10's RULE G10-A is NOT affected** and still passes 8 of 8: it compares two runs *within* wave 10, under
+  one profile, and it is what makes this wave's own measurements readable.
 
-**Until both report, this entry attributes to THE BINARY, not to the wavelet, and the seed-evaluation half is
-held open.**
+### Next step
 
-**Next step.** (a) Run the cross-build control above and close or re-open the seed half. (b) Adopt the eight-run
-gate as the standing acceptance check for any detector change claiming numerical equivalence — it is the
-instrument that turns "equivalent" into a number. (c) Where a `Reproduce:` line names a `D:\hf_w*\exe`,
-`strings <dll> | grep AtrousWaveletFast` distinguishes a v1 build from a v2 build **retroactively**, without
-running it; that is how wave 10 verified rather than assumed which of the four wave-9 build directories were v1.
-Reproduce: `D:\hf_w10\gate_repro_w10.sh`, `D:\hf_w10\gate\`, against `D:\hf_w9\gate\`.
+(a) **`optimize` must record the profile id and name in `OptimizerProvenance`**, beside the `BuildId` and
+`DetectorVersion` this wave added — the same argument, one input further out: a reader diffs a field.
+(b) **Every arm must pass `--profile-id` explicitly**, and the run instructions must say so beside F42's
+`--settings` rule; an arm that does not is pinned in one dimension and floating in another.
+(c) **Find WHICH profile-sourced quantity moves the objective.** `PixelScale` is excluded (both runs print
+`0.73944` from the frame header). `AutoFocusOptions` is read from the profile and is the obvious next place.
+(d) **Re-open the wavelet question properly, uncofounded**: run the eight gate runs on `exe_v1wav` against `exe`
+— same tree, same profile, same folders, differing only in the wavelet — at `--max-evals 250`. The seed-level
+answer is already in (identical), so this measures only whether the pattern search amplifies it into landings.
+Reproduce: `D:\hf_w10\crossbuild_probe.sh`, `D:\hf_w10\crossbuild.log`, `D:\hf_w10\xb_prof.log`.
 
 ### F55 — `optimize` is NOT reproducible when several instances run at once, and the SEED evaluation is what moves
 **Status:** Open · found 2026-08-07 (wave 9) when the confirmation arm's own pre-registered control fired ·
@@ -3768,8 +3809,25 @@ wave's control arm is not a control for a later wave's binary. This is the sharp
 not a control for its OWN recorded binary either**, when the arm directory is a build output that later steps in
 the same wave overwrite. Every `Reproduce:` line in `docs/` that names a `D:\hf_w*\exe` inherits this.
 
-**Next step.** (a) Stamp the build into the run: have `optimize` print the informational version / commit of the
-binary it is running, so a log says which build produced it. (b) Until then, treat a `D:\hf_w*\exe` reproduce line
+> ### (a) SHIPPED 2026-08-08 (wave 10) — and the field that CLAIMED to identify the build did not
+>
+> `OptimizerProvenance.ProducerVersion`'s own doc said a landing "also identifies the build it came from". It
+> cannot: two builds of one version share it, which is precisely how wave 8's arm X came to be irreproducible
+> from its own recorded `exe`. **`BuildId` — the assembly MVID, which the compiler regenerates on EVERY build —
+> is the field that answers "which build",** and `DetectorVersion` says which output contract produced the
+> numbers (wave 9's entire results doc needed a hand-written banner for want of it). Both are printed by
+> `optimize` and stored in every landing. [F57](#f57--a---settings-pinned-arm-is-not-pinned-the-active-nina-profile-moves-baselinej-by-0014-and-every-cross-wave-comparison-inherits-it)
+> then added `ProfileId` for the same reason, one input further out.
+>
+> **A RETROACTIVE instrument for the artifacts that predate the stamp:** `strings <dll> | grep AtrousWaveletFast`
+> distinguishes a `StarDetectorVersion` 1 build from a 2 build **without running it**. Wave 10 used it to
+> establish that all four of wave 9's build directories are v1 rather than assuming it — which is this entry's
+> lesson applied to itself.
+>
+> **(b) still stands unchanged**: a `Reproduce:` line names a COMMAND, not a result. Stamping the build removes
+> the need to INFER which binary ran; it does not make an old number reproduce.
+
+**Next step.** (a) ~~Stamp the build into the run~~ — **DONE, see above**. (b) Until then, treat a `D:\hf_w*\exe` reproduce line
 as naming a COMMAND, not a result — re-derive the numbers rather than quoting them across waves. (c) Prefer
 per-arm build directories that are never rebuilt mid-wave, which
 [F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)
@@ -3890,12 +3948,31 @@ wide side, and the user experienced it as a runaway rather than as convergence.
 > expectation. Plus: the remedy is last-ranked and does not displace an available exposure remedy; an unmeasured
 > run gets no gate remedy; and the copy names no control that does not exist.
 
+> ### (c) SHIPPED 2026-08-08 (wave 10), with an EXACT ratio and no projected run count
+>
+> A capped step recommendation now says it is a **partial step**, names what it converges toward
+> (`3 × HFR_min`), reports the HFR dynamic range **the sweep actually measured**, and quotes the exact factor the
+> next capped run will apply: `MaxHalfWidthSampledHalfSpanMultiple × P / PointsPerSide` — **1.714× at 4 offset
+> steps, 2.143× at 4 offset + 1 recovery**.
+>
+> **The ratio is a property of the ALGORITHM, not of the fit**, so nothing in it depends on the extrapolated
+> half-width the cap exists to distrust. That is why it is quotable and **a projected run COUNT is not** — that
+> would have to come from the very extrapolation being distrusted.
+>
+> **Measured against 22 capped rounds already on disk**, at zero compute: wave 7's F18 control arm lands every
+> one of them at a realized **1.667–1.750** (integer-step rounding). This entry's own field session ran
+> 100 → 214 → 459 at P = 5, and 100 × 2.143 = 214.3, 214 × 2.143 = 458.6 — matching the 459 this entry derives
+> independently from the screenshot's focuser axis.
+>
+> **It does terminate**, which is the half of the user's experience that is not a defect: the widening is
+> geometric until the sweep contains the band, and their runs 3 and 4 asked +3 % and +5 %. A unit test replays
+> the sequence and asserts the cap releases.
+
 **Next step.** Three separable pieces. **(a)** ~~Give the floored-gate + `ExposureIsNotTheLimit` state a remedy of
-its own~~ — **DONE, see above**; the honest one names the gate, not the exposure. **(b)** Decide
+its own~~ — **DONE**; the honest one names the gate, not the exposure. **(b)** Decide
 whether a user-facing floor on the search's Sensitivity (or F32's keep fraction, exposed) is the right lever, since
-today there is none. **(c)** When the step recommendation is capped by the sweep width, say what it is converging
-TOWARD (`3 × HFR_min`) and that the cap means "partial step, this will take another run" — the exposure
-recommender's own `MaxExposureFactor` copy already sets that precedent verbatim ("Run again to refine").
+today there is none. **(c)** ~~When the step recommendation is capped by the sweep width, say what it is converging TOWARD~~ —
+**DONE, see above**, and with a measured range and an exact ratio rather than only a sentence.
 Reproduce: field report, `Default` profile, 2026-08-06; wizard screenshot in the wave-8 thread.
 
 ---
