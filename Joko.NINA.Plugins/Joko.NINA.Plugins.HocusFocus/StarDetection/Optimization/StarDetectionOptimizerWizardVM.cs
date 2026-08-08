@@ -293,11 +293,51 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <see cref="StepSizeRecommender.MaxHalfWidthSampledHalfSpanMultiple"/>).</summary>
         public bool StepSizeWasCapped { get; set; }
 
+        /// <summary>The HFR dynamic range this sweep MEASURED (max/min), or NaN — see
+        /// <see cref="StepSizeRecommendation.SampledHfrRange"/>.</summary>
+        public double StepSizeSampledHfrRange { get; set; } = double.NaN;
+
+        /// <summary>The exact factor the next capped run will multiply the step by, or NaN — see
+        /// <see cref="StepSizeRecommendation.CappedGrowthRatio"/>.</summary>
+        public double StepSizeCappedGrowthRatio { get; set; } = double.NaN;
+
         /// <summary>Plain-language step-size readout: "{current} → {recommended}" when changed, else
-        /// "{recommended} (unchanged)", with a capped note when the sweep could not support the full move.</summary>
-        public string StepSizeText => StepSizeWasCapped
-            ? FormatRecommendation(CurrentStepSize, RecommendedStepSize) + " (capped by this sweep's width; re-run auto-focus to refine)"
-            : FormatRecommendation(CurrentStepSize, RecommendedStepSize);
+        /// "{recommended} (unchanged)", with a capped note when the sweep could not support the full move.
+        ///
+        /// <para><b>F49(c).</b> The old note said only "capped by this sweep's width; re-run auto-focus to
+        /// refine". A field session took that instruction four times — 100 → 214 → 459 → 474 → 482, at 30–120
+        /// minutes a run — and experienced it as a runaway, because nothing on the page said what the number was
+        /// converging TOWARD, that the cap makes this a deliberate partial step, or that it terminates. It does
+        /// terminate, geometrically: while the cap binds each run multiplies the step by exactly
+        /// <see cref="StepSizeRecommendation.CappedGrowthRatio"/> until the sweep reaches
+        /// <see cref="StepSizeRecommender.HfrThresholdMultiple"/>x the minimum HFR, and then the cap stops
+        /// binding. That last session's runs 3 and 4 asked +3 % and +5 %, i.e. it HAD converged.</para>
+        ///
+        /// <para><b>What is quoted and what is not.</b> The sampled range and the growth ratio are both
+        /// MEASURED — the first from the sweep's own HFRs, the second from the algorithm's arithmetic — and each
+        /// clause is dropped when its quantity is unavailable rather than filled with a guess. A projected run
+        /// COUNT is deliberately not offered: it would have to be computed from the extrapolated half-width,
+        /// which is the one quantity the cap exists to distrust.</para></summary>
+        public string StepSizeText {
+            get {
+                var baseText = FormatRecommendation(CurrentStepSize, RecommendedStepSize);
+                if (!StepSizeWasCapped) {
+                    return baseText;
+                }
+                var parts = new System.Collections.Generic.List<string>();
+                if (double.IsFinite(StepSizeSampledHfrRange) && StepSizeSampledHfrRange > 0.0) {
+                    parts.Add($"this sweep reaches {StepSizeSampledHfrRange:F1}× its minimum HFR and the step is " +
+                              $"sized from where HFR reaches {StepSizeRecommender.HfrThresholdMultiple:F0}×");
+                } else {
+                    parts.Add($"this sweep is too narrow to contain the {StepSizeRecommender.HfrThresholdMultiple:F0}× " +
+                              "minimum-HFR band the step is sized from");
+                }
+                if (double.IsFinite(StepSizeCappedGrowthRatio) && StepSizeCappedGrowthRatio > 1.0) {
+                    parts.Add($"each run widens by about {StepSizeCappedGrowthRatio:F1}× until it gets there");
+                }
+                return baseText + " (partial step: " + string.Join("; ", parts) + "; re-run auto-focus to refine)";
+            }
+        }
 
         /// <summary>Plain-language offset-steps readout (same before→after / "(unchanged)" convention).</summary>
         public string OffsetStepsText => FormatRecommendation(CurrentOffsetSteps, RecommendedOffsetSteps);
@@ -3501,8 +3541,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// precisely the users who most need a longer exposure that theirs is already fine"*: on the reporting
         /// user's own rig that statistic read <b>S/N 1438.6 against a target of 10</b>. The separation wave 8 drew
         /// is kept exactly: <b>facts about COST need no new statistic and are already shown; ADVICE needs
-        /// one</b>. It is now built on <see cref="ExposureRecommendation.WingIsShedding"/>, which measures the
-        /// population the gate did NOT admit.</para>
+        /// one</b>.</para>
+        ///
+        /// <para><b>WITHDRAWN in wave 10, and currently always empty.</b> Wave 9 built it on
+        /// <c>ExposureRecommendation.WingIsShedding</c>; wave 10's full-bank population check refuted that
+        /// statistic and removed the verdict, so this advice is withheld again for exactly the reason wave 8
+        /// withheld it. See <see cref="BuildSearchExposureAdvice"/> for the measurement and the successor.</para>
         ///
         /// <para><b>It names Cancel, which exists</b> — the house rule at
         /// <see cref="ShowOptimizeAgainAtRecommendedBinning"/>: never describe an action whose control is hidden.
@@ -3536,26 +3580,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// </summary>
         internal static string BuildSearchExposureAdvice(
                 IReadOnlyList<RunEvaluationMetrics> seedMetrics, StarDetectorParams seedParams, double currentExposureSeconds) {
-            if (seedMetrics == null || seedMetrics.Count == 0) {
+            // ── F52(c) IS WITHHELD AGAIN (wave 10) ──────────────────────────────────────────────────────────
+            //
+            // Wave 8 refused to ship this advice for want of a statistic. Wave 9 shipped it on
+            // ExposureRecommendation.WingIsShedding. Wave 10's full-bank population check refuted that statistic
+            // and withdrew the verdict (see the withdrawal note in ExposureRecommender), so this returns to
+            // wave 8's position for wave 8's reason -- the same decision, made again, on better evidence.
+            //
+            // WHY THIS MATTERED MORE THAN THE EXPOSURE NUMBER. This advice tells the user to CANCEL a running
+            // two-hour optimization, and it is computed from the SEED evaluation, i.e. in the first minute. The
+            // statistic behind it fired on the great majority of bank runs, so the shipped behaviour was to
+            // advise most users to abandon their search before it had done anything. A note that always fires
+            // says nothing; one that always fires AND costs the user their run is worse than nothing.
+            //
+            // The method, its call sites and its tests are kept rather than deleted: the successor statistic
+            // (the wing-to-inner RATIO, pre-registered in the wave-10 design SS1.2a) re-enables this by changing
+            // the condition below and nothing else. Returning empty is a WITHDRAWAL, not a removal.
+            if (seedMetrics == null || seedMetrics.Count == 0 || !(currentExposureSeconds > 0.0)) {
                 return string.Empty;
             }
-            var worstFraction = double.NaN;
-            foreach (var m in seedMetrics) {
-                var rec = ExposureRecommender.Recommend(m, new ObjectiveConstants(), currentExposureSeconds, seedParams);
-                if (!rec.WingIsShedding) {
-                    continue;
-                }
-                if (!double.IsFinite(worstFraction) || rec.WingRejectedFraction > worstFraction) {
-                    worstFraction = rec.WingRejectedFraction;
-                }
-            }
-            if (!double.IsFinite(worstFraction)) {
-                return string.Empty;
-            }
-            return $"The outer frames of this sweep are losing {worstFraction:P0} of the stars they find to the "
-                + "brightness gate, so a longer exposure is likely to help this focus more than a longer search will. "
-                + "Cancel stops the search only: nothing is written to your profile, and the frames already captured "
-                + "stay on disk.";
+            _ = seedParams; // retained: the successor's condition needs it, exactly as the withdrawn one did
+            return string.Empty;
         }
 
         private void UpdateSearchExposureAdvice(IReadOnlyList<RunEvaluationMetrics> seedMetrics, StarDetectorParams seedParams) {
@@ -3876,6 +3921,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RecommendedStepSize = recommendation.StepSize,
                 RecommendedOffsetSteps = recommendation.OffsetSteps,
                 StepSizeWasCapped = recommendation.WasCapped,
+                StepSizeSampledHfrRange = recommendation.SampledHfrRange,
+                StepSizeCappedGrowthRatio = recommendation.CappedGrowthRatio,
                 CurrentStepSize = currentStepSize,
                 CurrentOffsetSteps = currentOffsetSteps,
                 ImprovedOverSeed = res.ImprovedOverSeed,

@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -52,6 +52,36 @@ namespace TestApp {
 
         // Run discovery (attempt-anchored, >=3-position guard) lives in the pure, unit-testable
         // OptimizationRunDiscovery helper. Frame matching uses its ImageFileRegex (kept as the single copy).
+
+        /// <summary>
+        /// Held for the process lifetime once claimed, so a second `optimize` sees it. Never released
+        /// explicitly: process exit releases it, and an abandoned mutex is what the next process wants to see.
+        /// </summary>
+        private static Mutex exclusiveOptimizeMutex;
+
+        /// <summary>
+        /// F55 — is this process alone? Returns <c>"exclusive"</c>, <c>"concurrent"</c> or <c>"unknown"</c>, and
+        /// the third value is not a formality: a check that cannot run must not report the same thing as a check
+        /// that ran and found nothing, because a scorer turns one of them into "this arm is readable".
+        ///
+        /// <para>A named mutex rather than a process-name scan: it does not care what the binary is called, it
+        /// costs nothing, and an ABANDONED mutex — the previous holder died without exiting cleanly — correctly
+        /// reads as "the machine is mine now" rather than as contention.</para>
+        /// </summary>
+        private static string ClaimExclusiveOptimize() {
+            try {
+                exclusiveOptimizeMutex = new Mutex(false, @"Global\NINA.Joko.HocusFocus.TestApp.Optimize");
+                try {
+                    return exclusiveOptimizeMutex.WaitOne(0) ? "exclusive" : "concurrent";
+                } catch (AbandonedMutexException) {
+                    return "exclusive"; // the previous holder died; the wait succeeded and this process owns it
+                }
+            } catch (Exception ex) {
+                // Unsupported platform, denied Global\ namespace, anything else -- say so rather than guess.
+                Logger.Debug($"Could not perform the F55 concurrency check: {ex.Message}");
+                return "unknown";
+            }
+        }
 
         public static async Task Run(string[] args) {
             try {
@@ -231,14 +261,31 @@ namespace TestApp {
             // back into each run's own folder (F15) leaves a bank holding whichever prepass went last, and the
             // only way to tell two arms apart is to INFER the arm from a knob — an inference that broke the moment
             // F23 wave 1 ran three arms differing by more than one flag.
+            // F53: the BUILD, not just the version. `ProducerVersion` cannot tell two builds of one version
+            // apart, which is exactly how wave 8's arm X came to be irreproducible from its own recorded `exe`
+            // -- a later step in the same wave rebuilt that directory and nothing recorded it. The MVID changes
+            // on every build; the detector version says which OUTPUT contract produced the numbers (wave 9's
+            // whole results doc needed a hand-written banner for want of it).
+            var build = OptimizerProvenance.CurrentBuild();
             var provenance = new OptimizerProvenance {
                 Producer = "TestApp optimize",
                 CommandLine = string.Join(" ", args ?? Array.Empty<string>()),
                 SettingsFingerprint = HarnessSettingsStore.Fingerprint(harnessSettings),
                 ProducerVersion = (System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(
-                    System.Reflection.Assembly.GetEntryAssembly()))?.InformationalVersion
+                    System.Reflection.Assembly.GetEntryAssembly()))?.InformationalVersion,
+                BuildId = build.BuildId,
+                DetectorVersion = build.DetectorVersion,
+                ConcurrencyCheck = ClaimExclusiveOptimize(),
+                // F57: --settings pins the detector knobs and NOT the arm. The active profile moves BaselineJ by
+                // 0.0144 on toml999, so which profile ran is part of a landing's identity.
+                ProfileId = $"{activeProfile.Name} ({activeProfile.Id})"
             };
             Console.WriteLine($"provenance: {provenance}");
+            if (provenance.ConcurrencyCheck != "exclusive") {
+                Console.WriteLine($"WARNING: concurrency check = {provenance.ConcurrencyCheck}. F55: concurrent " +
+                    "`optimize` moves 44% of LANDINGS and 15% of seed evaluations, so any arm read on landings " +
+                    "is INVALID. The value is recorded in every landing this run writes.");
+            }
             var accessor = harnessSettings.Accessor;
             var starDetectionOptions = new StarDetectionOptions(profileService, accessor);
             var afOptions = new AutoFocusOptions(profileService);

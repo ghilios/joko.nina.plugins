@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -897,79 +897,77 @@ public class ExposureRecommenderTests {
         };
     }
 
+    // ── F19: the wing VERDICT was withdrawn in wave 10. These four tests are REWRITTEN, not deleted. ───────
+    //
+    // W1-W4 asserted behaviour that wave 9 validated on TWO datasets and that wave 10's full-bank population
+    // check refuted: the statistic fires on the great majority of runs; four real-bank runs reject FEWER
+    // candidates in their wings than in their cores and fire anyway; and the measured fractions are 0.000 or
+    // >= 0.352 with nothing between, so every threshold in (0, 0.352) selects the same runs.
+    //
+    // They are kept as the record of what was withdrawn and why, because a deleted test leaves no trace that a
+    // behaviour was ever asserted -- and the fixtures are exactly what shows how the threshold came to look
+    // reasonable: they span a rejected fraction of 0.002 to 0.75, and NO REAL RUN RESEMBLES THE 0.002 POLE.
+
     [Test]
-    public void Recommend_W1_SheddingWings_AskForMoreExposureEvenThoughEveryAcceptedStarClearsTheTarget() {
-        // THE DEFECT, in one fixture. Every accepted star measures S/N 40 against a target of 10, so the shipped
-        // statistic reports "exposure is not the limit" -- while the sweep's OUTER frames are forming 800
-        // candidates and losing 600 of them to the gate. Measured on D02_rich_135mm, whose wings shed 67% of their
-        // candidates at its derived exposure and whose sigma_focus is 48% better at 8x it.
+    public void Recommend_TheWingFractionIsSTILLMEASURED_ItIsTheVERDICTThatWasWithdrawn() {
+        // The measurement is real and correctly computed; it is what the successor is specified against. Only
+        // the claim attached to it is gone.
+        var rec = ExposureRecommender.Recommend(
+            WingMetrics(wingRejected: 600, wingAccepted: 200), DefaultConstants(), currentExposureSeconds: 0.5);
+
+        Assert.That(rec.WingRejectedFraction, Is.EqualTo(0.75).Within(1e-9));
+    }
+
+    [Test]
+    public void Recommend_SheddingWings_NoLongerRaiseTheAsk_NorFlipTheVerdict() {
+        // WAS W1. Every accepted star measures S/N 40 against a target of 10, so the accepted-star statistic
+        // says "exposure is not the limit"; wave 9 had the wing fraction (0.75) override that and ask 2x.
         //
-        // DISCRIMINATING: delete the wing probe and this fails on BOTH assertions.
+        // DISCRIMINATING: restore either action site and both of these fail.
         var rec = ExposureRecommender.Recommend(
             WingMetrics(wingRejected: 600, wingAccepted: 200), DefaultConstants(), currentExposureSeconds: 0.5);
 
         Assert.Multiple(() => {
-            Assert.That(rec.WingRejectedFraction, Is.EqualTo(0.75).Within(1e-9));
-            Assert.That(rec.WingIsShedding, Is.True);
-            Assert.That(rec.RecommendedSeconds, Is.GreaterThanOrEqualTo(2.0 * 0.5), "W1: at least 2x current");
-            Assert.That(rec.IncreasesExposure, Is.True);
-            Assert.That(rec.ExposureIsNotTheLimit, Is.False,
-                "a shedding wing means exposure IS the limit, whatever the accepted stars say -- otherwise the copy "
-                + "would say 'star brightness is not the problem' directly above a row asking for more exposure");
+            Assert.That(rec.IncreasesExposure, Is.False, "the 2x probe is withdrawn");
+            Assert.That(rec.ExposureIsNotTheLimit, Is.True,
+                "the accepted-star verdict stands on its own again -- the wing fraction no longer overrides it");
         });
     }
 
     [Test]
-    public void Recommend_W2_HealthyWings_AskForNothingMore_EvenAtAFlooredGate() {
-        // THE CONTROL, and it is the whole reason the arm-E ladder was rendered. D16_esprit550_ha3's sigma_focus
-        // MINIMUM sits at its derived exposure and gets WORSE above it, so a statistic that fires here has traded
-        // one blind spot for another. Its wings reject nothing.
+    public void Recommend_TheFIXTUREGAPThatMadeTheThresholdLookReasonable() {
+        // WAS W2, and it is the most useful of the four now. Its "healthy wings" fixture reads 1/(1+200) = 0.005
+        // and the shedding one reads 0.75, so a threshold of 0.20 sits sensibly between two poles two orders of
+        // magnitude apart. The REAL BANK occupies 0.000 or 0.352-0.879 -- it has no 0.005-like population at all,
+        // and the 0.20 that looked well-separated here selected 16 of 19 runs there.
         //
-        // DISCRIMINATING: drop the WingSheddingThreshold test (fire on any rejection at all) and this fails.
-        var rec = ExposureRecommender.Recommend(
+        // This is not a defect in the fixtures; it is the limit of what a fixture can tell you. A unit test
+        // cannot notice that its own range is not the population's.
+        var healthy = ExposureRecommender.Recommend(
             WingMetrics(wingRejected: 1, wingAccepted: 200), DefaultConstants(), currentExposureSeconds: 2.0);
-
-        Assert.Multiple(() => {
-            Assert.That(rec.WingRejectedFraction, Is.LessThan(ExposureRecommender.WingSheddingThreshold));
-            Assert.That(rec.WingIsShedding, Is.False);
-            Assert.That(rec.IncreasesExposure, Is.False, "W2: no material increase where sigma_focus is minimised");
-            Assert.That(rec.ExposureIsNotTheLimit, Is.True);
-        });
-    }
-
-    [Test]
-    public void Recommend_W3_TheProbeCONVERGES_UnlikeTheStatisticItWidens() {
-        // S_now SATURATES HARDER as exposure rises -- measured 992 -> 1226 -> 1864 -> 2309 on D02 -- so it could
-        // never converge toward asking for more even if its trigger were widened. The wing fraction does the
-        // opposite: as exposure rises the gate stops rejecting, so the ask falls away. Measured on D02: 0.67 /
-        // 0.29 / 0.30 below its optimum and EXACTLY 0.00 at and above it.
-        //
-        // DISCRIMINATING: make the probe unconditional and the second half fails.
         var shedding = ExposureRecommender.Recommend(
-            WingMetrics(wingRejected: 600, wingAccepted: 200), DefaultConstants(), currentExposureSeconds: 0.5);
-        var converged = ExposureRecommender.Recommend(
-            WingMetrics(wingRejected: 0, wingAccepted: 800), DefaultConstants(), currentExposureSeconds: 4.0);
+            WingMetrics(wingRejected: 600, wingAccepted: 200), DefaultConstants(), currentExposureSeconds: 2.0);
 
         Assert.Multiple(() => {
-            Assert.That(shedding.IncreasesExposure, Is.True, "asks while the wings shed");
-            Assert.That(converged.WingRejectedFraction, Is.EqualTo(0.0).Within(1e-12));
-            Assert.That(converged.IncreasesExposure, Is.False, "and stops once they do not");
+            Assert.That(healthy.WingRejectedFraction, Is.LessThan(0.01), "the fixture's healthy pole");
+            Assert.That(shedding.WingRejectedFraction, Is.GreaterThan(0.70), "and its shedding pole");
+            // Both now produce the same ACTION, which is the whole content of the withdrawal.
+            Assert.That(healthy.IncreasesExposure, Is.EqualTo(shedding.IncreasesExposure), Is.False.ToString());
+            Assert.That(healthy.ExposureIsNotTheLimit, Is.True);
+            Assert.That(shedding.ExposureIsNotTheLimit, Is.True);
         });
     }
 
     [Test]
-    public void Recommend_W4_TheProbeWIDENS_AndNeverRegressesARunTheSnrPathAlreadyServes() {
-        // The probe ALONE fails W4: D16 at half its derived exposure correctly asks 3x from S_now (6.5 against a
-        // target of 10), and its gate is INERT out there, so the wing test is silent. max(existing, probe) keeps
-        // that case. Both halves are load-bearing.
-        //
-        // DISCRIMINATING: replace the max() with a plain assignment of the probe factor and this fails -- 4x
-        // collapses to 2x.
+    public void Recommend_TheSNRPathIsUNTOUCHED_WhichIsWhatTheWithdrawalMustNotBreak() {
+        // WAS W4, and it still passes unchanged -- deliberately. D16_esprit550_ha3 at half its derived exposure
+        // asks 4x from S_now alone (5 against a target of 10), and that path never involved the wing test. The
+        // withdrawal removes the probe; it must not touch the derivation that was already serving these runs.
         const int n = 9;
         var starved = new RunEvaluationMetrics {
             FrameStarSnrs = Enumerable.Range(0, n).Select(_ => (IReadOnlyList<double>)FullFrame(5.0)).ToArray(),
             FrameStarCounts = Enumerable.Repeat(200, n).ToArray(),
-            FrameLowSensitivityCounts = Enumerable.Repeat(300, n).ToArray(),  // wings shed too
+            FrameLowSensitivityCounts = Enumerable.Repeat(300, n).ToArray(),
             FrameTooFlatCounts = new int[n],
             FrameFocuserPositions = Enumerable.Range(0, n).Select(i => 1000 + (i - 4) * 10).ToArray(),
             BestFocusPosition = 1000.0,
@@ -978,12 +976,8 @@ public class ExposureRecommenderTests {
 
         var rec = ExposureRecommender.Recommend(starved, DefaultConstants(), currentExposureSeconds: 1.0);
 
-        Assert.Multiple(() => {
-            Assert.That(rec.WingIsShedding, Is.True, "fixture guard: the probe is live here");
-            // S_now = 5 against a target of 10 => (10/5)^2 = 4x, which must WIN over the 2x probe.
-            Assert.That(rec.RawSeconds, Is.EqualTo(4.0).Within(1e-9),
-                "the S/N derivation is larger here, so max() must keep it rather than let the probe cap it at 2x");
-        });
+        Assert.That(rec.RawSeconds, Is.EqualTo(4.0).Within(1e-9),
+            "(10/5)^2 = 4x from the accepted-star derivation, with no wing probe involved");
     }
 
     [Test]
@@ -994,13 +988,10 @@ public class ExposureRecommenderTests {
         // an effective gate of 0.17-2.5 at EVERY rung of its ladder, so without this guard its zeros would read as
         // "the wings are fine" for a reason that has nothing to do with its wings.
         //
-        // THIS TEST PINS BEHAVIOUR, NOT THE CONJUNCT -- and that correction came from neutralizing it. Removing
-        // `!gateIsProvablyInert` from WingIsShedding fails NOTHING, because the conjunct is redundant by
-        // construction: a wing fraction at or above the threshold needs a non-zero entry in the same
-        // FrameLowSensitivityCounts array gateRejectedCount sums, so an inert gate (which requires that count to be
-        // zero) can never coexist with a shedding wing. The THRESHOLD is what makes this case pass. An earlier
-        // version of this comment claimed the guard was what discriminated here; it does not, and the code now says
-        // so at the conjunct.
+        // Wave 9 recorded that the `!gateIsProvablyInert` conjunct on WingIsShedding was redundant by
+        // construction -- an inert gate rejects nothing, so it cannot coexist with a wing fraction above any
+        // positive threshold. Wave 10 removed the verdict entirely, which makes that observation the whole
+        // story: the threshold and the inertness test were asking the same question.
         var inertParams = HocusFocusStarDetection.BuildDefaultStarDetectorParams();
         inertParams.Sensitivity = 0.0;   // at or below PeakResponse x StarClip => provably inert
 
@@ -1010,7 +1001,11 @@ public class ExposureRecommenderTests {
 
         Assert.Multiple(() => {
             Assert.That(rec.GateIsProvablyInert, Is.True, "fixture guard");
-            Assert.That(rec.WingIsShedding, Is.False);
+            // The F28 field survives the wave-10 withdrawal and is now the ONLY thing asking this question.
+            // Wave 10 found that the wing threshold was asking it too, badly: the bank's fractions are 0.000 or
+            // >= 0.352, so "fraction >= 0.20" was a re-spelling of "the gate rejected something".
+            Assert.That(rec.WingRejectedFraction, Is.EqualTo(0.0).Within(1e-12),
+                "an inert gate rejects nothing BY CONSTRUCTION, which is why its zero was never reassuring");
         });
     }
 
@@ -1024,10 +1019,7 @@ public class ExposureRecommenderTests {
             WingMetrics(wingRejected: 600, wingAccepted: 200, placeable: false),
             DefaultConstants(), currentExposureSeconds: 0.5);
 
-        Assert.Multiple(() => {
-            Assert.That(rec.WingRejectedFraction, Is.NaN);
-            Assert.That(rec.WingIsShedding, Is.False, "an unplaceable run cannot claim its wings are shedding");
-        });
+        Assert.That(rec.WingRejectedFraction, Is.NaN);
     }
 
     [Test]
@@ -1042,7 +1034,6 @@ public class ExposureRecommenderTests {
 
         Assert.Multiple(() => {
             Assert.That(rec.WingRejectedFraction, Is.NaN);
-            Assert.That(rec.WingIsShedding, Is.False);
             Assert.That(rec.ExposureIsNotTheLimit, Is.True, "unchanged from before the wing test existed");
             Assert.That(rec.IncreasesExposure, Is.False);
         });

@@ -46,6 +46,59 @@ public class OptimizationSummaryTests {
         });
     }
 
+    /// <summary>
+    /// F49(c): a capped recommendation must say what it is converging TOWARD and that it terminates. The field
+    /// session behind F49/F51 accepted "capped by this sweep's width; re-run auto-focus to refine" four times —
+    /// 100 → 214 → 459 → 474 → 482, at 30–120 minutes a run — and experienced a converging sequence as a runaway.
+    /// </summary>
+    [Test]
+    public void StepSizeText_Capped_NamesTheTargetTheRatioAndThatItTerminates() {
+        var s = new OptimizationSummary {
+            CurrentStepSize = 214, RecommendedStepSize = 459, CurrentOffsetSteps = 4, RecommendedOffsetSteps = 4,
+            StepSizeWasCapped = true, StepSizeSampledHfrRange = 1.84, StepSizeCappedGrowthRatio = 1.5 * 5 / 3.5
+        };
+        Assert.Multiple(() => {
+            Assert.That(s.StepSizeText, Does.StartWith("214 → 459"), "the recommendation itself still leads");
+            Assert.That(s.StepSizeText, Does.Contain("1.8×"), "what this sweep MEASURED — no extrapolation in it");
+            Assert.That(s.StepSizeText, Does.Contain("3×"), "F49(c): say what it is converging toward");
+            Assert.That(s.StepSizeText, Does.Contain("2.1×"), "and by how much each run moves — exact, not projected");
+            Assert.That(s.StepSizeText, Does.Contain("partial step"), "the cap is deliberate, not a failure");
+            // The number a user would most like and the one that cannot honestly be given: a run COUNT would have
+            // to come from the extrapolated half-width, which is the quantity the cap exists to distrust.
+            Assert.That(s.StepSizeText, Does.Not.Contain("more run"));
+        });
+    }
+
+    /// <summary>
+    /// Each clause is dropped when its quantity is unavailable rather than filled with a guess — and the
+    /// sentence still has to say the useful thing. This is the state a caller that never measured HFRs produces.
+    /// </summary>
+    [Test]
+    public void StepSizeText_Capped_WithoutMeasurements_StillSaysWhatTheCapMeans() {
+        var s = new OptimizationSummary {
+            CurrentStepSize = 214, RecommendedStepSize = 459, StepSizeWasCapped = true,
+            StepSizeSampledHfrRange = double.NaN, StepSizeCappedGrowthRatio = double.NaN
+        };
+        Assert.Multiple(() => {
+            Assert.That(s.StepSizeText, Does.Contain("partial step"));
+            Assert.That(s.StepSizeText, Does.Contain("3×"), "the target is a constant and is always available");
+            Assert.That(s.StepSizeText, Does.Contain("re-run auto-focus to refine"));
+            Assert.That(s.StepSizeText, Does.Not.Contain("NaN"), "never print a missing measurement at the user");
+            Assert.That(s.StepSizeText, Does.Not.Contain("each run widens"), "no ratio means no ratio claim");
+        });
+    }
+
+    /// <summary>An UNCAPPED recommendation is byte-identical to what it has always been: the note is the cap's,
+    /// not the recommendation's, and an uncapped run has nothing extra to explain.</summary>
+    [Test]
+    public void StepSizeText_NotCapped_IsUnchangedByAnyOfThis() {
+        var s = new OptimizationSummary {
+            CurrentStepSize = 150, RecommendedStepSize = 105, StepSizeWasCapped = false,
+            StepSizeSampledHfrRange = 4.2, StepSizeCappedGrowthRatio = 1.714
+        };
+        Assert.That(s.StepSizeText, Is.EqualTo("150 → 105"));
+    }
+
     [Test]
     public void StepSizeOrOffsetChanged_TrueWhenEitherDiffers() {
         Assert.Multiple(() => {

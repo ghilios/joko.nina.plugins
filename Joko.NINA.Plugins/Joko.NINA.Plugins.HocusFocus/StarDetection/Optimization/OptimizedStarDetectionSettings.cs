@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -374,9 +374,81 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// like it came from a different configuration.</summary>
         public string SettingsFingerprint { get; set; }
 
-        /// <summary>Assembly informational version of whatever produced this, so a landing also identifies the
-        /// build it came from.</summary>
+        /// <summary>Assembly informational version of whatever produced this.
+        ///
+        /// <para><b>This field does NOT identify the build, and F53 is the proof.</b> It used to claim it did.
+        /// Two builds of the same source — or of two different sources between version bumps — carry the same
+        /// informational version, so wave 8's arm X and the binary that later overwrote its `exe` directory were
+        /// indistinguishable by this field. Use <see cref="BuildId"/> for build identity.</para></summary>
         public string ProducerVersion { get; set; }
+
+        /// <summary>
+        /// The <b>build</b> that produced this: the plugin assembly's Module Version ID, which the compiler
+        /// regenerates on every build even when the source is byte-identical.
+        ///
+        /// <para><b>F53.</b> Wave 8's arm X was recorded with <c>Reproduce: D:\hf_w8\armX\arm_x.sh</c>, and
+        /// running that script on that binary today does not reproduce its numbers, because a later step in the
+        /// same wave rebuilt the directory and an artifact directory keeps only the LAST build. Identifying that
+        /// took reading the log for the ABSENCE of an unrelated line. With this field it is a diff. The entry's
+        /// durable lesson — <i>a "Reproduce:" line names a COMMAND, not a result</i> — is not repealed by
+        /// stamping the build; what is repealed is having to infer the build from its side effects.</para>
+        /// </summary>
+        public string BuildId { get; set; }
+
+        /// <summary>
+        /// <c>StarDetector.StarDetectorVersion</c> at the time of the run — the detector's OUTPUT contract.
+        ///
+        /// <para>Wave 10 exists because wave 9 measured everything on version 1 and <c>develop</c> then shipped
+        /// version 2 (PR #187's <c>AtrousWaveletFast</c>: equivalent to ≤ 3e-8, deliberately not bit-identical).
+        /// Every wave-9 number carries a hand-written provenance banner for want of this field. A reader diffs a
+        /// field; nobody diffs a banner — the same argument that gave F39(a) its <c>DetectionBinningSource</c>.</para>
+        /// </summary>
+        public int? DetectorVersion { get; set; }
+
+        /// <summary>
+        /// Whether this run had the machine to itself: <c>"exclusive"</c>, <c>"concurrent"</c>, or
+        /// <c>"unknown"</c>. Null when the producer does not check.
+        ///
+        /// <para><b>F55.</b> Concurrent `optimize` processes move **44 % of landings** and 15 % of seed
+        /// evaluations, so an arm read on landings is invalid if it ran beside another one. F55(c) asks for that
+        /// to be "said in the run instructions" — and wave 10 then ran a 39-run pass TWICE AT ONCE anyway,
+        /// because a background launcher that reported "completed" had only had its launcher shell exit. The
+        /// rule was known, written down, and still violated, because **the violation was invisible**. A field on
+        /// the landing makes it visible after the fact, to a scorer, without anyone having to have been
+        /// watching.</para>
+        ///
+        /// <para><b>Three values, not two</b>, for the same reason
+        /// <c>ExposureRecommendation.WingRejectedFraction</c> is NaN-never-0 and
+        /// <c>StepSizeRecommendation.MaxUsefulHalfSpan</c> is NaN-never-0: *"we could not look"* and *"we looked
+        /// and were alone"* must not be the same value, because a scorer turns one of them into a verdict.</para>
+        /// </summary>
+        public string ConcurrencyCheck { get; set; }
+
+        /// <summary>
+        /// The NINA profile the run was loaded under, as <c>"name (id)"</c>. Null when the producer does not
+        /// record it.
+        ///
+        /// <para><b>F57.</b> <c>--settings</c> pins the DETECTOR knobs, and this project treated that as pinning
+        /// the arm. It does not: the harness also loads whichever profile is ACTIVE, and wave 10 measured that
+        /// moving <c>BaselineJ</c> — the objective of a fixed seed on fixed frames, with no search — by
+        /// <b>0.0144</b> on <c>toml999</c>, which is larger than the entire Δ<c>J</c> any wave has argued about.
+        /// It was found only because a control pre-registered for a different hypothesis refuted that
+        /// hypothesis and left the profile as the last surviving difference.</para>
+        ///
+        /// <para>F42 predicted this in words — <i>"TryLoad("") picks whichever profile is ACTIVE"</i> — and the
+        /// remedy it prompted (pin the detector settings) did not close it. A field closes it: a reader diffs a
+        /// field, and nobody diffs a prediction.</para>
+        /// </summary>
+        public string ProfileId { get; set; }
+
+        /// <summary>
+        /// The identity of the currently-loaded plugin build: <see cref="BuildId"/> and
+        /// <see cref="DetectorVersion"/>, read off this assembly. Static so the harness and the shipping wizard
+        /// stamp the same two values from the same place rather than each deriving its own.
+        /// </summary>
+        public static (string BuildId, int DetectorVersion) CurrentBuild() => (
+            typeof(OptimizerProvenance).Assembly.ManifestModule.ModuleVersionId.ToString("N"),
+            StarDetector.StarDetectorVersion);
 
         public OptimizerProvenance Clone() => (OptimizerProvenance)MemberwiseClone();
 
@@ -385,6 +457,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var parts = new System.Collections.Generic.List<string>();
             if (!string.IsNullOrWhiteSpace(Producer)) { parts.Add(Producer); }
             if (!string.IsNullOrWhiteSpace(ProducerVersion)) { parts.Add($"v{ProducerVersion}"); }
+            if (!string.IsNullOrWhiteSpace(BuildId)) { parts.Add($"build#{BuildId}"); }
+            if (DetectorVersion.HasValue) { parts.Add($"detector v{DetectorVersion.Value}"); }
+            // Loud in the one-liner rather than tucked into the JSON: "concurrent" means the landing beside it
+            // is not comparable to anything (F55), and that has to be readable in a log tail.
+            if (!string.IsNullOrWhiteSpace(ConcurrencyCheck) && ConcurrencyCheck != "exclusive") {
+                parts.Add($"CONCURRENCY={ConcurrencyCheck.ToUpperInvariant()}");
+            }
+            if (!string.IsNullOrWhiteSpace(ProfileId)) { parts.Add($"profile {ProfileId}"); }
             if (!string.IsNullOrWhiteSpace(CommandLine)) { parts.Add(CommandLine); }
             if (!string.IsNullOrWhiteSpace(SettingsFingerprint)) { parts.Add($"settings#{SettingsFingerprint}"); }
             return parts.Count > 0 ? string.Join(" | ", parts) : "(no provenance)";
