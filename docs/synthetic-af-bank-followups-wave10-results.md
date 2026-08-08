@@ -89,8 +89,16 @@ differ between the two measurements — the binary and the folder state** — an
   without the file present, identical) — but on `D16` and on the v1 binary, not here.
 - **The decisive control is §3.1's cross-build probe**, which runs `toml999` on wave 9's v1 binary against
   TODAY's folder state. Same folder, different binary: if it returns wave 9's 0.997840, folder state is excluded
-  and the wavelet is the cause; if it returns 0.983477, the folder state is the cause and the wavelet is
+  and the BINARY is the cause; if it returns 0.983477, the folder state is the cause and the binary is
   exonerated. **The seed-evaluation claim above is held open until that control reports.**
+
+**And "the binary" is not yet "the wavelet", which is a second step.** The two exes differ by PR #187 *plus*
+whatever wave-9 code landed after `D:\hf_w9\exe` was built (its `.dll` is stamped 2026-08-06 19:40, and several
+wave-9 commits post-date it). Those additions are all post-search or UI — wave 9 verified the wing statistic is
+computed *after* the search and is inert on it, and F49/F51/F52(c) are copy — so PR #187 is the only plausible
+search-relevant term. **Plausible is not measured**, which is why §3.2's bisect build exists: the wave-10 tree
+with `StarDetector.cs`'s two call sites reverted to the legacy dense path isolates the wavelet from every other
+difference at once. Until it reports, this section attributes to *the binary*, not to *the wavelet*.
 
 *(`D:\hf_w9\exe`, `exe2`, `exe_f56` and `exe_bisect` were each confirmed to be v1 builds before any of this was
 attributed — `strings <dll> | grep AtrousWaveletFast` returns 0 on all four and 1 on `D:\hf_w10\exe`. That is a

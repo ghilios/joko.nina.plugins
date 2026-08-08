@@ -608,6 +608,7 @@ public class StepSizeRecommenderTests {
         var step = 100;
         var seen = new List<int> { step };
         var cappedRounds = 0;
+        var roundTheCapReleased = -1;
         for (var round = 0; round < 12; round++) {
             var fit = FitTruthSweep(hfrMin, kappa, P0, step, pointsPerSide);
             var rec = StepSizeRecommender.Recommend(fit, step);
@@ -615,6 +616,8 @@ public class StepSizeRecommenderTests {
                 cappedRounds++;
                 Assert.That(rec.CappedGrowthRatio, Is.EqualTo(1.5 * pointsPerSide / 3.5).Within(1e-9),
                     "every capped round reports the same exact ratio");
+            } else if (roundTheCapReleased < 0) {
+                roundTheCapReleased = round;
             }
             if (rec.StepSize == step) {
                 break;
@@ -622,14 +625,19 @@ public class StepSizeRecommenderTests {
             step = rec.StepSize;
             seen.Add(step);
         }
-        TestContext.WriteLine("sequence: " + string.Join(" -> ", seen));
+        TestContext.WriteLine($"sequence: {string.Join(" -> ", seen)}  (cap released at round {roundTheCapReleased})");
 
         Assert.Multiple(() => {
             Assert.That(seen.Count, Is.GreaterThanOrEqualTo(3), "the session took at least three widening rounds");
             Assert.That(seen[1], Is.EqualTo(214).Within(2), "100 x 2.143 = 214.3 -- the session's first recommendation");
             Assert.That(seen[2], Is.EqualTo(459).Within(3), "214 x 2.143 = 458.6 -- the session's second");
             Assert.That(cappedRounds, Is.GreaterThan(0), "the widening rounds are the CAPPED ones");
-            Assert.That(seen.Count, Is.LessThan(12), "it terminates; the user's 'runaway' is a geometric approach");
+            // TERMINATION is "the cap stops binding", not "two consecutive integers are equal". Asserting the
+            // latter would make the test hostage to a +/-1 step oscillation from integer rounding near the fixed
+            // point -- which is not the behaviour the user complained about and not what the copy claims.
+            Assert.That(roundTheCapReleased, Is.InRange(1, 5),
+                "the geometric widening ENDS, and within a handful of runs -- that is the half of the user's " +
+                "'runaway' that is not a defect, and the half the copy is now allowed to promise");
         });
     }
 

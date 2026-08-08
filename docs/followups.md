@@ -3398,12 +3398,22 @@ admitted or rejected, and from there into `J`. Any future change justified by "e
 inherits this: **the bound belongs on the quantity the product reports, not on the intermediate**, and the
 eight-run gate is the cheap way to measure it (≈ 40 minutes).
 
-**Confound, and how it is settled.** `BaselineJ` is read on folders a previous arm wrote into
-([F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings)), so the binary is not the only thing that
-differs between the two measurements. `harness_settings.json` is excluded outright (`toml999`'s is dated
-2026-07-31, before wave 8). `optimized_settings.json` is not, and F55's own investigation measured it inert only
-on `D16`/v1. The control is to run `toml999` on wave 9's v1 binary against TODAY's folder state: same folder,
-different binary. **Until that reports, the seed-evaluation half of this entry is held open.**
+**Two confounds, and how each is settled.**
+
+1. **Folder state.** `BaselineJ` is read on folders a previous arm wrote into
+   ([F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings)), so the binary is not the only thing
+   that differs. `harness_settings.json` is excluded outright (`toml999`'s is dated 2026-07-31, before wave 8);
+   `optimized_settings.json` is not, and F55's investigation measured it inert only on `D16`/v1. The control is
+   to run `toml999` on wave 9's v1 binary against TODAY's folder state — same folder, different binary.
+2. **"The binary" is not yet "the wavelet".** `D:\hf_w9\exe`'s dll is stamped 2026-08-06 19:40 and several
+   wave-9 commits post-date it, so the two exes differ by PR #187 *plus* some wave-9 code. Those additions are
+   all post-search or UI (wave 9 verified the wing statistic is computed after the search and is inert on it),
+   which makes PR #187 the only plausible search-relevant term — **and plausible is not measured.** A bisect
+   build of the wave-10 tree with `StarDetector.cs`'s two call sites reverted to the legacy dense path isolates
+   the wavelet from everything else.
+
+**Until both report, this entry attributes to THE BINARY, not to the wavelet, and the seed-evaluation half is
+held open.**
 
 **Next step.** (a) Run the cross-build control above and close or re-open the seed half. (b) Adopt the eight-run
 gate as the standing acceptance check for any detector change claiming numerical equivalence — it is the
