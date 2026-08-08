@@ -206,6 +206,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public double WingRejectedFraction { get; set; } = double.NaN;
 
         /// <summary>
+        /// F19 — <see cref="WingRejectedFraction"/> divided by the SAME quantity computed on the INNER third:
+        /// the control the absolute fraction never had. <b>A MEASUREMENT ONLY. Nothing acts on it</b>, and
+        /// nothing may until RULE W1–W6 have been met on an arm run for it.
+        ///
+        /// <para><b>Why the ratio, and why it is not obviously right either.</b> Wave 10's population check
+        /// refuted the absolute fraction on 39 runs: it fired on the great majority, and four real-bank runs
+        /// fired while rejecting FEWER candidates in their wings than in their cores. The claim was always
+        /// comparative — <i>the wings are losing faint stars a longer exposure would convert</i> — so the ratio is
+        /// the coordinate the claim was actually about. But <c>D17_cdk14_oiii5</c>, one of the two datasets a
+        /// wing statistic exists to catch, has a ratio of <b>0.59</b>, and <c>D20_m24_bright_control</c> — the
+        /// bank's BRIGHT CONTROL — has an inner fraction of exactly 0.000 and therefore an INFINITE ratio.
+        /// <b>Both are expected to refute it</b>, and they are written down here before the pass so that meeting
+        /// them cannot be presented as a surprise.</para>
+        ///
+        /// <para><b>Four states, because two different things divide by zero</b> — the NaN-never-0 rule extended
+        /// rather than reinterpreted:</para>
+        /// <list type="bullet">
+        /// <item><see cref="double.NaN"/> — the run cannot be placed on the wing axis, or the inner third formed
+        ///   no candidates at all. <i>"We could not look."</i></item>
+        /// <item><see cref="double.PositiveInfinity"/> — the inner third formed candidates and rejected NONE
+        ///   while the wings rejected some. <i>"The wings reject and the cores do not"</i> — a real measurement
+        ///   and the strongest signal this statistic can carry, not an error.</item>
+        /// <item><c>1.0</c> — both thirds formed candidates and both rejected nothing. Equal rates, and equal is
+        ///   what a ratio of equal things is. It is NOT NaN: the instrument looked and found symmetry.</item>
+        /// <item>otherwise the ratio.</item>
+        /// </list>
+        ///
+        /// <para><b>Newtonsoft writes the first two as the STRINGS <c>"NaN"</c> and <c>"Infinity"</c>.</b> A
+        /// scorer that coerces either to a number disables its own falsification rule — which is exactly how wave
+        /// 10's RULE P scorer came to read an unmeasured dataset as one that did not fire.</para>
+        /// </summary>
+        public double WingRejectedRatio { get; set; } = double.NaN;
+
+        /// <summary>
         /// True when the run's Sensitivity gate sat at or below <see cref="InertGateBound"/> AND
         /// <see cref="GateRejectedCount"/> is 0 — the gate could not have rejected anything, so its zero rejection
         /// count is empty by construction and is NOT evidence that the star field is exhausted (F28). Always false
@@ -652,8 +686,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // floored by the gate, and they are exactly the stars a longer exposure can convert. See
             // ExposureRecommendation.WingRejectedFraction.
             var wingRejectedFraction = WingRejectedFractionOf(metrics, isRecovery);
-            // NO VERDICT IS DERIVED FROM IT (wave 10 -- see the withdrawal note above the constants). The fraction
-            // is reported; nothing acts on it. Wave 9's `wingIsShedding` overrode the line below, which is how a
+            // And its CONTROL, which the absolute fraction never had: the same quantity on the INNER third. Wave
+            // 10's population check showed the absolute fraction cannot separate "the wings are losing faint
+            // stars" from "the detector rejects noise everywhere" -- four real-bank runs fired with wings CLEANER
+            // than their cores. The ratio is the coordinate the claim was always about. It is a MEASUREMENT ONLY
+            // and is expected to be refuted in its turn (D17 sits at 0.59; D20, the bright control, is infinite).
+            var wingRejectedRatio = WingRejectedRatioOf(metrics, isRecovery);
+            // NO VERDICT IS DERIVED FROM EITHER (wave 10 -- see the withdrawal note above the constants). They are
+            // reported; nothing acts on them. Wave 9's `wingIsShedding` overrode the line below, which is how a
             // statistic that fires on most runs came to flip most users' exposure verdict.
             var exposureIsNotTheLimit = signalIsSufficient && !everyFrameShort;
 
@@ -710,7 +750,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 FlatRejectedCount = flatRejectedCount,
                 InertGateBound = inertGateBound,
                 GateIsProvablyInert = gateIsProvablyInert,
-                WingRejectedFraction = wingRejectedFraction
+                WingRejectedFraction = wingRejectedFraction,
+                WingRejectedRatio = wingRejectedRatio
             };
         }
 
@@ -731,17 +772,81 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// whose starvation is being measured.</para>
         /// </summary>
         internal static double WingRejectedFractionOf(RunEvaluationMetrics metrics, IReadOnlyList<bool> isRecovery) {
+            var usable = WingAxis(metrics, isRecovery);
+            if (usable == null) {
+                return double.NaN;
+            }
+
+            // At least one frame, so a short sweep still answers rather than silently declining to.
+            var wingCount = Math.Max(1, (int)Math.Round(usable.Count * WingFrameFraction));
+            var (rejected, accepted) = PoolRange(usable, 0, wingCount);
+            var formed = rejected + accepted;
+            // No candidates formed at all out here is not a shedding wing -- it is a frame with nothing on it, which
+            // is StarCountIsTheLimit's question, not this one.
+            return formed > 0 ? (double)rejected / formed : 0.0;
+        }
+
+        /// <summary>
+        /// F19's successor — <see cref="WingRejectedFractionOf"/> over the OUTER third divided by the same
+        /// quantity over the INNER third. See <see cref="ExposureRecommendation.WingRejectedRatio"/> for the
+        /// four-state contract and for why both <c>D17</c> and <c>D20</c> are expected to refute it.
+        ///
+        /// <para><b>A MEASUREMENT ONLY.</b> Nothing in the product reads it. Wave 10 withdrew its predecessor's
+        /// verdict on a 39-run population and pre-registered this coordinate together with the rule that must be
+        /// met before anything acts on it — precisely so it could not be adopted on the data that killed the last
+        /// one.</para>
+        /// </summary>
+        internal static double WingRejectedRatioOf(RunEvaluationMetrics metrics, IReadOnlyList<bool> isRecovery) {
+            var usable = WingAxis(metrics, isRecovery);
+            if (usable == null) {
+                return double.NaN;
+            }
+
+            var thirdCount = Math.Max(1, (int)Math.Round(usable.Count * WingFrameFraction));
+            // The two thirds must be DISJOINT or the ratio compares a set with itself and returns 1.0 for every
+            // short sweep -- a number that looks like a measurement and is not one. Declining is the honest
+            // answer, and it is NaN rather than 0 for the reason the whole statistic is NaN-never-0.
+            if (thirdCount * 2 > usable.Count) {
+                return double.NaN;
+            }
+
+            var (wingRejected, wingAccepted) = PoolRange(usable, 0, thirdCount);
+            var (innerRejected, innerAccepted) = PoolRange(usable, usable.Count - thirdCount, thirdCount);
+            var wingFormed = wingRejected + wingAccepted;
+            var innerFormed = innerRejected + innerAccepted;
+            if (innerFormed == 0) {
+                // Nothing was FORMED in the core, so there is no rate to compare against. "We could not look."
+                return double.NaN;
+            }
+
+            var wingFraction = wingFormed > 0 ? (double)wingRejected / wingFormed : 0.0;
+            var innerFraction = (double)innerRejected / innerFormed;
+            if (innerFraction == 0.0) {
+                // The core formed candidates and rejected NONE. If the wings rejected some, that is the strongest
+                // signal this statistic can carry and it is genuinely unbounded -- not an error to be clamped.
+                // If the wings also rejected none, the two rates are EQUAL, and the ratio of equal things is 1.
+                return wingFraction > 0.0 ? double.PositiveInfinity : 1.0;
+            }
+            return wingFraction / innerFraction;
+        }
+
+        /// <summary>
+        /// The non-recovery frames that can be placed on the wing axis — <c>(|offset from the fitted focus|,
+        /// rejected, accepted)</c>, FARTHEST FROM FOCUS FIRST. Null when the run cannot be placed at all.
+        ///
+        /// <para>A frame missing any of the three is left OUT rather than defaulted to zero: a defaulted frame
+        /// would enter the pool as "formed nothing and rejected nothing", which reads as a healthy wing.</para>
+        /// </summary>
+        private static List<(double Offset, int Rejected, int Accepted)> WingAxis(
+                RunEvaluationMetrics metrics, IReadOnlyList<bool> isRecovery) {
             var positions = metrics?.FrameFocuserPositions;
             var lowSens = metrics?.FrameLowSensitivityCounts;
             var counts = metrics?.FrameStarCounts;
             if (positions == null || lowSens == null || counts == null
                 || !double.IsFinite(metrics.BestFocusPosition) || !(metrics.StepSize > 0.0)) {
-                return double.NaN;
+                return null;
             }
 
-            // Non-recovery frames that carry all three of (position, rejection count, accepted count), keyed by
-            // |offset from the fitted focus|. A frame missing any of them cannot be placed or scored and is left
-            // out rather than defaulted to zero.
             var usable = new List<(double Offset, int Rejected, int Accepted)>(positions.Count);
             for (var i = 0; i < positions.Count; i++) {
                 if (IsRecoveryFrame(isRecovery, i) || i >= lowSens.Count || i >= counts.Count) {
@@ -750,21 +855,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 usable.Add((Math.Abs(positions[i] - metrics.BestFocusPosition), lowSens[i], counts[i]));
             }
             if (usable.Count == 0) {
-                return double.NaN;
+                return null;
             }
-
             usable.Sort((a, b) => b.Offset.CompareTo(a.Offset)); // farthest from focus first
-            // At least one frame, so a short sweep still answers rather than silently declining to.
-            var wingCount = Math.Max(1, (int)Math.Round(usable.Count * WingFrameFraction));
+            return usable;
+        }
+
+        private static (long Rejected, long Accepted) PoolRange(
+                List<(double Offset, int Rejected, int Accepted)> usable, int start, int count) {
             long rejected = 0, accepted = 0;
-            for (var i = 0; i < wingCount; i++) {
+            for (var i = start; i < start + count; i++) {
                 rejected += usable[i].Rejected;
                 accepted += usable[i].Accepted;
             }
-            var formed = rejected + accepted;
-            // No candidates formed at all out here is not a shedding wing -- it is a frame with nothing on it, which
-            // is StarCountIsTheLimit's question, not this one.
-            return formed > 0 ? (double)rejected / formed : 0.0;
+            return (rejected, accepted);
         }
 
         private static ExposureRecommendation NoRecommendation(double currentExposureSeconds, int usableFrameCount, int shortFrameCount) {
@@ -787,7 +891,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 GateIsProvablyInert = false,
                 // NaN, not 0: this run produced no recommendation at all, so it did not look at its wings either,
                 // and a consumer must not read a confident zero out of that.
-                WingRejectedFraction = double.NaN
+                WingRejectedFraction = double.NaN,
+                WingRejectedRatio = double.NaN
             };
         }
 

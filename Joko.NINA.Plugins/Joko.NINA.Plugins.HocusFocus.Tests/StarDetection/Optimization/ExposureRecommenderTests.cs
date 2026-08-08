@@ -1069,6 +1069,150 @@ public class ExposureRecommenderTests {
         Assert.That(rec.WingRejectedFraction, Is.EqualTo(600.0 / 1800.0).Within(1e-9));
     }
 
+    // ── F19's SUCCESSOR: WingRejectedRatio = wing-third / inner-third ──────────────────────────────────────
+    //
+    // A MEASUREMENT ONLY. Nothing in the product reads it, and nothing may until RULE W1-W6 have been met on an
+    // arm run for it -- wave 10 pre-registered both the coordinate and that rule while the pass that refuted its
+    // predecessor was still running, precisely so it could not be adopted on the data that killed the last one.
+    //
+    // AND THESE FIXTURES DO NOT ESTABLISH THE POPULATION'S RANGE. That is the mistake that shipped the
+    // predecessor: its unit fixtures spanned a rejected fraction of 0.002 to 0.75, 0.20 sat sensibly between
+    // them, and exactly ONE run in 39 turned out to resemble the 0.002 pole. What is asserted below is the
+    // CONTRACT -- especially the four states -- and nothing about which of them real runs occupy.
+
+    /// <summary>
+    /// A 9-frame sweep on the wing axis with UNAMBIGUOUS thirds: positions 1000 + 10i against a fitted focus of
+    /// 1000, so the nine |offsets| are 0..80 and all distinct. The outer third is therefore exactly frames 8/7/6
+    /// and the inner third exactly frames 2/1/0, with no ordering tie for the sort to break either way.
+    /// </summary>
+    private static RunEvaluationMetrics RatioMetrics(
+            int wingRejected, int wingAccepted, int innerRejected, int innerAccepted, bool placeable = true) {
+        const int n = 9;
+        var rejected = new int[n];
+        var accepted = new int[n];
+        for (var i = 0; i < n; i++) {
+            var isWing = i >= 6;
+            var isInner = i <= 2;
+            rejected[i] = isWing ? wingRejected : isInner ? innerRejected : 0;
+            accepted[i] = isWing ? wingAccepted : isInner ? innerAccepted : 500;
+        }
+        return new RunEvaluationMetrics {
+            FrameStarSnrs = Enumerable.Range(0, n).Select(_ => (IReadOnlyList<double>)FullFrame(40.0)).ToArray(),
+            FrameStarCounts = accepted,
+            FrameLowSensitivityCounts = rejected,
+            FrameTooFlatCounts = new int[n],
+            FrameFocuserPositions = Enumerable.Range(0, n).Select(i => 1000 + i * 10).ToArray(),
+            BestFocusPosition = placeable ? 1000.0 : double.NaN,
+            StepSize = 10.0
+        };
+    }
+
+    [Test]
+    public void WingRejectedRatio_IsTheWingFractionOverTheInnerFraction() {
+        // wings 300/(300+300) = 0.50 ; core 100/(100+300) = 0.25 ; ratio 2.0.
+        var ratio = ExposureRecommender.WingRejectedRatioOf(
+            RatioMetrics(wingRejected: 300, wingAccepted: 300, innerRejected: 100, innerAccepted: 300), null);
+
+        Assert.That(ratio, Is.EqualTo(2.0).Within(1e-12));
+    }
+
+    [Test]
+    public void WingRejectedRatio_IsPositiveInfinity_WhenTheCoreRejectsNOTHINGAndTheWingsDo() {
+        // D20_m24_bright_control's shape: an inner rejected fraction of EXACTLY 0.000 against wings that reject.
+        // Genuinely unbounded, and the strongest signal the statistic can carry -- so it is +Infinity rather than
+        // a clamp, and it is NOT NaN, because the instrument looked and found something.
+        //
+        // It is also the pre-stated reason to expect this successor to be refuted in its turn: a statistic that
+        // asks the bank's BRIGHT CONTROL for more exposure is wrong on the one dataset whose name says otherwise.
+        var ratio = ExposureRecommender.WingRejectedRatioOf(
+            RatioMetrics(wingRejected: 300, wingAccepted: 300, innerRejected: 0, innerAccepted: 400), null);
+
+        Assert.That(double.IsPositiveInfinity(ratio), Is.True, $"expected +Infinity, got {ratio}");
+    }
+
+    [Test]
+    public void WingRejectedRatio_IsONE_WhenNeitherThirdRejectsAnything() {
+        // caboose's and mccomiskey's shape (wave 10 measured both at a wing fraction of exactly 0.000). The two
+        // rates are EQUAL, and the ratio of equal things is 1 -- not 0, which would read as "the wings are
+        // cleaner than the core", and not NaN, which would read as "we could not look" and would push the P4
+        // NaN-rate clause toward firing on runs where the instrument was working perfectly.
+        var ratio = ExposureRecommender.WingRejectedRatioOf(
+            RatioMetrics(wingRejected: 0, wingAccepted: 400, innerRejected: 0, innerAccepted: 400), null);
+
+        Assert.That(ratio, Is.EqualTo(1.0).Within(1e-12));
+    }
+
+    [Test]
+    public void WingRejectedRatio_IsNaN_WhenTheRunCannotBePlacedOnTheWingAxis() {
+        var ratio = ExposureRecommender.WingRejectedRatioOf(
+            RatioMetrics(300, 300, 100, 300, placeable: false), null);
+
+        Assert.That(ratio, Is.NaN);
+    }
+
+    [Test]
+    public void WingRejectedRatio_IsNaN_WhenTheInnerThirdFormedNoCandidatesAtAll() {
+        // No denominator exists. "We could not look" -- distinct from "we looked and the core rejected none",
+        // which is the +Infinity case above. Collapsing the two is exactly what the NaN-never-0 rule forbids.
+        var ratio = ExposureRecommender.WingRejectedRatioOf(
+            RatioMetrics(wingRejected: 300, wingAccepted: 300, innerRejected: 0, innerAccepted: 0), null);
+
+        Assert.That(ratio, Is.NaN);
+    }
+
+    [Test]
+    public void WingRejectedRatio_IsNaN_WhenTheTwoThirdsWouldOVERLAP() {
+        // A one-frame axis would compare a set with ITSELF and return 1.0 -- a number that looks like a
+        // measurement and is not one. Declining is the honest answer.
+        var single = new RunEvaluationMetrics {
+            FrameStarSnrs = new[] { (IReadOnlyList<double>)FullFrame(40.0) },
+            FrameStarCounts = new[] { 400 },
+            FrameLowSensitivityCounts = new[] { 100 },
+            FrameTooFlatCounts = new int[1],
+            FrameFocuserPositions = new[] { 1000 },
+            BestFocusPosition = 1000.0,
+            StepSize = 10.0
+        };
+
+        Assert.That(ExposureRecommender.WingRejectedRatioOf(single, null), Is.NaN);
+    }
+
+    [Test]
+    public void WingRejectedRatio_SurvivesTheROUNDTRIPAsAString_SoAScorerCannotSilentlyCoerceIt() {
+        // Newtonsoft writes NaN and Infinity as the STRINGS "NaN" and "Infinity". A scorer that coerces either to
+        // a number disables its own falsification rule -- which is precisely how wave 10's RULE P scorer came to
+        // read an unmeasured dataset as one that did not fire and report a partial run as a population verdict.
+        // Asserted here so the serialized contract is pinned rather than assumed.
+        var json = Newtonsoft.Json.JsonConvert.SerializeObject(new ExposureRecommendation {
+            WingRejectedRatio = double.PositiveInfinity
+        });
+        var nan = Newtonsoft.Json.JsonConvert.SerializeObject(new ExposureRecommendation {
+            WingRejectedRatio = double.NaN
+        });
+
+        Assert.Multiple(() => {
+            Assert.That(json, Does.Contain("\"WingRejectedRatio\":\"Infinity\""));
+            Assert.That(nan, Does.Contain("\"WingRejectedRatio\":\"NaN\""));
+        });
+    }
+
+    [Test]
+    public void Recommend_ReportsTheRatioBesideTheFraction_AndDerivesNoVerdictFromEither() {
+        var rec = ExposureRecommender.Recommend(
+            RatioMetrics(wingRejected: 300, wingAccepted: 300, innerRejected: 100, innerAccepted: 300),
+            DefaultConstants(), currentExposureSeconds: 0.5);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.WingRejectedRatio, Is.EqualTo(2.0).Within(1e-12));
+            Assert.That(rec.WingRejectedFraction, Is.EqualTo(0.5).Within(1e-12));
+            // Every accepted star measures S/N 40 against a target of 10, so the accepted-star statistic says
+            // "exposure is not the limit" -- and a wing ratio of 2.0 does NOT override it. Wave 9's wingIsShedding
+            // did exactly that, on a statistic that fired on 30 of 39 runs.
+            Assert.That(rec.ExposureIsNotTheLimit, Is.True);
+            Assert.That(rec.RecommendedSeconds, Is.LessThanOrEqualTo(0.5));
+        });
+    }
+
     /// <summary>Builds an inclusive ascending double range [start, end] -- a small local helper to keep the
     /// 40-value quantile test readable.</summary>
     private static double[] Range(int start, int end) {

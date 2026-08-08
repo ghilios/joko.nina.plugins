@@ -113,12 +113,42 @@ Headless driver of the optimizer. Args:
 (default `%LOCALAPPDATA%\NINA\Logs\hf-diag\optimize\<timestamp>`), `--max-evals <int>` (override the
 optimizer budget; wizard default 250), `--annotate extremes|all` (default `extremes` = min/max-focuser frames
 only), `--labels <dir>` (label JSON dir; activates the recall/precision objective term), `--verbose` (restore
-TRACE logging; default INFO). `optimize` has **no** `--defocus-*` switches — the combined `DefocusAwareGates`
+TRACE logging; default INFO), `--cv-threads <n>` (cap OpenCV's parallel-for pool; `0` restores the default —
+the effective `Cv2.GetNumThreads()` is printed either way, so the knob cannot be silently disconnected).
+`optimize` has **no** `--defocus-*` switches — the combined `DefocusAwareGates`
 flag is in the optimizer's curated search set (`OptimizerVariable.CreateCuratedSet`), so the optimizer explores
 the relaxation itself (guarded by the objective's `SDefocusPrecision` near-focus penalty); to force the gates
 on for diagnosis, use `diagnose-labels`/`contamination`. It writes
 `optimized_settings.json` into **each focus run's source folder** (the review handoff) **and** the `--out`
 dir (or each per-run subfolder).
+
+> ### PINNING AN ARM: `--settings` **AND** `--profile-id`. BOTH. EVERY TIME.
+>
+> **`--settings <fixed path>` pins the DETECTOR knobs** (F42). Every build directory otherwise bootstraps its own
+> `harness_settings.json` from whatever the live profile holds at that moment, so two arms built minutes apart can
+> run different detectors.
+>
+> **`--profile-id <guid>` pins the FIT, and for six waves nobody passed it** (F57/F58). `AutoFocusOptions` was read
+> from whichever NINA profile happened to be ACTIVE, and four of its values reach the AF fit. On the machine that
+> produced waves 5–11, nine profiles partition **2 / 7** on `MaxOutlierRejections` alone — enough to move
+> `BaselineJ` (one evaluation of a fixed seed on fixed frames, no search) by **0.0144**, larger than any Δ`J` the
+> project has argued about. Wave 9's gate ran under `Default`, wave 10's under `astrodet`, and the resulting
+> discrepancy was attributed to a wavelet change for half a day.
+>
+> **The default is LRU-BY-LAST-LOAD, so an unpinned arm is seeded by whatever the previous arm pinned.**
+> `Profile.Load` stamps `LastUsed = Now` and saves; `TryLoad("")` takes the newest. The act of measuring rewrites
+> the default for the next measurement.
+>
+> **And concurrent unpinned processes each get a DIFFERENT profile.** NINA holds the `.profile` open
+> (`FileShare.Read`) while it is loaded, `SelectProfile` returns false for a locked one, and `TryLoad`'s
+> `SkipWhile` silently takes the next by `LastUsed`. That is F55's "nondeterminism": *N* concurrent `optimize`
+> processes ran under *N* different fits. **With `--profile-id` the same situation fails LOUDLY** ("No active NINA
+> profile could be loaded", non-zero exit) instead of returning a wrong number — which is the right trade, and is
+> why fan-out needs one profile copy per worker.
+>
+> Since wave 11 the harness reads the fit inputs from the **pinned settings file**, and every landing records
+> `ProfileId` **and** `FitInputs` (`MaxOutlierRejections=…;OutlierRejectionConfidence=…;…` — values, not a hash,
+> so a reader sees *which* one moved). Check `ConcurrencyCheck` in the landing before reading any arm.
 
 - **Run discovery is attempt-anchored** (pure logic in `OptimizationRunDiscovery`): it recursively finds
   `attempt<NN>` folders (1–4 levels under `--runs`) that contain ≥3 distinct focuser positions, mirroring

@@ -442,6 +442,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public string ProfileId { get; set; }
 
         /// <summary>
+        /// The values that reach the AF <b>fit</b>, rendered as <c>key=value;key=value</c>. Null when the
+        /// producer does not record them.
+        ///
+        /// <para><b>F58.</b> <see cref="ProfileId"/> says which profile ran; this says what the profile (or the
+        /// pinned settings file) actually supplied. The two are not the same question, and the difference is the
+        /// entire defect: the fit reads four values, and wave 11 found that the machine's nine profiles partition
+        /// <b>2 / 7</b> on just one of them (<c>MaxOutlierRejections</c>) — which is why concurrent runs, each
+        /// having silently acquired a different profile, landed on two discrete values of <c>J</c> and looked
+        /// like a floating-point race for two waves.</para>
+        ///
+        /// <para><b>Values, not a hash.</b> A fingerprint tells a reader that something moved; these tell them
+        /// WHICH, without a second run. That is the same reason <see cref="BuildId"/> is an MVID rather than a
+        /// version string and <c>DetectionBinningSource</c> (F39(a)) is a field rather than a sentence.</para>
+        /// </summary>
+        public string FitInputs { get; set; }
+
+        /// <summary>
         /// The identity of the currently-loaded plugin build: <see cref="BuildId"/> and
         /// <see cref="DetectorVersion"/>, read off this assembly. Static so the harness and the shipping wizard
         /// stamp the same two values from the same place rather than each deriving its own.
@@ -465,6 +482,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 parts.Add($"CONCURRENCY={ConcurrencyCheck.ToUpperInvariant()}");
             }
             if (!string.IsNullOrWhiteSpace(ProfileId)) { parts.Add($"profile {ProfileId}"); }
+            if (!string.IsNullOrWhiteSpace(FitInputs)) { parts.Add($"fit[{FitInputs}]"); }
             if (!string.IsNullOrWhiteSpace(CommandLine)) { parts.Add(CommandLine); }
             if (!string.IsNullOrWhiteSpace(SettingsFingerprint)) { parts.Add($"settings#{SettingsFingerprint}"); }
             return parts.Count > 0 ? string.Join(" | ", parts) : "(no provenance)";

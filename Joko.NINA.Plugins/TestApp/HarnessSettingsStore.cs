@@ -636,73 +636,153 @@ namespace TestApp {
             // option's DEFAULT, which looks like a perfectly valid run. Assigning property-by-property makes the
             // options class itself emit the right keys with the right types, so the snapshot cannot drift from
             // what the class actually reads, and a newly added option is captured with no change here.
-            var fromProfile = new NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectionOptions(
-                profileService, new PluginOptionsAccessor(profileService, guid.Value));
-            var toFile = new NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectionOptions(
-                profileService, new FileOptionsAccessor(file.Options));
+            CopyOptionSurface(
+                new NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectionOptions(
+                    profileService, new PluginOptionsAccessor(profileService, guid.Value)),
+                new NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectionOptions(
+                    profileService, new FileOptionsAccessor(file.Options)));
 
-            foreach (var prop in typeof(NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetectionOptions).GetProperties()) {
-                if (!prop.CanRead || !prop.CanWrite || prop.GetIndexParameters().Length > 0) {
-                    continue;
-                }
-                try {
-                    var value = prop.GetValue(fromProfile);
-                    // Write a DIFFERENT value first so the option's change-detecting setter actually fires.
-                    // Without this the snapshot is SPARSE: a value equal to the shipped default never reaches the
-                    // file, and the file then inherits whatever the default IS AT LOAD TIME. That is
-                    // behaviour-preserving today and quietly wrong the day a default changes — precisely the
-                    // silent drift a settings file exists to prevent. Density costs one extra write per property.
-                    var poison = Poison(value, prop.PropertyType);
-                    if (poison != null) {
-                        prop.SetValue(toFile, poison);
-                    }
-                    prop.SetValue(toFile, value);
-                } catch {
-                    // A property that refuses a round trip (computed, validated, or profile-coupled) is not a
-                    // detector knob we can carry; skip it rather than abort the whole export.
-                }
-            }
+            // F58 — THE FIT, not just the detector. `AutoFocusOptions` was the ONE options surface the harness
+            // still read straight off the active NINA profile, and four of its values reach the AF fit
+            // (WeightedHyperbolicFitEnabled, MaxOutlierRejections, OutlierRejectionConfidence,
+            // HyperbolicFitModel). So `--settings` pinned the detector and left the fit floating, and six waves
+            // read that as pinning the arm. It is not academic: this machine's nine profiles partition 2/7 on
+            // MaxOutlierRejections alone, and because NINA holds a `.profile` open while it is loaded (and
+            // TryLoad silently skips a locked one for the next by LastUsed), concurrent `optimize` processes each
+            // acquire a DIFFERENT profile -- which is how a single integer produced the two discrete "attractors"
+            // F55 spent two waves chasing as a floating-point race.
+            CopyOptionSurface(
+                new NINA.Joko.Plugins.HocusFocus.AutoFocus.AutoFocusOptions(
+                    profileService, new PluginOptionsAccessor(profileService, guid.Value)),
+                new NINA.Joko.Plugins.HocusFocus.AutoFocus.AutoFocusOptions(
+                    profileService, new FileOptionsAccessor(file.Options)));
             return file;
         }
 
         /// <summary>
-        /// A value of <paramref name="type"/> guaranteed to differ from <paramref name="value"/>, used only to
-        /// trip a change-detecting setter. Null when no such value can be produced, in which case the property is
-        /// written once and may stay absent from the file (see <see cref="ExportFromProfile"/>).
+        /// Copies an options class's whole PROPERTY SURFACE from one accessor-backed instance to another.
+        ///
+        /// <para>Property-by-property rather than by raw key, because the profile stores plugin options as typed
+        /// values with no "list my keys" API: a raw read has to guess both the key list and each key's type, and
+        /// a miss is SILENT — the loaded options fall back to the option's DEFAULT, which looks like a perfectly
+        /// valid run. Assigning through the class makes the class itself emit the right keys with the right
+        /// types, so the snapshot cannot drift from what it actually reads, and a newly added option is captured
+        /// with no change here.</para>
         /// </summary>
-        private static object Poison(object value, Type type) {
+        internal static void CopyOptionSurface<T>(T fromProfile, T toFile) {
+            foreach (var prop in typeof(T).GetProperties()) {
+                if (!prop.CanRead || !prop.CanWrite || prop.GetIndexParameters().Length > 0) {
+                    continue;
+                }
+                object value;
+                try {
+                    value = prop.GetValue(fromProfile);
+                } catch {
+                    continue;   // a computed or profile-coupled property; not a knob we can carry
+                }
+
+                // Write a DIFFERENT value first so the option's change-detecting setter actually fires. Without
+                // this the snapshot is SPARSE: a value equal to the shipped default never reaches the file, and
+                // the file then inherits whatever the default IS AT LOAD TIME — behaviour-preserving today and
+                // quietly wrong the day a default changes, which is precisely the drift a pinned settings file
+                // exists to prevent.
+                //
+                // F59 — AND ONE POISON CANDIDATE IS NOT ENOUGH, WHICH COST FIVE KNOBS FOR SIX WAVES. These
+                // setters VALIDATE and THROW: `MaxDistortion` demands [0, 1] and `OutlierRejectionConfidence`
+                // demands (0.5, 1.0) exclusive, so the obvious `current + 1` poison raised ArgumentException,
+                // a single enclosing catch swallowed it, and the property was skipped ENTIRELY — neither the
+                // poison NOR the real value written. `pinned_settings.json`, the file waves 5–11 called "the
+                // pinned detector", is missing `MaxDistortion`, `StarCenterTolerance`, `SaturationThreshold`,
+                // `HotpixelThreshold` and `Sensitivity` for exactly this reason. So:
+                //   * candidates are TRIED IN TURN until one lands inside the property's own valid range, and
+                //   * the poison is VERIFIED BY READ-BACK rather than assumed to have taken, and
+                //   * the real write has its OWN try, so a poison failure can never cost it again.
+                foreach (var poison in PoisonCandidates(value, prop.PropertyType)) {
+                    try {
+                        prop.SetValue(toFile, poison);
+                        if (!Equals(prop.GetValue(toFile), value)) {
+                            break;      // it took; the real write below will now fire the change detector
+                        }
+                    } catch {
+                        // Outside THIS property's valid range. Try the next candidate rather than giving up.
+                    }
+                }
+
+                try {
+                    prop.SetValue(toFile, value);
+                } catch {
+                    // The property genuinely refuses its own current value (computed, or validated against
+                    // state this instance does not have). Skip it rather than abort the whole export.
+                }
+            }
+        }
+
+        /// <summary>
+        /// Values of <paramref name="type"/> that differ from <paramref name="value"/>, to be tried IN TURN until
+        /// one trips the property's change-detecting setter without tripping its VALIDATION.
+        ///
+        /// <para><b>F59 — why this is a sequence and not a single value.</b> The one-candidate version returned
+        /// <c>current + 1</c>, which is outside the valid range of every knob bounded above: <c>MaxDistortion</c>
+        /// demands [0, 1] and <c>OutlierRejectionConfidence</c> demands (0.5, 1.0) exclusive, so the poison threw
+        /// and the property was dropped from the export entirely. The numeric spread below deliberately includes
+        /// candidates on BOTH sides of the current value and INSIDE the unit interval, so a bounded knob still
+        /// gets poisoned. Caller verifies by read-back — no candidate is assumed to have taken.</para>
+        /// </summary>
+        private static IEnumerable<object> PoisonCandidates(object value, Type type) {
             var t = Nullable.GetUnderlyingType(type) ?? type;
             if (t == typeof(bool)) {
-                return !(bool)(value ?? false);
+                yield return !(bool)(value ?? false);
+                yield break;
             }
             if (t == typeof(string)) {
-                return (value as string) == "~" ? "~~" : "~";
+                yield return (value as string) == "~" ? "~~" : "~";
+                yield break;
             }
             if (t.IsEnum) {
                 foreach (var candidate in Enum.GetValues(t)) {
                     if (!Equals(candidate, value)) {
-                        return candidate;
+                        yield return candidate;
                     }
                 }
-                return null;
+                yield break;
+            }
+            if (t == typeof(DateTime)) {
+                yield return ((DateTime)(value ?? DateTime.UnixEpoch)).AddDays(1);
+                yield break;
             }
             if (t == typeof(double) || t == typeof(float) || t == typeof(decimal)
                 || t == typeof(int) || t == typeof(long) || t == typeof(short)
                 || t == typeof(byte) || t == typeof(sbyte)
                 || t == typeof(uint) || t == typeof(ulong) || t == typeof(ushort)) {
+                double current;
                 try {
-                    // +1 in the property's own type. Doubles that are NaN compare unequal to everything, so any
-                    // finite value already differs; 0 is a safe, in-range choice for every numeric knob here.
-                    var current = Convert.ToDouble(value ?? 0);
-                    return Convert.ChangeType(double.IsNaN(current) ? 0.0 : current + 1.0, t);
+                    current = Convert.ToDouble(value ?? 0);
                 } catch {
-                    return null;
+                    yield break;
+                }
+                if (double.IsNaN(current) || double.IsInfinity(current)) {
+                    current = 0.0;
+                }
+                // Both directions, and inside the unit interval, so a knob bounded to [0,1] or (0.5,1.0) is
+                // still reachable. Integer knobs round on conversion, which is why +/-1 come first.
+                var spread = new[] {
+                    current + 1.0, current - 1.0,
+                    (current + 1.0) / 2.0, current / 2.0,
+                    current * 1.01, current * 0.99,
+                    0.0, 1.0
+                };
+                foreach (var candidate in spread) {
+                    object converted;
+                    try {
+                        converted = Convert.ChangeType(candidate, t);
+                    } catch {
+                        continue;   // out of the TYPE's range (e.g. -1 into a byte)
+                    }
+                    if (!Equals(converted, value)) {
+                        yield return converted;
+                    }
                 }
             }
-            if (t == typeof(DateTime)) {
-                return ((DateTime)(value ?? DateTime.UnixEpoch)).AddDays(1);
-            }
-            return null;
         }
     }
 }

@@ -3453,10 +3453,153 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
+### F58 — Concurrent `optimize` processes each acquire a DIFFERENT NINA profile, and the profile decides the fit: F55's "two attractors" are two values of `MaxOutlierRejections`
+**Status:** Open · found 2026-08-08 (wave 11) **at zero compute, out of logs wave 9 left on disk** ·
+**this is the MECHANISM behind [F55](#f55--optimize-is-not-reproducible-when-several-instances-run-at-once-and-the-seed-evaluation-is-what-moves)
+and [F57](#f57--a---settings-pinned-arm-is-not-pinned-the-active-nina-profile-moves-baselinej-by-0014-and-every-cross-wave-comparison-inherits-it),
+which are one defect seen from two directions**
+
+Wave 10 established that the active NINA profile moves `BaselineJ` and left *which quantity* (F57(c)) and *the
+nondeterminism's trigger rate* (F55(b)) open. Both close on the same reading, and **no optimization had to be run
+to find it** — the evidence was already printed in a `Profile:` line that two waves had scrolled past.
+
+### The mechanism, read out of `NINA.Profile`
+
+1. **`Profile.Load(path)`** opens the `.profile` with `FileAccess.ReadWrite, FileShare.Read` and **holds the
+   stream for the profile's lifetime**. A second process's `Load` on the same file throws `IOException`
+   (`ERROR_SHARING_VIOLATION`), and `Load` **rethrows it** — the journal/backup recovery path is deliberately
+   skipped for the in-use case (`catch (IOException ex) when (IsFileInUse(ex)) { throw; }`).
+2. **`ProfileService.SelectProfile`** catches, logs, and returns **`false`**.
+3. **`ProfileService.TryLoad(id)`** orders candidates `OrderByDescending(x => x.LastUsed)` and then
+   `.SkipWhile(p => !SelectProfile(p)).FirstOrDefault()` — **so a locked profile is silently SKIPPED and the next
+   profile by `LastUsed` is loaded instead.**
+4. **`Profile.Load` also sets `LastUsed = DateTime.Now` and SAVES.** Loading a profile rewrites the ordering that
+   decides which profile the *next* unpinned run gets.
+
+**So N concurrent unpinned `optimize` processes acquire N DIFFERENT profiles**, and *which* process gets which is
+a race — the SET is determined (the top N by `LastUsed`), the assignment is not. That is F55's *"sporadic rather
+than per-arm"* exactly.
+
+### The observation, from `D:\hf_w9\det\{S,C}_{1..5}.log` — the 40-second reproducer, re-read
+
+`D16_esprit550_ha3`, `--max-evals 1`, so `BaselineJ` is the whole measurement:
+
+| repeat | `Profile:` printed by the run | `BaselineJ` |
+|---|---|---|
+| S_1 … S_5 (**sequential**) | `AA1600MM Copy (1bf0efaf-…)` — **all five the same** | `0.979173` ×5 |
+| C_1 (**concurrent**) | `AA1600MM (4cf31cda-…)` | **0.988555** |
+| C_2 | `Default (b10b1d6d-…)` | **0.988555** |
+| C_3 | `astrodet (ce3f3e63-…)` | `0.979173` |
+| C_4 | `Default-2026-08-05T10:57:42 (1a120eb1-…)` | **0.988555** |
+| C_5 | `AA1600MM Copy (1bf0efaf-…)` | `0.979173` |
+
+**Five concurrent processes, five different profiles**, and C_5 — which drew the same profile the sequential
+phase drew — returned the sequential phase's value.
+
+### And `J` partitions on ONE field
+
+The optimize path feeds exactly four profile-sourced values into the fit
+(`OptimizationDiagnosticRunner.cs:673–679`: `UseWeights`, `MaxOutlierRejections`, `RejectionConfidence`,
+`PreferredModel`). Across those five profiles three of the four are constant:
+
+| profile | `BaselineJ` | `MaxOutlierRejections` | `OutlierRejectionConfidence` | `WeightedHyperbolicFitEnabled` | `HyperbolicFitModel` |
+|---|---|---|---|---|---|
+| `AA1600MM Copy` | `0.979173` | **0** | *(absent ⇒ 0.95)* | *(absent ⇒ true)* | Hybrid |
+| `astrodet` | `0.979173` | **0** | *(absent ⇒ 0.95)* | true | *(absent ⇒ Hybrid)* |
+| `AA1600MM` | **0.988555** | **1** | *(absent ⇒ 0.95)* | true | *(absent ⇒ Hybrid)* |
+| `Default` | **0.988555** | **1** | **0.99** | true | *(absent ⇒ Hybrid)* |
+| `Default-2026-08-05T10:57:42` | **0.988555** | **1** *(absent ⇒ 1)* | *(absent ⇒ 0.95)* | *(absent ⇒ true)* | *(absent ⇒ Hybrid)* |
+
+> **`MaxOutlierRejections` = 0 ⇒ 0.979173. = 1 ⇒ 0.988555. Five of five.** `OutlierRejectionConfidence` varies
+> *within* the firing group (0.99 vs 0.95) and does not move `J` — which is what a rejection budget of one
+> predicts and a coincidence does not.
+
+**The machine holds 9 profiles and they partition 2 / 7 on this field** (`D:\hf_w11\profiles_before.txt`). *That
+is the bimodality.* Two discrete attractors because a small integer takes two values in the wild — never a
+floating-point race, which is the one property of F55 that never fit summation order.
+
+### Confirmed independently on three more datasets, also at zero compute
+
+Wave 9's **four-way concurrent control trial** (`D:\hf_w9\ctl_conc_*.log`) also printed its profiles:
+
+| log | profile loaded | `MaxOutlierRejections` | `BaselineJ` |
+|---|---|---|---|
+| `ctl_seq_toml999` (**sequential**) | `Default-2026-08-05T10:57:42` | 1 | 0.997840 |
+| `ctl_conc_toml999` | **the same profile** | 1 | **0.997840** |
+| `ctl_conc_bobp` | `astrodet` | 0 | 0.993122 |
+| `ctl_conc_caboose` | `Default` | 1 | 0.994753 → landed **0.996300** |
+| `ctl_conc_mufti` | `AA1600MM Copy` | 0 | **0.957603** |
+
+**Four processes, four different profiles** again. And two of these close open items in F55's own tables:
+`mufti`'s 0.957603 is arms **B/C**'s value (arm A's 0.957087 must therefore have drawn a `= 1` profile), and
+`caboose`'s 0.996300 is one of that run's two recorded landings.
+
+**The sharpest of them is the anomaly F55 had to hedge about.** F55 records *"one four-way concurrent trial did
+NOT reproduce the deviation"* and correctly refuses to read it as evidence against the fan-out, on the grounds
+that *"the effect appears on ~15 % of runs, so a single trial has no power to exclude it."* The hedge was right;
+the reason is now visible in the log rather than left to probability. **`ctl_conc_toml999` drew the same profile
+as `ctl_seq_toml999`**, so it was not a 15 % coin landing the same way — it was the same fit inputs, and the
+values are identical rather than merely close.
+
+### What it explains, and every one of these was paid for by measurement
+
+| eliminated by waves 9–10 | why F58 is consistent with it |
+|---|---|
+| the plugin's `Parallel.For` degree (1/2/4/8/48), swept, inert | this is not a thread race |
+| the BUILD (15 runs, 3 binaries, identical to 10 dp) | those fifteen ran in ONE session under ONE **pinned** profile |
+| folder state, one artifact at a time | irrelevant to which file the process opened at startup |
+| the per-run `optimized_settings.json`, the detection cache, OpenCL/`UMat`, `Merge`, rented sorts, `MedianInPlace`, timeouts | same |
+| **"stable within a process/session, variable across them … does fit some process-level state … acquired once"** | **a profile is acquired once, at startup.** Wave 9 named the shape of the answer and the search kept looking below the fit |
+
+**And it explains F57 without a second cause.** Wave 9's gate ran under `Default` (`MaxOutlierRejections = 1`),
+wave 10's under `astrodet` (`0`); `toml999`'s `BaselineJ` went 0.997840 → 0.983477, and allowing one Grubbs
+rejection improves a fit, which is the observed direction. **F57(c)'s answer is a named field**, and it is
+[F45](#f45--the-grubbs-test-rejects-the-in-focus-point-of-a-near-perfect-curve-and-the-blind-walk-then-buys-an-extra-exposure)'s
+outlier rejection deciding the objective from machine state that nothing recorded.
+
+### Two operational consequences that are not obvious
+
+- **A pinned run rewrites the default for the next unpinned run.** `LastUsed` is stamped by the act of loading,
+  so `--profile-id X` today makes X the active profile tomorrow. **Measured 2026-08-08:** wave 10's own F57 probe
+  pinned `Default` last, and an unpinned `optimize` on `toml999` today prints
+  `Profile: Default (b10b1d6d-…)` and returns `currentJ = 0.99784` — **wave 9's value, not the wave 10 the banks
+  were measured under.** An unpinned wave-11 gate would have reproduced the wrong wave and called it a pass.
+- **`--profile-id` and fan-out are mutually exclusive as things stand.** With the id filter the candidate list has
+  one entry, so a second concurrent process runs `SkipWhile` over an empty remainder, `TryLoad` returns `false`,
+  and `optimize` throws *"No active NINA profile could be loaded"*. **Pinning converts a silent wrong answer into
+  a loud failure**, which is the right trade and is not a fix.
+
+### The fix, and why it is the harness's and not the plugin's
+
+`HarnessSettingsStore` exists precisely so that *"a profile-sourced seed is mutable machine state nothing
+records"* cannot reach a run: its `FileOptionsAccessor` reads the pinned file and falls back to **code defaults**,
+never to the profile. `StarDetectionOptions` is built on it. **`AutoFocusOptions` is not** —
+`new AutoFocusOptions(profileService)` binds a `PluginOptionsAccessor` to the ACTIVE profile. So the detector is
+pinned and the fit is not, and `--settings` has been read as pinning the arm for six waves. **The asymmetry is
+the bug.** The remedy is to build the harness's `AutoFocusOptions` on the harness accessor (the seam already
+exists), carry the four fit inputs in the pinned file, and print them in provenance as **values, not a hash** —
+a hash says something moved, values say **which**. The live plugin is unchanged: the wizard and the AF engine
+must keep reading the profile, because there those *are* the user's settings.
+
+### Next step
+
+(a) **Intervene, do not stop at correlation** — five pre-existing profiles agreeing is not an experiment. Bisect
+`toml999` on synthetic single-field profiles under RULE C, whose **negative control** is that
+`OutlierRejectionConfidence` alone must move nothing when the rejection budget is 0.
+(b) **Pin the fit inputs** as above, then re-run the 40-second reproducer and require that the concurrent phase
+returns ONE value **while still loading five different profiles** — a fix that merely pinned the profile would
+pass a weaker test and prove nothing.
+(c) **Then say what is left.** `KappaSigmaNoiseEstimate`'s measured gain (F55) stays as a fact about the
+function; it is withdrawn only as *this* defect's explanation, and only once the residual check has run.
+Reproduce: `D:\hf_w9\det\{S,C}_{1..5}.log`, `D:\hf_w9\ctl_{seq,conc}_*.log`, `D:\hf_w11\profiles_before.txt`,
+`D:\hf_w11\pregate\pregate.log`.
+
 ### F57 — A `--settings`-pinned arm is NOT pinned: the active NINA profile moves `BaselineJ` by 0.014, and every cross-wave comparison inherits it
 **Status:** Open · found 2026-08-08 (wave 10) while running the pre-registered control for a DIFFERENT
 hypothesis, which it refuted · **this is [F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)'s
-warning, measured for the first time**
+warning, measured for the first time** · **(c) ANSWERED 2026-08-08 (wave 11): the quantity is
+`AutoFocusOptions.MaxOutlierRejections`, and the profile is acquired per PROCESS — see
+[F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections)**
 
 **How this was found is the point, so it is told in order.**
 
@@ -3517,8 +3660,16 @@ the residue until an unrelated control forced it.**
 `DetectorVersion` this wave added — the same argument, one input further out: a reader diffs a field.
 (b) **Every arm must pass `--profile-id` explicitly**, and the run instructions must say so beside F42's
 `--settings` rule; an arm that does not is pinned in one dimension and floating in another.
-(c) **Find WHICH profile-sourced quantity moves the objective.** `PixelScale` is excluded (both runs print
-`0.73944` from the frame header). `AutoFocusOptions` is read from the profile and is the obvious next place.
+(c) ~~**Find WHICH profile-sourced quantity moves the objective.**~~ — **ANSWERED 2026-08-08 (wave 11):
+`AutoFocusOptions.MaxOutlierRejections`, 1 under `Default` and 0 under `astrodet`, with
+`OutlierRejectionConfidence` (0.99 vs an absent 0.95) behind it and unreachable while the budget is 0. The guess
+recorded here — *"`AutoFocusOptions` … is the obvious next place"* — was right, and the read-level audit that
+confirmed it also excluded everything else: the detector knobs are genuinely pinned (`FileOptionsAccessor` falls
+back to CODE defaults, never the profile, so `SaturationThreshold` 0.99-vs-0.9 and `DetectionBinning` are inert),
+`ImageSettings` is byte-identical between the two profiles, `AutoFocusBinningConflict` only feeds a prompt, and
+the harness infers the step from the frames rather than from `FocuserSettings.AutoFocusStepSize`. **The profile
+is also acquired PER PROCESS, which is the same defect as F55** — see
+[F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections).
 (d) **Re-open the wavelet question properly, uncofounded**: run the eight gate runs on `exe_v1wav` against `exe`
 — same tree, same profile, same folders, differing only in the wavelet — at `--max-evals 250`. The seed-level
 answer is already in (identical), so this measures only whether the pattern search amplifies it into landings.
@@ -3526,7 +3677,12 @@ Reproduce: `D:\hf_w10\crossbuild_probe.sh`, `D:\hf_w10\crossbuild.log`, `D:\hf_w
 
 ### F55 — `optimize` is NOT reproducible when several instances run at once, and the SEED evaluation is what moves
 **Status:** Open · found 2026-08-07 (wave 9) when the confirmation arm's own pre-registered control fired ·
-**this voids the wave-9 F32 arm and constrains every future arm's design**
+**this voids the wave-9 F32 arm and constrains every future arm's design** ·
+**MECHANISM IDENTIFIED 2026-08-08 (wave 11): the concurrent processes were running under DIFFERENT NINA
+PROFILES, and the two attractors are two values of `AutoFocusOptions.MaxOutlierRejections` —
+[F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections).
+Every measurement in this entry stands; the `KappaSigmaNoiseEstimate` amplifier below is withdrawn as this
+defect's EXPLANATION (its measured gain stays as a fact about the function) pending F58's residual check.**
 
 Wave 9 ran F32's confirmation arm with a **fan-out of 4** — four `optimize --per-run` processes on distinct bank
 folders — to bring ~28 h of sequential compute down to ~7 h. The design pre-registered a free control for exactly
@@ -3681,7 +3837,15 @@ eight are one instrument"*, and it is applied as written: **no φ verdict is pub
 > and it explains the cross-SESSION observation wave 9 could not place. **What remains is only the behaviour
 > under CONCURRENCY**, which none of these controls touch — so this entry is narrower and no less real.
 >
-> ### The specific mechanism, named and half-measured
+> ### The specific mechanism, named and half-measured — ***and it is NOT this defect's mechanism***
+>
+> **Superseded 2026-08-08 (wave 11) by [F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections):
+> the concurrent processes were running under different NINA PROFILES, and the two attractors partition exactly
+> on `MaxOutlierRejections`.** Everything below remains TRUE about the function — the gain is measured and a unit
+> test pins it — and it remains a plausible amplifier for some *other* perturbation. It is withdrawn only as the
+> explanation of the runs in this entry. **The trigger RATE this section says is owed was owed for a mechanism
+> that was not firing**, which is why F58's residual check runs even after its own fix passes: a measured gain is
+> not a measured cause, and it is easy to mistake one for the other after paying to measure it.
 >
 > `CvImageUtility.KappaSigmaNoiseEstimate` is a **bimodal amplifier by construction**: an OpenCV parallel
 > reduction (`Cv2.MeanStdDev`) feeds a convergence test at `|Δσ| ≤ 1e-5`, so an arbitrarily small change in σ can
@@ -3729,6 +3893,21 @@ Reproduce: `D:\hf_w9\f32_arms.log`, `D:\hf_w9\score_f32.py`, `D:\hf_w9\ctl_seq_t
 > diffed raw progress lines, which come partly from a wall-clock timer, so it reported divergence on every pair
 > of runs whether or not the search diverged. Asked "what would this do if the thing it checks were completely
 > broken?", the answer was "exactly the same thing".)*
+>
+> ### (c)'s FIRST POSITIVE CONTROL, 2026-08-08 (wave 11) — and it found a real limit
+>
+> Wave 11's probe ran the guard in **both** directions for the first time: five sequential runs (must read
+> `exclusive`) and five concurrent ones (must read `concurrent`). **Both fired**, so the field works. But the
+> concurrent phase returned **four `concurrent` and ONE `exclusive`** — and that is correct behaviour, not a bug:
+> `WaitOne(0)` is won by exactly one of *N* contending processes, so **in any fan-out precisely one landing
+> truthfully reports `exclusive`.**
+>
+> **Therefore `ConcurrencyCheck == "exclusive"` on a SINGLE landing is not evidence that the machine was quiet.**
+> It says *this process won the mutex*. The check must be read **across a whole arm** — one `concurrent`
+> anywhere condemns all of it — and in wave 10's own two-driver contamination the first driver's landings would
+> have read `exclusive` throughout, so an operator sampling that driver's output would have seen a clean bill of
+> health. *An instrument that is right about the wrong scope is a new way to be wrong.* Recorded here rather than
+> "fixed", because the field is honest and it is its INTERPRETATION that needed pinning down.
 >
 > **What ships.** `optimize` claims a named mutex at startup and records `ConcurrencyCheck` —
 > `"exclusive"` / `"concurrent"` / `"unknown"` — into `OptimizerProvenance`, i.e. into **every landing it
