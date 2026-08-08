@@ -1473,10 +1473,11 @@ fail in two directions — biased, then saturated — which is why `precisionNul
 precision figure rather than being something a reader has to think to ask for.
 
 ### F32 — `J` is saturated near 1.0, so the optimizer trades enormous recall for numerically trivial gains
-**Status:** Open — **mechanism shipped default OFF (wave 5)**; the confirmation arm was **re-validated as the right
-experiment (wave 6)** against a restarts-only alternative and is still owed. The
-entry's own premise is corrected below: on 5 of 7 binding runs there was no trade to bound, the search was
-merely stuck · found 2026-08-03 re-reading the wave-1 real-bank control arm
+**Status:** **ANSWERED 2026-08-07 (wave 9): the confirmation arm ran on both full banks and phi = 0.50 does NOT
+ship.** R1(c) fails catastrophically (σ_focus x2000 worse on `vsn07`), R3 fails on the newly-covered population,
+and R2 INVERTS wave 6 — restarts recover 228 % of the floor's gain, so the floor is not a distinct mechanism.
+`MinDetectionKeepFraction` stays default OFF permanently. **The greedy trap itself is confirmed and stands**; the
+floor is simply the wrong instrument for it · found 2026-08-03 re-reading the wave-1 real-bank control arm
 
 The objective's landings are not close calls. Across the 17 scorable real-bank runs, `optimize --per-run` gives
 up a **median 0.243 of recall@SNR≥12** to gain a **median ΔJ of +0.0125** — and the worst cases are far starker
@@ -1641,6 +1642,50 @@ of the derivation does not move) and **F39(b) needed no re-render at all** (the 
 frames' exposures were already derived at binning 2). Nothing in wave 7 has re-rendered a frame, so `D18` / `D19`
 / `D20` — this arm's entire synthetic half — are bit-for-bit what wave 5 and wave 6 measured, and its other five
 runs are on the real bank, which wave 7 never touches. **The arm is runnable and comparable TODAY.**
+
+> ## THE CONFIRMATION ARM RAN (2026-08-07, wave 9). BOTH CONTROLS PASS, AND phi = 0.50 DOES NOT SHIP.
+>
+> Deferred across waves 5, 6, 7 and 8; run sequentially over **both full banks** (39 runs x 3 arms = 117
+> optimizations, 9 h 24 m) after [F55](#f55--optimize-is-not-reproducible-when-several-instances-run-at-once-and-the-seed-evaluation-is-what-moves)
+> voided a first attempt at fan-out 4.
+>
+> ### The controls, which is what makes any of it readable
+>
+> | control | fan-out attempt | **sequential** |
+> |---|---|---|
+> | **RULE G** — arm A vs wave 5's feature-OFF arm | FAIL 2 of 8 | **PASS 8 of 8 to 6 dp** |
+> | **`BaselineJ`** — [F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary)'s tell | 6 of 39 moved | **0 of 39 moved** |
+>
+> ### The verdict: 11 of 39 runs bind, and phi = 0.50 FAILS on three independent pre-registered rules
+>
+> | rule | measured | verdict |
+> |---|---|---|
+> | **R1(a)** median Δ`J` (B − A) on binding runs | **+0.000076** | pass |
+> | **R1(c)** worst σ_focus regression | **`vsn07` 0.00083 → 1.71721** | **FAIL** |
+> | **R2** restarts' recovery of the floor's median gain | **228 %** | **the floor is NOT a distinct mechanism** |
+> | **R3** newly-covered binding runs | 6: **2 improved, 4 regressed** | **FAIL** |
+>
+> **R1(c) fails catastrophically, not marginally.** The bar was 20 %. `vsn07` degrades σ_focus by a factor of
+> **2000** (0.00083 → 1.71721) and `FlyData` by a factor of 7.7 (0.16738 → 1.28554). On these runs the floor does
+> not trade recall for `J` — **it destroys the focus fit**, which is the one thing the objective exists to protect.
+>
+> **R3 fails, and it is wave 8's `StructureLayers` lesson repeating exactly.** On the runs wave 5 never covered
+> the floor regresses 4 and improves 2. Wave 5's evidence was 7 binding runs on a subset chosen because the floor
+> looked good there; the population that did not motivate the hypothesis refuted it.
+>
+> **R2 INVERTS wave 6's finding, and this is the wave's most interesting result.** At 8 runs, `--continue-rounds 2`
+> recovered **0–36 %** (median 13.8 %) of the floor's gain, which is what justified keeping the floor as a distinct
+> mechanism worth confirming. At full-bank scale restarts recover **228 %** — they are strictly BETTER than the
+> floor, on the floor's own binding set. Wave 6's conclusion was drawn from 7 runs and reverses on 11.
+>
+> **So: `MinDetectionKeepFraction` stays default OFF, permanently rather than pending.** It remains available as
+> `--keep-floor` on the harness. **The greedy trap this entry discovered is real and is NOT withdrawn** — restarts
+> demonstrably improve `J` on most binding runs — but the keep floor is the wrong instrument for it, and the
+> honest product change is to expose RESTARTS (the wizard's "Continue optimizing" button already is one) rather
+> than a feasibility constraint that can cost 2000× of σ_focus.
+>
+> **F15:** arm A ran LAST, so both banks hold the SHIPPED-DEFAULT landing — the correct resting state, and no
+> re-land is owed since nothing was adopted. Reproduce: `D:\hf_w9\f32_arms.sh` (FANOUT=1), `D:\hf_w9\score_f32.py`.
 
 **When F18's re-render does happen, the rule for this arm is fixed in advance:** the datasets whose `step*` moves
 get their pre-wave frames preserved (`D:\hf_w7\oldframes`, as wave 6 did) and the arm runs on those; an arm run

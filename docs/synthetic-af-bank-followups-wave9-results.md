@@ -18,7 +18,7 @@ own reporting refuted in the same wave, by printing a saturated set that include
 | **the wave-8 CI gate** | **CHECKED. The absent check resolved itself** — #184's CI ran and passed 3674/0/0 ~51 s before the merge. Actions is in `major_outage` again NOW. See §0 |
 | **RULE G** — sequential gate | **PASS, 8 of 8 to 6 dp.** The wave-8 binning-default trap is verified inert rather than argued inert. See §1.1 |
 | **RULE G** — re-applied under the fan-out | **FAIL, 2 of 8.** Same rule, same runs, four processes in flight. See §1.5 |
-| **F32's confirmation arm** | **RAN (7 h 10 m, 117 optimizations) and its own pre-registered control VOIDED it.** RULE G fails 2 of 8; `BaselineJ` moves on 6 of 39. **No φ verdict is published.** New finding [F55](followups.md). See §1.5 |
+| **F32's confirmation arm** | **ANSWERED.** The fan-out attempt was voided by its own control (F55); the SEQUENTIAL re-run passes both controls (RULE G 8/8, `BaselineJ` 0 of 39 moved) and **φ = 0.50 does NOT ship** — R1(c), R2 and R3 all fail. See §1.5–§1.6 |
 | **F19(c)** — floor and ceiling | **RESOLVED, and it was FREE. The floor stays, the ceiling stays, NOTHING re-renders.** And it produced a rank correlation the entry never had. See §2 |
 | **F19's remainder** — the wing statistic | See §3. The pre-registered candidate family was **refuted before implementation, by a proof plus data already on disk** |
 | **F49** — the empty remedy | **SHIPPED.** See §5 |
@@ -158,8 +158,48 @@ unknown constraint on **every arm this project will ever run**. The fan-out was 
 affordable and it is precisely what made it unreadable; the free control the design attached to it is the only
 reason that is known rather than believed.
 
-**Owed:** the arm re-run **sequentially** (~28 h, now a known price), and F55(b) — the nondeterminism itself,
-which is a defect independent of this arm.
+### §1.6 THE SEQUENTIAL RE-RUN: both controls pass, and φ = 0.50 DOES NOT SHIP
+
+Re-run sequentially the same day — 117 optimizations, 15:50Z → 01:14Z, **9 h 24 m**. (The 28 h estimate assumed
+the fan-out had delivered a true 4× speedup; contention meant it delivered ~1.5×.)
+
+| control | fan-out attempt | **sequential** |
+|---|---|---|
+| **RULE G** | FAIL 2 of 8 | **PASS 8 of 8 to 6 dp** |
+| **`BaselineJ`** (F41's tell) | 6 of 39 moved | **0 of 39 moved** |
+
+**Sequential execution bought a clean instrument**, which is what F55 predicted and what justified the 9 h 24 m.
+For the first time since wave 5, the φ table is readable.
+
+**11 of 39 runs bind. φ = 0.50 fails three independent pre-registered rules.**
+
+| rule | measured | verdict |
+|---|---|---|
+| **R1(a)** median Δ`J` (B − A) | +0.000076 | pass |
+| **R1(c)** worst σ_focus regression | **`vsn07` 0.00083 → 1.71721** | **FAIL** |
+| **R2** restarts recover | **228 %** | **floor is NOT a distinct mechanism** |
+| **R3** newly-covered binding runs | 6: **2 improved, 4 regressed** | **FAIL** |
+
+- **R1(c) fails catastrophically, not marginally.** The bar was 20 %; `vsn07` degrades σ_focus by a factor of
+  **2000**, `FlyData` by 7.7×. The floor does not trade recall for `J` on these runs — **it destroys the focus
+  fit**, the one thing the objective exists to protect.
+- **R3 is wave 8's `StructureLayers` lesson, repeating exactly.** Wave 5's evidence was 7 binding runs on a subset
+  where the floor looked good; on the runs it never covered, the floor regresses 4 and improves 2.
+- **R2 INVERTS wave 6.** At 8 runs restarts recovered 0–36 % (median 13.8 %) of the floor's gain — the finding
+  that justified keeping the floor as a distinct mechanism worth confirming. At full-bank scale they recover
+  **228 %**: strictly better than the floor, on the floor's own binding set. **A conclusion drawn from 7 runs
+  reversed on 11.**
+
+**`MinDetectionKeepFraction` stays default OFF permanently** rather than pending. The greedy trap F32 discovered
+is real and is not withdrawn — restarts demonstrably improve `J` on most binding runs — but the keep floor is the
+wrong instrument for it, and the honest product change is to expose RESTARTS (the wizard's "Continue optimizing"
+button already is one).
+
+**F15 discharged:** arm A ran last, so both banks hold the shipped-default landing, and no re-land is owed since
+nothing was adopted.
+
+**Owed:** F55(b) — the nondeterminism itself, a defect independent of this arm — and the wing statistic's
+population check (§3.6), which is now unblocked.
 
 ---
 
