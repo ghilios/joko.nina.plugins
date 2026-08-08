@@ -127,6 +127,31 @@ Measured across **all 20 synthetic datasets + the 19-run real bank** (`astrodet`
 in the *other* direction from the usual over-firing worry. Both directions are pre-registered so neither can be
 explained away afterwards.
 
+### §1.2a The control the statistic never had, and the SUCCESSOR — both fixed before the pass finished
+
+*Added while the pass was still running, after two rows had been seen. Recorded as such, because a candidate
+written after a refutation is motivated by it and has to be held to a higher bar, not a lower one.*
+
+`WingRejectedFraction` is `rejected / (rejected + accepted)` over the outer third. Its CLAIM is that the **wings**
+shed candidates a longer exposure could convert. But the detector rejects most connected components everywhere —
+most of them are noise — so a high fraction out there may say nothing about wings. **The discriminating question
+is not "is the wing fraction high" but "is it higher than the INNER third's"**, and that control is free from the
+`FrameDiagnostics` this pass already writes.
+
+> **The successor, `WingRejectedRatio` = wing-third fraction ÷ inner-third fraction, is PRE-REGISTERED AND NOT
+> ADOPTED THIS WAVE.** If RULE P fires, the shipped probe is withdrawn and the successor is left as a candidate
+> with its acceptance rule fixed here:
+>
+> - **RULE W1–W4 unchanged** (the wave-9 ladder: `D02`@0.5 s ≥ 2×; `D16`@2 s < 1.25×; converges; `D16`@0.5 s asks).
+> - **NEW W5 — it must SEPARATE.** Its threshold must sit above the median wing/inner ratio measured on the
+>   full bank, or it is the same defect in a new coordinate.
+> - **NEW W6 — the population that refuted the predecessor may not adopt the successor.** It must be validated
+>   on an arm run for it, not scored on this pass's rows. That is wave 9's R3 lesson applied in advance: a
+>   statistic tuned on the data that killed its predecessor has been fitted, not tested.
+>
+> **Adopting a replacement on the refuting data would be fishing**, and this wave does not do it. The
+> measurement (`WingRejectedFraction`) stays; only the ACTION is withdrawn.
+
 ### §1.3 Why `D10` and `D17` are the pre-registered fires
 
 They are the bank's only two **ceiling**-clamped datasets: their own derivation asks 335.6 s and 40.4 s and both

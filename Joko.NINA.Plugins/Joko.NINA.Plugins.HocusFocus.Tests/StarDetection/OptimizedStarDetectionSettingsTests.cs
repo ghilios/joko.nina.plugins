@@ -240,7 +240,7 @@ public class OptimizedStarDetectionSettingsTests {
         Assert.Multiple(() => {
             Assert.That(buildId, Is.Not.Null.And.Not.Empty);
             Assert.That(buildId, Has.Length.EqualTo(32), "an MVID formatted \"N\" -- 32 hex digits, no dashes");
-            Assert.That(buildId, Does.Not.EqualTo(new string('0', 32)),
+            Assert.That(buildId, Is.Not.EqualTo(new string('0', 32)),
                 "an all-zero MVID means deterministic builds erased the one thing this field exists to carry");
             Assert.That(detectorVersion, Is.EqualTo(StarDetector.StarDetectorVersion));
             // It reads the assembly that CONTAINS the detector, so the two values cannot describe different
