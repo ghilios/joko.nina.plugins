@@ -244,6 +244,14 @@ namespace TestApp {
                 return;
             }
 
+            // Headless wavelet benchmark: `TestApp bench-wavelet [--sizes WxH,...] [--layers 4,6,8] ...`.
+            // Times the legacy dense-SepFilter2D à trous residual against AtrousWaveletFast (Mat-level and
+            // optional --detect end-to-end A/B on a synthetic star field). Needs no profile and no images.
+            if (args.Length > 0 && args[0].Equals("bench-wavelet", StringComparison.OrdinalIgnoreCase)) {
+                await BenchWaveletRunner.Run(args);
+                return;
+            }
+
             // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
             // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
             bool diagnosticMode = args.Length > 0 &&

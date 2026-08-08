@@ -156,6 +156,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             nameof(StarDetectorParams.LocallyAdaptiveBinarization),
             nameof(StarDetectorParams.AdaptiveNoiseBlockSize),
             nameof(StarDetectorParams.StructureLayers),
+            // Fast-wavelet implementation swap: float-rounding-level structure-map differences can flip
+            // near-threshold pixels, so contexts must not be reused across the two implementations.
+            nameof(StarDetectorParams.FastAtrousWavelets),
             nameof(StarDetectorParams.DefocusAwareStructure),
             nameof(StarDetectorParams.StructureLayerBoost),
             nameof(StarDetectorParams.StructureDilationSize),
@@ -607,9 +610,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // axis is off (the optimizer can raise it further via that axis). Gated by the master ⇒
                     // bit-identical when off.
                     var effectiveStructureLayers = EffectiveStructureLayers(p);
-                    using (var residualLayer = ComputeResidualAtrousB3SplineDyadicWaveletLayer(structureMap, effectiveStructureLayers)) {
-                        MaybeSaveIntermediateImage(residualLayer, p, "04-structure-wavelet-residual.tif");
-                        CvImageUtility.SubtractInPlace(structureMap, residualLayer);
+                    // Deliberately NOT passing the cancellation token to the fast wavelet: the two noise-estimate
+                    // tasks started above are still running and read srcImage/noiseReducedImage, and a cancellation
+                    // unwind from inside the wavelet would dispose those Mats under the tasks (native
+                    // use-after-free). Like the legacy SepFilter2D path, this window stays non-cancellable (it is
+                    // ~100 ms on the fast path); the token is honored again at the points after the task awaits.
+                    if (p.FastAtrousWavelets && string.IsNullOrEmpty(p.SaveIntermediateFilesPath)) {
+                        // Fused fast path: residual + subtract + clamp in one final pass, no residual Mat.
+                        AtrousWaveletFast.ComputeResidualAndSubtractInPlace(structureMap, effectiveStructureLayers);
+                    } else {
+                        using (var residualLayer = p.FastAtrousWavelets
+                                ? AtrousWaveletFast.ComputeResidual(structureMap, effectiveStructureLayers)
+                                : ComputeResidualAtrousB3SplineDyadicWaveletLayer(structureMap, effectiveStructureLayers)) {
+                            MaybeSaveIntermediateImage(residualLayer, p, "04-structure-wavelet-residual.tif");
+                            CvImageUtility.SubtractInPlace(structureMap, residualLayer);
+                        }
                     }
 
                     MaybeSaveIntermediateImage(structureMap, p, "04-structure-wavelet-subtracted.tif");
