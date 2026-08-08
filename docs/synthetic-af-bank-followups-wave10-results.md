@@ -116,6 +116,49 @@ looked like a crash.
 
 ---
 
+## §1b — THE WAVE RAN ITS OWN POPULATION PASS TWICE AT ONCE, AND THE RULE AGAINST IT WAS ALREADY WRITTEN DOWN
+
+This belongs above the results it nearly destroyed, not in a footnote.
+
+**What happened.** The population pass must be sequential — F55 measures concurrent `optimize` moving **44 % of
+landings**. That was written into this wave's design, into its plan, and into the header of the script that ran
+it. A background launcher had been started to chain the pass behind the gate; it reported **"completed"**, and a
+`ps` check showed nothing surviving, so a second launch was issued. **The launcher's shell had exited; its
+`nohup`'d driver had not**, and it lived in a process namespace the checking shell could not see. Two drivers,
+two `optimize` processes, the same bank folders, for eleven minutes.
+
+**What caught it.** Not the rule, and not vigilance — an instrument built for something else. A trace diff,
+written to find the FIRST divergent evaluation between two runs of one invocation, printed an impossible
+improvement ladder; the log turned out to contain two complete optimizations.
+
+**That instrument had to be repaired before it could catch anything.** Its first version diffed the raw
+`[Phase] evals=N bestJ=…` lines — which come partly from a **wall-clock progress timer** that merely repeats the
+current best. A busier machine logs a different number of lines at different evaluation counts, so the first
+version reported "divergence" on every pair of runs, whether or not the search diverged. Asked the question this
+wave is bound by — *what would this do if the thing it checks were completely broken?* — the answer was **exactly
+the same thing**. Keeping only the entries where `bestJ` CHANGES leaves the improvement events, whose evaluation
+index is exact.
+
+**And the guard written in response was itself broken, in the most on-the-nose way available.** `grep -c` prints
+`0` **and exits 1** when there is no match, so `RUNNING=$(… | grep -ci … || echo 0)` produced the two-line string
+`"0\n0"`; the numeric comparison then errored and the guard **fell through, reporting SAFE unconditionally**.
+That is wave 9's *"an instrument that is not connected reports PERFECT AGREEMENT"*, reproduced inside the guard
+written to enforce it, within the hour. It was fixed and then **validated against a positive control** — a
+deliberately-started `optimize` — before being trusted. Both clauses fired.
+
+**What ships because of it.** `optimize` now claims a named mutex and records `ConcurrencyCheck`
+(`exclusive` / `concurrent` / `unknown`) into **every landing it writes**. Three values and not two, for the same
+reason `WingRejectedFraction` is NaN-never-0: a check that could not run must not read as a check that ran and
+found nothing. **A rule that depends on the operator noticing a violation is not a control; it is a hope.** The
+register is already full of the mechanical version of that move — `BaselineJ` as a free control (F41),
+`DetectionBinningSource` as a field rather than a sentence (F39(a)), `BuildId` rather than a version string
+(F53).
+
+**Cost:** eleven minutes of compute, discarded in full. The pass was deleted and restarted from zero at 14:06Z
+under the validated guard; nothing in §2 is measured on the contaminated data.
+
+---
+
 ## §2 — Item 1: F19's population check
 
 *(pending — the pass is running)*

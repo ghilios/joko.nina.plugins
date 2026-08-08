@@ -3575,6 +3575,42 @@ diff it, so this control is free on every future arm rather than only when someo
 Reproduce: `D:\hf_w9\f32_arms.log`, `D:\hf_w9\score_f32.py`, `D:\hf_w9\ctl_seq_toml999.log`,
 `D:\hf_w9\ctl_conc_toml999.log`.
 
+> ### (c) IS NOW MECHANICAL, because the written rule was NOT ENOUGH (2026-08-08, wave 10)
+>
+> (c) said: *"treat concurrent `optimize` as invalid for any arm whose conclusion rests on comparing landings,
+> and say so in the run instructions"*. Wave 10 wrote that rule into its own design, into its plan, and into the
+> header of the script that ran the pass — **and then ran a 39-run population pass TWICE AT ONCE anyway.**
+>
+> The mechanism is worth recording exactly, because nothing about it was careless. A background launcher had
+> been started to chain the pass behind the gate; it reported **"completed"**, and a `ps` check showed no
+> surviving process, so a second launch was issued. The launcher's *shell* had exited; its `nohup`'d driver had
+> not, and it was in a process namespace the checking shell could not see. Two drivers, two `optimize`
+> processes, the same bank folders.
+>
+> **It was caught by an instrument built for something else.** A trace diff — written to find the FIRST
+> divergent evaluation between two runs of one invocation — reported an impossible ladder, and the log turned
+> out to contain two complete optimizations. *(That same instrument had to be fixed first: its initial version
+> diffed raw progress lines, which come partly from a wall-clock timer, so it reported divergence on every pair
+> of runs whether or not the search diverged. Asked "what would this do if the thing it checks were completely
+> broken?", the answer was "exactly the same thing".)*
+>
+> **What ships.** `optimize` claims a named mutex at startup and records `ConcurrencyCheck` —
+> `"exclusive"` / `"concurrent"` / `"unknown"` — into `OptimizerProvenance`, i.e. into **every landing it
+> writes**, and prints a warning naming F55. **Three values and not two**, for the same reason
+> `WingRejectedFraction` is NaN-never-0: a check that could not run must not read as a check that ran and found
+> nothing. A scorer can now refuse a contaminated arm **after the fact**, without anyone having been watching.
+>
+> **The lesson generalises past this entry.** A rule that depends on the operator noticing a violation is not a
+> control; it is a hope. This project's own register is full of the mechanical version of the same move —
+> `BaselineJ` as a free control (F41), `DetectionBinningSource` as a field rather than a sentence (F39(a)),
+> `BuildId` rather than a version string (F53). *If a rule matters, make the violation visible in the output.*
+>
+> *(The pass's own driver script also gained a pre-flight guard — and its first version was broken in the most
+> on-the-nose way available: `grep -c` prints `0` and exits `1`, so `$(... || echo 0)` produced the string
+> `"0\n0"`, the numeric comparison errored, and the guard fell through reporting SAFE unconditionally. It was
+> then re-validated against a positive control — a deliberately-started `optimize` — before being trusted, which
+> is the check the wave-9 lesson asks for and which the first version would have failed.)*
+
 ### F54 — F39(b)'s default flip MOVES a landing at a resolved factor of 1, where it is documented as a no-op
 **Status:** Open · found 2026-08-07 (wave 9) chasing [F53](#f53--wave-8s-arm-x-does-not-reproduce-from-wave-8s-own-exe-because-the-arm-ran-on-an-earlier-build-of-it)'s
 remainder · **measured and reproducible; the MECHANISM is not identified and is not claimed**
