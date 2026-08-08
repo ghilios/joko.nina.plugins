@@ -161,7 +161,64 @@ under the validated guard; nothing in §2 is measured on the contaminated data.
 
 ## §2 — Item 1: F19's population check
 
-*(pending — the pass is running)*
+### §2.1 The real bank, all 19 runs
+
+Shipped-default invocation, sequential, `--settings` pinned. `WingRejectedFraction` is the shipped statistic;
+`inner` is **the control it never had** — its own quantity computed on the INNER third of the sweep instead of
+the outer third.
+
+| run | wing | inner | wing/inner | fires |
+|---|---|---|---|---|
+| `CWhiteFocus` | 0.879 | 0.795 | 1.11 | yes |
+| `FlyData` | 0.675 | 0.572 | 1.18 | yes |
+| **`LinwoodFocus`** | **0.375** | **0.537** | **0.70** | **yes** |
+| `Panos` | 0.817 | 0.442 | 1.85 | yes |
+| `SorenVance` | 0.520 | 0.242 | 2.15 | yes |
+| `bobp` | 0.610 | 0.247 | 2.47 | yes |
+| `bobp_m101` | 0.446 | 0.264 | 1.69 | yes |
+| `caboose` | **0.000** | 0.000 | — | no |
+| **`cwhite_2026`** | **0.868** | **0.883** | **0.98** | **yes** |
+| `fmeschia_Focus` | 0.352 | 0.317 | 1.11 | yes |
+| `lumos` | **NaN** | 0.376 | — | no |
+| `mccomiskey` | **0.000** | 0.000 | — | no |
+| `mufti` | 0.661 | 0.577 | 1.15 | yes |
+| `muggsie` | 0.855 | 0.617 | 1.39 | yes |
+| `standard_example1` | 0.863 | 0.775 | 1.11 | yes |
+| `timmer` | 0.819 | 0.524 | 1.56 | yes |
+| **`toml999`** | **0.544** | **0.567** | **0.96** | **yes** |
+| `uneven` | 0.727 | 0.635 | 1.14 | yes |
+| **`vsn07`** | **0.853** | **0.905** | **0.94** | **yes** |
+
+**16 of 19 fire. Median wing/inner = 1.15.**
+
+### §2.2 Two findings, and the second one is the sharper
+
+**(a) The wings are not special.** Four runs — `LinwoodFocus` 0.70, `vsn07` 0.94, `toml999` 0.96, `cwhite_2026`
+0.98 — reject **fewer** candidates in their wings than in their cores, and all four fire. The statistic's whole
+justification is that the wing rejections are faint stars a longer exposure could convert; if the core rejects at
+the same rate, where the stars are brightest and most numerous, the rejected population is dominated by noise the
+detector is *supposed* to reject. **The statistic cannot tell "the wings are losing faint stars" from "the
+detector is rejecting noise everywhere", and on this bank it is measuring the second.**
+
+**(b) THE THRESHOLD DOES NO WORK.** The measured fractions are **0.000, 0.000** and then **0.352 … 0.879**.
+Nothing on the real bank lands between them. So **every threshold in (0, 0.352) selects exactly the same 16
+runs**, and 0.20 is an arbitrary point inside a wide gap. What the test actually asks is *"did the gate reject
+anything at all?"* — which is
+[F28](followups.md#f28--lowsensitivity-reads-exactly-zero-precisely-when-the-sensitivity-gate-has-collapsed)'s
+question, and which `GateIsProvablyInert` already answers with a different field.
+
+**Where the 0.20 came from, and why it looked reasonable.** The unit fixtures span a rejected fraction of
+**0.002** (`wingRejected: 1, wingAccepted: 500`, the "healthy wings" pole) to **0.75** (`600 / 800`, the
+"shedding" pole), and 0.20 sits sensibly between them. **No real run in the bank resembles the healthy pole.**
+The threshold was calibrated against a range the data does not occupy — which is a thing a unit test cannot
+notice, and which only a population can.
+
+**And every firing run asks exactly 2×.** `rawFactor = max((10/S_now)², 2.0)`, and the accepted-star term is
+0.000–0.30 on every one of these runs, so the probe always wins. The recommendation therefore carries no
+information beyond *"it fired"*.
+
+*(§2.3, the synthetic half and the RULE P verdict, follows — P1 and P3 name synthetic datasets and the pass is
+still running. **16/39 is 41 %, so P2's verdict genuinely depends on the synthetic half** and is not called here.)*
 
 ---
 
