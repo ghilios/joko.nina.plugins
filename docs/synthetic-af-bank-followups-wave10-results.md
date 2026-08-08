@@ -193,32 +193,71 @@ the outer third.
 
 ### §2.2 Two findings, and the second one is the sharper
 
-**(a) The wings are not special.** Four runs — `LinwoodFocus` 0.70, `vsn07` 0.94, `toml999` 0.96, `cwhite_2026`
-0.98 — reject **fewer** candidates in their wings than in their cores, and all four fire. The statistic's whole
-justification is that the wing rejections are faint stars a longer exposure could convert; if the core rejects at
-the same rate, where the stars are brightest and most numerous, the rejected population is dominated by noise the
-detector is *supposed* to reject. **The statistic cannot tell "the wings are losing faint stars" from "the
-detector is rejecting noise everywhere", and on this bank it is measuring the second.**
+**(a) The absolute fraction does not track the wing effect it claims to measure.** Four runs — `LinwoodFocus`
+0.70, `vsn07` 0.94, `toml999` 0.96, `cwhite_2026` 0.98 — reject **fewer** candidates in their wings than in their
+cores, and all four fire. The statistic's justification is that the wing rejections are faint stars a longer
+exposure could convert; where the core rejects at the same rate — with the stars at their brightest and most
+numerous — the rejected population is dominated by noise the detector is *supposed* to reject. **The statistic
+cannot separate "the wings are losing faint stars" from "the detector is rejecting noise everywhere."**
 
-**(b) THE THRESHOLD DOES NO WORK.** The measured fractions are **0.000, 0.000** and then **0.352 … 0.879**.
-Nothing on the real bank lands between them. So **every threshold in (0, 0.352) selects exactly the same 16
-runs**, and 0.20 is an arbitrary point inside a wide gap. What the test actually asks is *"did the gate reject
-anything at all?"* — which is
-[F28](followups.md#f28--lowsensitivity-reads-exactly-zero-precisely-when-the-sensitivity-gate-has-collapsed)'s
-question, and which `GateIsProvablyInert` already answers with a different field.
+> **Corrected against the full population (§2.3).** Read on the real bank alone this looked like *"the wings are
+> not special"*: median wing/inner 1.15. Over all 39 runs the median is **1.39**, so on average the wings **do**
+> reject somewhat more than the cores. **The defect is not that the wing effect is absent — it is that a
+> threshold on the ABSOLUTE fraction does not track it.** `D17_cdk14_oiii5` fires at a wing/inner of **0.59**;
+> `D20_m24_bright_control` fires with an inner fraction of exactly **0.000**. Same verdict, opposite structures.
+
+**(b) The threshold's entire discriminating power over 39 runs is ONE dataset.** Sorted, the bank's fractions
+are **0.000 ×8**, then **0.006** (`D16_esprit550_ha3`), then **0.246 … 0.883** — nothing else below 0.246. So
+every threshold in **(0.006, 0.246)** produces exactly the same 30 fires, and the only thing 0.20 separates is
+`D16` from the rest.
+
+> **Also corrected.** From the real half this read *"every threshold in (0, 0.352)"*, i.e. that the threshold did
+> no work at all. `D16`'s 0.006 is on the synthetic half and it is the run W2 requires to stay silent, so the
+> threshold **is** load-bearing — for exactly one dataset out of thirty-nine. That is a weaker claim than the one
+> the real half supported, and it is the true one.
 
 **Where the 0.20 came from, and why it looked reasonable.** The unit fixtures span a rejected fraction of
 **0.002** (`wingRejected: 1, wingAccepted: 500`, the "healthy wings" pole) to **0.75** (`600 / 800`, the
-"shedding" pole), and 0.20 sits sensibly between them. **No real run in the bank resembles the healthy pole.**
-The threshold was calibrated against a range the data does not occupy — which is a thing a unit test cannot
-notice, and which only a population can.
+"shedding" pole), and 0.20 sits sensibly between them. **Exactly one run in 39 resembles the healthy pole.** The
+threshold was calibrated against a range the data barely occupies — which a unit test cannot notice, and only a
+population can.
 
-**And every firing run asks exactly 2×.** `rawFactor = max((10/S_now)², 2.0)`, and the accepted-star term is
-0.000–0.30 on every one of these runs, so the probe always wins. The recommendation therefore carries no
-information beyond *"it fired"*.
+**And every firing run asks exactly 2×.** `rawFactor = max((10/S_now)², 2.0)`, and the accepted-star term is far
+below 2 on every firing run, so the probe always wins. The recommendation carries no information beyond *"it
+fired"*.
 
-*(§2.3, the synthetic half and the RULE P verdict, follows — P1 and P3 name synthetic datasets and the pass is
-still running. **16/39 is 41 %, so P2's verdict genuinely depends on the synthetic half** and is not called here.)*
+### §2.3 THE VERDICT — RULE P fires on P2, and the withdrawal ships
+
+39 runs, both full banks, sequential, shipped-default invocation.
+
+| clause | measured | verdict |
+|---|---|---|
+| **P1** the pre-registered fires | `D17` **fires**; `D10` does **not** | **silent** (P1 needed neither to fire) |
+| **P2** fire rate | **30 of 39 = 76.9 %** | **FIRES — REFUTED** |
+| **P3** `D16` at its derived exposure | 0.006, does not fire | **silent** — W2 survives |
+| **P4** NaN rate | 0 of 39 | **silent** — the instrument was connected |
+
+**RULE P fires. `WingIsShedding` does not stay a shipped default**, and the withdrawal named in §1.2b ships in
+this PR: the verdict and its three action sites go, `WingRejectedFraction` stays.
+
+**Two things worth stating that P1 does not capture.** `D10_rc16_3250mm_sparse` — the bank's most starved
+dataset, 26 on-frame stars, whose own physics asks 335.6 s against the 30 s it is rendered at — **does not
+fire**. And `D17`, which does fire and which P1 required, fires with wings that reject **less** than its core
+(0.297 vs 0.507). P1 was written as "at least one of the two", and it is satisfied; but the statistic reaches the
+right answer on `D17` by a route that is not the one it claims, and misses `D10` entirely.
+
+### §2.4 The free controls, and they are what make the verdict readable
+
+**RULE G10-A: PASS, 8 of 8 to 6 dp.** The population pass re-measured the gate's eight runs at the identical
+invocation and returned identical landings — `toml999` 0.995784, `CWhiteFocus` 0.996068, `uneven` 0.996368,
+`muggsie` 0.997195, `mccomiskey` 0.976746, `D18` 0.999882, `D19` 0.999487, `D20` 0.999738. **The fixed point
+reproduces against itself, so every wave-10 comparison rests on an instrument that was checked rather than
+assumed** — and F55 is not firing at rest.
+
+**And it is evidence on F57's folder-state confound.** Those eight ran on folders whose `optimized_settings.json`
+had been rewritten **twice** in between — once by the gate, once by the eleven minutes of contaminated
+double-running — and every landing reproduced to 6 dp. Folder state does not move a landing on these runs. That
+is not yet `toml999`'s seed evaluation on the v1 binary (§3.1's control), but it points the same way.
 
 ---
 

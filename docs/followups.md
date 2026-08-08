@@ -653,8 +653,9 @@ Reproduce: `D:\hf_w5\f24_arms.sh`, analysed by `D:\hf_w5\analyze_f24.py`.
 
 ### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
 **Status:** **(a) refuted (wave 8) · (b) DONE (wave 8) · (c) RESOLVED "the floor stays", free, no re-render
-(wave 9) · THE REMAINDER IS FIXED (wave 9): the wing rejected fraction, chosen by a rule fixed before it, and the
-reason both earlier fixes failed is now a THEOREM about the gate.** Population check across both banks still owed
+(wave 9) · THE REMAINDER IS OPEN AGAIN (wave 10): wave 9's wing verdict was REFUTED by the population check it
+recorded as owed, and is WITHDRAWN.** The gate-floor THEOREM stands; the wing rejected fraction stays as a
+measurement; the successor (the wing-to-inner RATIO) is pre-registered and deliberately not adopted
 · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
 
 `ExposureRecommender`'s `S_now` is the median, across non-recovery frames, of each frame's
@@ -915,6 +916,66 @@ derived-exposure rung on either dataset, this entry REOPENS.**
 > writes back into the bank's run folders ([F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings))
 > and there is no flag to suppress it, so a population pass while that arm is in flight would race it on every
 > folder. Reproduce: `D:\hf_w9\wing2\`, `D:\hf_w9\wing\score_wing.py`.
+
+> ## THE POPULATION CHECK RAN (2026-08-08, wave 10). RULE P FIRES, AND THE WING VERDICT IS WITHDRAWN.
+>
+> Wave 9 shipped `WingIsShedding` validated on **two** datasets and recorded the population check as *"still
+> owed"*. Wave 10 ran it: **39 runs, both full banks, sequential, shipped-default invocation**, against RULE P
+> fixed before the pass started.
+>
+> | clause | measured | verdict |
+> |---|---|---|
+> | **P1** the pre-registered fires | `D17` fires; `D10` does not | silent (P1 required neither individually) |
+> | **P2** fire rate | **30 of 39 = 76.9 %** | **FIRES — REFUTED** |
+> | **P3** `D16` at its derived exposure | 0.006, silent | silent — W2 survives |
+> | **P4** NaN rate | 0 of 39 | silent — the instrument was connected |
+>
+> ### Why it fires, and it is not simply "the threshold is too low"
+>
+> **The control the statistic never had.** `WingRejectedFraction` is `rejected/(rejected+accepted)` over the
+> outer third. Computing the same quantity on the **INNER** third — free from the per-frame table the harness
+> already writes — asks whether the wings are special at all. Median wing/inner over the 30 firing runs is
+> **1.39**, so the wings do reject somewhat more. **But the threshold is on the ABSOLUTE fraction and does not
+> track that ratio:** `D17_cdk14_oiii5` fires at a ratio of **0.59** (its wings reject 0.297, its core 0.507),
+> `D20_m24_bright_control` fires with an inner fraction of exactly **0.000**, and four real-bank runs
+> (`LinwoodFocus` 0.70, `vsn07` 0.94, `toml999` 0.96, `cwhite_2026` 0.98) fire with wings CLEANER than their
+> cores. Same verdict, opposite structures.
+>
+> **The threshold's whole discriminating power over 39 runs is ONE dataset.** Sorted, the fractions are
+> **0.000 ×8**, then **0.006** (`D16`), then **0.246 … 0.883**. Every threshold in **(0.006, 0.246)** selects the
+> same 30 runs; the only thing 0.20 separates is `D16`.
+>
+> **Why 0.20 looked well-chosen.** The unit fixtures span **0.002** ("healthy wings") to **0.75** ("shedding"),
+> and 0.20 sits comfortably between two poles two orders of magnitude apart. **Exactly one run in 39 resembles
+> the healthy pole.** *A unit fixture's range is not the population's range*, and no unit test can notice that.
+>
+> **And every firing run asks exactly 2×**, because the accepted-star term is far below the probe on all of them,
+> so `max()` always chooses the probe. The recommendation carried no information beyond "it fired".
+>
+> ### What was withdrawn, and what was kept
+>
+> | | |
+> |---|---|
+> | **withdrawn** | `WingIsShedding`, `WingSheddingThreshold`, `WingProbeFactor`, and the **three** sites that acted on them: the 2× ask; the `ExposureIsNotTheLimit` override; and [F52](#f52--a-two-hour-optimization-logs-one-line-and-offers-no-cost-context-and-the-search-is-not-cost-aware)(c)'s advice to **cancel a running two-hour search** |
+> | **kept** | `WingRejectedFraction` — the MEASUREMENT is real and correctly computed, and the successor is specified against it. A public bool named *"is shedding"* that nothing acts on would be worse than either shipping or removing it |
+>
+> **F52(c) returns to wave 8's position rather than to nothing.** Wave 8 withheld that advice for want of a
+> statistic; wave 9 shipped it on this one; wave 10 withholds it again for the same reason. That is the same
+> decision made twice on better evidence, not a regression — and it is the site that mattered most, because the
+> advice is computed from the **seed** evaluation and so was firing in the first minute of most users' runs.
+>
+> ### The successor, PRE-REGISTERED AND NOT ADOPTED
+>
+> `WingRejectedRatio` = wing-third ÷ inner-third, which is what the claim was always about. Its rule was fixed
+> **while the pass was still running**, before the verdict, precisely so it could not be adopted on the data that
+> refuted its predecessor: **RULE W1–W4 unchanged**, plus **W5** (its threshold must sit above the bank's median
+> wing/inner ratio, or it is the same defect in a new coordinate) and **W6** (it may NOT be validated on this
+> population). *A statistic tuned on the data that killed the last one has been fitted, not tested* — which is
+> wave 9's own R3 lesson one level up.
+>
+> **So F19's remainder is OPEN again**, and honestly so: this wave did not fix F19, it corrected a wrong fix and
+> left a sharper question with a control that did not exist before.
+> Reproduce: `D:\hf_w10\wing_pop.sh`, `D:\hf_w10\score_wing_pop.py`, `D:\hf_w10\pop_score.txt`.
 
 > ## (c) RESOLVED 2026-08-07 (wave 9): THE FLOOR STAYS, THE CEILING STAYS, AND NOTHING RE-RENDERS
 >
