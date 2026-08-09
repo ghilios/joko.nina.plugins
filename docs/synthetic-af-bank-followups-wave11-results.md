@@ -7,22 +7,32 @@ Register: [`docs/followups.md`](followups.md).
 
 > ## PROVENANCE — and this is the last wave that needs to say most of it in prose
 >
-> Every measurement below was produced by **`D:\hf_w11\exe`** (pre-fix) or **`D:\hf_w11\exe_fixed`**, both built
-> from `a54c48b` (PR #188's merge commit, `develop`'s head), **`StarDetectorVersion` 2**, **under the NINA profile
-> `astrodet (ce3f3e63-8fd3-4b72-a0ca-d90db9441382)`, PINNED WITH `--profile-id` ON EVERY INVOCATION.**
+> Every measurement below came from one of three binaries, all built from `a54c48b` (PR #188's merge commit,
+> `develop`'s head) plus this branch, all **`StarDetectorVersion` 2**, and — except where a probe deliberately
+> runs unpinned — all **under `astrodet (ce3f3e63-8fd3-4b72-a0ca-d90db9441382)`, PINNED WITH `--profile-id`.**
 >
-> | | |
-> |---|---|
-> | `exe` (pre-fix) | `TestApp.dll` sha256 `71ce1cd8…`, `HocusFocus.dll` sha256 `0aca4c20…`, `BuildId 40f08e36…` |
-> | `--settings` | `D:\hf_w11\pinned_settings.json`, md5 `df7c7cd1…` — byte-identical to waves 5–10 (F42) |
-> | `--settings` (post-fix) | `D:\hf_w11\pinned_settings_w11.json`, md5 `a67ffc06…` — the same **plus** the four fit inputs |
+> | directory | what it is | `TestApp.dll` sha256 | `BuildId` | used for |
+> |---|---|---|---|---|
+> | `exe` | **pre-fix** | `71ce1cd8…` | `40f08e36…` | the gate (§2), the probe's phases S/C/P (§3.1), the bisect (§4) |
+> | `exe_fixed` | first post-fix build | `b0a81968…` | `5cb7e474…` | superseded by `exe_fix2` when F59 landed |
+> | `exe_fix2` | **post-fix (F58 + F59)** | `857c5982…` | `5cb7e474…` | K5/K7 (§3.3), the ladder (§5.2), K8 (§6.1) |
+>
+> | settings file | md5 | contents |
+> |---|---|---|
+> | `pinned_settings.json` | `df7c7cd1…` | byte-identical to waves 5–10 (F42) |
+> | `pinned_settings_w11.json` | `a67ffc06…` | the same **plus** the four fit inputs at `astrodet`'s effective values |
 >
 > **`--profile-id` is in this banner because of what the wave found**, and it is not hygiene: measured before the
 > gate ran, an **unpinned** `optimize` on this machine today loads `Default` and returns `toml999`
 > `currentJ = 0.99784` — **wave 9's value, not the wave 10 the banks were measured under**. An unpinned wave-11
 > gate would have reproduced the wrong wave and called it a pass.
 >
-> `exe` and `exe_fixed` are each built once and never rebuilt (F53(c)).
+> **No directory was ever rebuilt** (F53(c)). `exe_fix2` exists precisely *because* F59 landed after `exe_fixed`
+> was built — a new directory rather than a rebuilt one — and K5/K7 were re-run on it and reproduced exactly.
+>
+> **This banner is now largely redundant, which is the point.** `BuildId`, `DetectorVersion`, `ProfileId`,
+> `ConcurrencyCheck` and — new this wave — `FitInputs` are all **fields on every landing**. A reader diffs a
+> field; nobody diffs a banner.
 
 ## Status of this document
 
@@ -30,10 +40,12 @@ Register: [`docs/followups.md`](followups.md).
 |---|---|
 | **F58** — new, and it is the wave's headline | **F55 and F57 are ONE defect: concurrent `optimize` processes each acquire a DIFFERENT NINA profile, and the two "attractors" are two values of `MaxOutlierRejections`.** Found at **zero compute**, out of logs wave 9 left on disk. See §1 |
 | **RULE G11** — the gate, the wave's only pass/fail clause | **PASS, 8 of 8 to 6 dp**, and all eight `BaselineJ` reproduce wave 10 exactly. See §2 |
-| **item 1** — F55(b) | *(pending — §3)* |
-| **item 2** — F57(c) | *(pending — §4)* |
-| **item 3** — F19's successor | **RULE W2 has no satisfying threshold on wave 9's on-disk ladder**; the pinned re-measurement is *(pending — §5)* |
-| **the full suite** | *(pending — §6)* |
+| **item 1** — F55(b) | **K1–K5, K7, K8 ALL PASS.** The mechanism is confirmed by intervention, fixed, and the fix removes the phenomenon while the hazard stays present. `KappaSigmaNoiseEstimate` is WITHDRAWN as the explanation. See §3 |
+| **item 2** — F57(c) | **ANSWERED: `AutoFocusOptions.MaxOutlierRejections`, one integer, 100 % of the 0.0144, residue exactly `0.0`** — with the negative control passing. See §4 |
+| **item 3** — F19's successor | **REFUTED BEFORE IMPLEMENTATION.** RULE W2 is unsatisfiable at any finite threshold; the pinned ladder reproduced all ten rungs. The MEASUREMENT ships, no verdict does. See §5 |
+| **F59** — new | **The settings export dropped every VALIDATING knob**: `pinned_settings.json` has been missing five detector knobs since wave 5. Found by a test written for density. Fixed. See §6.2 |
+| **K8** — the coordinate system survives its own fix | **PASS, 8 of 8, BIT-IDENTICAL to all 16 digits.** See §6.1 |
+| **the full suite** | **3740 passed, 0 failed** (`develop` was 3722 → **+18**, every one named) |
 
 ---
 
@@ -428,4 +440,115 @@ bars using its rows to size `WingRejectedExcess` in any case. What it would stil
 
 ---
 
-*(§6 the suite — pending)*
+## §6 — K8, the suite, and what the wave leaves open
+
+### §6.1 K8 — the coordinate system survives its own fix, bit for bit
+
+The eight RULE G11 runs re-run on `exe_fix2` with `pinned_settings_w11.json`, 23:24–00:07Z, sequential.
+
+| run | K8 `BestJ` (exact) | gate `BestJ` (exact) | bit-identical |
+|---|---|---|---|
+| `toml999` | 0.9957838768299878 | 0.9957838768299878 | **YES** |
+| `CWhiteFocus` | 0.9960675916058808 | 0.9960675916058808 | **YES** |
+| `uneven` | 0.9963677194179505 | 0.9963677194179505 | **YES** |
+| `muggsie` | 0.9971948738498605 | 0.9971948738498605 | **YES** |
+| `mccomiskey` | 0.9767460801208465 | 0.9767460801208465 | **YES** |
+| `D18_m24_deep_shed` | 0.9998815090506263 | 0.9998815090506263 | **YES** |
+| `D19_cygnus_deep_shed` | 0.9994870586135448 | 0.9994870586135448 | **YES** |
+| `D20_m24_bright_control` | 0.9997378027339423 | 0.9997378027339423 | **YES** |
+
+> **K8 PASS, 8 of 8 — and not merely to 6 dp. Every landing is IDENTICAL TO ALL SIXTEEN DIGITS across a
+> different binary and a different settings file.** `ConcurrencyCheck = exclusive` and
+> `FitInputs = MaxOutlierRejections=0;OutlierRejectionConfidence=0.95;WeightedHyperbolicFitEnabled=True;HyperbolicFitModel=Hybrid`
+> on all eight.
+>
+> So the fix is **exactly** behaviour-preserving for a pinned arm: wave 10's coordinate system carries forward
+> unchanged, and no future wave inherits an undocumented discontinuity at the commit that removed one.
+
+### §6.2 The suite
+
+**3740 passed, 0 failed, exit code 0.** `develop` was **3722**, so **+18**, and every one is named:
+
+| fixture | tests | what they pin |
+|---|---|---|
+| `HarnessFitInputsTests` | 10 | the fit reads the FILE; the documented code defaults for a file that lacks the keys (the back-compat clause every pre-wave-11 pinned file depends on); `FitInputs` renders values and moves on all four axes; culture invariance; the dense copy; **F59's validating-setter regression** |
+| `ExposureRecommenderTests` (new) | 8 | `WingRejectedRatio`'s four states, the two-thirds disjointness guard, the `"NaN"`/`"Infinity"` serialization contract, and that no verdict is derived from it |
+
+The count was verified, not the tick (F37). Nothing was piped to `tail`, which would have masked the exit code.
+
+### §6.3 What this wave closes, and what it does not
+
+| entry | state |
+|---|---|
+| **F58** | **new, and it is the wave.** Mechanism identified, reproduced, intervened on, fixed, and the fix shown to remove the phenomenon while the hazard stays present |
+| **F57** | **(c) ANSWERED** — one integer. **(b) shipped** as a run rule in `testapp-cli.md`. (a) shipped in wave 10 |
+| **F55** | **mechanism identified.** Its measurements stand; `KappaSigmaNoiseEstimate` is withdrawn as the explanation. **Still open at the LANDING level**: K5 is a seed-level result and F55's landing rate was 44 % |
+| **F59** | **new, fixed.** Five detector knobs missing from the pinned file since wave 5 |
+| **F19** | **the successor is refuted too**, before implementation, by RULE W2. `WingRejectedExcess` named and not evaluated |
+| **F15** | **still open**, and still what forces a population pass to run alone |
+| **F45** | **implicated**: the Grubbs rejection budget was deciding `J` from unrecorded machine state |
+
+**Explicitly still open, and not to be read as closed by this wave:**
+
+- **Fan-out is NOT authorised.** K5 is a seed-level result. Nothing here measured landings under concurrency with
+  the fix in place, and F55's landing rate was triple its seed rate.
+- **Four other harness runners have F58's defect** — `BankVerifyRunner` (×2, and it feeds the golden audits),
+  `SynthValidateRunner`, `InspectAlignRunner`, `TiltCalibrationRunner`. Flagged in F58(d), not converted: each
+  needs its own validation and wave 11's budget went to `optimize`.
+- **No 39-run distribution for `WingRejectedRatio`** (§5.6).
+- **Wave 8's, wave 9's and wave 10's AF/wizard changes are STILL UNCONFIRMED IN THE APP.** The csproj PostBuild
+  xcopy fails silently when NINA is running. Not this wave's item; not to be claimed as confirmed either.
+
+---
+
+## Lessons
+
+**0. A measured gain is not a measured cause — and paying to measure the gain makes the confusion easier.**
+Wave 10 named `KappaSigmaNoiseEstimate` as F55's bimodal amplifier, measured its gain, pinned it with a unit
+test, and recorded the trigger RATE as the cheapest thing still owed. **The rate was owed for a mechanism that
+was not firing.** The real cause was one integer in a file the process opened at startup. The gain measurement is
+still true; it was never evidence of causation, and the effort spent obtaining it is exactly what made it feel
+like it was.
+
+**1. The cheapest instrument is the one already printed and ignored.** F58 — the whole wave — came out of a
+`Profile:` line that `optimize` had been printing since before wave 9, sitting in `D:\hf_w9\det\C_*.log`, at zero
+compute. Two waves eliminated the plugin's `Parallel.For` degree, three binaries, folder state one artifact at a
+time, OpenCL, `Merge`, rented sorts and load-sensitive timeouts — all correctly, all expensively — while the
+answer was in the second line of every log they were reading. **Wave 10's lesson 4 said to check whether a cheap
+instrument already exists. It does not go far enough: check whether the instrument already RAN.**
+
+**2. Require the hazard to survive the fix.** K5 does not ask "is the answer stable now"; it asks "is the answer
+stable *while five processes still load five different profiles*". A fix that pinned the profile would have
+passed the weaker question and left every future arm exposed. The clause was written that way before the fix
+existed, and it is the only reason the result means anything.
+
+**3. The negative control is what makes the positive ones readable.** C3 — `OutlierRejectionConfidence` alone must
+move NOTHING, because a rejection budget of zero makes it unreachable — is the clause that could have shown the
+bisect harness was not doing what it claimed. It passed, so C1's residue of exactly `0.0` is a measurement rather
+than a coincidence. Wave 10's gate returned its pre-registered top tier and was still wrong; what killed it was a
+control built to exclude.
+
+**4. A validated instrument validated against a DIFFERENT contract is not validated.** Wave 10's population
+scorer maps the JSON strings `"NaN"`, `"Infinity"` and `"-Infinity"` all to NaN — correct for a statistic with no
+infinite state, and catastrophic for this one. Reused verbatim it would have read `+∞` as *"we could not look"*,
+hidden every run the ratio form fails on, and pushed the NaN-rate clause toward firing on runs where the
+instrument worked perfectly. **Reuse the instrument; re-derive its contract.**
+
+**5. An instrument can be right about the wrong SCOPE.** `ConcurrencyCheck` works — K4 fired it in both
+directions for the first time. But `WaitOne(0)` is won by exactly one of *N* contenders, so **one landing reading
+`exclusive` is not evidence the machine was quiet**; it says that process won the mutex. In wave 10's own
+two-driver contamination the first driver's landings would all have read `exclusive`. The field is honest; the
+*reading* of it needed pinning down, and only running it in both directions revealed that.
+
+**6. Test the property you care about, not the happy path.** F59 was found by a test asserting **density** — *a
+value equal to the code default must still reach the file* — and not presence. Presence would have passed. The
+bug it exposed had silently dropped five detector knobs from the pinned file since wave 5.
+
+**7. Name the hazard CLASS, not the dataset.** The design named `D17` (ratio 0.59) and `D20` (inner exactly
+0.000) as the two ways the ratio form could fail. The killer was `D16` at 2 s — `D20`'s shape on a dataset filed
+under the other clause. Naming the class worked; naming only the datasets would not have.
+
+**8. Say what you did not run.** The 39-run population pass was dropped once item 3 fell to a necessary clause.
+That is defensible, and it is only defensible **because the results say the distribution is missing** rather than
+presenting eight runs where thirty-nine were planned. *A scope that quietly shrinks is how a partial result gets
+read as a complete one.*
