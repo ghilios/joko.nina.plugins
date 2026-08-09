@@ -323,6 +323,12 @@ existed precisely to make that visible.*
 **The COUNT was verified, not the tick** (F37: a native test-host crash reports `Failed: 0` while ~2000 tests
 never execute). Nothing was piped to `tail`, which would mask the exit code.
 
+**And CI was verified the same way**, not by its green tick: run `31298430548` on
+[PR #190](https://github.com/ghilios/hocus-focus/pull/190) reports
+`Failed: 0, Passed: 3744, Skipped: 0, Total: 3744` — **the same count as local**, read out of the log. An
+ABSENT check is more dangerous than a red one, and a green one that ran 1389 of 3371 tests is how F37 was
+found.
+
 ### §5.2 What was NOT run, and what it would have cost
 
 - **No 39-run population pass.** Item 3 was refuted on necessary clauses by a 15-run ladder, so a population pass
