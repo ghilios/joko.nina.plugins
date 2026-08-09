@@ -100,7 +100,10 @@ namespace TestApp {
             var harnessSettings = HarnessSettingsStore.Resolve(args, profileService, activeProfile);
             var starDetectionOptions = new StarDetectionOptions(profileService, harnessSettings.Accessor);
             var inspectorOptions = new InspectorOptions(profileService);
-            var autoFocusOptions = new AutoFocusOptions(profileService);
+            // F58(d): the pinned settings FILE, not the active profile -- the detector was pinned one line above
+            // and the FIT was not, which is the asymmetry F58 named in `optimize`.
+            var autoFocusOptions = HarnessSettingsStore.BuildFitOptions(profileService, harnessSettings);
+            Console.WriteLine($"FitInputs: {HarnessFitInputs.From(autoFocusOptions)}");
 
             // Detection params = the inspector's region-6 path: the single options->params source of truth, full
             // sensor (region 6 at SensorROI=1.0), ModelPSF OFF (the AF engine sets isAutoFocus=true). NumberOfAFStars

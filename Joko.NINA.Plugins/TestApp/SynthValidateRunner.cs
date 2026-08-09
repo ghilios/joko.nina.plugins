@@ -240,7 +240,9 @@ namespace TestApp.SynthBank {
             // HarnessSettingsStore's remarks) -- the profile is only used for image loading (FITS.Load needs one).
             var harnessSettings = HarnessSettingsStore.Resolve(args, profileService, activeProfile);
             var starDetectionOptions = new StarDetectionOptions(profileService, harnessSettings.Accessor);
-            var afOptions = new AutoFocusOptions(profileService);
+            // F58(d): the pinned settings FILE, not the active profile -- the detector was pinned one line above
+            // and the FIT was not, which is the asymmetry F58 named in `optimize`.
+            var afOptions = HarnessSettingsStore.BuildFitOptions(profileService, harnessSettings);
             var alglibAPI = new AlglibAPI();
             var detection = new HocusFocusStarDetection(
                 imageStatisticsVM: null,
@@ -267,13 +269,18 @@ namespace TestApp.SynthBank {
             Prog($"synth-validate: spec={specPath} (sha256={specSha256.Substring(0, 12)}…) " +
                 $"datasets={selectedDatasets.Count}/{spec.Datasets.Count} scenarios=[{string.Join(",", selectedScenarios.Select(s => s.Id))}] " +
                 $"maxRounds={maxRounds} maxEvals={(maxEvals?.ToString(CultureInfo.InvariantCulture) ?? "default")} out={outRoot}");
+            // F58(d): VALUES, not a hash — a hash says something moved, these say which one.
+            var fitInputs = HarnessFitInputs.From(afOptions).ToString();
+            Prog($"synth-validate: Profile: {activeProfile.Name} ({activeProfile.Id})  FitInputs: {fitInputs}");
 
             var report = new SynthValidationReport {
                 SpecPath = specPath,
                 SpecSha256 = specSha256,
                 OutDir = outRoot,
                 MaxRounds = maxRounds,
-                MaxEvals = maxEvals
+                MaxEvals = maxEvals,
+                FitInputs = fitInputs,
+                ProfileId = $"{activeProfile.Name} ({activeProfile.Id})"
             };
             var jsonPath = Path.Combine(outRoot, "synth_validate_report.json");
             var mdPath = Path.Combine(outRoot, "synth_validate_report.md");

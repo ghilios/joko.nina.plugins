@@ -157,7 +157,12 @@ namespace TestApp {
             var starDetectionOptions = new StarDetectionOptions(profileService, harnessSettings.Accessor);
             var accessor = harnessSettings.Accessor;
             var inspectorOptions = new InspectorOptions(profileService);
-            var autoFocusOptions = new AutoFocusOptions(profileService);
+            // F58(d): the pinned settings FILE, not the active profile. `bank-verify` fits an AF curve per run and
+            // its recall/precision numbers underpin the golden audits, so two results measured under different
+            // profiles were never comparable -- MaxOutlierRejections alone partitions this machine's profiles 2/7,
+            // and concurrent harness processes each silently acquire a different one.
+            var autoFocusOptions = HarnessSettingsStore.BuildFitOptions(profileService, harnessSettings);
+            var fitInputs = HarnessFitInputs.From(autoFocusOptions);
             const int binning = 1;
             // The pre-V-P1 bank-wide value: one profile-derived scale for every run. Still computed unconditionally
             // because it is both the "profile" mode's value AND the fallback "header" mode falls back to when a
@@ -183,6 +188,11 @@ namespace TestApp {
                 + $"adaptiveBinarize={EffectiveAdaptiveBinarize(adaptiveBinarizeOverride)}"
                 + (adaptiveBinarizeOverride.HasValue ? " (forced)" : " (shipped default)")
                 + $"(block={adaptiveBlockSize})");
+            // F58(d): VALUES, not a hash. A hash says something moved; these say which one. Two bank-verify
+            // results measured under different fit inputs are not comparable, and until this line existed there
+            // was no way to tell from the output that they differed.
+            Console.WriteLine($"Profile: {activeProfile.Name} ({activeProfile.Id})");
+            Console.WriteLine($"FitInputs: {fitInputs}");
 
             var runResults = new List<RunResult>();
             int idx = 0;
@@ -204,7 +214,8 @@ namespace TestApp {
 
             var utc = DateTime.UtcNow.ToString("yyyyMMddTHHmmssZ", CultureInfo.InvariantCulture);
             WriteReport(outDir, utc, commit, ncSweep, runResults,
-                EffectiveAdaptiveBinarize(adaptiveBinarizeOverride), adaptiveBinarizeOverride.HasValue, adaptiveBlockSize, pixelScaleMode);
+                EffectiveAdaptiveBinarize(adaptiveBinarizeOverride), adaptiveBinarizeOverride.HasValue, adaptiveBlockSize, pixelScaleMode,
+                fitInputs.ToString(), $"{activeProfile.Name} ({activeProfile.Id})");
             Console.WriteLine($"bank-verify: wrote verification_{utc}.{{json,md}} to {outDir} ({runResults.Count(r => r.error == null)} ok, {runResults.Count(r => r.error != null)} failed).");
         }
 
@@ -352,7 +363,7 @@ namespace TestApp {
                 }
                 p.AdaptiveNoiseBlockSize = adaptiveBlockSize;
                 var cm = await ScoreConfigAsync($"C0@nc{nc:0.#}", nc, false, p, evalData, loaded, goldenByFocuser, truthByFocuser, effectiveMatchRadius,
-                    inspectorOptions, alglib, profileService, activeProfile, stepSize, detector);
+                    inspectorOptions, alglib, profileService, activeProfile, stepSize, detector, afOptions);
                 rr.configs.Add(cm);
                 Console.WriteLine($"    {cm.config}: recall@high={Fmt(cm.recallHigh)} prec={Fmt(cm.precision)} σ={Fmt(cm.sigmaFocus)} sR²={Fmt(cm.sR2)} aligned={cm.framesAligned}/{loaded.Count}");
             }
@@ -363,7 +374,7 @@ namespace TestApp {
                 var p = BaseDefault();
                 OverlayOptimized(p, aSettings, forceDonutMaster: false);
                 var cm = await ScoreConfigAsync("A", p.NoiseClippingMultiplier, p.DefocusAwareDonutDetection, p, evalData, loaded, goldenByFocuser, truthByFocuser, effectiveMatchRadius,
-                    inspectorOptions, alglib, profileService, activeProfile, stepSize, detector);
+                    inspectorOptions, alglib, profileService, activeProfile, stepSize, detector, afOptions);
                 cm.sensitivity = p.Sensitivity;
                 rr.configs.Add(cm);
                 Console.WriteLine($"    A (opt donutOFF, NC→{Fmt(cm.nc)}): recall@high={Fmt(cm.recallHigh)} prec={Fmt(cm.precision)} σ={Fmt(cm.sigmaFocus)} sR²={Fmt(cm.sR2)}");
@@ -375,7 +386,7 @@ namespace TestApp {
                 var p = BaseDefault();
                 OverlayOptimized(p, bSettings, forceDonutMaster: true);
                 var cm = await ScoreConfigAsync("B", p.NoiseClippingMultiplier, true, p, evalData, loaded, goldenByFocuser, truthByFocuser, effectiveMatchRadius,
-                    inspectorOptions, alglib, profileService, activeProfile, stepSize, detector);
+                    inspectorOptions, alglib, profileService, activeProfile, stepSize, detector, afOptions);
                 cm.sensitivity = p.Sensitivity;
                 rr.configs.Add(cm);
                 Console.WriteLine($"    B (opt donutON, NC→{Fmt(cm.nc)}): recall@high={Fmt(cm.recallHigh)} prec={Fmt(cm.precision)} σ={Fmt(cm.sigmaFocus)} sR²={Fmt(cm.sR2)}");
@@ -398,7 +409,7 @@ namespace TestApp {
             List<(int focuser, string path, IRenderedImage image)> loaded, Dictionary<int, GoldenFrame> goldenByFocuser,
             Dictionary<int, IReadOnlyList<SyntheticStarDisposition>> truthByFocuser, double matchRadius,
             InspectorOptions inspectorOptions, AlglibAPI alglib, ProfileService profileService, NINA.Profile.Interfaces.IProfile activeProfile, int stepSize,
-            StarDetector detector) {
+            StarDetector detector, AutoFocusOptions afOptions) {
 
             // effectiveSensitivity is set HERE, from the same params the config is scored with, so C0/A/B all get it
             // from one place (the A/B call sites re-stamp `sensitivity` afterwards; the effective gate must not
@@ -515,7 +526,10 @@ namespace TestApp {
                 var pixelSize = activeProfile.CameraSettings.PixelSize > 0 ? activeProfile.CameraSettings.PixelSize : 3.76;
                 var sortedFoc = loaded.Select(l => (double)l.focuser).OrderBy(x => x).ToList();
                 var finalFocus = sortedFoc[sortedFoc.Count / 2];
-                var sensorModel = new SensorModel(profileService, inspectorOptions, new AutoFocusOptions(profileService), new AlglibAPI());
+                // F58(d): the run's own pinned fit options, not a second profile-backed instance. This was the
+                // SECOND construction site in this file, and it fed the SENSOR model -- so the tilt fit was taking
+                // its outlier-rejection budget from whichever profile happened to be active.
+                var sensorModel = new SensorModel(profileService, inspectorOptions, afOptions, new AlglibAPI());
                 SensorParaboloidModel fit = null;
                 try {
                     (fit, _) = sensorModel.RegisterStarsAndFit(sensorFrames, imageSize, focuserSizeMicrons, finalFocus, pixelSize,
@@ -597,7 +611,8 @@ namespace TestApp {
         // ---- report ----------------------------------------------------------------------------------------------
 
         private static void WriteReport(string outDir, string utc, string commit, double[] ncSweep, List<RunResult> runs,
-            bool adaptiveBinarizeEffective, bool adaptiveBinarizeForced, int adaptiveBlockSize, string pixelScaleMode) {
+            bool adaptiveBinarizeEffective, bool adaptiveBinarizeForced, int adaptiveBlockSize, string pixelScaleMode,
+            string fitInputs, string profileId) {
             var ok = runs.Where(r => r.error == null && r.configs != null && r.configs.Count > 0).ToList();
             // Read from the product rather than hardcoded — see the json block below for why (9a80324/c59a4b1).
             var noiseClipDefault = HocusFocusStarDetection.BuildDefaultStarDetectorParams().NoiseClippingMultiplier;
@@ -667,6 +682,12 @@ namespace TestApp {
                 c0AdaptiveBinarization = adaptiveBinarizeEffective,
                 c0AdaptiveBinarizationForced = adaptiveBinarizeForced,
                 c0AdaptiveNoiseBlockSize = adaptiveBlockSize,
+                // F58(d): the four values that reach the AF fit, and the profile the run loaded. Recorded as
+                // VALUES so a reader can diff a field rather than infer which machine state produced a number --
+                // the whole class of defect F58 named. `fitInputs` now comes from the pinned settings FILE, so
+                // two reports with the same string are comparable regardless of which profile was active.
+                fitInputs,
+                profileId,
                 ncSweep,
                 runCount = ok.Count,
                 failed = runs.Count(r => r.error != null),

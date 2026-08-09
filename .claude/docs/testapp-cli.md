@@ -148,7 +148,29 @@ dir (or each per-run subfolder).
 >
 > Since wave 11 the harness reads the fit inputs from the **pinned settings file**, and every landing records
 > `ProfileId` **and** `FitInputs` (`MaxOutlierRejections=…;OutlierRejectionConfidence=…;…` — values, not a hash,
-> so a reader sees *which* one moved). Check `ConcurrencyCheck` in the landing before reading any arm.
+> so a reader sees *which* one moved). Since wave 12 **every** harness runner does — `bank-verify`,
+> `synth-validate`, `inspect-align` and `tilt` build their fit through
+> `HarnessSettingsStore.BuildFitOptions`, print `FitInputs`, and a unit test fails the build if any `TestApp`
+> source constructs `AutoFocusOptions` from the profile again.
+>
+> **`ConcurrencyCheck` MUST BE READ ACROSS A WHOLE ARM, NOT OFF ONE LANDING.** `WaitOne(0)` is won by exactly one
+> of *N* contenders, so in any fan-out precisely one landing truthfully reports `exclusive`. One `concurrent`
+> anywhere condemns the arm; one `exclusive` proves nothing.
+>
+> ### FAN-OUT: AUTHORISED AT DEGREE 4, UNPINNED ONLY — AND IT BUYS 25 %, NOT 4× (wave 12)
+>
+> Wave 12 ran the eight gate runs at **fan-out 4** with four workers on **four different profiles** split 4/4 on
+> `MaxOutlierRejections`, and all eight landings reproduced the sequential values **bit-identically** (F55's
+> RULE A12). So:
+>
+> - **Fan-out is authorised AT DEGREE 4.** Nothing was measured at 8 or 48.
+> - **UNPINNED only.** `--profile-id` + fan-out still fails loudly, so a fanned-out arm relies on `--settings`
+>   carrying the fit inputs. **An arm that needs a specific profile still runs sequentially.**
+> - **It buys 1.33×, not 4×** (F60). Every run takes 1.45–2.55× longer under contention because `optimize`
+>   already saturates the machine. **Sequential remains the default;** fan-out is for a pass long enough that
+>   25 % of the wall clock is worth losing `--profile-id`.
+> - **Re-snapshot the profile set before any fan-out arm.** The fall-through set is the top *N* by `LastUsed`,
+>   and every pinned run reorders it — including the gate you just ran.
 
 - **Run discovery is attempt-anchored** (pure logic in `OptimizationRunDiscovery`): it recursively finds
   `attempt<NN>` folders (1–4 levels under `--runs`) that contain ≥3 distinct focuser positions, mirroring
