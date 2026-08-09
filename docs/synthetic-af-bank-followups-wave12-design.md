@@ -247,12 +247,20 @@ against it.
 | clause | requirement |
 |---|---|
 | **W0** *(validity, evaluated first)* | the ladder must be **informative**: each dataset must have a σ_focus minimum and at least one rung **≥ 20 % worse** than it. A dataset that fails W0 cannot anchor W1/W2 and is reported as void rather than scored |
-| **W1** *(fires where it should)* | on every rung **shorter** than the σ_focus-minimising rung and **≥ 20 % worse** than it, the excess must be **≥ T** |
+| **W1** *(fires where starvation is worst)* | at each dataset's **most-starved rung** — the worst-σ_focus rung among those **shorter** than the minimising rung, provided it is **≥ 20 % worse** — the excess must be **≥ T** |
 | **W2** *(silent where it must be)* | at each dataset's σ_focus-**minimising** rung, the excess must be **< T** |
-| **W3** *(converges)* | the firing set must not re-open above the minimising rung |
-| **W4** *(the ask is finite and meaningful)* | at a firing rung the excess must be a finite number in `[−1, 1]`; **`NaN` is "could not look" and must never read as "we looked and nothing was shedding"** |
+| **W3** *(converges)* | the excess must be **< T at every rung at or above** the minimising rung |
+| **W4** *(the ask is readable)* | wherever W1 requires firing the excess must be a finite number in `[−1, 1]`; **`NaN` is "could not look" and must never read as "we looked and nothing was shedding"** |
 | **W5** *(selective)* | T must sit **above the excess's own bank median** — or it is the same defect in a new coordinate |
 | **W6** *(no fitting)* | the excess may **not** be validated on the 39-run population **nor** on wave 7's `D02`/`D16` ladder |
+
+> **W1 IS ONE RUNG PER DATASET, AND THAT IS DELIBERATE.** Wave 9's rule named exactly two rungs (`D02`@0.5 s must
+> ask, `D16`@0.5 s must ask) — one per dataset, each the most-starved. Writing W1 as *"every materially-worse
+> shorter rung must fire"* would hold the excess to a **stricter** bar than the two statistics it is replacing,
+> and refuting a candidate on a rule its predecessors never had to pass is not a refutation, it is a moved
+> goalpost. **The stricter reading is still measured and reported — as a DESCRIPTIVE column, never as a clause.**
+> Wave 9's adopted statistic fired at `D02` 0.5 / 1 / 2 s and went silent at 4 s, so how many starved rungs a
+> candidate covers is a real quality signal; it is simply not the bar.
 
 > **THE OUTCOMES, and the close is one of them:**
 >
@@ -285,12 +293,21 @@ against it.
 
 ### §4.5 The excess on the BARRED ladder is a prediction, not a verdict
 
-Wave 11's ladder gives, for free, `D02`@0.5 s excess `0.6729 − 0.4290 = 0.2439` and `D16`@2 s excess
-`0.0064 − 0.0000 = 0.0064` — so on the ratio's own killing ground the excess **survives** the rung that killed
-the ratio. That is written into the arm's script header **as the pre-registered prediction**, exactly as wave 11
-wrote `wing2`'s numbers into `ladder_w11.sh` before it ran. **It is a prediction and not a verdict**: W6 bars the
-verdict coming from there, and a statistic that looks good on the data that killed its predecessor is precisely
-the thing W6 exists to distrust.
+Wave 11's ladder gives, for free, `D02`@0.5 s excess `0.6729 − 0.4290 = 0.243823` and `D16`@2 s excess
+`0.0064 − 0.0000 = 0.006410` — so on the ratio's own killing ground the excess **survives** the rung that killed
+the ratio, and RULE W12 would leave the window **(0.0889, 0.2438]**. That is written into the arm's script header
+**as the pre-registered prediction**, exactly as wave 11 wrote `wing2`'s numbers into `ladder_w11.sh` before it
+ran. **It is a prediction and not a verdict**: W6 bars the verdict coming from there, and a statistic that looks
+good on the data that killed its predecessor is precisely the thing W6 exists to distrust.
+
+**This is what makes the arm worth running rather than a formality.** The excess is *not* obviously doomed — on
+the barred ladder it passes every clause — so the fresh ladder is a real test with a real chance of either
+outcome, which is the only kind worth pre-registering.
+
+**And W5's floor is already measured, at zero compute**: the excess's median over wave 10's 39 population
+landings is **0.088948**. The same pooling reproduces wave 11's published median wing/inner **ratio** of 1.39
+(1.3860 over the 29 firing runs with a finite ratio) — *the scorer validated against a number this project
+already published, before it scored anything new.*
 
 ---
 
