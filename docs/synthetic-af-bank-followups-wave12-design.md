@@ -246,7 +246,7 @@ against it.
 
 | clause | requirement |
 |---|---|
-| **W0** *(validity, evaluated first)* | the ladder must be **informative**: each dataset must have a σ_focus minimum and at least one rung **≥ 20 % worse** than it. A dataset that fails W0 cannot anchor W1/W2 and is reported as void rather than scored |
+| **W0** *(validity, evaluated first)* | the ladder must be **informative**: each dataset must have a σ_focus minimum and at least one rung **≥ 20 % worse** than it. A dataset that fails W0 cannot anchor W1/W2 and is reported as void rather than scored. **A rung that fails the hard floor is UNEVALUATED and anchors nothing** (below) |
 | **W1** *(fires where starvation is worst)* | at each dataset's **most-starved rung** — the worst-σ_focus rung among those **shorter** than the minimising rung, provided it is **≥ 20 % worse** — the excess must be **≥ T** |
 | **W2** *(silent where it must be)* | at each dataset's σ_focus-**minimising** rung, the excess must be **< T** |
 | **W3** *(converges)* | the excess must be **< T at every rung at or above** the minimising rung |
@@ -254,6 +254,19 @@ against it.
 | **W5** *(selective)* | T must sit **above the excess's own bank median** — or it is the same defect in a new coordinate |
 | **W6** *(no fitting)* | the excess may **not** be validated on the 39-run population **nor** on wave 7's `D02`/`D16` ladder |
 
+> **A HARD-FLOOR FAIL IS "COULD NOT LOOK", AND IT ANCHORS NOTHING — decided from the run's STRUCTURAL fields
+> while the ladder was still rendering, and the only wing value visible at that moment was the `NaN` that
+> prompted the question.** (Said exactly rather than as "before any data": no excess *magnitude* on any rung had
+> been computed, which is what could have biased a threshold.) `D17`@0.5 s came back `HardFloorPassed = false`,
+> `WorstFrameCount = 0`: at 0.5 s behind a 5 nm OIII filter the detector finds **zero stars on some frame**, so
+> `BestJ`, σ_focus and both wing statistics are `NaN` by construction. **No statistic over gate rejections can
+> speak about a frame with no stars in it**, and refuting a candidate because it is silent where nothing was
+> detected would be refuting it for the detector's failure rather than its own. Such rungs are reported as
+> **UNEVALUATED** and excluded from W0–W3 anchoring — the same principle as *NaN-never-0*: "could not look" is a
+> third state, not a quiet zero. **The honest counterpart is stated with it:** if excluding them leaves a dataset
+> with no materially-worse *usable* rung, that dataset has **no W1 anchor** and is reported as having none — not
+> quietly dropped, and not scored as a pass.
+>
 > **W1 IS ONE RUNG PER DATASET, AND THAT IS DELIBERATE.** Wave 9's rule named exactly two rungs (`D02`@0.5 s must
 > ask, `D16`@0.5 s must ask) — one per dataset, each the most-starved. Writing W1 as *"every materially-worse
 > shorter rung must fire"* would hold the excess to a **stricter** bar than the two statistics it is replacing,

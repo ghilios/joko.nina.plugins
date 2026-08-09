@@ -658,7 +658,11 @@ recorded as owed, and is WITHDRAWN · AND THE SUCCESSOR IS REFUTED TOO (wave 11)
 RULE W2 on the exposure ladder: `D16` at 2 s has an inner rejected fraction of EXACTLY 0.000, so the ratio is
 INFINITE and fires where more exposure is measurably wrong. NO THRESHOLD SATISFIES RULE W.** The gate-floor
 THEOREM stands; `WingRejectedFraction` AND `WingRejectedRatio` both stay as measurements with no verdict
-attached; `WingRejectedExcess` = wing - inner is named as the next candidate and deliberately not evaluated
+attached ·
+**THE REMAINDER IS CLOSED (wave 12): `WingRejectedExcess` = wing − inner is REFUTED on a fresh ladder it had not
+seen, by W1 AND W2 AND W5, on three datasets independently and in both directions — and it is
+ANTI-CORRELATED with what it exists to predict (Spearman ρ = −0.665 over 13 rungs). NO STATISTIC OVER GATE
+REJECTIONS SEPARATES A STARVED WING FROM A DETECTOR THAT REJECTS NOISE EVERYWHERE.**
 · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
 
 `ExposureRecommender`'s `S_now` is the median, across non-recovery frames, of each frame's
@@ -1030,6 +1034,64 @@ derived-exposure rung on either dataset, this entry REOPENS.**
 > pass: the refutation came on a NECESSARY clause, so the pass could not have changed the verdict, and W6 bars
 > its rows from sizing the next candidate. **This wave therefore publishes no 39-run distribution for the ratio.**
 > Reproduce: `D:\hf_w11\pop\ladder_w11.sh`, `D:\hf_w11\pop\ladder_score.txt`, `D:\hf_w11\pop\score_wing_pop_w11.py`.
+
+> ## THE REMAINDER IS CLOSED (2026-08-09, wave 12). THE THIRD STATISTIC IS REFUTED, AND IT POINTS THE WRONG WAY.
+>
+> `WingRejectedExcess` = wing − inner got its own arm on a ladder neither prior refutation had touched: three
+> datasets the wing statistics had never laddered — `D17_cdk14_oiii5` (genuinely OIII-starved), `D20_m24_bright_control`
+> (a known inner-fraction-exactly-0.000 instance) and `D05_tec140_1000mm` (mid-population) — freshly rendered at
+> **0.5 / 2 / 8 / 30 / 120 s**, pinned provenance, `--max-evals 120`. W6 satisfied: the 39-run population killed
+> the fraction and wave 7's `D02`/`D16` ladder killed the ratio, and neither was used here.
+>
+> **The threshold window is empty by a wide margin, and three datasets empty it independently:**
+>
+> | clause | dataset | measured | implies |
+> |---|---|---|---|
+> | **W1** the most-starved rung must FIRE | `D17`@8 s — σ_focus **19.3× worse** than its own optimum | excess **exactly 0.000000** | **T ≤ 0** |
+> | **W2** SILENT at the σ_focus minimum | `D05`@8 s | excess **0.861389** | T > 0.861 |
+> | **W2** SILENT at the σ_focus minimum | `D20`@0.5 s (σ_focus 0.00823 — the best focus on the ladder) | excess **0.246027** | T > 0.246 |
+> | **W1** | `D05`@2 s — 3.1× worse | excess 0.521251 | T ≤ 0.521 |
+> | **W5** above the excess's own bank median | 39 population runs, recomputed offline | 0.088948 | T > 0.0889 |
+>
+> **`D05` contradicts itself on its own two clauses** (W1 needs T ≤ 0.521, W2 needs T > 0.861), so no threshold
+> works even on a single dataset.
+>
+> ### And the arithmetic is not the finding — the DIRECTION is
+>
+> Over all **13 usable rungs**, against how bad the focus is (σ_focus ÷ that dataset's own best):
+> **Spearman ρ(focus badness, excess) = −0.665.** A statistic meant to say *"your wings are starved, expose
+> longer"* must be POSITIVE. **It is at its maximum where focus is best and exactly zero where focus is 19×
+> worse than it needs to be.**
+>
+> `D17` is the sharpest case and it is this entry's own poster child: a 5 nm OIII field that genuinely IS
+> photon-starved, whose σ_focus improves **19-fold** from 8 s to 120 s. **At 8 s its wings and its core reject at
+> identical rates — both exactly 0.0000.** At 0.5 s and 2 s the detector finds ZERO stars on some frame, so the
+> statistic is `NaN` ("could not look") rather than silent.
+>
+> ### So the remainder closes, and against a FOURTH candidate rather than only the third
+>
+> | statistic | refuted by | on |
+> |---|---|---|
+> | `WingRejectedFraction` (absolute) | RULE P — 76.9 % fire rate | 39-run population (wave 10) |
+> | `WingRejectedRatio` (wing ÷ inner) | RULE W2 — `D16`@2 s is `+∞` at its σ minimum | wave 7's ladder (wave 11) |
+> | `WingRejectedExcess` (wing − inner) | RULE W1 ∧ W2 ∧ W5, three datasets, ρ = −0.665 | a fresh 3×5 ladder (wave 12) |
+>
+> **NO STATISTIC OVER GATE REJECTIONS SEPARATES A STARVED WING FROM A DETECTOR THAT REJECTS NOISE EVERYWHERE**,
+> and ρ = −0.665 says why it is not a property of the arithmetic: **gate rejections count what the detector THREW
+> AWAY, and a starved frame's problem is what it never FOUND.** A fourth function of the same quantity would
+> inherit the same blindness. Anyone re-opening this must bring a different QUANTITY, not a different formula —
+> and the obvious one is what the faint end's SNR distribution does with exposure, which is not a rejection count.
+>
+> **What ships: nothing.** No verdict, threshold, probe factor or action. `WingRejectedFraction` and
+> `WingRejectedRatio` remain measurements with no consumer.
+>
+> **W1 was WEAKENED before the data, not after.** The first draft required firing on EVERY materially-worse rung
+> short of the optimum; wave 9's rule named exactly one per dataset, so the draft would have held the third
+> candidate to a bar neither predecessor had to clear. It was corrected and committed before the ladder rendered
+> a frame — and the excess then failed the WEAKER rule by `T ≤ 0` against `T > 0.861`, so the distinction changed
+> nothing. *Which is the point: that cannot be known in advance, which is why the rule moves before the data.*
+> Reproduce: `D:\hf_w12\ladder_w12.sh`, `D:\hf_w12\score_excess_w12.py`, `D:\hf_w12\ladder_score.txt`,
+> `D:\hf_w12\ladder_corr.txt`.
 
 > ## (c) RESOLVED 2026-08-07 (wave 9): THE FLOOR STAYS, THE CEILING STAYS, AND NOTHING RE-RENDERS
 >
@@ -3507,6 +3569,94 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
+### F61 — F58(d)'s real consumer was the SENSOR MODEL, not the AF fit: the per-star paraboloid's rejection budget came from the active profile
+**Status:** **Fixed (wave 12)** for every harness runner · found 2026-08-09 by RULE B12-D, **the control written
+to prove the fix was a no-op** · **the numbers it moved are TILT numbers**
+
+Wave 12 converted the five remaining `new AutoFocusOptions(profileService)` sites
+([F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections)(d))
+and then asked the discriminating question: **does switching the profile still move anything?** Three real-bank
+runs, the same pinned settings file, scored under `astrodet` (`MaxOutlierRejections` = 0) and under `Default`
+(= 1), on the pre- and post-conversion binaries:
+
+| binary | scored quantities that MOVED between the two profiles |
+|---|---|
+| pre-conversion | **15 of 24** |
+| post-conversion | **0 of 24** |
+
+**And `sigmaFocus` — the AF fit, the thing everyone assumed was at risk — never moved on any of the three runs.**
+What moved was the sensor model:
+
+| run | quantity | `astrodet` | `Default` | |
+|---|---|---|---|---|
+| `toml999` | `sStars` | 613 | **616** | stars admitted to the paraboloid |
+| | `sR2` | 0.14883143 | **0.14580555** | |
+| `muggsie` | `sTheta` | 0.12407606 | **0.11525545** | **tilt θ, 7.6 % apart** |
+| | `sRMS` | 6.7519583 | **6.7712252** | |
+| `mccomiskey` | `sStars` | 2800 | **2856** | |
+| | `sChi` | 0.11344971 | **0.12177990** | |
+
+**The mechanism is one read.** `SensorModel.cs:714–715` takes `MaxOutlierRejections` and
+`OutlierRejectionConfidence` off `IAutoFocusOptions` for the **PER-STAR** curve fit, so the rejection budget
+decided *which stars produced a `SensorParaboloidDataPoint` at all* — and the surface fit, its R², its RMS and
+its **tilt angle** follow from that population.
+
+### Why this matters beyond the harness
+
+`BankVerifyRunner` was flagged in F58(d) as *"twice"*, and the second instance — the `SensorModel` construction —
+was treated as an afterthought. **It was the one that mattered.** `InspectAlignRunner` and
+`TiltCalibrationRunner` fit sensor models from the same options, so **every tilt number those harnesses produced
+before this commit carries an input nothing recorded**, and two such numbers measured under different active
+profiles were never comparable. The effect is small on R²/RMS and up to **7.6 % on θ** in this sample; it is not
+a claimed error bar on any specific published tilt result, and it is not retro-fitted to one either.
+
+**It also sharpens [F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections)'s
+own framing.** F58 called `AutoFocusOptions` "the four values that reach the AF **fit**". They reach the sensor
+model too, through a completely different consumer, and on `bank-verify` that consumer is the only one that was
+sensitive.
+
+### Next step
+
+(a) **When a tilt result must be compared across sessions, the comparison needs `FitInputs`** — now printed by
+every converted runner and stored in `bank-verify`'s and `synth-validate`'s reports.
+(b) **Not done, and priced:** re-running any historical tilt calibration under pinned fit inputs to see whether a
+published θ moves. Nothing currently depends on it, and the honest statement is that those numbers have an
+unrecorded input rather than a known error.
+Reproduce: `D:\hf_w12\bankverify_disc_w12.sh`, `D:\hf_w12\b12d_score.txt`.
+
+### F60 — Fan-out is now SAFE and it is barely worth doing: `optimize` already saturates the machine
+**Status:** Open (recorded as a standing cost fact) · found 2026-08-09 (wave 12) measuring the payoff of the
+authorisation the same arm had just granted
+
+Wave 12's RULE A12 authorised fan-out at degree 4 ([F55](#f55--optimize-is-not-reproducible-when-several-instances-run-at-once-and-the-seed-evaluation-is-what-moves)).
+The arm was justified on the grounds that it would make every future pass **~4× cheaper**. **It does not.**
+
+| | sequential | at fan-out 4 |
+|---|---|---|
+| the same eight runs, wall clock | **43 m 10 s** | **32 m 28 s** |
+| sum of per-run busy time | 43 m 10 s | **76 m 03 s** |
+
+**Speedup 1.33× — 25 % of the wall clock — and every individual run took 1.45–2.55× longer** (`toml999`
+1 m 58 s → 5 m 01 s; `D18` 6 m 36 s → 13 m 49 s). The optimize path is already multi-threaded across the whole
+machine (`Cv2.GetNumThreads()` = 48 here), so four processes **contend** rather than parallelise: the arm spent
+33 extra minutes of busy time to buy 11 minutes of wall clock.
+
+### What follows
+
+- **Sequential remains the DEFAULT.** Fan-out is for a pass long enough that 25 % is worth losing `--profile-id`
+  for (pinning and fan-out are still mutually exclusive — wave 11's K3).
+- **A 39-run population pass costs ~2 ¼ h, not ~45 m.** Any future plan budgeting from "4× cheaper" is wrong;
+  budget from this measurement.
+- **Degree 8 is not obviously better and was not measured.** With per-run inflation already at 1.45–2.55× at
+  degree 4, more workers plausibly buy nothing; if it matters, measure it rather than extrapolating.
+
+**Why it is filed rather than folded into the authorisation.** The two facts point in opposite directions and
+both are true: *fan-out is now safe, and it is barely worth doing.* A wave that records only the half that
+justified the work is how a project acquires a belief it never measured — which is the same failure as
+[F55](#f55--optimize-is-not-reproducible-when-several-instances-run-at-once-and-the-seed-evaluation-is-what-moves)'s
+own "a measured gain is not a measured cause", one level up in the planning rather than the analysis.
+Reproduce: `D:\hf_w12\gate_w12.log`, `D:\hf_w12\fanout_w12.log`.
+
 ### F59 — The settings export drops every knob whose setter VALIDATES, so `pinned_settings.json` has been missing five detector knobs since wave 5
 **Status:** **Fixed (wave 11)** · found 2026-08-08 by a unit test written for
 [F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections)'s
@@ -3710,6 +3860,14 @@ returns ONE value **while still loading five different profiles** — a fix that
 pass a weaker test and prove nothing.
 (c) **Then say what is left.** `KappaSigmaNoiseEstimate`'s measured gain (F55) stays as a fact about the
 function; it is withdrawn only as *this* defect's explanation, and only once the residual check has run.
+(d) ~~**FOUR OTHER HARNESS RUNNERS HAVE THE SAME DEFECT AND ARE NOT FIXED HERE**~~ — **DONE 2026-08-09
+(wave 12): all five remaining call sites converted, behind ONE seam
+(`HarnessSettingsStore.BuildFitOptions`) with a source guard on the CONSTRUCTOR so it holds for a site nobody has
+written yet. Validated by RULE B12 (692 leaf values identical) AND its discriminating half RULE B12-D (the
+profile moved 15 of 24 scored quantities BEFORE the conversion and 0 of 24 after). AND IT WAS THE SENSOR MODEL,
+NOT THE AF FIT — see
+[F61](#f61--f58ds-real-consumer-was-the-sensor-model-not-the-af-fit-the-per-star-paraboloids-rejection-budget-came-from-the-active-profile).**
+The original text, for the record:
 (d) **FOUR OTHER HARNESS RUNNERS HAVE THE SAME DEFECT AND ARE NOT FIXED HERE**, flagged rather than swept in
 because each needs its own validation and wave 11's budget went to `optimize`:
 `BankVerifyRunner` (twice — the recall/precision harness whose numbers feed the golden audits),
@@ -3805,6 +3963,10 @@ Reproduce: `D:\hf_w10\crossbuild_probe.sh`, `D:\hf_w10\crossbuild.log`, `D:\hf_w
 ### F55 — `optimize` is NOT reproducible when several instances run at once, and the SEED evaluation is what moves
 **Status:** Open · found 2026-08-07 (wave 9) when the confirmation arm's own pre-registered control fired ·
 **this voids the wave-9 F32 arm and constrains every future arm's design** ·
+**CLOSED AT THE LANDING LEVEL 2026-08-09 (wave 12): eight landings at fan-out 4, with four workers on FOUR
+DIFFERENT PROFILES split 4/4 on `MaxOutlierRejections`, reproduced the sequential values BIT-IDENTICALLY.
+FAN-OUT IS AUTHORISED AT DEGREE 4 — and it buys only 1.33×, see
+[F60](#f60--fan-out-is-now-safe-and-it-is-barely-worth-doing-optimize-already-saturates-the-machine).** ·
 **MECHANISM IDENTIFIED 2026-08-08 (wave 11): the concurrent processes were running under DIFFERENT NINA
 PROFILES, and the two attractors are two values of `AutoFocusOptions.MaxOutlierRejections` —
 [F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections).
@@ -4052,6 +4214,35 @@ Reproduce: `D:\hf_w9\f32_arms.log`, `D:\hf_w9\score_f32.py`, `D:\hf_w9\ctl_seq_t
 > `"0\n0"`, the numeric comparison errored, and the guard fell through reporting SAFE unconditionally. It was
 > then re-validated against a positive control — a deliberately-started `optimize` — before being trusted, which
 > is the check the wave-9 lesson asks for and which the first version would have failed.)*
+
+> ### CLOSED AT THE LANDING LEVEL (2026-08-09, wave 12) — RULE A12, and the hazard was fully present
+>
+> Wave 11's K5 proved agreement at the **SEED** level only (`--max-evals 1`). This entry's headline number is a
+> **LANDING** rate of **44 %**, triple the seed rate, and nothing had measured landings under concurrency with
+> the fix in place. Wave 12 ran wave 9's arm A again — the eight gate runs, **at fan-out 4** — and required RULE
+> G12's eight values.
+>
+> | clause | verdict | evidence |
+> |---|---|---|
+> | **A1** the eight values to 6 dp | **PASS** | 8 of 8, and **bit-identical to all sixteen digits** |
+> | **A2** ≥2 profiles spanning both `MaxOutlierRejections` groups | **PASS** | **FOUR** distinct profiles; **4 runs at `MOR`=0, 4 at `MOR`=1** |
+> | **A3** the fan-out actually OVERLAPPED | **PASS** | exactly ONE `exclusive` per batch, three `concurrent` — what `WaitOne(0)` must produce at degree 4 |
+> | **A4** `FitInputs` identical on all eight | **PASS** | one distinct value across four different profiles |
+>
+> **A2 is the clause that makes this mean anything.** Four processes drew four different profiles and split 4/4
+> on the integer that used to decide `J` — **pre-fix these eight landings would have partitioned into two
+> groups.** The hazard was fully present and did not reach a single digit. At the measured 44 % per-run rate,
+> `P(8 of 8 | the defect is live) = 0.56⁸ ≈ 0.0097`.
+>
+> **THE AUTHORISATION AND ITS TWO LIMITS.** Fan-out is authorised **AT DEGREE 4**, and only **UNPINNED**:
+> `--profile-id` + fan-out still fails loudly (wave 11's K3), so a fanned-out arm relies on `--settings`
+> carrying the fit inputs. **An arm that needs a specific profile still runs sequentially.** Nothing here says
+> anything about degree 8 or 48.
+>
+> **And it is worth 1.33×, not 4× — see
+> [F60](#f60--fan-out-is-now-safe-and-it-is-barely-worth-doing-optimize-already-saturates-the-machine).**
+> Reproduce: `D:\hf_w12\fanout_w12.sh`, `D:\hf_w12\score_w12.py`, `D:\hf_w12\fanout_score.txt`,
+> `D:\hf_w12\profiles_before_w12.txt`.
 
 ### F54 — F39(b)'s default flip MOVES a landing at a resolved factor of 1, where it is documented as a no-op
 **Status:** Open · found 2026-08-07 (wave 9) chasing [F53](#f53--wave-8s-arm-x-does-not-reproduce-from-wave-8s-own-exe-because-the-arm-ran-on-an-earlier-build-of-it)'s

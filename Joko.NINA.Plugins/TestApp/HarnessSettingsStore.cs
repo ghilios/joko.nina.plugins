@@ -237,6 +237,33 @@ namespace TestApp {
         }
 
         /// <summary>
+        /// The ONE place a harness runner builds <see cref="NINA.Joko.Plugins.HocusFocus.AutoFocus.AutoFocusOptions"/>
+        /// — bound to the pinned settings FILE, never to the active NINA profile.
+        ///
+        /// <para><b>F58(d).</b> Every harness runner built <c>StarDetectionOptions</c> on this accessor and then
+        /// <c>new AutoFocusOptions(profileService)</c> two lines below it, so the DETECTOR was pinned by
+        /// <c>--settings</c> and the FIT was not. Four of <c>AutoFocusOptions</c>' values reach the AF fit, this
+        /// machine's nine profiles partition <b>2 / 7</b> on <c>MaxOutlierRejections</c> alone, and because NINA
+        /// holds a <c>.profile</c> open while it is loaded (and <c>TryLoad</c> silently skips a locked one for the
+        /// next by <c>LastUsed</c>), concurrent harness processes each acquire a DIFFERENT profile. Wave 11 fixed
+        /// <c>optimize</c>; the other five call sites kept the defect for a wave because each owed its own
+        /// validation.</para>
+        ///
+        /// <para><b>A helper rather than five copies of one line</b>, for the same reason
+        /// <see cref="HarnessFitInputs"/> is one type used both to build the fit and to render the provenance
+        /// field: a rule enforced in five places is a rule that comes back. The sixth construction site —
+        /// <c>HocusFocusPlugin.cs</c> — deliberately does NOT call this and must not: in the live app the profile
+        /// IS the user's settings.</para>
+        /// </summary>
+        internal static NINA.Joko.Plugins.HocusFocus.AutoFocus.AutoFocusOptions BuildFitOptions(
+            IProfileService profileService, Resolved resolved) {
+            if (resolved?.Accessor == null) {
+                throw new ArgumentNullException(nameof(resolved), "A harness runner must build its fit from RESOLVED settings, not from the active profile (F58(d)).");
+            }
+            return new NINA.Joko.Plugins.HocusFocus.AutoFocus.AutoFocusOptions(profileService, resolved.Accessor);
+        }
+
+        /// <summary>
         /// Stable fingerprint of the settings a run was ACTUALLY driven by (F30): the resolved pixel-scale inputs
         /// plus the settings file's own contents. Hashes the file's SEMANTIC content, not its bytes — a settings
         /// file that is re-exported or re-indented must not make a landing look as though it came from a different

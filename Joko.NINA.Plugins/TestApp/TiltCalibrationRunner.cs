@@ -175,7 +175,10 @@ namespace TestApp {
             var harnessSettings = HarnessSettingsStore.Resolve(args, profileService, activeProfile);
             var accessor = harnessSettings.Accessor;
             var starDetectionOptions = new StarDetectionOptions(profileService, accessor);
-            var afOptions = new AutoFocusOptions(profileService);
+            // F58(d): the pinned settings FILE, not the active profile -- the detector was pinned one line above
+            // and the FIT was not, which is the asymmetry F58 named in `optimize`.
+            var afOptions = HarnessSettingsStore.BuildFitOptions(profileService, harnessSettings);
+            Console.WriteLine($"FitInputs: {HarnessFitInputs.From(afOptions)}");
             var inspectorOptions = new InspectorOptions(profileService);
             var alglibAPI = new AlglibAPI();
             // The plugin's OWN detection facade, so this harness drives the wizard's split detector (and its

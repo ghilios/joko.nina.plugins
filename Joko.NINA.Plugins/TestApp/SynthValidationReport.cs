@@ -212,6 +212,17 @@ namespace TestApp.SynthBank {
         [JsonProperty("outDir")] public string OutDir { get; set; }
         [JsonProperty("maxRounds")] public int MaxRounds { get; set; }
         [JsonProperty("maxEvals")] public int? MaxEvals { get; set; }
+
+        /// <summary>
+        /// F58(d) — the four values that reach the AF fit, as VALUES rather than a hash, and the profile the run
+        /// loaded. Until wave 12 this runner built <c>AutoFocusOptions</c> from whichever NINA profile was ACTIVE
+        /// while pinning the detector from the settings file, so two reports could differ on
+        /// <c>MaxOutlierRejections</c> with nothing in either saying so.
+        /// </summary>
+        [JsonProperty("fitInputs")] public string FitInputs { get; set; }
+
+        [JsonProperty("profileId")] public string ProfileId { get; set; }
+
         [JsonProperty("datasets")] public List<DatasetValidationReport> Datasets { get; set; } = new List<DatasetValidationReport>();
     }
 
