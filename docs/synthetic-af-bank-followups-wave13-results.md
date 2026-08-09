@@ -557,6 +557,12 @@ wave's own `--per-run` arms, which run on the **pre-fix** binary by design, are 
 **The COUNT was verified, not the tick** (F37: a native test-host crash reports `Failed: 0` while ~2000 tests
 never execute). Nothing was piped to `tail`, which would mask the exit code.
 
+**And CI was verified the same way**, not by its green tick: run `31325536170` on
+[PR #191](https://github.com/ghilios/hocus-focus/pull/191) reports
+`Failed: 0, Passed: 3755, Skipped: 0, Total: 3755` — **the same count as local**, read out of the log. An
+ABSENT check is more dangerous than a red one, and a green one that ran 1389 of 3371 tests is how F37 was
+found.
+
 ### §5.2 What was NOT run, and what it would cost
 
 - **No 39-run population pass at `--max-evals 250` per arm.** Priced at **~3 h each sequentially, ~2 ¼ h fanned
