@@ -4800,7 +4800,8 @@ is not repeatedly investigated.
 ## Process
 
 ### F15 — `optimize --per-run` overwrites each run's stored settings
-**Status:** Open
+**Status:** **Fixed (wave 13)** · open for thirteen waves · the fix does BOTH halves of the next step, because
+they answer different failures
 
 The prepass writes `optimized_settings.json` back into the run folder as well as `--out`. That destroyed
 `bobp_m101`'s historical "row (a)" settings (`sens 50 / clip 9.5`) mid-investigation, leaving only the two knobs
@@ -4818,8 +4819,44 @@ Note the interaction that makes this sharper than it looks: `bank-verify --opt-a
 `golden eval --params optimized` both read the **run folder** copy by default. So a prepass and a later scoring
 run that were meant to be independent can silently share an arm.
 
-**Next step.** Consider writing only to `--out` unless a flag opts into updating the run folder, or snapshot the
-previous file alongside it.
+### Fixed (wave 13)
+
+**The write is now OPT-IN.** `optimize` writes its landing to `--out` unconditionally and into each run's own
+source folder **only** with `--update-run-folder`. The exact invocation thirteen waves used —
+`optimize --per-run --runs <bank> --out <dir>` — no longer touches either bank.
+
+**And when it does not write, it SAYS SO.** The absent write prints a line naming the count of run folders left
+untouched *and* the three readers that will therefore see whatever was there before
+(`bank-verify --opt-a/--opt-b`, `golden eval --params optimized`, `review --runs <same>`). *An absent side
+effect has to be visible, because the whole defect was that it was not.*
+
+**The backup keeps the OLDEST displaced landing, not the most recent one**, and that is the load-bearing
+choice. With the flag given, an existing `optimized_settings.json` is copied to
+`optimized_settings.displaced.json` — but **only if nothing has been preserved there yet**. The file worth
+keeping is the one nobody can reproduce (`bobp_m101`'s `sens 50 / clip 9.5` row); every landing written since is
+reproducible from a recorded command line and survives in its own `--out` directory. **A rolling backup would
+have lost the irreplaceable file on the second pass and kept a reproducible one in its place** — which is F15's
+own failure, re-implemented one level down.
+
+The backup's name is deliberately not `optimized_settings.json`: every bank reader matches that name **exactly**,
+so a backup sharing it would be read back *as* a landing. That is the same reasoning
+`SettingsHandoffFileName` already carries, and it is asserted rather than remembered.
+
+**Why the capability is kept rather than deleted.** The three readers above locate the landing by the run-folder
+copy. Deleting the write would break them; making it opt-in turns a silent side effect into something a command
+line **says**. A prepass and a later scoring run can still share an arm — but now only when someone asked for it.
+
+**Guarded by `LandingWritebackTests` (8 tests).** The policy lives in `TestApp/LandingWriteback.cs`, outside the
+WPF-bound runner, so it is tested against a real filesystem rather than asserted about: the flag is matched
+exactly (`--update-run-folder-never` and `--no-update-run-folder` must NOT opt in — a prefix match would let a
+future flag silently re-enable the write, which is the shape of the defect); the backup preserves the oldest;
+and a **source guard** requires the per-run write loop to stay gated on the opt-in. **The guard checks itself
+first**, on literals in both directions, and it was verified to FAIL against `f9f2074`'s source before it was
+called a test.
+
+**What this does NOT undo.** Both banks' stored `optimized_settings.json` are still the last landing some wave
+wrote into them; nothing here recovers wave 1's. Wave 13 snapshotted all 42 of them to
+`D:\hf_w13\bank_settings_snapshot\` before its own arms ran, which is the first time that has been done.
 
 ### F37 — The CI test host crashes natively (`AccessViolationException`), aborting ~2000 tests with zero failures
 **Status:** Open · found 2026-08-04 merging [PR #170](https://github.com/ghilios/hocus-focus/pull/170)

@@ -130,7 +130,11 @@ namespace TestApp {
                 var accessor = harnessSettings.Accessor;
                 var options = new StarDetectionOptions(profileService, accessor);
                 baseParams = HocusFocusStarDetection.BuildStarDetectorParams(options);
-                paramsSource = "current profile (no saved detection JSON found in run)";
+                // Name the FILE, not "the current profile". This line used to say "current profile", which was
+                // false the moment HarnessSettingsStore took over the fallback — and a provenance line that
+                // names the wrong source is worse than none, because it is quotable. F57/F58 are what a
+                // profile-sourced input costs; a log that claims one when the file was used hides exactly that.
+                paramsSource = $"harness settings file (no saved detection JSON found in run): {harnessSettings.Path ?? "code defaults"}";
             }
             baseParams.ModelPSF = false; // AutoFocus never models PSF; HFR is the measured quantity.
             Console.WriteLine($"Detector params from: {paramsSource}");

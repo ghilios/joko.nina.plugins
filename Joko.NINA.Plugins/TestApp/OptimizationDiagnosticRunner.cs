@@ -223,6 +223,21 @@ namespace TestApp {
             // across incompatible cameras/scopes is meaningless.
             bool perRun = args.Any(a => string.Equals(a, "--per-run", StringComparison.OrdinalIgnoreCase));
 
+            // --update-run-folder is F15's opt-in, and the DEFAULT is now "do not touch the bank".
+            //
+            // For thirteen waves `optimize` wrote its landing back into every run's own source folder as well as
+            // into --out, with no way to suppress it. That destroyed `bobp_m101`'s historical settings
+            // mid-investigation (F15), silently re-baselined BOTH banks in wave 3, and is the last thing forcing
+            // whole passes to be serialized against one another: two passes over the same bank collide IN THE
+            // BANK, however carefully their --out directories are kept apart.
+            //
+            // THE INTERACTION THAT MAKES IT SHARPER THAN IT LOOKS, and it is why the capability is kept rather
+            // than deleted: `bank-verify --opt-a/--opt-b` and `golden eval --params optimized` read the RUN
+            // FOLDER copy by default, and `review --runs <same>` auto-discovers it. A prepass and a later
+            // scoring run that were meant to be independent can therefore silently share an arm. Making the
+            // write opt-in does not remove that hazard; it makes it something a command line SAYS.
+            bool updateRunFolder = LandingWriteback.ShouldUpdateRunFolder(args);
+
             // --verbose is a valueless flag that restores TRACE logging for offline inspection. By default the
             // optimize harness runs at INFO so the detector's thousands of per-detection Logger.Trace stage-timing
             // lines (LoadImage/SrcImagePreparation/WaveletCalculation/...) short-circuit instead of serializing to
@@ -446,7 +461,8 @@ namespace TestApp {
                 ContinueRounds = continueRounds,
                 KeepFloor = keepFloor,
                 NoMinHfrSeed = noMinHfrSeed,
-                ApplyRunDetectionBinning = applyRunDetectionBinning
+                ApplyRunDetectionBinning = applyRunDetectionBinning,
+                UpdateRunFolder = updateRunFolder
             };
             Console.WriteLine(applyRunDetectionBinning
                 ? "detection binning (F39b): each per-run dataset is DETECTED at its own derived binning factor (default; --no-run-detection-binning opts out)"
@@ -505,6 +521,7 @@ namespace TestApp {
             public double? KeepFloor;   // --keep-floor: F32 detection-keep feasibility floor (null = unconstrained)
             public bool NoMinHfrSeed;   // --no-min-hfr-seed: F35 seeding off, so this binary can produce its own control
             public bool ApplyRunDetectionBinning; // --apply-run-detection-binning: F39(b); false => bit-identical
+            public bool UpdateRunFolder; // --update-run-folder: F15; write the landing back INTO each run's source folder
 
             // F30: which invocation is producing these landings. Stamped onto every optimized_settings.json this
             // run writes, so a bank folder full of prepasses from different arms stops being ambiguous.
@@ -923,14 +940,15 @@ namespace TestApp {
                 loadedRuns, perRunBaseline, perRunBest, objectiveConstants, focuserMaxStep, ctx.LabelsDir, settings, passed, worstFrameCount, worstRunId);
             WriteCsv(Path.Combine(targetDir, "optimize_result.csv"), loadedRuns, perRunBaseline, perRunBest);
 
-            // Optimized-settings handoff: write the winning snapshot as optimized_settings.json into each focus run's
-            // own source folder (so `review --runs <same>` auto-discovers it) plus a single copy in the --out dir.
-            // Uses the SAME params->DTO mapping the wizard's Apply() uses (OptimizedStarDetectionSettings.FromParams)
-            // so the headless and in-app handoffs can never drift. The source-folder copies each carry that run's OWN
-            // recommended step (StepSizeRecommender, exactly as BuildAggregateRow computes it); the single --out copy
-            // uses the representative (first) run's step in joint mode (see WriteOptimizedSettings).
+            // Optimized-settings handoff: a single copy in the --out dir ALWAYS, plus — only with
+            // --update-run-folder (F15) — the winning snapshot written back into each focus run's own source
+            // folder, so `review --runs <same>` auto-discovers it. Uses the SAME params->DTO mapping the wizard's
+            // Apply() uses (OptimizedStarDetectionSettings.FromParams) so the headless and in-app handoffs can
+            // never drift. The source-folder copies each carry that run's OWN recommended step (StepSizeRecommender,
+            // exactly as BuildAggregateRow computes it); the single --out copy uses the representative (first)
+            // run's step in joint mode (see WriteOptimizedSettings).
             WriteOptimizedSettings(targetDir, loadedRuns, perRunBest, result, baselineJ, focuserMaxStep, ctx.Provenance,
-                ctx.StarDetectionOptions, ctx.KeepFloor);
+                ctx.StarDetectionOptions, ctx.KeepFloor, ctx.UpdateRunFolder);
 
             await WriteAnnotatedFrames(targetDir, loadedRuns, result.BestParams, ctx.Detector,
                 ctx.MeasurementAverage, ctx.HighSigmaOutlierRejection, ctx.LowSigmaOutlierRejection, ctx.AnnotateAll).ConfigureAwait(false);
@@ -1000,12 +1018,25 @@ namespace TestApp {
         /// record).</summary>
         internal const string SettingsHandoffFileName = "hocusfocus_star_detection.json";
 
+        /// <summary>F15's policy — the opt-in flag and the displaced-landing backup — lives in
+        /// <see cref="LandingWriteback"/>, outside this WPF-bound file, so it can be unit-tested against a real
+        /// filesystem instead of asserted about.</summary>
+
         private static void WriteOptimizedSettings(
             string targetDir, List<LoadedHarnessRun> loadedRuns, List<RunEvaluationResult> perRunBest,
             OptimizationResult result, double baselineJ, int? focuserMaxStep, OptimizerProvenance provenance = null,
-            StarDetectionOptions baseOptions = null, double? keepFloor = null) {
+            StarDetectionOptions baseOptions = null, double? keepFloor = null, bool updateRunFolder = false) {
             // Per-run source-folder copies: each run's frame directory gets the winner snapshot with its OWN step.
-            for (int i = 0; i < loadedRuns.Count; i++) {
+            // F15: OPT-IN ONLY. The default leaves the bank exactly as it found it, and SAYS SO — an absent write
+            // has to be visible, because the whole defect was that it was not.
+            if (!updateRunFolder) {
+                Console.WriteLine(
+                    $"  --update-run-folder not given: left {loadedRuns.Count} run folder(s) untouched (F15). " +
+                    "The landing is in the --out dir only. Note that `bank-verify --opt-a/--opt-b`, " +
+                    "`golden eval --params optimized` and `review --runs <same>` read the RUN FOLDER copy, so " +
+                    "they will see whatever was there before this pass.");
+            }
+            for (int i = 0; updateRunFolder && i < loadedRuns.Count; i++) {
                 var run = loadedRuns[i];
                 try {
                     var rec = StepSizeRecommender.Recommend(perRunBest[i].BestFit, run.StepSize, focuserMaxStep);
@@ -1019,8 +1050,11 @@ namespace TestApp {
                     var runFolder = string.IsNullOrEmpty(firstFramePath) ? null : Path.GetDirectoryName(firstFramePath);
                     if (!string.IsNullOrEmpty(runFolder)) {
                         var runPath = Path.Combine(runFolder, "optimized_settings.json");
+                        var backup = LandingWriteback.SnapshotExistingLanding(runPath);
                         File.WriteAllText(runPath, json);
-                        Console.WriteLine($"  wrote optimized_settings.json to {runPath}");
+                        Console.WriteLine(backup == null
+                            ? $"  wrote optimized_settings.json to {runPath}"
+                            : $"  wrote optimized_settings.json to {runPath} (previous file preserved as {Path.GetFileName(backup)})");
                         WriteSettingsHandoff(runFolder, dto, baseOptions, run.Discovered.RunId);
                     } else {
                         Console.Error.WriteLine($"  WARNING: could not resolve source folder for run '{run.Discovered.RunId}'; skipped the in-folder optimized_settings.json");
