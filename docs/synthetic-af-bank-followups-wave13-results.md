@@ -285,7 +285,113 @@ three. *The real bank cannot tell you that. It is exactly what the synthetic ban
   of runs" is not a constant of nature — it is a number for *these settings*, and no fire-rate figure in this
   document should be quoted without them.
 
-### §2.5 What I1 cannot say
+### §2.5 I4 — the seed evaluation over the 39-run population, and F57 closes
+
+`optimize --max-evals 1` over both banks at S0 and S1, 15:44–16:31Z. **No search runs**, so `BaselineJ` and
+`BaselineSigmaFocus` are a pure function of (frames, detector settings, fit inputs) and the two arms differ in
+nothing but the rejection budget. **39 of 39 evaluated, 0 UNEVALUATED**, and `HardFloorPassed` is identical on
+all 39 — a free control.
+
+> **8 of 39 move. 31 do not.** The same eight move `BaselineJ` and `BaselineSigmaFocus`.
+
+| run | `BaselineJ` 0 → 1 | Δ`J` | σ_focus |
+|---|---|---|---|
+| **`toml999`** | **0.98347680 → 0.99784046** | **+0.01436366** | −70.04 % |
+| `D16_esprit550_ha3` | 0.97917271 → 0.98855467 | +0.00938196 | −36.20 % |
+| `D17_cdk14_oiii5` | 0.99306172 → 0.99482985 | +0.00176813 | **−88.30 %** |
+| `D10_rc16_3250mm_sparse` | 0.95720127 → 0.95892906 | +0.00172779 | −58.03 % |
+| `D12_c14_585_afbin2` | 0.98566299 → 0.98737765 | +0.00171466 | −68.27 % |
+| `D14_cdk14_2563mm_e47` | 0.99750026 → 0.99790054 | +0.00040029 | −22.55 % |
+| `D15_cdk20_3454mm_e47` | 0.99447379 → 0.99470277 | +0.00022898 | −19.00 % |
+| `mufti` | 0.95760278 → 0.95708737 | **−0.00051540** | +2.05 % |
+
+> ### **F57 CLOSES, and it closes on both of its own numbers.**
+>
+> [F57](followups.md) recorded that "the active NINA profile moves `BaselineJ` by 0.014" and could not say which
+> quantity; [F58](followups.md) named `MaxOutlierRejections` from five pre-existing profiles that happened to
+> agree. **This arm changes ONE KEY IN ONE FILE with the profile pinned constant and recovers both historical
+> values exactly:** `toml999` at `MOR`=0 gives **0.983477** — wave 11's value, and RULE G13's free control this
+> very wave — and at `MOR`=1 gives **0.997840**, which is **wave 9's**. F57 quoted the gap as 0.0144; it is
+> **0.01436366**.
+>
+> *Five profiles agreeing is a correlation. One integer, one file, both numbers back, is the intervention.*
+
+**And two instruments agree bit-for-bit.** `D16`'s σ_focus is **0.637816 → 0.406902** in I1 (`af-fit`) and
+**0.637816 → 0.406902** in I4 (`optimize`'s seed) — separate runners, separate code paths, six digits identical.
+
+**D4 does not vote, as pre-registered**, and this is why: σ_focus falls by up to **88 %** (`D17`) on the very
+dataset the register calls a starvation extreme, and D1 established that on the synthetic bank — the only place
+truth exists — an improvement of exactly this shape bought **no** improvement in accuracy.
+
+**A note on the fire rate, which is not one number.** The knob fires on 8 of 39 through `optimize`'s pipeline,
+7 of 39 through `af-fit`'s, and 0 of 19 through `bank-verify`'s `C0@nc4` — and **not on the same runs**. Only
+`D12` and `D16` fire in more than one. Each pipeline builds the HFR curve differently (pooling, weighting,
+recovery handling, per-run detection binning), and the curve decides whether the Grubbs test has anything to
+reject. **≈20 % is the rate wherever it is measured; it is never the same 20 %.**
+
+### §2.6 I5 — the LANDING moves on 6 of 8, and the seed moved on 1 of those 8
+
+The gate arm is `MOR`=0's half (`--max-evals 250`, the same eight runs); `D:\hf_w13\land_mor1` is `MOR`=1's.
+**`BestJ` is not compared across arms and the scorer refuses to compute a cross-arm delta** — a number that
+must not be compared is best not computed.
+
+| run | landing | `RecommendedStepSize` | `BrightnessSensitivity` |
+|---|---|---|---|
+| `CWhiteFocus` | **moved** | **101 → 118** | 49.875 → 50.0 |
+| `D18_m24_deep_shed` | **moved** | 18 → 17 | **14.67 → 32.83** |
+| `D19_cygnus_deep_shed` | **moved** | 35 → 35 | |
+| `D20_m24_bright_control` | **moved** | | |
+| `mccomiskey` | **moved** | 31 → 32 | |
+| **`toml999`** | **moved** | **16 → 19** | **16.67 → 33.33** |
+| `muggsie` | *(none)* | 550 → 550 | |
+| `uneven` | *(none)* | 488 → 488 | |
+
+> **The search AMPLIFIES a knob that is nearly inert at the seed.** Of these eight runs the seed evaluation
+> moved on exactly **one** (`toml999`, §2.5) — and the *landing* moves on **six**. A search follows `J`, and `J`
+> shifts wherever the rejection fires *anywhere in the explored space*, not merely at the starting point. So the
+> knob's reach into the product's **recommendation** is far wider than its reach into any single fit.
+>
+> **"Moved" is not "worse".** `BestJ` is computed by the fit under test, so neither landing can be called
+> better. What is established is that **the settings the optimizer recommends to a user depend on this integer**
+> — including the recommended AF step size, by up to **17 %** (`CWhiteFocus` 101 → 118), and the brightness
+> sensitivity, by a **factor of two** on two runs.
+>
+> **The consequence for this register is direct: every landing waves 5–12 published was produced at
+> `MaxOutlierRejections` = 0, which is not the shipped default**, and at the shipped default the optimizer
+> would have recommended different settings on 6 of these 8 runs.
+
+### §2.7 RULE M13 — the verdict
+
+| clause | result |
+|---|---|
+| **D0** validity (detector quantities) | **PASS** — 0 of 19 moved, full double precision |
+| **D1** primary, out of sample | **NO DOMINANCE.** 16 / 20 ties; wins 3–0 to `MOR`=0; median \|Δe\| **0.00128 step** against a 0.10 floor |
+| **D2** AF fit, real bank, corroborating | 0 of 19 moved at budget 1; **3 of 19 at budget 3**, so the path is live |
+| **D3** sensor fit | moves on 15 of 19; `MOR`=0 better on **10 of 10** like-for-like `sChi`; θ up to **13.4 %** |
+| **D4** the objective | 8 of 39 move; reported as magnitude, **does not vote** |
+| **D5** the landing | **6 of 8 move** |
+
+> ## **THE SHIPPED DEFAULT STAYS AT 1 — and the pre-registered "no change" is the outcome.**
+>
+> D1 did not fire in either direction, so the ship rule's condition for changing the default was never met.
+> **That is a real answer, and it was named as one before the data existed.**
+>
+> **But "no change" is not "no finding", and three of these are worth more than the verdict:**
+>
+> 1. **A knob that moved every number this project argued about does not decide the product** — but it *does*
+>    decide the product's **recommendation** (D5: 6 of 8 landings), which is the one place nobody had looked.
+> 2. **σ_focus is anti-informative when a rejection is what changed it.** It improves by up to 88 % on data
+>    where the distance to a known truth improves on **zero of four** datasets. Any future arm scoring a
+>    rejection change on σ_focus is measuring the arithmetic of its own denominator.
+> 3. **The default is the BOUND, not merely a value.** At budget 3 the Grubbs cascade takes `caboose` — R² =
+>    0.99987 — to **12.7× worse** σ_focus. `MaxOutlierRejections` = 1 is safe on this population *because it
+>    almost never fires*, and the smallness of the budget is the only thing containing a test that gets more
+>    confident the better the fit becomes.
+>
+> **F61's asymmetry was checked and did not materialise.** The AF fit is silent, the sensor fit prefers 0, the
+> out-of-sample arbiter never prefers 1. Nothing to average.
+
+### §2.8 What I1 cannot say
 
 Four firings is four. The 3–0 direction is consistent with F45 and is **not evidence at any conventional bar**
 (a 3–0 sign test is *p* = 0.25 one-sided); what the arm establishes is the **magnitude bound** — on this
@@ -425,3 +531,113 @@ POST-CHANGE (working tree)   guard matches: True
 wrote into them; nothing here recovers wave 1's. Wave 13 snapshotted all **42** of them to
 `D:\hf_w13\bank_settings_snapshot\` before its own arms ran — the first time that has been done — and this
 wave's own `--per-run` arms, which run on the **pre-fix** binary by design, are the last that will need it.
+
+---
+
+## §5 — The suite, and what this wave did NOT run
+
+### §5.1 The suite
+
+**3755 passed, 0 failed, 0 skipped.** `develop` was **3744**, so **+11**, and every one is named:
+
+| test | what it pins |
+|---|---|
+| `TheRunFolderWriteIsOFF_UnlessTheFlagIsGiven` | the exact invocation thirteen waves used no longer touches either bank |
+| `TheFlagOptsIn_AndIsMatchedExactlyRatherThanByPrefix` | `--update-run-folder-never` and `--no-update-run-folder` must NOT opt in — a prefix match would let a future flag silently re-enable the write |
+| `SnapshotPreservesTheFileThatWasThere` | the displaced landing survives |
+| `TheBackupKeepsTheOLDESTDisplacedLanding_NotTheMostRecent` | a rolling backup would lose the irreplaceable file on the second pass |
+| `TheBackupNameIsNotOneTheBankReadersMatch` | every bank reader matches `optimized_settings.json` EXACTLY; a backup sharing it would be read back as a landing |
+| `SnapshotIsSilentAndHarmlessWhenThereIsNothingToPreserve` | no landing, no backup — a backup of nothing would be a file that lies |
+| `TheGuardsOwnPatternMatchesTheGatedLoopAndNotTheUngatedOne` | the source guard's own regex, in **both** directions, on literals |
+| `TheRunFolderWriteLoopIsGatedOnTheOptIn` | the write loop stays gated — verified to FAIL against `f9f2074` before being called a test |
+| `TheFixtureStillCarriesTheThreeInterfaceTypedBlocks_OrItProvesNothing` | the A2 fixture still contains what breaks the naive read |
+| `APlainDeserializeOfARealReportSTILLTHROWS` | …and still breaks it, so the next test is not decoration |
+| `TheProductionLookupReadsTheSameFileAndKeepsTheInfoRowFIELDS` | a REAL report is found and its info-row fields survive |
+
+**The COUNT was verified, not the tick** (F37: a native test-host crash reports `Failed: 0` while ~2000 tests
+never execute). Nothing was piped to `tail`, which would mask the exit code.
+
+### §5.2 What was NOT run, and what it would cost
+
+- **No 39-run population pass at `--max-evals 250` per arm.** Priced at **~3 h each sequentially, ~2 ¼ h fanned
+  out** (F60's measurement, not the "~4× cheaper" assumption it replaced). It would not have decided anything:
+  `BestJ` is computed by the fit under test and is not comparable across arms (D4). I4 bought the population
+  statistic at `--max-evals 1` in **47 minutes for both arms**.
+- **No I5 beyond the 8 gate runs.** D5's "6 of 8 landings move" is bounded to that set. Extending it to 39 is
+  the ~3 h pass above, and it is now the **most interesting** thing left undone, because D5 was the clause that
+  fired.
+- **F59's five knobs stay at code defaults.** Re-pinning moves the coordinate system RULE G13 has now
+  reproduced a fourth time; price ≈ one 8-run gate (~42 m) plus re-deriving every cross-wave comparison.
+- **No landing-level wavelet bisect** (`D:\hf_w10\exe_v1wav`, built wave 10, **still unused**). See F57(d).
+- **Item 2's nine UI changes remain unconfirmed as rendered pixels.** Price: ~30 minutes on a **connected**
+  desktop session (§3).
+
+### §5.3 The budget, against the estimate
+
+*Pre-registered in the design so the wave could be scored against it.*
+
+| arm | estimated | actual |
+|---|---|---|
+| RULE G13 | ~45 m | **41 m 46 s** |
+| I1 — af-fit ×20 synthetic | ~60 m | **3 m 46 s** |
+| I2 — af-fit ×19 real | ~40 m | **7 m** |
+| I3 — bank-verify ×2 | ~25 m | **22 m** |
+| I4 — optimize ×39 ×2 | ~55 m | **47 m** |
+| I5 — optimize ×8 at S1 | ~45 m | **21 m** |
+| *(added mid-wave)* MOR=3 control | — | 11 m |
+
+> **I1 was over-priced by 16×, and the reason is worth keeping.** `af-fit` detects each frame **once** and then
+> evaluates four rejection budgets on those points, while the estimate priced it like an `optimize` pass. *The
+> instrument that answers a question on one detection pass is not merely cheaper than two passes — it is a
+> different order of cost, and that is exactly why it was chosen. The estimate did not know its own reason.*
+
+---
+
+## Lessons
+
+**1. Score the change on something the change cannot move.** σ_focus, `J` and R² are all computed **by** the fit
+under test, so a rejection budget allowed to discard its worst-fitting point is then graded on what survives.
+It improves by up to **88 %** — and on the only population where truth exists, that same improvement moved the
+answer closer to the true focus on **zero of four** datasets. A wave that had used the project's own favourite
+quantity would have shipped the opposite conclusion with a straight face. *The arbiter has to be out of sample,
+and on this project it was free: the synthetic bank has known focus positions and nobody had ever scored
+against them.*
+
+**2. The instrument was already printed, and it was 16× cheaper than the estimate.** `af-fit` has emitted a
+rejection-budget table since wave 6 and had been read for exactly one run. It evaluates budgets 0–3 on **one**
+detection pass, which makes the two arms perfectly paired *and* makes the whole 20-dataset population cost
+**3 m 46 s** against a 60-minute estimate. The estimate was wrong because it priced the tool without its
+mechanism. *Before building an instrument, grep the ones you already print — and when you pick one because of a
+property, price it with that property.*
+
+**3. A control that cannot fail is not a control — and "nothing moved" needs one more than "something moved"
+does.** D2 reported 0 of 19 on the real bank, which reads as a clean null and is equally consistent with a knob
+that never reaches the code. A code read ruled that out; a code read is weaker than a measurement. **The
+`MaxOutlierRejections` = 3 arm cost 11 minutes and converted "the knob does nothing here" into a measured fact**
+— it fires on 3 of 19 at budget 3. It also produced the wave's sharpest result by accident: `caboose`, R² =
+0.99987, degrades **12.7×**.
+
+**4. Silent truncation exits 0.** Two drivers in this wave would have reported success on a fraction of their
+population: one bank path contains a space (`timmer/5 AutoFocus_…`), and `TestApp.exe` inherits a read loop's
+stdin and eats the rest of the list — I2's first attempt "completed" in 25 seconds having scored **1 of 19**
+runs, with every row it produced perfectly valid. *A per-row check passes with flying colours on a population of
+one. The population SIZE is its own assertion, and F37's "verify the count, not the tick" is not only about
+test hosts.*
+
+**5. Intervention beats correlation, and it closes things correlation cannot.** F58 named
+`MaxOutlierRejections` from five pre-existing profiles that happened to agree, and F57 was left saying "the
+profile moves `BaselineJ` by 0.014". Changing **one key in one file**, with the profile pinned constant,
+recovers **both** historical numbers — wave 11's 0.983477 and wave 9's 0.997840 — and the gap is
+**0.01436366**. *Five profiles agreeing is a correlation; one integer and both numbers back is the experiment.*
+
+**6. Ask where the knob reaches, not only whether it matters.** D1, D2 and D3 all said "inert or nearly so", and
+the item could have stopped there. D5 — the clause that asked whether the **recommendation** moves — fired on
+**6 of 8**, because a search follows `J` and `J` shifts wherever the rejection fires *anywhere in the explored
+space*, not merely at the seed. The knob is nearly inert on any single fit and decides what the product tells a
+user. **Those are different questions and only one of them was being asked before this wave.**
+
+**7. When a blocked item is blocked for a NEW reason, that is progress, and it has to be said precisely.** The
+app check has slipped four waves on a silent `xcopy`. This wave verified the deployed DLL byte-for-byte
+**before** launching — that step passed — and hit a different wall: the Windows session is **disconnected**, so
+there is no composited desktop and a WPF client area cannot be captured by any of three routes. *"Not this
+wave's item" is not a diagnosis. "`query session` says `Disc`" is one, and it names what would fix it.*

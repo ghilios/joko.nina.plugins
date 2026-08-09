@@ -3026,11 +3026,47 @@ to a fifth of its own error bar, and is discarded as an outlier anyway.
 - The blind walk's cost is deterministic and per-run: one exposure, on a rig class whose exposures are the
   expensive part.
 
+> ### WAVE 13: MEASURED ON A POPULATION, AND THE COMPLAINT IS REAL BUT RARE AND SMALL
+>
+> `af-fit`'s rejection-budget table (this entry's own reproducer, printed since wave 6 and read for exactly one
+> run) was run over **20 synthetic datasets** and **19 real bank runs**, at the pinned
+> `OutlierRejectionConfidence` 0.95 — which fires MORE readily than the 0.99 of the field case above (the Grubbs
+> limit at N=9 is 2.2150 at 0.95 against 2.3868 at 0.99).
+>
+> | | fires | silent |
+> |---|---|---|
+> | 20 synthetic datasets | **4** | 16 |
+> | 19 real bank runs | **3** | 16 |
+>
+> **`D16_esprit550_ha3` is this entry reproduced with GROUND TRUTH.** The point the Grubbs test discards is
+> position **8000 — the generator's true focus** — on a fit with R² = 0.9954, and the vertex then moves *away*
+> from it (error 0.00067 → 0.00200 step). F45 found this once, on one field run, and could only argue that the
+> discarded point "is the most informative one in the sweep". It is now reproduced where the right answer is
+> known by construction.
+>
+> **But "the rejected point is the IN-FOCUS one" is one case, not the rule.** Across the four synthetic firings
+> the rejected point sits at **0, 1, 2 and 3 steps** from truth; on the real bank the median distance is
+> **1.25 steps**. And the displacement is tiny: median **0.00128 step**, largest **0.0099 step** — far below
+> anything that could cost the blind walk an exposure on these sweeps.
+>
+> **What IS serious is what happens with a bigger budget.** At `MaxOutlierRejections` = 3, `caboose` — a real
+> run whose fit has R² = **0.99987** — degrades to σ_focus **1.4325 → 18.185 (12.7×)**, R² → 0.9235, reduced χ²
+> **0.00427 → 3.342**. That is this entry's own mechanism running to completion: the better the fit, the smaller
+> the MAD, the more aggressively the test fires, and each removal tightens the scale for the next. **The shipped
+> default of 1 is the BOUND, not merely a safe value** — the smallness of the budget is the only thing containing
+> it. See [F63](#f63--the-optimizers-landing-moves-on-6-of-8-runs-under-a-knob-that-is-nearly-inert-at-the-seed-so-every-landing-waves-5-12-published-was-produced-at-a-non-default-value)
+> for the one place the knob is NOT inert: the optimizer's landing moves on 6 of 8 runs.
+>
+> Reproduce: `D:\hf_w13\affit_w13.sh`, `D:\hf_w13\affit_syn_score.txt`, `D:\hf_w13\bv_compare_mor3.txt`.
+
 **Next step, and what NOT to do.** Three separable questions, deliberately not answered here:
 (a) should the queue anchor be a *fitted* vertex (`HyperbolicFitting.Minimum.X`, or `Intersection`) rather than a
 post-rejection argmin data point — note `Minimum` is also the anchor for the left/right trend split, so changing
 its meaning is not local; (b) should `RejectionTest`'s MAD scale carry a **floor tied to the points' own measured
-σ**, so a point cannot be an outlier while sitting well inside its own error bar; (c) should the walk's
+σ**, so a point cannot be an outlier while sitting well inside its own error bar — **wave 13 raises the priority
+of (b) and lowers (a) and (c)**: at budget 1 the symptom is real but costs ≤ 0.01 step of vertex, while (b) is
+what stops the `caboose` cascade at budget 3, and (b) is also the only one of the three that would let the
+budget be raised safely; (c) should the walk's
 `while (rightMostPosition < targetMaxFocuserPosition)` compare with a half-step tolerance, which bounds the
 symptom without touching either fit. **(b) changes every AF fit in the product** and must be measured on the bank
 before it is contemplated — the AF-bank σ_focus/R² arms are the instrument.
@@ -3569,6 +3605,95 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
+### F63 — The optimizer's LANDING moves on 6 of 8 runs under a knob that is nearly inert at the seed, so every landing waves 5-12 published was produced at a NON-DEFAULT value
+**Status:** Open · found 2026-08-09 (wave 13) by RULE M13's D5 — **the clause that asked whether the
+RECOMMENDATION moves, which is the one question nobody had asked**
+
+`MaxOutlierRejections` decides whether the AF fit may drop one Grubbs outlier. Wave 13 measured it four ways and
+three of them said "inert or nearly so": the out-of-sample vertex error is unmoved on 16 of 20 synthetic
+datasets (D1), `bank-verify`'s run-level AF fit is unmoved on 19 of 19 (D2), and the seed evaluation moves on
+8 of 39 population runs (D4).
+
+**Then D5 asked a different question and got a different answer.** Re-running the eight-run gate at
+`MaxOutlierRejections` = 1 against the gate's own `= 0` landings, at `--max-evals 250`:
+
+| run | landing | `RecommendedStepSize` | `BrightnessSensitivity` |
+|---|---|---|---|
+| `CWhiteFocus` | **moved** | **101 → 118** | 49.875 → 50.0 |
+| `D18_m24_deep_shed` | **moved** | 18 → 17 | **14.67 → 32.83** |
+| `D19_cygnus_deep_shed` | **moved** | 35 → 35 | |
+| `D20_m24_bright_control` | **moved** | | |
+| `mccomiskey` | **moved** | 31 → 32 | |
+| `toml999` | **moved** | **16 → 19** | **16.67 → 33.33** |
+| `muggsie` | *(none)* | 550 → 550 | |
+| `uneven` | *(none)* | 488 → 488 | |
+
+**6 of 8 — and the SEED evaluation moved on exactly ONE of those eight** (`toml999`). A search follows `J`, and
+`J` shifts wherever the rejection fires **anywhere in the explored space**, not merely at the starting point.
+**The search amplifies a knob that is nearly inert on any single fit.**
+
+### Why it matters
+
+- **The recommended AF step size changes by up to 17 %** (`CWhiteFocus` 101 → 118) and the brightness
+  sensitivity by a **factor of two** on two runs. These are the numbers the wizard hands the user.
+- **Every landing waves 5–12 published was produced at `MaxOutlierRejections` = 0**, because that is `astrodet`'s
+  value and `astrodet` is the pinned profile — and the SHIPPED default is **1**
+  (`AutoFocusOptions.cs:62`). At the shipped default the optimizer would have recommended different settings on
+  6 of these 8 runs.
+- **"Moved" is NOT "worse".** `BestJ` is computed by the fit under test, so neither landing can be called
+  better, and wave 13's scorer deliberately refuses to print a cross-arm `BestJ` delta so nobody quotes one.
+  What is established is dependence, not direction.
+
+### Next step
+
+(a) **Extend D5 to the 39-run population** — priced at ~3 h sequentially (~2 ¼ h fanned out, [F60](#f60--fan-out-is-now-safe-and-it-is-barely-worth-doing-optimize-already-saturates-the-machine)); it is the
+most interesting thing wave 13 left undone, because D5 is the clause that fired.
+(b) **Decide whether the harness should pin the SHIPPED default rather than `astrodet`'s.** That moves the
+coordinate system RULE G13 has now reproduced four times, so it needs a new baseline and is a decision, not a
+cleanup — the same price as [F59](#f59--the-settings-export-drops-every-knob-whose-setter-validates-so-pinned_settingsjson-has-been-missing-five-detector-knobs-since-wave-5)'s five knobs.
+Reproduce: `D:\hf_w13\land_w13.sh`, `D:\hf_w13\land_score.txt`.
+
+### F62 — σ_focus is ANTI-INFORMATIVE when an outlier rejection is what changed it: it improves by up to 88 % while the distance to a known truth improves on none
+**Status:** Open (a standing warning about the register's own favourite quantity) · found 2026-08-09 (wave 13)
+by RULE M13's D1, whose arbiter was deliberately put out of sample
+
+`RunEvaluationData` sets `SigmaFocus = bestFit.MinimumStdError` — the parametric standard error of the fitted
+minimum, computed **on the points that SURVIVED the rejection**. So a rejection budget that is allowed to
+discard its worst-fitting point is then graded on what remains. **It must improve. That is arithmetic, not
+evidence.**
+
+The synthetic bank can check it, because `renderRequest.OptimalFocuserPosition` is the generator's TRUE focus
+and the sweep is symmetric about it. On the four datasets where the rejection fires:
+
+| dataset | σ_focus 0 → 1 | Δσ | \|vertex − truth\| 0 → 1 | truth says |
+|---|---|---|---|---|
+| `D01_ultrawide_40mm` | 0.6144 → 0.5264 | **−14.3 %** | 0.00111 → 0.00111 | unchanged |
+| `D08_c11_2800mm` | 0.7897 → 0.4971 | **−37.0 %** | 0.01829 → 0.01951 | **worse** |
+| `D12_c14_585_afbin2` | 1.5717 → 1.7766 | +13.0 % | 0.00142 → 0.01135 | **worse** |
+| `D16_esprit550_ha3` | 0.6378 → 0.4069 | **−36.2 %** | 0.00067 → 0.00200 | **worse** |
+
+> **σ_focus improves on 3 of 4. The distance to truth improves on 0 of 4.** They agree on one dataset, and on
+> `D08` and `D16` they point in OPPOSITE directions — the reported uncertainty falls by more than a third while
+> the actual error grows. Over the 39-run population the same change reaches **−88.3 %** on `D17_cdk14_oiii5`.
+
+### Why it matters beyond this knob
+
+`J`, R² and reduced χ² have the same shape — every one is computed by the fit under test. **Any arm that scores
+a REJECTION change on a within-fit statistic is measuring the arithmetic of its own denominator.** A wave that
+had scored wave 13's item 1 on σ_focus would have concluded that allowing the rejection improves the fit by a
+third, on data where it never once moved the answer closer to the truth.
+
+**This does not retract σ_focus as an objective term.** It is a fine comparator when what changed is the
+DETECTOR (the point set is then common to both arms). The failure is specific to changes that alter **which
+points are fitted**.
+
+### Next step
+
+None required. Recorded so the next arm over a rejection, a point-pruning rule, or any change that alters the
+fitted point set puts its arbiter out of sample — on the synthetic bank, which has had known focus positions
+since it was built and had never been scored against them. Reproduce: `D:\hf_w13\affit_syn_score.txt`,
+`D:\hf_w13\score_affit_w13.py`.
+
 ### F61 — F58(d)'s real consumer was the SENSOR MODEL, not the AF fit: the per-star paraboloid's rejection budget came from the active profile
 **Status:** **Fixed (wave 12)** for every harness runner · found 2026-08-09 by RULE B12-D, **the control written
 to prove the fix was a no-op** · **the numbers it moved are TILT numbers**
@@ -3619,6 +3744,22 @@ sensitive.
 
 (a) **When a tilt result must be compared across sessions, the comparison needs `FitInputs`** — now printed by
 every converted runner and stored in `bank-verify`'s and `synth-validate`'s reports.
+
+> **WAVE 13 measured this on a population, with ONE variable changed, and the warned-of asymmetry did NOT
+> materialise.** Wave 12's 7.6 % on `muggsie` compared `astrodet` against `Default`, and those two profiles
+> differ in `OutlierRejectionConfidence` as well (0.95 vs 0.99) — so it conflated two changed fit inputs. Moving
+> **one key in one settings file** on the same run gives **7.2 %**, which pins the cause to the integer rather
+> than to the profile machinery that carried it.
+>
+> Over all 19 real-bank runs the sensor fit moves on **15**, `sStars` on 5, and θ by up to **13.4 %**
+> (`fmeschia_Focus`), median 0.67 %. On the **14 runs whose star population is unchanged** — the only subset
+> where the goodness-of-fit statistics compare like with like — **`MOR`=0 is better on 10 of 10 moved `sChi`**
+> and 9 of 10 `sRMS`: *the sensor paraboloid fits WORSE when each star's own curve is allowed a rejection.*
+>
+> **So the AF fit and the sensor fit do NOT prefer opposite values.** The AF fit is silent, the sensor fit
+> prefers 0, and the out-of-sample arbiter never prefers 1 ([F62](#f62--σ_focus-is-anti-informative-when-an-outlier-rejection-is-what-changed-it-it-improves-by-up-to-88--while-the-distance-to-a-known-truth-improves-on-none)).
+> There is nothing to average — which is worth stating precisely because the opposite was pre-registered as the
+> outcome that would have blocked a decision. Reproduce: `D:\hf_w13\bv_compare.txt`.
 (b) **Not done, and priced:** re-running any historical tilt calibration under pinned fit inputs to see whether a
 published θ moves. Nothing currently depends on it, and the honest statement is that those numbers have an
 unrecorded input rather than a known error.
@@ -3880,11 +4021,29 @@ Reproduce: `D:\hf_w9\det\{S,C}_{1..5}.log`, `D:\hf_w9\ctl_{seq,conc}_*.log`, `D:
 `D:\hf_w11\pregate\pregate.log`.
 
 ### F57 — A `--settings`-pinned arm is NOT pinned: the active NINA profile moves `BaselineJ` by 0.014, and every cross-wave comparison inherits it
-**Status:** Open · found 2026-08-08 (wave 10) while running the pre-registered control for a DIFFERENT
-hypothesis, which it refuted · **this is [F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)'s
+**Status:** **CLOSED 2026-08-09 (wave 13) BY INTERVENTION** · found 2026-08-08 (wave 10) while running the
+pre-registered control for a DIFFERENT hypothesis, which it refuted · **this is [F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)'s
 warning, measured for the first time** · **(c) ANSWERED 2026-08-08 (wave 11): the quantity is
 `AutoFocusOptions.MaxOutlierRejections`, and the profile is acquired per PROCESS — see
 [F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections)**
+
+> ### CLOSED: one key in one file recovers BOTH historical numbers
+>
+> Wave 11 identified `MaxOutlierRejections` from **five pre-existing profiles that happened to agree** — a
+> correlation over machine state nobody controlled. Wave 13 ran the intervention: two settings files differing
+> in **exactly one line**, the profile pinned to `astrodet` on both arms, `optimize --max-evals 1` so no search
+> runs and the seed evaluation is a pure function of (frames, detector, fit inputs).
+>
+> | `toml999` `BaselineJ` | value | which wave this is |
+> |---|---|---|
+> | `MaxOutlierRejections` = 0 | **0.98347680** | **wave 11's** — and RULE G13's free control in wave 13 itself |
+> | `MaxOutlierRejections` = 1 | **0.99784046** | **wave 9's**, the number F58 quotes as `0.997840` |
+> | Δ | **+0.01436366** | F57 stated the gap as **0.0144** |
+>
+> **Both historical values are recovered from one integer, with the profile held constant.** The profile was
+> never the cause; it was the carrier. 8 of 39 population runs move at all, and the same eight move
+> `BaselineSigmaFocus`. *Five profiles agreeing is a correlation; one integer and both numbers back is the
+> experiment.* Reproduce: `D:\hf_w13\pop_w13.sh`, `D:\hf_w13\pop_score.txt`.
 
 **How this was found is the point, so it is told in order.**
 
@@ -3955,9 +4114,20 @@ back to CODE defaults, never the profile, so `SaturationThreshold` 0.99-vs-0.9 a
 the harness infers the step from the frames rather than from `FocuserSettings.AutoFocusStepSize`. **The profile
 is also acquired PER PROCESS, which is the same defect as F55** — see
 [F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections).
-(d) **Re-open the wavelet question properly, uncofounded**: run the eight gate runs on `exe_v1wav` against `exe`
-— same tree, same profile, same folders, differing only in the wavelet — at `--max-evals 250`. The seed-level
-answer is already in (identical), so this measures only whether the pattern search amplifies it into landings.
+(d) ~~**Re-open the wavelet question properly, uncofounded**: run the eight gate runs on `exe_v1wav` against
+`exe`~~ — **RECOMMENDED FOR CLOSURE 2026-08-09 (wave 13), UNRUN, and the recommendation is priced.** The build
+`D:\hf_w10\exe_v1wav` has now sat unused for three waves, and the question it was built for is bounded from
+three sides:
+ 1. **the seed-level answer is already exact and identical** (wave 10), so only amplification by the search was
+    ever open;
+ 2. **wave 12's RULE A12** showed eight landings surviving a deliberately perturbed *process* environment
+    bit-identically at fan-out 4 — the search did not amplify an arbitrary perturbation present there;
+ 3. **RULE G13 has now reproduced the same eight landings on a FOURTH binary**, bit-identical to sixteen
+    digits, across four separate builds of the same tree.
+A search that were sensitive to a ≤3e-8 numerical difference would have had four independent chances to show it
+and took none. **Cost to run it anyway: ~42 minutes** (one 8-run gate, measured in wave 13). **Cost of leaving
+it open: a build directory that every future wave has to explain.** Recommend closing (d) and deleting
+`exe_v1wav`, or running it once and closing it either way — what should not continue is carrying it.
 Reproduce: `D:\hf_w10\crossbuild_probe.sh`, `D:\hf_w10\crossbuild.log`, `D:\hf_w10\xb_prof.log`.
 
 ### F55 — `optimize` is NOT reproducible when several instances run at once, and the SEED evaluation is what moves
