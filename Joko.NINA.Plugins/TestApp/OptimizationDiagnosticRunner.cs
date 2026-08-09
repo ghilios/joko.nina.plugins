@@ -234,6 +234,22 @@ namespace TestApp {
                 Console.WriteLine("Verbose logging enabled (TRACE).");
             }
 
+            // --cv-threads <n> caps OpenCV's parallel-for pool (0 = restore the default). It exists so the F55
+            // family can be probed WITHOUT an environment variable: wave 9 tried to set the plugin's
+            // Parallel.For degree from WSL and silently measured the SAME configuration five times, because WSL
+            // environment variables do not reach a Windows process unless WSLENV names them -- "an instrument
+            // that is not connected reports perfect agreement". A flag cannot be disconnected that way, and
+            // Cv2.GetNumThreads() is printed with the provenance below as its positive control, whether or not
+            // the flag was passed.
+            var cvThreadsArg = DiagnosticUtil.GetArg(args, "--cv-threads");
+            if (!string.IsNullOrWhiteSpace(cvThreadsArg)) {
+                if (!int.TryParse(cvThreadsArg, NumberStyles.Integer, CultureInfo.InvariantCulture, out var cvThreads)) {
+                    throw new ArgumentException($"--cv-threads expects an integer, got '{cvThreadsArg}'");
+                }
+                Cv2.SetNumThreads(cvThreads);
+                Console.WriteLine($"--cv-threads {cvThreads}: OpenCV parallel-for pool capped.");
+            }
+
             // The real ProfileService.ActiveProfile setter writes to Application.Current.Resources, so a
             // (non-running) WPF Application must exist or it NREs (mirrors ContaminationDiagnosticRunner).
             if (Application.Current == null) {
@@ -267,6 +283,18 @@ namespace TestApp {
             // on every build; the detector version says which OUTPUT contract produced the numbers (wave 9's
             // whole results doc needed a hand-written banner for want of it).
             var build = OptimizerProvenance.CurrentBuild();
+            var accessor = harnessSettings.Accessor;
+            var starDetectionOptions = new StarDetectionOptions(profileService, accessor);
+            // F58: the harness accessor, NOT the profile. `new AutoFocusOptions(profileService)` binds a
+            // PluginOptionsAccessor to whichever profile is ACTIVE, so the DETECTOR was pinned by --settings and
+            // the FIT was not -- and the fit reads MaxOutlierRejections, on which this machine's nine profiles
+            // partition 2/7. Concurrent processes each acquire a DIFFERENT profile (NINA holds the .profile file
+            // open, and TryLoad skips a locked one and takes the next by LastUsed), which is how one integer
+            // produced the two discrete "attractors" F55 chased as a floating-point race for two waves. The live
+            // plugin is unchanged: the wizard and the AF engine must keep reading the profile, because there
+            // these ARE the user's settings.
+            var afOptions = new AutoFocusOptions(profileService, accessor);
+            var fitInputs = HarnessFitInputs.From(afOptions);
             var provenance = new OptimizerProvenance {
                 Producer = "TestApp optimize",
                 CommandLine = string.Join(" ", args ?? Array.Empty<string>()),
@@ -278,18 +306,17 @@ namespace TestApp {
                 ConcurrencyCheck = ClaimExclusiveOptimize(),
                 // F57: --settings pins the detector knobs and NOT the arm. The active profile moves BaselineJ by
                 // 0.0144 on toml999, so which profile ran is part of a landing's identity.
-                ProfileId = $"{activeProfile.Name} ({activeProfile.Id})"
+                ProfileId = $"{activeProfile.Name} ({activeProfile.Id})",
+                // F58: and WHICH profile is a different question from WHAT it supplied. The values, not a hash.
+                FitInputs = fitInputs.ToString()
             };
             Console.WriteLine($"provenance: {provenance}");
+            Console.WriteLine($"OpenCV threads: {Cv2.GetNumThreads()}");
             if (provenance.ConcurrencyCheck != "exclusive") {
                 Console.WriteLine($"WARNING: concurrency check = {provenance.ConcurrencyCheck}. F55: concurrent " +
                     "`optimize` moves 44% of LANDINGS and 15% of seed evaluations, so any arm read on landings " +
                     "is INVALID. The value is recorded in every landing this run writes.");
             }
-            var accessor = harnessSettings.Accessor;
-            var starDetectionOptions = new StarDetectionOptions(profileService, accessor);
-            var afOptions = new AutoFocusOptions(profileService);
-
             // PixelScale = arcsec/pixel from the profile (pixel size / focal length) × binning, mirroring
             // HocusFocusStarDetection.GetStarDetectorParams. Production reads binning from per-frame metadata
             // (image.RawImageData.MetaData.Camera.BinX, which defaults to 1 when unset); the harness loads raw
@@ -398,6 +425,7 @@ namespace TestApp {
                 HarnessSettings = harnessSettings,
                 Provenance = provenance,
                 AfOptions = afOptions,
+                FitInputs = fitInputs,
                 AlglibAPI = alglibAPI,
                 Detector = detector,
                 Detection = detection,
@@ -450,6 +478,10 @@ namespace TestApp {
             /// knobs the curated axes do not cover (binning, contamination, PSF, saturation, ...).</summary>
             public StarDetectionOptions StarDetectionOptions;
             public AutoFocusOptions AfOptions;
+
+            /// <summary>The four values that reach the FIT, read once. See <see cref="HarnessFitInputs"/> — the
+            /// fit and the provenance field are built from this one object so they cannot diverge (F58).</summary>
+            public HarnessFitInputs FitInputs;
             public AlglibAPI AlglibAPI;
             public StarDetector Detector;
 
@@ -670,13 +702,15 @@ namespace TestApp {
             var stepSize = InferStepSize(d.Frames);
             var fitConfig = new RunFitConfig {
                 StepSize = stepSize,
-                UseWeights = ctx.AfOptions.WeightedHyperbolicFitEnabled,
-                MaxOutlierRejections = ctx.AfOptions.MaxOutlierRejections,
-                RejectionConfidence = ctx.AfOptions.OutlierRejectionConfidence,
+                // F58: read from ctx.FitInputs, NOT from ctx.AfOptions, so the values that build this fit are the
+                // same object that is rendered into every landing's OptimizerProvenance.FitInputs.
+                UseWeights = ctx.FitInputs.UseWeights,
+                MaxOutlierRejections = ctx.FitInputs.MaxOutlierRejections,
+                RejectionConfidence = ctx.FitInputs.RejectionConfidence,
                 // Was hard-coded null while the wizard's loader passes afOptions.HyperbolicFitModel. Currently
                 // informational (the evaluator always runs the Hybrid best-fit selection), but a silent divergence
                 // from the wizard is exactly what this work exists to remove.
-                PreferredModel = ctx.AfOptions.HyperbolicFitModel
+                PreferredModel = ctx.FitInputs.PreferredModel
             };
 
             // Split detector: the WIZARD'S OWN HocusFocusSplitFrameDetector (RunEvaluationLoader), not a harness
@@ -1336,7 +1370,7 @@ namespace TestApp {
         }
 
         private static void PrintUsage() {
-            Console.Error.WriteLine("Usage: TestApp optimize --runs <folder> [--per-run] [--profile-id <guid>] [--out <dir>] [--max-evals <int>] [--annotate extremes|all] [--labels <dir>] [--inspection] [--donut] [--start-from-current] [--continue-rounds <0-2>] [--verbose]");
+            Console.Error.WriteLine("Usage: TestApp optimize --runs <folder> [--per-run] [--profile-id <guid>] [--out <dir>] [--max-evals <int>] [--annotate extremes|all] [--labels <dir>] [--inspection] [--donut] [--start-from-current] [--continue-rounds <0-2>] [--verbose] [--cv-threads <n>]");
             Console.Error.WriteLine("  --runs       (required) folder of saved AF runs. Runs are 'attempt*' folders (recursively, <=4 deep) with >=3 focuser positions; or --runs itself.");
             Console.Error.WriteLine("  --per-run    (optional) optimize each discovered run INDEPENDENTLY into its own subfolder + an aggregate_summary.txt (use for a multi-setup bank).");
             Console.Error.WriteLine("  --profile-id (default active) NINA profile id to load (settings + PixelScale).");
@@ -1350,6 +1384,7 @@ namespace TestApp {
             Console.Error.WriteLine("  --legacy-objective (optional) disable the HFR-outlier penalty + region-coverage reward + saturated-HFR exclusion (the pre-change 'before' for an A/B).");
             Console.Error.WriteLine("  --continue-rounds (optional, 0-2) extra chained passes after the first, each re-seeded from the prior best (3 total).");
             Console.Error.WriteLine("  --verbose    (optional) restore TRACE logging (default INFO). Slower: serializes per-detection stage timings to the NINA log.");
+            Console.Error.WriteLine("  --cv-threads (optional) cap OpenCV's parallel-for pool (0 = default). F55/F58 probes; the effective value is always printed.");
             Console.Error.WriteLine("  --marginal-snr-strength (optional) override ObjectiveConstants.MarginalSnrStrength (F23 false-positive proxy). 0 disables the term.");
             Console.Error.WriteLine("  --marginal-snr-floor    (optional) override ObjectiveConstants.MarginalSnrFloor, the absolute peak-SNR floor in sigma (default 6).");
             Console.Error.WriteLine("  --sensitivity-floor     (optional) floor the SEARCHABLE Sensitivity range (F23 mechanism (b)). <=1.5 is provably inert at shipped defaults.");

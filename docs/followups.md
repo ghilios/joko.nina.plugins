@@ -654,8 +654,11 @@ Reproduce: `D:\hf_w5\f24_arms.sh`, analysed by `D:\hf_w5\analyze_f24.py`.
 ### F19 — The exposure recommendation is decided by the 20 brightest stars, so a rich field can never earn one
 **Status:** **(a) refuted (wave 8) · (b) DONE (wave 8) · (c) RESOLVED "the floor stays", free, no re-render
 (wave 9) · THE REMAINDER IS OPEN AGAIN (wave 10): wave 9's wing verdict was REFUTED by the population check it
-recorded as owed, and is WITHDRAWN.** The gate-floor THEOREM stands; the wing rejected fraction stays as a
-measurement; the successor (the wing-to-inner RATIO) is pre-registered and deliberately not adopted
+recorded as owed, and is WITHDRAWN · AND THE SUCCESSOR IS REFUTED TOO (wave 11), before implementation, by
+RULE W2 on the exposure ladder: `D16` at 2 s has an inner rejected fraction of EXACTLY 0.000, so the ratio is
+INFINITE and fires where more exposure is measurably wrong. NO THRESHOLD SATISFIES RULE W.** The gate-floor
+THEOREM stands; `WingRejectedFraction` AND `WingRejectedRatio` both stay as measurements with no verdict
+attached; `WingRejectedExcess` = wing - inner is named as the next candidate and deliberately not evaluated
 · found 2026-08-02 deriving expected-optimal exposures for the synthetic AF bank
 
 `ExposureRecommender`'s `S_now` is the median, across non-recovery frames, of each frame's
@@ -976,6 +979,57 @@ derived-exposure rung on either dataset, this entry REOPENS.**
 > **So F19's remainder is OPEN again**, and honestly so: this wave did not fix F19, it corrected a wrong fix and
 > left a sharper question with a control that did not exist before.
 > Reproduce: `D:\hf_w10\wing_pop.sh`, `D:\hf_w10\score_wing_pop.py`, `D:\hf_w10\pop_score.txt`.
+
+> ## THE SUCCESSOR IS REFUTED TOO (2026-08-08, wave 11) — BEFORE IMPLEMENTATION, BY RULE W ITSELF
+>
+> `WingRejectedRatio` = wing-third ÷ inner-third was pre-registered with RULE W1–W6. Wave 11 shipped the
+> **measurement** and then applied the rule to size its threshold. **The rule has no satisfying input.**
+>
+> W1–W4 are validated on wave 7's exposure ladder. Wave 7's own aggregates predate `FrameDiagnostics`, but wave 9
+> left a 10-rung probe at `D:\hf_w9\wing2\` that has it, so the ratio was readable at **zero compute** — and was
+> then **re-measured on pinned provenance** (`exe_fix2`, `pinned_settings_w11.json`, `--profile-id astrodet`,
+> `--max-evals 120`, wave 7's frames, no re-render), because `wing2` ran on the v1 binary under an unrecorded
+> profile and that is exactly the provenance [F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections)
+> condemns. **All ten rungs reproduced**, across a binary change and a profile change, and the shipped field
+> agreed with an independent offline recomputation on every one.
+>
+> | clause | requirement | measured | implies |
+> |---|---|---|---|
+> | **W1** `D02`@0.5 s must fire | ratio ≥ T | **1.5683** | T ≤ 1.5683 |
+> | **W5** above the bank median | — | 1.39 | T > 1.39 |
+> | **W2** `D16`@2 s must stay SILENT | ratio < T | **+∞** | **T > +∞ — impossible** |
+>
+> **W1 ∧ W5 leave the window (1.39, 1.5683]. W2 empties it.**
+>
+> `D16` at 2 s has an inner rejected fraction of **exactly 0.000** against a wing fraction of **0.0064**, so its
+> ratio is infinite and it fires at every finite threshold. **That rung is where `D16`'s σ_focus is MINIMISED**
+> (0.17117 against 0.35169 / 0.26026 / 0.20421 / 0.19659), so firing there asks the user to make their focus
+> worse — which is the control the whole statistic exists to pass.
+>
+> **The mechanism is worse than the arithmetic.** On a clean, well-exposed narrowband run the core rejects
+> NOTHING, so ANY wing rejection at all becomes an infinite ratio: the ratio form is maximally unstable exactly
+> where the statistic must be silent. **The absolute fraction got this rung RIGHT** (0.0064 ≪ 0.20). On the one
+> control that matters the successor is not merely no better than its predecessor — **it is strictly worse**.
+>
+> **What ships:** `WingRejectedRatio` as a MEASUREMENT ONLY, four-state (`NaN` = could not look / `+∞` = the core
+> rejects nothing and the wings do / `1.0` = both reject nothing, i.e. equal rates / the ratio). Newtonsoft writes
+> the first two as the STRINGS `"NaN"` and `"Infinity"`, pinned by a serialization test — *a scorer that coerces
+> either disables its own falsification rule*, and wave 10's scorer, reused verbatim, would have mapped `+∞` to
+> NaN and hidden exactly the runs this form fails on. **No verdict, no threshold, no action ships.**
+>
+> **The predicted hazard class landed on a different dataset than the two named.** Wave 11's design named `D17`
+> (ratio 0.59) and `D20` (inner exactly 0.000). The killer was `D16`@2 s — the **same shape as `D20`** on a
+> dataset listed under a different clause. *Naming the hazard CLASS in advance worked even though the specific
+> dataset was wrong.*
+>
+> **`WingRejectedExcess` = wing − inner is named as the next candidate and is NOT evaluated anywhere in wave 11.**
+> The ladder is now the data that refuted the ratio, and W6 applies to the ladder exactly as it applied to the
+> 39-run population.
+>
+> **The 39-run population pass was NOT run**, and the trade is recorded rather than left as a silently smaller
+> pass: the refutation came on a NECESSARY clause, so the pass could not have changed the verdict, and W6 bars
+> its rows from sizing the next candidate. **This wave therefore publishes no 39-run distribution for the ratio.**
+> Reproduce: `D:\hf_w11\pop\ladder_w11.sh`, `D:\hf_w11\pop\ladder_score.txt`, `D:\hf_w11\pop\score_wing_pop_w11.py`.
 
 > ## (c) RESOLVED 2026-08-07 (wave 9): THE FLOOR STAYS, THE CEILING STAYS, AND NOTHING RE-RENDERS
 >
@@ -3453,10 +3507,226 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
+### F59 — The settings export drops every knob whose setter VALIDATES, so `pinned_settings.json` has been missing five detector knobs since wave 5
+**Status:** **Fixed (wave 11)** · found 2026-08-08 by a unit test written for
+[F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections)'s
+fit inputs, which failed on a property nobody was looking at
+
+`HarnessSettingsStore.ExportFromProfile` snapshots the options **through the class's own property surface**, so
+the class emits the right keys with the right types and the snapshot cannot drift from what it reads. To make the
+snapshot DENSE it writes a *poison* value first — a value equal to the shipped default would otherwise never fire
+the change-detecting setter, never reach the file, and leave the file inheriting whatever the default is **at load
+time**.
+
+**The poison was `current + 1`, and these setters THROW.**
+
+```
+MaxDistortion              must be within [0, 1]        0.65  -> poison 1.65 -> ArgumentException
+OutlierRejectionConfidence must be in (0.5, 1.0)        0.95  -> poison 1.95 -> ArgumentException
+```
+
+One `try` wrapped both the poison write and the real write, so the exception was caught by a `catch` whose comment
+says *"a property that refuses a round trip … skip it"* — **and the property was skipped entirely. Neither the
+poison NOR the value was written.** A poison-only failure is not a refusal to round-trip: the real value would
+have been accepted.
+
+**`StarDetectionOptions` has 28 validating setters.** Measured against `D:\hf_w11\pinned_settings.json` — the file
+that is byte-identical across waves 5–11 and that every arm has called "the pinned detector":
+
+| knob | in the pinned file? |
+|---|---|
+| `MaxDistortion`, `StarCenterTolerance`, `SaturationThreshold`, `HotpixelThreshold`, `Sensitivity` | **NO** |
+| `MinHFR`, `StarPeakResponse`, `BrightnessSensitivity`, … | yes |
+
+### What it does and does not invalidate
+
+- **Waves 5–11 are internally valid.** The missing keys resolve to **code defaults**, the same file and the same
+  defaults were used throughout, so every arm ran the same detector as every other arm.
+- **What is false is that the file DESCRIBES the detector.** It does not, for those five knobs — and
+  `ExportFromProfile`'s own docstring promises the bootstrap is *"behaviour-preserving, or the first run after
+  this change would silently differ from the last one before it"*, which for a validated knob it was not.
+- **The hazard is live rather than historical:** change any of those five code defaults and every pre-wave-11
+  pinned file silently starts describing a different detector. That is precisely the drift
+  [F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)
+  exists to prevent, defeated inside the mechanism written to prevent it.
+
+### Fixed
+
+Poison candidates are **tried in turn** until one lands inside the property's own valid range (the numeric spread
+runs both directions and through the unit interval), the poison is **verified by read-back** rather than assumed,
+and **the real write has its own `try`** so a poison failure can never cost it again.
+
+**The wave-11 pinned file deliberately does NOT gain the five recovered knobs.** Adding them would change the
+detector and move the coordinate system RULE G11 was just established on; they stay at code defaults, as they
+have been for seven waves, consistently. The fix changes what a FUTURE bootstrap exports.
+
+**How it was found is the point.** The test that failed was written to assert **density** — *"a value equal to the
+code default must still reach the file"* — and not presence. Presence would have passed: the four fit inputs it
+was written for include one (`MaxOutlierRejections = 1`) that IS the code default. *A test written for the
+property you care about finds the bug you were not looking for; a test written for the happy path does not.*
+
+### Next step
+
+None for the export. **But the five knobs are now known to have been at code defaults for waves 5–11**, which is
+worth stating in any write-up that describes `pinned_settings.json` as a full snapshot. Reproduce:
+`Joko.NINA.Plugins.HocusFocus.Tests/Harness/HarnessFitInputsTests.cs`
+(`CopyOptionSurface_CarriesAKnobWhoseSetterTHROWSOnTheObviousPoison`).
+
+### F58 — Concurrent `optimize` processes each acquire a DIFFERENT NINA profile, and the profile decides the fit: F55's "two attractors" are two values of `MaxOutlierRejections`
+**Status:** Open · found 2026-08-08 (wave 11) **at zero compute, out of logs wave 9 left on disk** ·
+**this is the MECHANISM behind [F55](#f55--optimize-is-not-reproducible-when-several-instances-run-at-once-and-the-seed-evaluation-is-what-moves)
+and [F57](#f57--a---settings-pinned-arm-is-not-pinned-the-active-nina-profile-moves-baselinej-by-0014-and-every-cross-wave-comparison-inherits-it),
+which are one defect seen from two directions**
+
+Wave 10 established that the active NINA profile moves `BaselineJ` and left *which quantity* (F57(c)) and *the
+nondeterminism's trigger rate* (F55(b)) open. Both close on the same reading, and **no optimization had to be run
+to find it** — the evidence was already printed in a `Profile:` line that two waves had scrolled past.
+
+### The mechanism, read out of `NINA.Profile`
+
+1. **`Profile.Load(path)`** opens the `.profile` with `FileAccess.ReadWrite, FileShare.Read` and **holds the
+   stream for the profile's lifetime**. A second process's `Load` on the same file throws `IOException`
+   (`ERROR_SHARING_VIOLATION`), and `Load` **rethrows it** — the journal/backup recovery path is deliberately
+   skipped for the in-use case (`catch (IOException ex) when (IsFileInUse(ex)) { throw; }`).
+2. **`ProfileService.SelectProfile`** catches, logs, and returns **`false`**.
+3. **`ProfileService.TryLoad(id)`** orders candidates `OrderByDescending(x => x.LastUsed)` and then
+   `.SkipWhile(p => !SelectProfile(p)).FirstOrDefault()` — **so a locked profile is silently SKIPPED and the next
+   profile by `LastUsed` is loaded instead.**
+4. **`Profile.Load` also sets `LastUsed = DateTime.Now` and SAVES.** Loading a profile rewrites the ordering that
+   decides which profile the *next* unpinned run gets.
+
+**So N concurrent unpinned `optimize` processes acquire N DIFFERENT profiles**, and *which* process gets which is
+a race — the SET is determined (the top N by `LastUsed`), the assignment is not. That is F55's *"sporadic rather
+than per-arm"* exactly.
+
+### The observation, from `D:\hf_w9\det\{S,C}_{1..5}.log` — the 40-second reproducer, re-read
+
+`D16_esprit550_ha3`, `--max-evals 1`, so `BaselineJ` is the whole measurement:
+
+| repeat | `Profile:` printed by the run | `BaselineJ` |
+|---|---|---|
+| S_1 … S_5 (**sequential**) | `AA1600MM Copy (1bf0efaf-…)` — **all five the same** | `0.979173` ×5 |
+| C_1 (**concurrent**) | `AA1600MM (4cf31cda-…)` | **0.988555** |
+| C_2 | `Default (b10b1d6d-…)` | **0.988555** |
+| C_3 | `astrodet (ce3f3e63-…)` | `0.979173` |
+| C_4 | `Default-2026-08-05T10:57:42 (1a120eb1-…)` | **0.988555** |
+| C_5 | `AA1600MM Copy (1bf0efaf-…)` | `0.979173` |
+
+**Five concurrent processes, five different profiles**, and C_5 — which drew the same profile the sequential
+phase drew — returned the sequential phase's value.
+
+### And `J` partitions on ONE field
+
+The optimize path feeds exactly four profile-sourced values into the fit
+(`OptimizationDiagnosticRunner.cs:673–679`: `UseWeights`, `MaxOutlierRejections`, `RejectionConfidence`,
+`PreferredModel`). Across those five profiles three of the four are constant:
+
+| profile | `BaselineJ` | `MaxOutlierRejections` | `OutlierRejectionConfidence` | `WeightedHyperbolicFitEnabled` | `HyperbolicFitModel` |
+|---|---|---|---|---|---|
+| `AA1600MM Copy` | `0.979173` | **0** | *(absent ⇒ 0.95)* | *(absent ⇒ true)* | Hybrid |
+| `astrodet` | `0.979173` | **0** | *(absent ⇒ 0.95)* | true | *(absent ⇒ Hybrid)* |
+| `AA1600MM` | **0.988555** | **1** | *(absent ⇒ 0.95)* | true | *(absent ⇒ Hybrid)* |
+| `Default` | **0.988555** | **1** | **0.99** | true | *(absent ⇒ Hybrid)* |
+| `Default-2026-08-05T10:57:42` | **0.988555** | **1** *(absent ⇒ 1)* | *(absent ⇒ 0.95)* | *(absent ⇒ true)* | *(absent ⇒ Hybrid)* |
+
+> **`MaxOutlierRejections` = 0 ⇒ 0.979173. = 1 ⇒ 0.988555. Five of five.** `OutlierRejectionConfidence` varies
+> *within* the firing group (0.99 vs 0.95) and does not move `J` — which is what a rejection budget of one
+> predicts and a coincidence does not.
+
+**The machine holds 9 profiles and they partition 2 / 7 on this field** (`D:\hf_w11\profiles_before.txt`). *That
+is the bimodality.* Two discrete attractors because a small integer takes two values in the wild — never a
+floating-point race, which is the one property of F55 that never fit summation order.
+
+### Confirmed independently on three more datasets, also at zero compute
+
+Wave 9's **four-way concurrent control trial** (`D:\hf_w9\ctl_conc_*.log`) also printed its profiles:
+
+| log | profile loaded | `MaxOutlierRejections` | `BaselineJ` |
+|---|---|---|---|
+| `ctl_seq_toml999` (**sequential**) | `Default-2026-08-05T10:57:42` | 1 | 0.997840 |
+| `ctl_conc_toml999` | **the same profile** | 1 | **0.997840** |
+| `ctl_conc_bobp` | `astrodet` | 0 | 0.993122 |
+| `ctl_conc_caboose` | `Default` | 1 | 0.994753 → landed **0.996300** |
+| `ctl_conc_mufti` | `AA1600MM Copy` | 0 | **0.957603** |
+
+**Four processes, four different profiles** again. And two of these close open items in F55's own tables:
+`mufti`'s 0.957603 is arms **B/C**'s value (arm A's 0.957087 must therefore have drawn a `= 1` profile), and
+`caboose`'s 0.996300 is one of that run's two recorded landings.
+
+**The sharpest of them is the anomaly F55 had to hedge about.** F55 records *"one four-way concurrent trial did
+NOT reproduce the deviation"* and correctly refuses to read it as evidence against the fan-out, on the grounds
+that *"the effect appears on ~15 % of runs, so a single trial has no power to exclude it."* The hedge was right;
+the reason is now visible in the log rather than left to probability. **`ctl_conc_toml999` drew the same profile
+as `ctl_seq_toml999`**, so it was not a 15 % coin landing the same way — it was the same fit inputs, and the
+values are identical rather than merely close.
+
+### What it explains, and every one of these was paid for by measurement
+
+| eliminated by waves 9–10 | why F58 is consistent with it |
+|---|---|
+| the plugin's `Parallel.For` degree (1/2/4/8/48), swept, inert | this is not a thread race |
+| the BUILD (15 runs, 3 binaries, identical to 10 dp) | those fifteen ran in ONE session under ONE **pinned** profile |
+| folder state, one artifact at a time | irrelevant to which file the process opened at startup |
+| the per-run `optimized_settings.json`, the detection cache, OpenCL/`UMat`, `Merge`, rented sorts, `MedianInPlace`, timeouts | same |
+| **"stable within a process/session, variable across them … does fit some process-level state … acquired once"** | **a profile is acquired once, at startup.** Wave 9 named the shape of the answer and the search kept looking below the fit |
+
+**And it explains F57 without a second cause.** Wave 9's gate ran under `Default` (`MaxOutlierRejections = 1`),
+wave 10's under `astrodet` (`0`); `toml999`'s `BaselineJ` went 0.997840 → 0.983477, and allowing one Grubbs
+rejection improves a fit, which is the observed direction. **F57(c)'s answer is a named field**, and it is
+[F45](#f45--the-grubbs-test-rejects-the-in-focus-point-of-a-near-perfect-curve-and-the-blind-walk-then-buys-an-extra-exposure)'s
+outlier rejection deciding the objective from machine state that nothing recorded.
+
+### Two operational consequences that are not obvious
+
+- **A pinned run rewrites the default for the next unpinned run.** `LastUsed` is stamped by the act of loading,
+  so `--profile-id X` today makes X the active profile tomorrow. **Measured 2026-08-08:** wave 10's own F57 probe
+  pinned `Default` last, and an unpinned `optimize` on `toml999` today prints
+  `Profile: Default (b10b1d6d-…)` and returns `currentJ = 0.99784` — **wave 9's value, not the wave 10 the banks
+  were measured under.** An unpinned wave-11 gate would have reproduced the wrong wave and called it a pass.
+- **`--profile-id` and fan-out are mutually exclusive as things stand.** With the id filter the candidate list has
+  one entry, so a second concurrent process runs `SkipWhile` over an empty remainder, `TryLoad` returns `false`,
+  and `optimize` throws *"No active NINA profile could be loaded"*. **Pinning converts a silent wrong answer into
+  a loud failure**, which is the right trade and is not a fix.
+
+### The fix, and why it is the harness's and not the plugin's
+
+`HarnessSettingsStore` exists precisely so that *"a profile-sourced seed is mutable machine state nothing
+records"* cannot reach a run: its `FileOptionsAccessor` reads the pinned file and falls back to **code defaults**,
+never to the profile. `StarDetectionOptions` is built on it. **`AutoFocusOptions` is not** —
+`new AutoFocusOptions(profileService)` binds a `PluginOptionsAccessor` to the ACTIVE profile. So the detector is
+pinned and the fit is not, and `--settings` has been read as pinning the arm for six waves. **The asymmetry is
+the bug.** The remedy is to build the harness's `AutoFocusOptions` on the harness accessor (the seam already
+exists), carry the four fit inputs in the pinned file, and print them in provenance as **values, not a hash** —
+a hash says something moved, values say **which**. The live plugin is unchanged: the wizard and the AF engine
+must keep reading the profile, because there those *are* the user's settings.
+
+### Next step
+
+(a) **Intervene, do not stop at correlation** — five pre-existing profiles agreeing is not an experiment. Bisect
+`toml999` on synthetic single-field profiles under RULE C, whose **negative control** is that
+`OutlierRejectionConfidence` alone must move nothing when the rejection budget is 0.
+(b) **Pin the fit inputs** as above, then re-run the 40-second reproducer and require that the concurrent phase
+returns ONE value **while still loading five different profiles** — a fix that merely pinned the profile would
+pass a weaker test and prove nothing.
+(c) **Then say what is left.** `KappaSigmaNoiseEstimate`'s measured gain (F55) stays as a fact about the
+function; it is withdrawn only as *this* defect's explanation, and only once the residual check has run.
+(d) **FOUR OTHER HARNESS RUNNERS HAVE THE SAME DEFECT AND ARE NOT FIXED HERE**, flagged rather than swept in
+because each needs its own validation and wave 11's budget went to `optimize`:
+`BankVerifyRunner` (twice — the recall/precision harness whose numbers feed the golden audits),
+`SynthValidateRunner`, `InspectAlignRunner`, `TiltCalibrationRunner`. Every one builds
+`new AutoFocusOptions(profileService)` and therefore takes its fit from whichever profile is ACTIVE. Until they
+are converted, **they must be run with `--profile-id`**, and two of their results measured under different
+profiles are not comparable. *(`HocusFocusPlugin.cs` also constructs it from the profile and is CORRECT — in the
+live app those are the user's settings.)*
+Reproduce: `D:\hf_w9\det\{S,C}_{1..5}.log`, `D:\hf_w9\ctl_{seq,conc}_*.log`, `D:\hf_w11\profiles_before.txt`,
+`D:\hf_w11\pregate\pregate.log`.
+
 ### F57 — A `--settings`-pinned arm is NOT pinned: the active NINA profile moves `BaselineJ` by 0.014, and every cross-wave comparison inherits it
 **Status:** Open · found 2026-08-08 (wave 10) while running the pre-registered control for a DIFFERENT
 hypothesis, which it refuted · **this is [F42](#f42--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)'s
-warning, measured for the first time**
+warning, measured for the first time** · **(c) ANSWERED 2026-08-08 (wave 11): the quantity is
+`AutoFocusOptions.MaxOutlierRejections`, and the profile is acquired per PROCESS — see
+[F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections)**
 
 **How this was found is the point, so it is told in order.**
 
@@ -3517,8 +3787,16 @@ the residue until an unrelated control forced it.**
 `DetectorVersion` this wave added — the same argument, one input further out: a reader diffs a field.
 (b) **Every arm must pass `--profile-id` explicitly**, and the run instructions must say so beside F42's
 `--settings` rule; an arm that does not is pinned in one dimension and floating in another.
-(c) **Find WHICH profile-sourced quantity moves the objective.** `PixelScale` is excluded (both runs print
-`0.73944` from the frame header). `AutoFocusOptions` is read from the profile and is the obvious next place.
+(c) ~~**Find WHICH profile-sourced quantity moves the objective.**~~ — **ANSWERED 2026-08-08 (wave 11):
+`AutoFocusOptions.MaxOutlierRejections`, 1 under `Default` and 0 under `astrodet`, with
+`OutlierRejectionConfidence` (0.99 vs an absent 0.95) behind it and unreachable while the budget is 0. The guess
+recorded here — *"`AutoFocusOptions` … is the obvious next place"* — was right, and the read-level audit that
+confirmed it also excluded everything else: the detector knobs are genuinely pinned (`FileOptionsAccessor` falls
+back to CODE defaults, never the profile, so `SaturationThreshold` 0.99-vs-0.9 and `DetectionBinning` are inert),
+`ImageSettings` is byte-identical between the two profiles, `AutoFocusBinningConflict` only feeds a prompt, and
+the harness infers the step from the frames rather than from `FocuserSettings.AutoFocusStepSize`. **The profile
+is also acquired PER PROCESS, which is the same defect as F55** — see
+[F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections).
 (d) **Re-open the wavelet question properly, uncofounded**: run the eight gate runs on `exe_v1wav` against `exe`
 — same tree, same profile, same folders, differing only in the wavelet — at `--max-evals 250`. The seed-level
 answer is already in (identical), so this measures only whether the pattern search amplifies it into landings.
@@ -3526,7 +3804,12 @@ Reproduce: `D:\hf_w10\crossbuild_probe.sh`, `D:\hf_w10\crossbuild.log`, `D:\hf_w
 
 ### F55 — `optimize` is NOT reproducible when several instances run at once, and the SEED evaluation is what moves
 **Status:** Open · found 2026-08-07 (wave 9) when the confirmation arm's own pre-registered control fired ·
-**this voids the wave-9 F32 arm and constrains every future arm's design**
+**this voids the wave-9 F32 arm and constrains every future arm's design** ·
+**MECHANISM IDENTIFIED 2026-08-08 (wave 11): the concurrent processes were running under DIFFERENT NINA
+PROFILES, and the two attractors are two values of `AutoFocusOptions.MaxOutlierRejections` —
+[F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections).
+Every measurement in this entry stands; the `KappaSigmaNoiseEstimate` amplifier below is withdrawn as this
+defect's EXPLANATION (its measured gain stays as a fact about the function) pending F58's residual check.**
 
 Wave 9 ran F32's confirmation arm with a **fan-out of 4** — four `optimize --per-run` processes on distinct bank
 folders — to bring ~28 h of sequential compute down to ~7 h. The design pre-registered a free control for exactly
@@ -3681,7 +3964,15 @@ eight are one instrument"*, and it is applied as written: **no φ verdict is pub
 > and it explains the cross-SESSION observation wave 9 could not place. **What remains is only the behaviour
 > under CONCURRENCY**, which none of these controls touch — so this entry is narrower and no less real.
 >
-> ### The specific mechanism, named and half-measured
+> ### The specific mechanism, named and half-measured — ***and it is NOT this defect's mechanism***
+>
+> **Superseded 2026-08-08 (wave 11) by [F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections):
+> the concurrent processes were running under different NINA PROFILES, and the two attractors partition exactly
+> on `MaxOutlierRejections`.** Everything below remains TRUE about the function — the gain is measured and a unit
+> test pins it — and it remains a plausible amplifier for some *other* perturbation. It is withdrawn only as the
+> explanation of the runs in this entry. **The trigger RATE this section says is owed was owed for a mechanism
+> that was not firing**, which is why F58's residual check runs even after its own fix passes: a measured gain is
+> not a measured cause, and it is easy to mistake one for the other after paying to measure it.
 >
 > `CvImageUtility.KappaSigmaNoiseEstimate` is a **bimodal amplifier by construction**: an OpenCV parallel
 > reduction (`Cv2.MeanStdDev`) feeds a convergence test at `|Δσ| ≤ 1e-5`, so an arbitrarily small change in σ can
@@ -3729,6 +4020,21 @@ Reproduce: `D:\hf_w9\f32_arms.log`, `D:\hf_w9\score_f32.py`, `D:\hf_w9\ctl_seq_t
 > diffed raw progress lines, which come partly from a wall-clock timer, so it reported divergence on every pair
 > of runs whether or not the search diverged. Asked "what would this do if the thing it checks were completely
 > broken?", the answer was "exactly the same thing".)*
+>
+> ### (c)'s FIRST POSITIVE CONTROL, 2026-08-08 (wave 11) — and it found a real limit
+>
+> Wave 11's probe ran the guard in **both** directions for the first time: five sequential runs (must read
+> `exclusive`) and five concurrent ones (must read `concurrent`). **Both fired**, so the field works. But the
+> concurrent phase returned **four `concurrent` and ONE `exclusive`** — and that is correct behaviour, not a bug:
+> `WaitOne(0)` is won by exactly one of *N* contending processes, so **in any fan-out precisely one landing
+> truthfully reports `exclusive`.**
+>
+> **Therefore `ConcurrencyCheck == "exclusive"` on a SINGLE landing is not evidence that the machine was quiet.**
+> It says *this process won the mutex*. The check must be read **across a whole arm** — one `concurrent`
+> anywhere condemns all of it — and in wave 10's own two-driver contamination the first driver's landings would
+> have read `exclusive` throughout, so an operator sampling that driver's output would have seen a clean bill of
+> health. *An instrument that is right about the wrong scope is a new way to be wrong.* Recorded here rather than
+> "fixed", because the field is honest and it is its INTERPRETATION that needed pinning down.
 >
 > **What ships.** `optimize` claims a named mutex at startup and records `ConcurrencyCheck` —
 > `"exclusive"` / `"concurrent"` / `"unknown"` — into `OptimizerProvenance`, i.e. into **every landing it
