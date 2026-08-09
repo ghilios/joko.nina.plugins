@@ -82,11 +82,24 @@ namespace TestApp {
                 Console.Error.WriteLine("Usage: TestApp af-fit --af-run <dir> [--profile-id <guid>] [--out <dir>]");
                 Console.Error.WriteLine("                      [--max-rejections <n>=show 0..3] [--confidence <c>=0.95]");
                 Console.Error.WriteLine("                      [--weighted true|false] [--step-size <n>]");
+                Console.Error.WriteLine("                      [--mad-floor <f>] | [--mad-floor-rel <alpha>]   (mutually exclusive; F45(b))");
                 Environment.ExitCode = 2;
                 return;
             }
             if (!Directory.Exists(afRun)) {
                 throw new DirectoryNotFoundException($"AF-run folder not found: {afRun}");
+            }
+
+            // The MAD-floor rung (F45(b)). Parsed BEFORE anything expensive runs: passing both families is a
+            // usage error, and an arm that is going to be rejected for naming two rungs should be rejected
+            // before it spends eleven minutes detecting stars.
+            MadFloorSpec madFloor;
+            try {
+                madFloor = MadFloorArgs.Parse(args);
+            } catch (ArgumentException ex) {
+                Console.Error.WriteLine($"ERROR: {ex.Message}");
+                Environment.ExitCode = 2;
+                return;
             }
 
             var outDir = DiagnosticUtil.GetArg(args, "--out");
@@ -143,6 +156,10 @@ namespace TestApp {
             int stepSize = (int)ParseDouble(DiagnosticUtil.GetArg(args, "--step-size"),
                 EstimateStepSize(frames, profileService));
             Console.WriteLine($"Frames: {frames.Count}; step size for fit seed: {stepSize}; weighted={weighted}; confidence={confidence}");
+            // Always logged, at every rung including the control — the LOG is where the rung is recorded
+            // unconditionally, because af_fit_summary.txt must stay byte-for-byte the previous wave's file when
+            // no floor applies (that identity is the control rung's whole evidentiary value).
+            Console.WriteLine($"MAD floor: {MadFloorArgs.Describe(madFloor)}");
 
             // ---- Detect each frame and build the engine's (Y, σ) measurement point (Median mode). ----
             var detector = new StarDetector(new AlglibAPI());
@@ -187,16 +204,25 @@ namespace TestApp {
             Emit($"Measurement   : Median mode  ->  Y = median(HFR), sigma = 1.483*MAD(HFR) over detected stars");
             Emit($"Weighted fit  : {weighted}   (weight = 1/sigma; Grubbs uses standardized residual (Y-f)/sigma)");
             Emit($"Confidence    : {confidence}");
+            // Named in the header only when a floor actually applies. With no floor this file is the control
+            // rung, and the control rung's claim is that it reproduces the previous wave's file exactly — an
+            // extra header line would break the comparison it exists to pass. The console log above names the
+            // rung either way, so "which rung produced this" is never unrecorded.
+            if (!madFloor.IsNone) {
+                Emit($"MAD floor     : {MadFloorArgs.Describe(madFloor)}");
+            }
             Emit("");
 
+            var floorTag = MadFloorArgs.CaptionTag(madFloor);
+
             // ---- Production result: Hybrid SelectBestModel at each rejection budget 0..3. ----
-            Emit("---- Production Hybrid model selection, per outlier-rejection budget ----");
+            Emit($"---- Production Hybrid model selection, per outlier-rejection budget{floorTag} ----");
             Emit("budget | winner model      | #rej | rejected positions      | sigma(focus) | redChi^2 | R^2     | minPos");
             for (int budget = 0; budget <= 3; ++budget) {
                 var pts = regular.Select(Clone).ToList();
                 var model = AlglibHyperbolicFitting.SelectBestModel(
                     alglib, pts, stepSize, weighted, budget, confidence,
-                    out var bestFit, out var rejected);
+                    out var bestFit, out var rejected, madFloor: madFloor);
                 var rejList = rejected == null || rejected.Count == 0
                     ? "(none)"
                     : string.Join(" ", rejected.Select(p => ((int)Math.Round(p.X)).ToString()));
@@ -214,14 +240,14 @@ namespace TestApp {
                 HyperbolicFitModel.Symmetric, HyperbolicFitModel.UnevenBlend,
                 HyperbolicFitModel.TiltedHyperbola, HyperbolicFitModel.SmoothBlend
             };
-            Emit($"---- Per-model fit on the FULL (un-pruned) data + each model's would-be outliers (budget {analysisBudget}) ----");
+            Emit($"---- Per-model fit on the FULL (un-pruned) data + each model's would-be outliers (budget {analysisBudget}){floorTag} ----");
             Emit("model            | params | sigma(focus) | redChi^2 | R^2     | minPos  | would-reject");
             var perModelOutliers = new Dictionary<HyperbolicFitModel, List<int>>();
             foreach (var m in candidates) {
                 var full = regular.Select(Clone).ToList();
                 var fit = AlglibHyperbolicFitting.Create(alglib, m, full, stepSize, weighted);
                 bool ok = fit.Solve();
-                var outliers = ComputeModelOutliers(alglib, m, regular, analysisBudget, confidence, weighted, stepSize);
+                var outliers = ComputeModelOutliers(alglib, m, regular, analysisBudget, confidence, weighted, stepSize, madFloor);
                 perModelOutliers[m] = outliers.Select(p => (int)Math.Round(p.X)).ToList();
                 var rejStr = perModelOutliers[m].Count == 0 ? "(none)" : string.Join(" ", perModelOutliers[m]);
                 Emit($"{m,-16} | {ParamCount(m),5}  | {(ok ? F(fit.MinimumStdError) : "FAILED"),11} | " +
@@ -255,14 +281,17 @@ namespace TestApp {
             // Mirror FitWithOutlierRejection: pick the model that wins at budget 0 (the unrejected best fit), then
             // fit -> RejectionTest(weighted) -> remove -> refit, printing the per-point internals each round.
             var seedPts = regular.Select(Clone).ToList();
-            var winnerModel = AlglibHyperbolicFitting.SelectBestModel(alglib, seedPts, stepSize, weighted, 0, confidence, out _, out _);
-            Emit($"---- Per-round Grubbs detail for the winning model ({winnerModel}) ----");
+            var winnerModel = AlglibHyperbolicFitting.SelectBestModel(alglib, seedPts, stepSize, weighted, 0, confidence, out _, out _, madFloor: madFloor);
+            Emit($"---- Per-round Grubbs detail for the winning model ({winnerModel}){floorTag} ----");
             Emit("(A point is rejected when its z = |r - median(r)| / MAD(r) exceeds the Grubbs limit, where");
             Emit(" r = standardized residual = (Y - f(x)) / sigma. Absolute residual |Y - f| can be tiny and the");
             Emit(" point still trip the test, because the test ranks points RELATIVE to how well the others fit.)");
             Emit("");
 
             var working = regular.Select(Clone).ToList();
+            // Family B's anchor for the printed trace, kept exactly as FitWithOutlierRejection keeps it: NaN
+            // until round 1 has produced a scale, so round 1 is unfloored by construction here too.
+            var firstRoundScale = double.NaN;
             for (int round = 1; round <= 3 && working.Count > 3; ++round) {
                 var fit = AlglibHyperbolicFitting.Create(alglib, winnerModel, working, stepSize, weighted);
                 if (!fit.Solve()) {
@@ -282,16 +311,35 @@ namespace TestApp {
                     var (_, sd) = MathNet.Numerics.Statistics.Statistics.MeanStandardDeviation(stdResid);
                     scale = sd;
                 }
+                // The SAME floor RejectionTest is about to apply, in the SAME place — after both degenerate-scale
+                // guards. If this replication skipped it, the printed z would stop agreeing with the printed
+                // verdict, and that agreement is this file's only internal cross-check.
+                var roundFloor = madFloor.ResolveFloor(round == 1 ? double.NaN : firstRoundScale);
+                if (roundFloor > 0.0 && scale > 0.0 && !double.IsNaN(scale)) {
+                    scale = Math.Max(scale, roundFloor);
+                }
                 int n = working.Count;
                 double pTail = (1.0 - confidence) / (2 * n);
                 double t = StudentT.InvCDF(0.0, 1.0, n - 2, pTail);
                 double t2 = t * t;
                 double grubbLimit = (double)(n - 1) / Math.Sqrt(n) * Math.Sqrt(t2 / (t2 + n - 2));
 
-                var rejected = MathUtility.RejectionTest(working, fit.Fitting, confidence, weightsFn);
+                var rejected = MathUtility.RejectionTest(working, fit.Fitting, confidence, weightsFn, roundFloor, out var scaleUsed);
+                if (round == 1) {
+                    firstRoundScale = scaleUsed;
+                }
 
                 Emit($"Round {round}: N={n}, fit minPos={F(fit.Minimum.X)}, redChi^2={F(fit.ReducedChiSquared)}, " +
                     $"Grubbs limit={grubbLimit:F3}, median(r)={rMedian:F4}, MAD(r)={scale:F4}");
+                // Full precision, ALWAYS -- including at the control rung. The `MAD(r)={scale:F4}` field above is
+                // printed AFTER the stdDev fallback and at 4 dp, so it reads 0.0000 on 8 of wave 13's 72 rounds
+                // and `caboose` round 1's true scale of 1.48e-5 is unrecoverable from it. Wave 14 spent a scorer
+                // on reconstructing every scale as |r - median| / z; this line is what stops the next wave paying
+                // that again. It is SAFE at the control rung because RULE F14's V1 is a FIELD comparison over the
+                // four budget rows (`score_affit_w14.py`'s RX_BUDGET), not a whole-file diff -- verified before
+                // this line was made unconditional, because "it probably won't break the gate" is not a control.
+                Emit($"  effective scale (full precision) = {scaleUsed.ToString("G17", CultureInfo.InvariantCulture)}" +
+                    $"   [floor applied this round = {roundFloor.ToString("G17", CultureInfo.InvariantCulture)}]");
                 Emit("  pos    | medHFR  | sigma  | f(x)    | |Y-f|abs | stdResid r | z=|r-med|/MAD | over-limit?");
                 for (int i = 0; i < working.Count; ++i) {
                     var p = working[i];
@@ -395,14 +443,19 @@ namespace TestApp {
         // FitWithOutlierRejection so the diagnostic can show each model's set independently.
         private static List<ScatterErrorPoint> ComputeModelOutliers(
                 AlglibAPI alglib, HyperbolicFitModel model, List<ScatterErrorPoint> points,
-                int maxRej, double confidence, bool weighted, int stepSize) {
+                int maxRej, double confidence, bool weighted, int stepSize, MadFloorSpec madFloor) {
             var working = points.Select(Clone).ToList();
             var rejected = new List<ScatterErrorPoint>();
+            var firstRoundScale = double.NaN; // family B anchors per MODEL, exactly as FitWithOutlierRejection does
             for (int i = 0; i < maxRej && working.Count > 3; ++i) {
                 var fit = AlglibHyperbolicFitting.Create(alglib, model, working, stepSize, weighted);
                 if (!fit.Solve()) break;
                 var w = AlglibHyperbolicFitting.BuildResidualWeights(working, weighted);
-                var r = MathUtility.RejectionTest(working, fit.Fitting, confidence, w);
+                var roundFloor = madFloor.ResolveFloor(i == 0 ? double.NaN : firstRoundScale);
+                var r = MathUtility.RejectionTest(working, fit.Fitting, confidence, w, roundFloor, out var scaleUsed);
+                if (i == 0) {
+                    firstRoundScale = scaleUsed;
+                }
                 if (r == null) break;
                 rejected.Add(r);
                 working.Remove(r);

@@ -150,7 +150,44 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 List<ScatterErrorPoint> points,
                 Func<double, double> fitting,
                 double confidence,
-                Func<double, double> weights = null) {
+                Func<double, double> weights = null)
+            // Delegates with scaleFloor = 0.0, where the floor branch below is not entered at all — so this
+            // overload's arithmetic is bit-identical to what it was before the floor existed. That identity is
+            // the whole basis of the wave-14 control rung, so it is preserved by having exactly ONE
+            // implementation rather than two that must be kept in step.
+            => RejectionTest(points, fitting, confidence, weights, scaleFloor: 0.0, scaleUsed: out _);
+
+        /// <summary>
+        /// <see cref="RejectionTest(List{ScatterErrorPoint}, Func{double, double}, double, Func{double, double})"/>
+        /// with an optional floor on the residual scale, and the scale it actually used reported back.
+        ///
+        /// <para><paramref name="scaleFloor"/> is applied <b>after</b> both degenerate-scale guards, never
+        /// instead of them (see <see cref="MadFloorSpec"/> for why the order is load-bearing): the stdDev
+        /// fallback still fires on a collapsed MAD, a still-degenerate scale still returns null, and only then is
+        /// <c>scale ← max(scale, floor)</c> applied. Because that is monotone, a floor can only ever
+        /// <b>suppress</b> a rejection — it can never add one, and it can never redirect one to a different
+        /// point (every z in a round is divided by the same scale, so the argmax cannot move).</para>
+        ///
+        /// <para><paramref name="scaleUsed"/> is the effective scale the z-scores were computed with — what a
+        /// caller needs to anchor family B to round 1, and what the af-fit report prints at full precision
+        /// instead of making the next wave recover it from a 4-dp field. It is <see cref="double.NaN"/> on every
+        /// early return (too few points, or a degenerate scale), because "no test was performed" must not be
+        /// reported as a scale of zero.</para>
+        ///
+        /// <para><b>This overload takes both extra arguments explicitly, and neither is optional.</b> That is the
+        /// shape rather than adding optional parameters to the existing signature, so the three
+        /// <c>AutoFocusEngine</c> call sites and the one in <c>SensorModel</c> keep binding to the 4-argument
+        /// overload with no change in behaviour and no chance of silently matching a longer one — the floor is
+        /// harness-only, and the only way to reach it is to say so in full.</para>
+        /// </summary>
+        public static ScatterErrorPoint RejectionTest(
+                List<ScatterErrorPoint> points,
+                Func<double, double> fitting,
+                double confidence,
+                Func<double, double> weights,
+                double scaleFloor,
+                out double scaleUsed) {
+            scaleUsed = double.NaN;
             if (points.Count <= 3) {
                 return null;
             }
@@ -170,6 +207,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
                 // Perfect fit (or all residuals identical): no outliers possible.
                 return null;
             }
+            if (scaleFloor > 0.0) {
+                // AFTER both guards, and guarded on > 0 so the default path does not even evaluate Math.Max —
+                // the f = 0 rung must be bit-identical, not merely numerically equal.
+                scale = Math.Max(scale, scaleFloor);
+            }
+            scaleUsed = scale;
 
             var N = points.Count;
             var p = (1.0 - confidence) / (2 * N); // Two-tailed test
