@@ -17,6 +17,7 @@ using NINA.Profile.Interfaces;
 using NSubstitute;
 using NUnit.Framework;
 using System.Collections.Generic;
+using System.Globalization;
 using TestApp;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.Harness;
@@ -69,9 +70,17 @@ public class HarnessFitInputsTests {
         // waves 5-10, md5 df7c7cd1... -- carries NONE of these four keys, so every historical arm run against the
         // fixed binary resolves them here. If these four numbers ever change, every pre-wave-11 pinned file
         // silently starts describing a different fit, and this test is what says so.
+        //
+        // WAVE 14 MOVED ONE OF THEM: `MaxOutlierRejections` 1 -> 0. This test is the announcement, not a
+        // casualty. The consequence it exists to state: re-running a wave 5-10 arm against `pinned_settings.json`
+        // on a post-wave-14 binary now resolves the budget to 0 rather than 1. That is a COORDINATE-SYSTEM MOVE
+        // for those files -- and it moves them TOWARD what those waves actually measured, because waves 5-10
+        // resolved the fit inputs off the ACTIVE PROFILE (astrodet, which stores 0) rather than off the file,
+        // which is the whole of F57/F58. Wave 11 onward pins the key EXPLICITLY in `pinned_settings_w11.json`,
+        // so the gate's eight values are untouched -- RULE G14 is what proves that rather than assumes it.
         var inputs = HarnessFitInputs.From(OptionsOver());
         Assert.Multiple(() => {
-            Assert.That(inputs.MaxOutlierRejections, Is.EqualTo(1));
+            Assert.That(inputs.MaxOutlierRejections, Is.EqualTo(0));
             Assert.That(inputs.RejectionConfidence, Is.EqualTo(0.95).Within(1e-12));
             Assert.That(inputs.UseWeights, Is.True);
             Assert.That(inputs.PreferredModel, Is.EqualTo(HyperbolicFitModel.Hybrid));
@@ -100,9 +109,16 @@ public class HarnessFitInputsTests {
     public void ToString_ChangesWhenANYONEInputChanges() {
         // Discriminating on all four axes: a provenance field that moved on only some of them would report
         // "unchanged" for exactly the kind of drift it exists to catch.
+        //
+        // The budget's perturbation is DERIVED from the code default rather than written as a literal. It used
+        // to be the literal "0", which discriminated only because the default happened to be 1; wave 14 moved
+        // the default to 0 and the perturbation silently became the baseline. It failed loudly here, but the
+        // same coincidence in a test asserting equality would have passed and proved nothing -- so the fix is
+        // to make the perturbation incapable of coinciding, not to write down the next literal that works.
         var baseline = HarnessFitInputs.From(OptionsOver()).ToString();
+        var otherBudget = (HarnessFitInputs.From(OptionsOver()).MaxOutlierRejections + 1).ToString(CultureInfo.InvariantCulture);
         Assert.Multiple(() => {
-            Assert.That(HarnessFitInputs.From(OptionsOver(("MaxOutlierRejections", "0"))).ToString(),
+            Assert.That(HarnessFitInputs.From(OptionsOver(("MaxOutlierRejections", otherBudget))).ToString(),
                 Is.Not.EqualTo(baseline), "MaxOutlierRejections");
             Assert.That(HarnessFitInputs.From(OptionsOver(("OutlierRejectionConfidence", "0.99"))).ToString(),
                 Is.Not.EqualTo(baseline), "OutlierRejectionConfidence");
@@ -131,19 +147,21 @@ public class HarnessFitInputsTests {
 
     [Test]
     public void CopyOptionSurface_CarriesTheFitInputs_EvenWhenTheyEqualTheCodeDefault() {
-        // DENSITY is the point, not merely presence. `MaxOutlierRejections = 1` IS the code default, so a copy
-        // that skipped unchanged values would leave the key ABSENT and the file would inherit whatever the
-        // default is AT LOAD TIME -- behaviour-preserving today and silently wrong the day a default moves. That
-        // is precisely the drift a pinned settings file exists to prevent.
+        // DENSITY is the point, not merely presence. `MaxOutlierRejections = 0` IS the code default (wave 14
+        // moved it from 1), so a copy that skipped unchanged values would leave the key ABSENT and the file
+        // would inherit whatever the default is AT LOAD TIME -- behaviour-preserving today and silently wrong
+        // the day a default moves. That is precisely the drift a pinned settings file exists to prevent, and
+        // wave 14 is the day a default moved: this test and its partner below carry the CODE DEFAULT and a
+        // NON-DEFAULT respectively, so they had to swap values rather than merely be re-baselined.
         var destination = new Dictionary<string, string>();
         HarnessSettingsStore.CopyOptionSurface(
-            OptionsOver(("MaxOutlierRejections", "1"), ("OutlierRejectionConfidence", "0.95")),
+            OptionsOver(("MaxOutlierRejections", "0"), ("OutlierRejectionConfidence", "0.95")),
             new AutoFocusOptions(Substitute.For<IProfileService>(),
                 new HarnessSettingsStore.FileOptionsAccessor(destination)));
 
         Assert.Multiple(() => {
             Assert.That(destination, Does.ContainKey("MaxOutlierRejections"));
-            Assert.That(destination["MaxOutlierRejections"], Is.EqualTo("1"));
+            Assert.That(destination["MaxOutlierRejections"], Is.EqualTo("0"));
             Assert.That(destination, Does.ContainKey("OutlierRejectionConfidence"));
             Assert.That(destination, Does.ContainKey("WeightedHyperbolicFitEnabled"));
             Assert.That(destination, Does.ContainKey("HyperbolicFitModel"));
@@ -152,16 +170,18 @@ public class HarnessFitInputsTests {
 
     [Test]
     public void CopyOptionSurface_RoundTripsANonDefaultBudget() {
-        // astrodet's value. This is the one that moved toml999's BaselineJ by 0.0144 and split D16 into two
-        // "attractors"; if it does not survive the export, --settings still does not pin the arm.
+        // 1 is the NON-default budget from wave 14 onward -- it was the shipped code default through wave 13, and
+        // it is the value at which `toml999`'s BaselineJ reads 0.997840 (wave 9's number) against 0.983477 at 0
+        // (wave 11's). That 0.0144 gap is the whole of F57, and wave 13 closed it by changing this one integer in
+        // one file. If a non-default budget does not survive the export, --settings still does not pin the arm.
         var destination = new Dictionary<string, string>();
         HarnessSettingsStore.CopyOptionSurface(
-            OptionsOver(("MaxOutlierRejections", "0")),
+            OptionsOver(("MaxOutlierRejections", "1")),
             new AutoFocusOptions(Substitute.For<IProfileService>(),
                 new HarnessSettingsStore.FileOptionsAccessor(destination)));
 
         Assert.That(HarnessFitInputs.From(new AutoFocusOptions(Substitute.For<IProfileService>(),
-            new HarnessSettingsStore.FileOptionsAccessor(destination))).MaxOutlierRejections, Is.EqualTo(0));
+            new HarnessSettingsStore.FileOptionsAccessor(destination))).MaxOutlierRejections, Is.EqualTo(1));
     }
 
     // ---- F59: a VALIDATING setter must not be dropped from the export -------------------------------------------

@@ -32,7 +32,8 @@ public class AutoFocusOptionsTests {
             Assert.That(options.KeepFramesForReview, Is.False);
             Assert.That(options.LastSelectedLoadPath, Is.EqualTo(""));
             Assert.That(options.FocuserOffset, Is.EqualTo(0));
-            Assert.That(options.MaxOutlierRejections, Is.EqualTo(1));
+            // Wave 14: 1 -> 0. The Grubbs rejection is OFF by default; a profile that stores 1 keeps 1.
+            Assert.That(options.MaxOutlierRejections, Is.EqualTo(0));
             Assert.That(options.OutlierRejectionConfidence, Is.EqualTo(0.95));
             Assert.That(options.WeightedHyperbolicFitEnabled, Is.True);
         });
@@ -87,10 +88,31 @@ public class AutoFocusOptionsTests {
             Assert.That(options.HFRImprovementThreshold, Is.EqualTo(0.15));
             Assert.That(options.Save, Is.False);
             Assert.That(options.KeepFramesForReview, Is.False);
-            Assert.That(options.MaxOutlierRejections, Is.EqualTo(1));
+            // Wave 14: 1 -> 0. `ResetDefaults` and the accessor fall-back are the SAME default and must not
+            // drift apart -- a Reset that restored 1 while a fresh install resolved 0 is two products.
+            Assert.That(options.MaxOutlierRejections, Is.EqualTo(0));
             Assert.That(options.OutlierRejectionConfidence, Is.EqualTo(0.95));
             Assert.That(options.WeightedHyperbolicFitEnabled, Is.True);
         });
+    }
+
+    [Test]
+    public void TheTwoCodeDefaultSites_ResolveToTheSameBudget_OrAFreshInstallAndAResetAreTwoProducts() {
+        // NOT a witness for wave 14's 1 -> 0 change: this assertion held before it and holds after, which is
+        // exactly the point. `MaxOutlierRejections` has TWO code-default sites -- `InitializeOptions`'s
+        // `GetValueInt32(..., N)` fall-back and `ResetDefaults`'s literal -- and the two tests above pin them
+        // SEPARATELY, so they cannot drift to the same wrong value but they CAN drift to two different ones:
+        // a fresh install would then resolve one budget and "Reset to defaults" would install another, with
+        // nothing in the product saying so. Verified to fail against a mutant with the two sites disagreeing.
+        var (fresh, _, _) = Build();
+        var fallBack = fresh.MaxOutlierRejections;
+
+        var (reset, _, _) = Build();
+        reset.MaxOutlierRejections = 4;
+        reset.ResetDefaults();
+
+        Assert.That(reset.MaxOutlierRejections, Is.EqualTo(fallBack),
+            "ResetDefaults and the accessor fall-back are the same default and must move together");
     }
 
     [TestCase(nameof(AutoFocusOptions.MaxConcurrent), 4)]
