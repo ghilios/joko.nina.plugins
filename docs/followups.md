@@ -3940,6 +3940,42 @@ Reproduce: the two populations are `/mnt/d/hf_w14/stageA/sem_audit.tsv` (42 rows
 `docs/synthetic-af-bank-followups-wave16-design.md` §4.1.
 
 ### F67 — `af-fit`'s star count and `optimize`'s are NOT the same number, so the control built on their equality reports "could not look" on exactly the datasets where the intervention bites hardest
+
+> ### **CAUSE FOUND 2026-08-10 (wave 17), at zero compute, and it refutes wave 16's OWN narrowing: it is DETECTION BINNING.**
+>
+> **F39(b) is ON BY DEFAULT.** `OptimizationDiagnosticRunner.cs:216` is
+> `!DiagnosticUtil.HasFlag(args, "--no-run-detection-binning")`, and `--apply-run-detection-binning` is a
+> retained no-op. `ApplyRunDetectionBinningIfRequested` rewrites `DetectionBinning` and `PixelScale` on every
+> `optimize` run that asks for it; **`af-fit` has no such step.**
+>
+> | evidence, all from artifacts already on disk | result |
+> |---|---|
+> | `expectedOptimal.detectionBinning == 2` in `synthetic_meta.json` | `{D08, D09, D10, D12, D14, D15, D17}` — **exactly this entry's disagreeing set** |
+> | factor logged in wave 15's `land_mor0`, the arm F67 was measured on | 2 on those 7, 1 on the other 13, 0 could-not-look |
+> | per-position `af-fit Stars` == `optimize currentStarCount`, **factor 1** | **188 of 188** (13 synthetic + 5 real gate runs, two waves) |
+> | same, **factor 2** | **0 of 63** |
+>
+> **Wave 16's RULE P16 could not have seen it.** `PARAMS-DUMP` prints where the bundles are *constructed*, one
+> statement before the mutation, and the comment directly above those calls asserts the mutation happens only
+> under a flag — **reading the polarity backwards**. So P16 compared `optimize`'s params as constructed against
+> `af-fit`'s as detected, and `DetectionBinning` is **F-live**.
+>
+> **Both wave-16 candidates are dead**, and neither needed a measurement to kill: candidate 1 names
+> `RunEvaluationLoader`, the **wizard's** loader, which the measured path never calls (`TestApp optimize` calls
+> the same `DiagnosticUtil.LoadRenderedImage` as `af-fit`); candidate 2 is arithmetically impossible in the
+> observed direction, because the post-filter set is a **subset** and the measurement has the pre-filter side
+> smaller. *A narrowing "by construction" is only as good as the construction.*
+>
+> **What this does NOT say.** The pre/post-filter distinction between the two counts is real and unchanged — it
+> is simply **inert at S0** and is not what anyone was tripping over. On the 13 factor-1 synthetic datasets and
+> all 5 real gate runs the two numbers **are the same number**.
+>
+> **Next step:** wave 17's RULE C17 buys the **intervention** rather than the discovery — arms with and without
+> `--no-run-detection-binning` over the 7 factor-2 datasets plus 3 factor-1 controls, ~36 m and no code. The
+> decisive clause is that the `--no-run-detection-binning` arm reproduces wave 16's `affit_N` counts, currently
+> measured at **0.000 of 63**, so both ends of the bar are *observed* rather than merely attainable.
+> Reproduce: `docs/synthetic-af-bank-followups-wave17-design.md`, `/mnt/d/hf_w17/score_c17_w17.py`.
+
 **Status:** Open · found 2026-08-10 (wave 15) when RULE L15's gate **G-c** returned TOOK on 13 of 20 · **the test
 that settles it was free, already on disk, and predates the control by two waves**
 

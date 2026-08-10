@@ -35,6 +35,38 @@ Register: [`docs/followups.md`](followups.md).
 > byte-identically. Re-running `score_sem_w16.py --w1` idempotently rewrites the 5-byte `W1_PASSED` marker with
 > the same `PASS`; no arm directory was touched.
 
+> ## CORRECTION, 2026-08-10 (wave 17): RULE P16's P-b COMPARED A DUMP TAKEN BEFORE THE MUTATION
+>
+> **This wave's item B is wrong, and the error is in the line this document praised.** `PARAMS-DUMP` is written
+> where the bundles are **constructed**. `OptimizationDiagnosticRunner.cs:216` reads
+>
+> ```
+> bool applyRunDetectionBinning = !DiagnosticUtil.HasFlag(args, "--no-run-detection-binning");
+> ```
+>
+> — **F39(b) is ON BY DEFAULT**, and `--apply-run-detection-binning` is documented three lines above as
+> "still accepted and is now a no-op". The comment sitting **directly over the two `ParamsDump.Write` calls**
+> says the opposite: *"only under `--apply-run-detection-binning` … Neither the gate nor the P16 probe passes
+> that flag."* **It reads the flag polarity backwards.** So `ApplyRunDetectionBinningIfRequested` mutates
+> `ctx.Baseline`'s `DetectionBinning` **and** `PixelScale` *after* the dump is printed, and P16 compared
+> `optimize`'s params **as constructed** against `af-fit`'s **as detected**.
+>
+> **`DetectionBinning` is F-live**, so "53 of 55 F-live fields identical" is not a statement about the detectors
+> that ran. Wave 17 measured, from artifacts already on disk: `expectedOptimal.detectionBinning == 2` holds for
+> **exactly** `{D08, D09, D10, D12, D14, D15, D17}` — **F67's disagreeing set, exactly** — and the two star
+> counts agree on **188 of 188** per-position comparisons at factor 1 and **0 of 63** at factor 2.
+>
+> **Both of the two candidates this document narrowed F67 to are also dead.** Candidate 1 names
+> `RunEvaluationLoader`, which is the *wizard's* loader and is not on the measured path at all — `TestApp
+> optimize` calls the same `DiagnosticUtil.LoadRenderedImage` that `af-fit` calls. Candidate 2 is arithmetically
+> impossible in the observed direction: the post-filter set is a **subset**, and the measurement has the
+> pre-filter side **smaller**.
+>
+> **The narrowing was "by construction", and the construction was wrong** — which is the caution wave 17's brief
+> was written to carry, and it fired on the wave that wrote it. The verdict `P-b` stands only as a statement
+> about the params *at construction time*; **F67's cause is detection binning**, and wave 17's RULE C17 buys the
+> intervention that proves it rather than the discovery, for ~36 m and no code.
+
 ## Status of this document
 
 | item | state |
@@ -44,7 +76,7 @@ Register: [`docs/followups.md`](followups.md).
 | **S16-A(b)** | **FAILS on an ill-posed bar**, and this is the wave's sharpest finding: 12 of 12 against a threshold of ≥ 30 of 33, because the clause reads a population whose maximum attainable value is **12**. §2.4 |
 | **S16-D at `V0.07`** | **CONTAINS-SELECTIVELY** — the branch the design called *plausible, not proved*, and foreclosed everywhere else. §2.5 |
 | **family R** | **R-REDIRECTS on 12 of 39 runs**, fails S16-B, and produces the wave's only out-of-sample movement above the materiality floor. **Excluded from V4′ and from RECOMMEND before any of it was measured.** §2.6 |
-| **item B** — F67, both sides' params through one formatter | **RULE P16: P-b.** 53 of 55 fields identical on all five datasets covering both population halves; the two that differ are inert by proof. **The disagreement is downstream of the params**, and F67 is recorded as a **PRODUCT** finding. §3 |
+| **item B** — F67, both sides' params through one formatter | **RULE P16: P-b — AND ITS PREMISE WAS REFUTED BY WAVE 17 BEFORE WAVE 17 SPENT ANYTHING.** See the correction below. §3 |
 | **P16-INSTRUMENT-vs-PRODUCT** | **ILL-POSED ON THE BRANCH THAT OCCURRED** — it quantifies over a set that P-b makes empty, so it is vacuously true and contradicts its own rule's P-b row. Reported, not repaired. §3.4 |
 | **item C** — the nine UI changes A1–A9 | **NOT ATTEMPTABLE. `Disc`, seventh consecutive wave.** §4 |
 
