@@ -270,10 +270,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// themselves, or do not prune at all). Equivalent to passing <c>maxOutlierRejections = 0</c>.
         /// </summary>
         public static HyperbolicFitModel SelectBestModel(IAlglibAPI alglibAPI, IList<ScatterErrorPoint> points, int stepSize, bool useWeights, out AlglibHyperbolicFitting bestFit)
-            // maxOutlierRejections = 0 means the Grubbs test never runs, so there is nothing for a MAD floor to
-            // reach here; MadFloorSpec.None is passed explicitly rather than left implicit so this overload can
-            // never acquire a floor by inheriting some future default.
-            => SelectBestModel(alglibAPI, points, stepSize, useWeights, maxOutlierRejections: 0, rejectionConfidence: 0.0, out bestFit, out _, madFloor: MadFloorSpec.None);
+            // maxOutlierRejections = 0 means the Grubbs test never runs, so there is nothing for a MAD floor or a
+            // SEM criterion to reach here; MadFloorSpec.None / SemScaleSpec.None are passed explicitly rather
+            // than left implicit so this overload can never acquire either by inheriting some future default.
+            => SelectBestModel(alglibAPI, points, stepSize, useWeights, maxOutlierRejections: 0, rejectionConfidence: 0.0, out bestFit, out _,
+                madFloor: MadFloorSpec.None, semScale: SemScaleSpec.None, starCounts: null);
 
         /// <summary>
         /// Fits all concrete hyperbolic models to <paramref name="points"/> and returns the one with the least
@@ -310,12 +311,28 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// is bit-identical to what it was before the parameter existed. When set, each candidate model applies
         /// the floor to its <b>own</b> Grubbs rounds (family B anchors to that model's own round-1 scale), and
         /// the consensus intersection is then formed from the floored per-model sets exactly as before.
+        ///
+        /// <paramref name="semScale"/> is the wave-16 harness knob (the same F45(b) question in SEM units) and
+        /// defaults to <see cref="SemScaleSpec.None"/> for the same reason, with <paramref name="starCounts"/>
+        /// supplying <c>N*</c> per point as a side map keyed by <c>p.X</c>. The shipped product passes neither,
+        /// so every production call site is bit-identical to what it was before the parameters existed.
         /// </summary>
         public static HyperbolicFitModel SelectBestModel(
                 IAlglibAPI alglibAPI, IList<ScatterErrorPoint> points, int stepSize, bool useWeights,
                 int maxOutlierRejections, double rejectionConfidence,
                 out AlglibHyperbolicFitting bestFit, out IReadOnlyList<ScatterErrorPoint> rejectedPoints,
-                int maxDegreeOfParallelism = 0, MadFloorSpec madFloor = default) {
+                int maxDegreeOfParallelism = 0, MadFloorSpec madFloor = default,
+                SemScaleSpec semScale = default, Func<double, double> starCounts = null) {
+            // Checked HERE as well as in RejectionTest, and before anything is fitted, because pass 1 runs each
+            // candidate inside a try/catch that logs at Trace: a throw raised down there would be swallowed into
+            // "no model solved", and the report would then show four empty budget rows that read exactly like
+            // "the criterion fired on nothing". A missing side map must not be able to look like a measurement.
+            if (!semScale.IsNone && starCounts == null) {
+                throw new InvalidOperationException(
+                    $"A SEM scale spec was supplied ({semScale}) but no star counts were. N* is what the " +
+                    "criterion is expressed in; without it this fit would silently run the control rung.");
+            }
+
             // Canonicalize point order (by focuser position) so model selection and consensus outlier rejection are
             // deterministic regardless of the order measurements arrive in. During replay the points complete
             // concurrently, so the engine can hand them over in nondeterministic order; each candidate's Grubbs fit
@@ -340,7 +357,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             Parallel.For(0, HybridCandidateModels.Length, fitOptions, k => {
                 try {
                     var fit = FitWithOutlierRejection(alglibAPI, HybridCandidateModels[k], points, stepSize, useWeights,
-                        maxOutlierRejections, rejectionConfidence, out var rejects, out _, madFloor);
+                        maxOutlierRejections, rejectionConfidence, out var rejects, out _, madFloor, semScale, starCounts);
                     if (fit != null) {
                         solved[k] = true;
                         modelRejects[k] = rejects;
@@ -501,12 +518,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// residual scale of each Grubbs round. Family B anchors to <b>this model's own round-1 effective
         /// scale</b>, which is why round 1 is bit-identical to the unfloored run: on round 1 there is no anchor
         /// yet, so the resolved floor is 0.
+        ///
+        /// <paramref name="semScale"/> (harness-only, <see cref="SemScaleSpec.None"/> in the product) and
+        /// <paramref name="starCounts"/> are handed to each round's <see cref="MathUtility.RejectionTest"/>
+        /// verbatim. Unlike the MAD floor there is no per-model state to carry: family V is a per-round decision
+        /// on the selected point and family R is a per-round rescaling, so both are stateless across rounds.
         /// </summary>
         internal static AlglibHyperbolicFitting FitWithOutlierRejection(
                 IAlglibAPI alglibAPI, HyperbolicFitModel model, IList<ScatterErrorPoint> points, int stepSize, bool useWeights,
                 int maxOutlierRejections, double rejectionConfidence,
                 out List<ScatterErrorPoint> rejectedPoints, out List<ScatterErrorPoint> cleanedPoints,
-                MadFloorSpec madFloor = default) {
+                MadFloorSpec madFloor = default, SemScaleSpec semScale = default, Func<double, double> starCounts = null) {
             rejectedPoints = new List<ScatterErrorPoint>();
             var working = new List<ScatterErrorPoint>(points);
 
@@ -524,7 +546,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 ++round;
                 var weights = BuildResidualWeights(working, useWeights);
                 var roundFloor = madFloor.ResolveFloor(round == 1 ? double.NaN : firstRoundScale);
-                var rejected = MathUtility.RejectionTest(working, fit.Fitting, rejectionConfidence, weights, roundFloor, out var scaleUsed);
+                var rejected = MathUtility.RejectionTest(working, fit.Fitting, rejectionConfidence, weights, roundFloor,
+                    semScale, starCounts, out var scaleUsed, out _);
                 if (round == 1) {
                     firstRoundScale = scaleUsed;
                 }

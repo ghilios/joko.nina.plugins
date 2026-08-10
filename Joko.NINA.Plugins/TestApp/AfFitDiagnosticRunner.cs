@@ -83,6 +83,8 @@ namespace TestApp {
                 Console.Error.WriteLine("                      [--max-rejections <n>=show 0..3] [--confidence <c>=0.95]");
                 Console.Error.WriteLine("                      [--weighted true|false] [--step-size <n>]");
                 Console.Error.WriteLine("                      [--mad-floor <f>] | [--mad-floor-rel <alpha>]   (mutually exclusive; F45(b))");
+                Console.Error.WriteLine("                      [--sem-veto <t>] | [--sem-rank]   (mutually exclusive with each other AND");
+                Console.Error.WriteLine("                                                         with the mad-floor flags; wave 16 item A)");
                 Environment.ExitCode = 2;
                 return;
             }
@@ -94,8 +96,12 @@ namespace TestApp {
             // usage error, and an arm that is going to be rejected for naming two rungs should be rejected
             // before it spends eleven minutes detecting stars.
             MadFloorSpec madFloor;
+            SemScaleSpec semScale;
             try {
                 madFloor = MadFloorArgs.Parse(args);
+                // Same discipline, one wave later: SemScaleArgs also rejects an invocation that names a SEM rung
+                // AND a MAD-floor rung, so "two mechanisms in one arm" fails here rather than in the write-up.
+                semScale = SemScaleArgs.Parse(args);
             } catch (ArgumentException ex) {
                 Console.Error.WriteLine($"ERROR: {ex.Message}");
                 Environment.ExitCode = 2;
@@ -160,6 +166,7 @@ namespace TestApp {
             // unconditionally, because af_fit_summary.txt must stay byte-for-byte the previous wave's file when
             // no floor applies (that identity is the control rung's whole evidentiary value).
             Console.WriteLine($"MAD floor: {MadFloorArgs.Describe(madFloor)}");
+            Console.WriteLine($"SEM scale: {SemScaleArgs.Describe(semScale)}");
 
             // ---- Detect each frame and build the engine's (Y, σ) measurement point (Median mode). ----
             var detector = new StarDetector(new AlglibAPI());
@@ -192,6 +199,22 @@ namespace TestApp {
                 rows[i].RegSigma = regular[i].ErrorY;
             }
 
+            // N* per point, as a side map keyed by X — the shape BuildResidualWeights already uses for the 1/sigma
+            // weights, so nothing about ScatterErrorPoint or WeightRegularization (both production) has to change.
+            // X passes through Regularize and Clone unchanged, so every lookup resolves; an X that does NOT resolve
+            // throws, because a silent 1 would be a star count nobody measured quietly entering the statistic.
+            var starsByPosition = new Dictionary<double, double>();
+            foreach (var r in rows) {
+                starsByPosition[r.Position] = r.Stars;
+            }
+            Func<double, double> starCounts = x => starsByPosition.TryGetValue(x, out var n)
+                ? n
+                : throw new InvalidOperationException($"No star count recorded for focuser position {x.ToString("R", CultureInfo.InvariantCulture)}");
+            // Handed to the fit ONLY at a live rung. At the control rung the calls below are LITERALLY the calls
+            // the previous wave made — same overload resolution, same arguments — which is what clause W1's byte
+            // comparison is measuring, so it is not weakened by a side map that happens to be wired up.
+            var semCounts = semScale.IsNone ? null : starCounts;
+
             var alglib = new AlglibAPI();
             var sb = new StringBuilder();
             void Emit(string line) { Console.WriteLine(line); sb.AppendLine(line); }
@@ -211,6 +234,12 @@ namespace TestApp {
             if (!madFloor.IsNone) {
                 Emit($"MAD floor     : {MadFloorArgs.Describe(madFloor)}");
             }
+            // Same rule, same reason: at rung N this file must be byte-for-byte wave 14's control-rung file, and
+            // clause W1 is the ONLY clause that can catch a SemScaleSpec that is not inert at its default. One
+            // extra header line would spend that clause on the report format.
+            if (!semScale.IsNone) {
+                Emit($"SEM scale     : {SemScaleArgs.Describe(semScale)}");
+            }
             Emit("");
 
             var floorTag = MadFloorArgs.CaptionTag(madFloor);
@@ -222,7 +251,7 @@ namespace TestApp {
                 var pts = regular.Select(Clone).ToList();
                 var model = AlglibHyperbolicFitting.SelectBestModel(
                     alglib, pts, stepSize, weighted, budget, confidence,
-                    out var bestFit, out var rejected, madFloor: madFloor);
+                    out var bestFit, out var rejected, madFloor: madFloor, semScale: semScale, starCounts: semCounts);
                 var rejList = rejected == null || rejected.Count == 0
                     ? "(none)"
                     : string.Join(" ", rejected.Select(p => ((int)Math.Round(p.X)).ToString()));
@@ -247,7 +276,7 @@ namespace TestApp {
                 var full = regular.Select(Clone).ToList();
                 var fit = AlglibHyperbolicFitting.Create(alglib, m, full, stepSize, weighted);
                 bool ok = fit.Solve();
-                var outliers = ComputeModelOutliers(alglib, m, regular, analysisBudget, confidence, weighted, stepSize, madFloor);
+                var outliers = ComputeModelOutliers(alglib, m, regular, analysisBudget, confidence, weighted, stepSize, madFloor, semScale, semCounts);
                 perModelOutliers[m] = outliers.Select(p => (int)Math.Round(p.X)).ToList();
                 var rejStr = perModelOutliers[m].Count == 0 ? "(none)" : string.Join(" ", perModelOutliers[m]);
                 Emit($"{m,-16} | {ParamCount(m),5}  | {(ok ? F(fit.MinimumStdError) : "FAILED"),11} | " +
@@ -281,7 +310,8 @@ namespace TestApp {
             // Mirror FitWithOutlierRejection: pick the model that wins at budget 0 (the unrejected best fit), then
             // fit -> RejectionTest(weighted) -> remove -> refit, printing the per-point internals each round.
             var seedPts = regular.Select(Clone).ToList();
-            var winnerModel = AlglibHyperbolicFitting.SelectBestModel(alglib, seedPts, stepSize, weighted, 0, confidence, out _, out _, madFloor: madFloor);
+            var winnerModel = AlglibHyperbolicFitting.SelectBestModel(alglib, seedPts, stepSize, weighted, 0, confidence, out _, out _,
+                madFloor: madFloor, semScale: semScale, starCounts: semCounts);
             Emit($"---- Per-round Grubbs detail for the winning model ({winnerModel}){floorTag} ----");
             Emit("(A point is rejected when its z = |r - median(r)| / MAD(r) exceeds the Grubbs limit, where");
             Emit(" r = standardized residual = (Y - f(x)) / sigma. Absolute residual |Y - f| can be tiny and the");
@@ -305,10 +335,21 @@ namespace TestApp {
                     var resid = p.Y - fit.Fitting(p.X);
                     return weightsFn != null ? weightsFn(p.X) * resid : resid;
                 }).ToArray();
-                var (rMedian, rMad) = stdResid.MedianMAD();
+                // Family R only, in the SAME place RejectionTest applies it — BEFORE the median/MAD. The printed
+                // `stdResid r` column below stays UNSCALED so it means the same thing at every rung (and so the
+                // `s = |r|*sqrt(N*)` tie on the SEM line is checkable against it); the sqrt(N*) factor a reader
+                // needs to recompute z from it is the `Stars` column of af_fit_points.csv, at the same position.
+                var rankResid = stdResid;
+                if (semScale.IsRank) {
+                    rankResid = new double[stdResid.Length];
+                    for (int i = 0; i < stdResid.Length; ++i) {
+                        rankResid[i] = stdResid[i] * Math.Sqrt(Math.Max(starCounts(working[i].X), 1.0));
+                    }
+                }
+                var (rMedian, rMad) = rankResid.MedianMAD();
                 double scale = rMad;
                 if (scale <= 0.0 || double.IsNaN(scale)) {
-                    var (_, sd) = MathNet.Numerics.Statistics.Statistics.MeanStandardDeviation(stdResid);
+                    var (_, sd) = MathNet.Numerics.Statistics.Statistics.MeanStandardDeviation(rankResid);
                     scale = sd;
                 }
                 // The SAME floor RejectionTest is about to apply, in the SAME place — after both degenerate-scale
@@ -324,9 +365,23 @@ namespace TestApp {
                 double t2 = t * t;
                 double grubbLimit = (double)(n - 1) / Math.Sqrt(n) * Math.Sqrt(t2 / (t2 + n - 2));
 
-                var rejected = MathUtility.RejectionTest(working, fit.Fitting, confidence, weightsFn, roundFloor, out var scaleUsed);
+                var rejected = MathUtility.RejectionTest(working, fit.Fitting, confidence, weightsFn, roundFloor,
+                    semScale, semCounts, out var scaleUsed, out var semOfSelected);
                 if (round == 1) {
                     firstRoundScale = scaleUsed;
+                }
+
+                // The point the test SELECTED (the argmax of z), which is the point the SEM criterion judges —
+                // rejected or not. First-of-ties, exactly as RejectionTest's MaxBy resolves them.
+                var zs = new double[working.Count];
+                int selIndex = -1;
+                double maxZ = double.NaN;
+                for (int i = 0; i < working.Count; ++i) {
+                    zs[i] = scale > 0 ? Math.Abs(rankResid[i] - rMedian) / scale : double.NaN;
+                    if (scale > 0 && (selIndex < 0 || zs[i] > maxZ)) {
+                        selIndex = i;
+                        maxZ = zs[i];
+                    }
                 }
 
                 Emit($"Round {round}: N={n}, fit minPos={F(fit.Minimum.X)}, redChi^2={F(fit.ReducedChiSquared)}, " +
@@ -340,13 +395,49 @@ namespace TestApp {
                 // this line was made unconditional, because "it probably won't break the gate" is not a control.
                 Emit($"  effective scale (full precision) = {scaleUsed.ToString("G17", CultureInfo.InvariantCulture)}" +
                     $"   [floor applied this round = {roundFloor.ToString("G17", CultureInfo.InvariantCulture)}]");
+                // ASCII ONLY, and only when a SEM rung is live. Not style: a Unicode arrow printed elsewhere in
+                // this harness reaches a REDIRECTED log as the single byte 0x1A, and a scorer written against the
+                // source string then reports "could not look" on every log in the population. Nothing wave 16
+                // prints for a scorer to read leaves ASCII.
+                //
+                // At rung N nothing is printed at all, which is what lets clause W1 be a BYTE comparison against
+                // wave 14's control rung rather than only a field comparison.
+                if (!semScale.IsNone) {
+                    string absRSel = "NaN", sSel = "NaN", verdict = "N/A";
+                    int nStarSel = -1; // no point could be selected (degenerate scale); NOT a star count of 0
+                    if (selIndex >= 0) {
+                        nStarSel = (int)Math.Round(starCounts(working[selIndex].X));
+                        absRSel = Math.Abs(stdResid[selIndex]).ToString("G17", CultureInfo.InvariantCulture);
+                        sSel = semOfSelected.ToString("G17", CultureInfo.InvariantCulture);
+                        // KEPT: the rejection stood. SUPPRESSED: the Grubbs test cleared the limit and the veto
+                        // took it back. N/A: the test found nothing, so there was nothing for a veto to do.
+                        verdict = rejected != null ? "KEPT" : (maxZ >= grubbLimit ? "SUPPRESSED" : "N/A");
+                    }
+                    // Three independently produced quantities on one line — N* from the side map, |r| from this
+                    // file's own replication, s from RejectionTest itself — so `s == |r| * sqrt(N*)` is a real
+                    // cross-check and not the same number printed three times.
+                    Emit($"  SEM detail   : spec={SemScaleArgs.Tag(semScale)}  N*(sel)={nStarSel}  " +
+                        $"|r|(sel)={absRSel}  s={sSel}  verdict={verdict}");
+                    if (semScale.IsRank) {
+                        double spanMin = double.PositiveInfinity, spanMax = double.NegativeInfinity;
+                        foreach (var p in working) {
+                            var f = Math.Sqrt(Math.Max(starCounts(p.X), 1.0));
+                            spanMin = Math.Min(spanMin, f);
+                            spanMax = Math.Max(spanMax, f);
+                        }
+                        // A span of exactly 1.000 makes family R a no-op on this round, and the diagnostic that
+                        // explains R's effect should not have to be reconstructed by a later wave.
+                        Emit($"  SEM rank     : sqrt(N*) span this round = {spanMin.ToString("G17", CultureInfo.InvariantCulture)}" +
+                            $"..{spanMax.ToString("G17", CultureInfo.InvariantCulture)}");
+                    }
+                }
                 Emit("  pos    | medHFR  | sigma  | f(x)    | |Y-f|abs | stdResid r | z=|r-med|/MAD | over-limit?");
                 for (int i = 0; i < working.Count; ++i) {
                     var p = working[i];
                     var f = fit.Fitting(p.X);
                     var absR = Math.Abs(p.Y - f);
                     var r = stdResid[i];
-                    var z = scale > 0 ? Math.Abs(r - rMedian) / scale : double.NaN;
+                    var z = zs[i];
                     var mark = z >= grubbLimit ? "  *** YES" : "";
                     Emit($"  {((int)Math.Round(p.X)),-6} | {p.Y,6:F3} | {p.ErrorY,6:F3} | {f,6:F3}  | {absR,7:F4}  | {r,10:F4} | {z,12:F3}  |{mark}");
                 }
@@ -443,7 +534,8 @@ namespace TestApp {
         // FitWithOutlierRejection so the diagnostic can show each model's set independently.
         private static List<ScatterErrorPoint> ComputeModelOutliers(
                 AlglibAPI alglib, HyperbolicFitModel model, List<ScatterErrorPoint> points,
-                int maxRej, double confidence, bool weighted, int stepSize, MadFloorSpec madFloor) {
+                int maxRej, double confidence, bool weighted, int stepSize, MadFloorSpec madFloor,
+                SemScaleSpec semScale, Func<double, double> starCounts) {
             var working = points.Select(Clone).ToList();
             var rejected = new List<ScatterErrorPoint>();
             var firstRoundScale = double.NaN; // family B anchors per MODEL, exactly as FitWithOutlierRejection does
@@ -452,7 +544,10 @@ namespace TestApp {
                 if (!fit.Solve()) break;
                 var w = AlglibHyperbolicFitting.BuildResidualWeights(working, weighted);
                 var roundFloor = madFloor.ResolveFloor(i == 0 ? double.NaN : firstRoundScale);
-                var r = MathUtility.RejectionTest(working, fit.Fitting, confidence, w, roundFloor, out var scaleUsed);
+                // The per-model view runs at the SAME rung as everything else in the report. A rung that applied
+                // to the production table but not to this one would put two mechanisms in one file.
+                var r = MathUtility.RejectionTest(working, fit.Fitting, confidence, w, roundFloor,
+                    semScale, starCounts, out var scaleUsed, out _);
                 if (i == 0) {
                     firstRoundScale = scaleUsed;
                 }

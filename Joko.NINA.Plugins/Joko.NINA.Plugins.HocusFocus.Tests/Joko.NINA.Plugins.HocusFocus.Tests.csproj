@@ -29,6 +29,7 @@
     <Compile Include="..\TestApp\HarnessFitInputs.cs" Link="Harness\HarnessFitInputs.cs" />
     <Compile Include="..\TestApp\LandingWriteback.cs" Link="Harness\LandingWriteback.cs" />
     <Compile Include="..\TestApp\MadFloorArgs.cs" Link="Harness\MadFloorArgs.cs" />
+    <Compile Include="..\TestApp\SemScaleArgs.cs" Link="Harness\SemScaleArgs.cs" />
     <Compile Include="..\TestApp\MonoFits16Writer.cs" Link="Golden\MonoFits16Writer.cs" />
     <!-- G5's golden policy (StarTruth to GoldenFrame): pure, no NINA/OpenCV coupling, so it links the same way. -->
     <Compile Include="..\TestApp\SynthBank\GoldenFromTruth.cs" Link="Golden\GoldenFromTruth.cs" />
