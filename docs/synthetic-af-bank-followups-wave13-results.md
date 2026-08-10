@@ -589,8 +589,15 @@ found.
 | I2 — af-fit ×19 real | ~40 m | **7 m** |
 | I3 — bank-verify ×2 | ~25 m | **22 m** |
 | I4 — optimize ×39 ×2 | ~55 m | **47 m** |
-| I5 — optimize ×8 at S1 | ~45 m | **21 m** |
+| I5 — optimize ×8 at S1 | ~45 m | ~~21 m~~ **37 m 14 s** — corrected 2026-08-10 (wave 15) |
 | *(added mid-wave)* MOR=3 control | — | 11 m |
+
+> **CORRECTION, wave 15 (2026-08-10): I5's actual was 37 m 14 s, not 21 m.** `D:\hf_w13\land_w13.log` reads
+> `I5_START 16:15:41Z` … `I5_DONE 16:52:55Z`. The 21 m in this table was a bookkeeping error, and it was not
+> harmless: wave 15's brief quoted it as a **second, 2×-faster per-run rate** for `optimize --max-evals 250`
+> (2.6 m/run against the gate's 5.2 m/run) and tried to price a 40-run arm from the discrepancy. There is no
+> second rate — per synthetic dataset the three wave-13 arms agree within **1 %** (4.71 / 4.71 / 4.67 m).
+> *A budget table is an instrument too, and this one had never been read back against its own log.*
 
 > **I1 was over-priced by 16×, and the reason is worth keeping.** `af-fit` detects each frame **once** and then
 > evaluates four rejection budgets on those points, while the estimate priced it like an `optimize` pass. *The
