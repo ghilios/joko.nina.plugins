@@ -1,6 +1,6 @@
-# Waves 16–21 — continuation prompt
+# Waves 17–21 — continuation prompt
 
-Run this after `/clear`. It replaces `docs/waves14-21-autonomous-prompt.md`, which waves 14 and 15 executed.
+Run this after `/clear`. Waves 14, 15 and 16 have executed; this is the state after them.
 **You are the controller, you delegate context-heavy work to agents, and you do not stop for approval.**
 
 ---
@@ -25,14 +25,16 @@ produce no finding worth a register entry.
 
 | | state |
 |---|---|
-| **the gate** | Eight values, **reproduced on six binaries built for this series plus two wave-10 builds**, bit-identical to sixteen digits every time. It has never moved. |
+| **the gate** | Eight values, **reproduced on every binary this series has built plus two wave-10 builds**, bit-identical to sixteen digits every time. It has never moved. |
 | **`MaxOutlierRejections`** | **Code default now 0** (wave 14, owner's decision overriding wave 13's pre-registration). Profiles storing 1 keep 1. |
 | **F63** | **Answered.** The landing moves on **19 of 20** synthetic datasets, with search noise measured at **zero** (wave 15's G-e). |
-| **F45(b)** | Measured and **reframed**. The absolute floor is refuted in principle; the SEM-unit reframing is the live proposal. |
+| **F45(b)** | **Measured in SEM units (wave 16) and the criterion WORKS**: 0 of 2 damaging rejections survive at `V1.00`, 12 of 12 benign ones do. **RULE S16 still returned NO RECOMMENDATION** because the confirming clause was unsatisfiable — see §3a. Shipping needs ~3–4 h of production plumbing (`N*` is not reachable in `AutoFocusEngine`). |
+| **F67** | **Narrowed to a PRODUCT finding (wave 16).** 53 of 55 live params identical, so the disagreement is **downstream**: frame loading **or** the counting/gating stage, two candidates by construction. **The user gets the post-filter count**; `af_fit_points.csv`'s `Stars` is the pre-filter one. |
+| **F68** | New standing discipline: **a threshold stated as a COUNT carries a denominator.** Three consecutive satisfiability sections checked the value a clause can reach without checking the population, the aggregation, or the empty case. |
 | **RULE F14** | **NO VERDICT, permanently.** Do not re-open it — see §3. |
 | **F57** | Closed, including (d). `D:\hf_w10\exe_v1wav` can be archived or deleted. |
 | **F15** | Fixed and confirmed in three waves of arms: 42 of 42 bank landings byte-identical. |
-| **the suite** | **3781** on this branch (`develop` was 3744). CI verified by COUNT out of the log. |
+| **the suite** | **3824** on this branch (`develop` was 3744). CI verified by COUNT out of the log. |
 
 **Artifacts:** `D:\hf_w13\`, `D:\hf_w14\`, `D:\hf_w15\`. Reusable: `score_w12.py` (the gate),
 `prov_w15.py` (free controls, self-testing), `score_f14_w15.py` (V4′), `convert_landing_w15.py` (landing →
@@ -47,12 +49,35 @@ what the next wave does. Prefer questions that can be **refuted**. Prefer instru
 
 | # | candidate | why now | cost |
 |---|---|---|---|
-| **F45(b) SEM floor** | Thread `N*` from `MeasurePoint` construction through the fit to `RejectionTest`, so the Grubbs scale is in units of the **standard error of the median** rather than ensemble scatter. **Wave 14 measured the separation and it is clean**: the one catastrophic run's rejections all sit at `s < 1`, 32 of 33 benign ones at `s ≥ 1` | ~2 h + tests. **This is the wave that applies V4′ prospectively** | ~3 h |
-| **F67 / G-c** | `af-fit` and `optimize` count stars through different entry points and disagree on 7 of 20 synthetic datasets **at identical settings**. That is a product-adjacent inconsistency, not just an instrument bug | ~45 m to close by printing the detector's own params from `af-fit`; the diagnosis is done | ~45 m |
+| **F67(c)** | **One step from closure and it is a PRODUCT question.** Wave 16 narrowed it to two candidates by construction: the frame loading (`DiagnosticUtil.LoadRenderedImage` vs `RunEvaluationLoader`) or the counting stage (`StarDetectorResult.DetectedStars.Count`, pre-filter, vs `HocusFocusStarDetectionResult.DetectedStars`, post-ROI-crop and post-`MeanOutliers`). Deciding between them tells the register **which number fourteen waves have been quoting** | ~1 h |
+| **F45(b) production plumbing** | `N*` is NOT reachable in `AutoFocusEngine` — `:901` drops the count into `MeasureAndError`, a NuGet struct of two doubles. Needs a parallel count map, a pooling rule that does not double-divide against the existing `/√frames`, the same again in the optimizer's path, and a choice between `DetectedStars` and `hfrStars.Count` | ~3–4 h + tests |
 | **F63(b)** | Pin the SHIPPED default rather than the harness file's. **It splits in two, and only half is cheap.** The **fit inputs** are now a no-op: after wave 14 all four values in `pinned_settings_w11.json` equal the shipped code defaults (`MaxOutlierRejections` 0, confidence 0.95, weighted True, Hybrid) — before wave 14, `MaxOutlierRejections` was the only mismatch. The **detector knobs** are NOT: the file was exported from `Default-2026-08-05T10:54:36` (**not `astrodet`** — the register's shorthand is wrong), it carries `UseAdvanced=False` with `Simple_*` all `Typical`, so its advanced knobs are **preset-derived**, not code defaults. That half is still a coordinate-system move | fit half ~0; detector half ~1 h + re-derivation | ~1 h |
 | **F59** | Re-pin the five knobs at real values. Deliberate coordinate-system move; needs a fresh gate baseline | ~42 m + re-derivation | ~1 h |
 | **item 2 (UI)** | **Run `query session` FIRST.** `Disc` on six consecutive waves. If `Conn`, ~30 m and wave 13 §3's procedure is correct | 0 or ~30 m |
 | **F18/F21/F25/F26** | step-size and sweep-width family, untouched for many waves; **F21's half-width instability is the load-bearing one** | unpriced |
+
+---
+
+## 3a. RULE S16 RETURNED NO RECOMMENDATION, AND THE REASON IS NOT THE DATA
+
+Wave 16 measured the SEM criterion and **it works**: `S16-A(a)` is exact — **0 of 2** rejections on the one run
+with ρ > 2 survive at `V1.00`, so `caboose`'s damaging rejections are killed — and `S16-D` at `V0.07` reached
+**CONTAINS-SELECTIVELY**, the branch §4.1 expected to be foreclosed.
+
+**It returned NO RECOMMENDATION because `S16-A(b)` could not pass.** The clause demanded **≥ 30 of 33** benign
+rejections surviving; the production consensus contains only **12**, and all **12 of 12** survived. The bar was
+an absolute count against a denominator borrowed from a different instrument — wave 14's audit counted one
+model's trace (42 rejections), the production budget table counts the **consensus** (18), and the 24 in between
+are **rejections production never performs**.
+
+**Do not simply restate the bar as a rate and re-score wave 16's rungs.** That is the harvest RULE F14 was
+closed to prevent, one wave later. A wave that wants a recommendation out of the SEM criterion must:
+1. fix the corrected clause **on the consensus population, as a rate, naming its aggregation** (F68), and
+2. apply it to a population measured **after** the rule is fixed.
+
+**And correct the record while you are there:** wave 14's published *"32 of 33 rejections at s ≥ 1"* counted
+phantoms. On the consensus the separation is **12 of 12 benign / 0 of 2 damaging** — the direction is unchanged
+and the N is smaller than published.
 
 ---
 
