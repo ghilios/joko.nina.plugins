@@ -3718,6 +3718,104 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
+### F67 — `af-fit`'s star count and `optimize`'s are NOT the same number, so the control built on their equality reports "could not look" on exactly the datasets where the intervention bites hardest
+**Status:** Open · found 2026-08-10 (wave 15) when RULE L15's gate **G-c** returned TOOK on 13 of 20 · **the test
+that settles it was free, already on disk, and predates the control by two waves**
+
+Wave 15 needed to prove that a converted **landing** (`optimized_settings.json`, lifted into a harness settings
+file through the production Accept path) actually reached the detector, because
+`af-fit --settings <landing>` fails **silently** — a landing has no `Options` member, so it deserialises to an
+empty bag, uses code defaults, and `HarnessSettingsStore.Fingerprint` appends nothing, so **two different landings
+of one dataset hash identically.** *An instrument that is not connected reports perfect agreement.*
+
+The control chosen was free and already printed: `optimize --per-run` writes `optimize_result.csv` with
+`currentStarCount` and `optimizedStarCount` per frame; `af-fit` writes `af_fit_points.csv` with its own `Stars`
+per focuser position. **They were declared "the same number at the same settings" on the strength of one exact
+9-of-9 match on `D18_m24_deep_shed`.** The control was then demonstrated in **both** directions on that same
+dataset — TOOK on a converted file, DID-NOT-TAKE on a mutant with `UseOptimizedSettings` flipped back — and
+quoted.
+
+### They are two pipelines
+
+| | `optimize_result.csv` `optimizedStarCount` | `af_fit_points.csv` `Stars` |
+|---|---|---|
+| producer | `RunEvaluationData.EvaluateAndFitAsync(BestParams).Metrics.FrameStarCounts[i]` = `FrameDetectionResult.StarCount` (`RunEvaluationData.cs:675`) | `img.DetectAsync(detector, baseParams).DetectedStars.Count` (`AfFitDiagnosticRunner.cs:173`) |
+| detector entry | `HocusFocusStarDetection.BuildDetectionContext` + `GateAndMeasure` via `HocusFocusSplitFrameDetector` (`RunEvaluationLoader.cs:297`) | `StarDetector` directly, on an `IRenderedImage` from `DetectionSource.LoadAsync` |
+| params | the `StarDetectorParams` the search produced | `BuildStarDetectorParams(options)`, rebuilt from `StarDetectionOptions`, then `ModelPSF = false` |
+
+**The disagreement is a fixed property of the dataset and has nothing to do with any converter.** Wave 13 ran
+`af-fit` on all 20 synthetic datasets at exactly `pinned_settings_w11.json` — the same settings whose evaluation
+wave 15's `optimize` records as `currentStarCount`. Scoring one against the other:
+
+| | datasets |
+|---|---|
+| wave-13 `af-fit` ≠ wave-15 `currentStarCount` at the **same pinned base**, **no converter present** | `D08`, `D09`, `D10`, `D12`, `D14`, `D15`, `D17` |
+| wave-15 G-c non-TOOK, **arm 0** | `D08`, `D09`, `D10`, `D12`, `D14`, `D15`, `D17` |
+| wave-15 G-c non-TOOK, **arm 1** | `D08`, `D09`, `D10`, `D12`, `D14`, `D15`, `D17` |
+
+> **The three sets are EQUAL.** G-c is not measuring whether the conversion took; it is measuring whether the two
+> pipelines agree on a given dataset, and they disagree on **7 of 20**. `af-fit` finds systematically **fewer**
+> stars, worst at the sweep wings and near parity at focus — `D08` at the base runs 0.46–0.52 of `optimize`'s
+> count at the extremes against 0.82 at focus.
+
+### And "could not look" fires when the settings WORK
+
+All four `COULD-NOT-LOOK` reads are *"focuser positions do not line up: af-fit 7, current 9, optimized 9,
+common 7."* `AfFitDiagnosticRunner` drops a position when it yields ≤ 1 star (`AfFitDiagnosticRunner.cs:175`), and
+the log names it: `pos 20564: 0 stars (skipped - Y would be 0)`. **In all four cases the dropped positions are
+exactly the two sweep extremes** (`D12` `{19436, 20564}` from `[19436..20564]`; `D14`/`D17` `{11760, 12240}` from
+`[11760..12240]`) — the most defocused frames, starved by an aggressive landing.
+
+**So on the datasets where the landing's settings bite hardest, the control's answer is that it could not look.**
+The "could not look" state was built (waves 12/13) so an empty thing never reads as agreement, and it did that job
+— nothing was misread as a pass. But it was designed for *"the artifact is missing"* and it fires for *"the
+artifact changed in the way the arm was testing for."*
+
+### The control that DOES transfer was already in every log
+
+`HarnessSettingsStore.SimpleModePresetOverrides` hands the file's own option bag to a real `StarDetectionOptions`
+and diffs the bag afterwards, so its `UseAdvanced=False` WARNING prints **the value the live options object holds
+after `InitializeOptions`** — measured, never listed, and printed on every `af-fit` run already.
+
+> **205 of 205 overridden knobs equal the landing snapshot's value, across all 40 runs (20 datasets × 2 arms),
+> including all seven G-c could not certify.** Zero mismatches, zero unreadable.
+
+**And it falsifies DID-NOT-TAKE decisively.** `DerivePresetSettings()`'s inputs are `Simple_NoiseLevel`,
+`Simple_PixelScale`, `Simple_FocusRange` and the pixel-scale pair, and **all 40 converted files carry one
+identical `Simple_*` tuple**. Under *"the file was written and ignored"* all 40 runs would print the **same**
+preset values; they print **39 distinct sets** (the only collision is `D13`'s two arms, whose landings are
+identical), each equal to its own landing. Consistently, `DID-NOT-TAKE` occurred on **0 of 40** runs.
+
+### Why it matters
+
+- **It cost a wave its verdict.** RULE L15 returns **NO VERDICT** on a gate that is not testing what its name
+  says. The rule was applied as written and the diagnostics are published as diagnostics — but the out-of-sample
+  half of the wave, the half built to answer [F62](#f62--σ_focus-is-anti-informative-when-an-outlier-rejection-is-what-changed-it-it-improves-by-up-to-88--while-the-distance-to-a-known-truth-improves-on-none)
+  at the landing level, is gated.
+- **Any future control on either count inherits this.** Neither number is wrong; they are different measurements
+  with the same name, and nothing in either artifact says so.
+- **Demonstrating a gate in both directions is necessary and not sufficient.** [F66](#f66--three-of-wave-14s-checks-could-not-return-their-own-pass-and-the-register-has-been-reading-strings-as-one-instrument-when-it-is-two)(a)
+  was promoted to a wave rule and honoured: the control was shown to PASS and to FAIL before it was quoted. It was
+  shown on **one dataset out of twenty**, and the axis it varied was not the axis that decides its answer.
+
+### Next step
+
+(a) **Re-score G-c on the knob-diff control above instead of on star counts** — pure Python over artifacts already
+on disk, **< 5 m**, and it transfers to all 40 runs. The next wave should do this *before* it runs another landing
+arm.
+(b) **Print the detector's own params from `af-fit`** — the 25 knob values and `StarDetector.EffectiveSensitivityGate`
+beside the existing `Region:` line. That closes the last gap outright (the options object holding the right values
+and the detector running at them are one `BuildStarDetectorParams` call apart). **~45 m** including a rebuild, a
+fresh gate and a re-run of both scoring passes; it is a code change, so it belongs to a wave already shipping code.
+(c) **Identify the pipeline disagreement's cause** — ~1 h. The defocus-graded deficit is *consistent with* a
+sensitivity- or size-gate difference; that is a hypothesis, not a result, and this entry does not assert it.
+Reproduce: `python3 /mnt/d/hf_w15/score_land_w15.py --arm0 /mnt/d/hf_w15/land_mor0 --arm1 /mnt/d/hf_w15/land_mor1
+--score0 /mnt/d/hf_w15/affit_mor0 --score1 /mnt/d/hf_w15/affit_mor1 --w13 /mnt/d/hf_w13 --gate /mnt/d/hf_w15/gate
+--out /mnt/d/hf_w15/l15_score.txt` (G-c's four states, by name); the base-level test is
+`/mnt/d/hf_w13/affit_syn/<D>/af_fit_points.csv` against `/mnt/d/hf_w15/land_mor0/<D>/attempt01/optimize_result.csv`
+column `currentStarCount`; the transferring control is the `Overwritten by the presets:` line in every
+`/mnt/d/hf_w15/affit_mor{0,1}/<D>/run.log`; `docs/synthetic-af-bank-followups-wave15-results.md` §3.2.
+
 ### F66 — Three of wave 14's checks could not return their own PASS, and the register has been reading `strings` as one instrument when it is two
 **Status:** Open (a standing discipline entry) · found 2026-08-09 (wave 14), three of them in one wave, by
 running each check against the state it was meant to **accept**
@@ -3786,6 +3884,34 @@ same passing arm before it);
 `python3 /mnt/d/hf_w14/score_affit_w14.py --root /mnt/d/hf_w14 --w13 /mnt/d/hf_w13 --stagea /mnt/d/hf_w14/stageA`
 (V3 ABSENT, V4 four rows of which two are the NaN artifact); `docs/synthetic-af-bank-followups-wave14-results.md`
 §1.1, §1.3, §3.4, §3.5.
+
+> ### WAVE 15 — (a) was promoted to a wave rule and it worked; and here is the shape it does not cover
+>
+> **The rule held.** Every wave-15 instrument carried a `--self-test` that was run before its numbers were quoted:
+> `prov_w15.py` PASSED on the real 8-landing gate and FAILED on both clauses against a copy with one landing's
+> `ProfileId` rewritten — **and it refused to certify itself when pointed at wave 14's gate**, because that
+> `BuildId` is on the prior-wave list. *A self-test bound to the arm it certifies is the point; one that passes
+> against any input certifies nothing.* `score_f14_w15.py`, `score_land_w15.py` and `convert_landing_w15.py`
+> each returned **every** one of their outcomes on constructed input, including every refusal.
+>
+> **And a clause still shipped with an unreachable branch, inside the section written to prevent exactly that.**
+> RULE L15's **G-d** asserts *"the two converted files differ **iff** the landings differ."* The converter embeds
+> the landing's **raw text**, and every landing carries `CreatedAtUtc` plus **F30**'s
+> provenance stamp — which records the arm's own `--out` path, its own `--settings` path, that file's fingerprint
+> and its `FitInputs`, all of which *must* differ between arms. **So "the converted files are identical" is
+> unreachable, and G-d must fire on every dataset whose landing does not move.** It fired on
+> `D13_apo200_1800mm`, whose two landings agree on all 25 curated knobs, on `RecommendedStepSize`, and on
+> `BaselineJ`/`FinalJ` to all sixteen digits. The wave's satisfiability table listed G-d as *"20 pairs |
+> consistent | yes"*: it checked that the PASS value was attainable and never that both branches were.
+>
+> *This is not the F66 shape (a check that can never say PASS) — G-d says PASS on 19 of 20. It is the adjacent
+> one: a check with **one input class** whose correct answer it cannot give.* **Ask of every clause what input
+> makes it return EACH of its outcomes, not only the expected one.** The correct G-d compares the converted files'
+> `OptimizedSettingsJson` **outside `CreatedAtUtc` and `Provenance`**; on that clause wave 15 passes 20 of 20.
+> Reproduce: `/mnt/d/hf_w15/l15_score.txt` (G-d's one problem, named);
+> `docs/synthetic-af-bank-followups-wave15-results.md` §3.3, and §3.2 for
+> [F67](#f67--af-fits-star-count-and-optimizes-are-not-the-same-number-so-the-control-built-on-their-equality-reports-could-not-look-on-exactly-the-datasets-where-the-intervention-bites-hardest),
+> the wave's other confounded control.
 
 ### F65 — The Hybrid consensus is an INTERSECTION over four models that can reject the same points in a DIFFERENT ORDER, so the rejected set at budget B is not a prefix of anything
 **Status:** Open · found 2026-08-09 (wave 14) when RULE F14's V4 failed on `Panos_attempt01` · **the mechanism
@@ -3914,6 +4040,53 @@ Reproduce: `D:\hf_w13\land_w13.sh`, `D:\hf_w13\land_score.txt`.
 > Reproduce: `/mnt/d/hf_w14/profiles_after_default_change_w14.txt`,
 > `docs/synthetic-af-bank-followups-wave14-results.md` §2.3.
 
+> ### WAVE 15 — (a) IS ANSWERED AT POPULATION SCALE: **19 of 20**, and the search noise is measured at ZERO
+>
+> RULE L15's clause **L15-S** re-ran D5's question on the **20 synthetic datasets**, both values pinned
+> explicitly, paired-interleaved, one binary, `--max-evals 250`, on D5's own definition of "moved" (any curated
+> knob, or the recommended step):
+>
+> > **`M` = 19 of 20.** One unmoved (`D13_apo200_1800mm`), 0 UNEVALUATED by name. D5 measured 6 of 8 on a
+> > different, mostly-real population.
+>
+> The movements are large in knob terms: `D18` moves **11 fields** (`BrightnessSensitivity` 14.67 → 32.83,
+> `StarClippingMultiplier` 0.25 → 6.25); `D01` and `D14` move 10; `D07` moves `BrightnessSensitivity` 8.0 → 0.0
+> and `StarClippingMultiplier` 2.0 → 7.125. The smallest mover is `D05` at 3 fields.
+>
+> **And "the search is just noisy" is now excluded rather than assumed.** Clause **G-e** required arm 0's
+> `D18/D19/D20` landings to reproduce the same wave's RULE G15 landings — same binary, same command, same settings
+> file. They do, **3 of 3**, and totally: each pair differs in `CreatedAtUtc` and F30's provenance stamp **and in
+> nothing else**, including `BaselineJ` and `FinalJ` to all sixteen digits. *At `--max-evals 250` on this bank,
+> two runs at identical settings land bit-identically, so `M` = 19 is attributable to the knob and is not an upper
+> bound inflated by search noise.* Three is a small control and it is stated as three.
+>
+> **`D13` is the one dataset where the knob is inert end-to-end**: both arms produced identical `BaselineJ` **and**
+> identical `FinalJ`, so a 250-evaluation search never once visited a point where the rejection changed `J`.
+>
+> ### And *"moved is not worse"* is now **asked** out of sample — and the answer is gated
+>
+> **L15-P** scored each arm's landing against `renderRequest.OptimalFocuserPosition` at **budget 0 fixed for both
+> arms**, so the fit machinery is identical and the detector is the only difference — the first time in this
+> series that a landing has been scored against truth at all. Over the 19 movers: **arm 0 wins 7, arm 1 wins 7,
+> 5 exact ties**; median `|Δe|` **0.00167 step**, max **0.02584**, against a pre-registered **0.10-step**
+> materiality floor and a direction clause needing **≥ 15** wins with 0 against. **NO DOMINANCE.**
+>
+> **This is reported as a DIAGNOSTIC, not a result.** RULE L15 returned **NO VERDICT**: validity gate **G-c** —
+> *"the conversion took"* — passed on only 13 of 20 per arm. Wave 15 §3.2 shows G-c is confounded (it returns
+> non-TOOK on exactly the 7 datasets where `af-fit` and `optimize` already disagreed at the pinned base two waves
+> earlier, with no converter present) and that an independent control puts the landing's knobs on the live options
+> object on **40 of 40** runs — see [F67](#f67--af-fits-star-count-and-optimizes-are-not-the-same-number-so-the-control-built-on-their-equality-reports-could-not-look-on-exactly-the-datasets-where-the-intervention-bites-hardest).
+> **The gate is the gate.** The out-of-sample half of the question stays open, and the register must not quote
+> 7–7 as a measured null.
+>
+> **The 19-of-20 count does NOT depend on that gate.** It is read from the landing files; G-c gates only the
+> out-of-sample scoring pass.
+>
+> **(b) is now priced at ~0** — after wave 14 the shipped default **is** `astrodet`'s value, and wave 15 pinned
+> both values explicitly on every arm, so nothing is left to move. It should close next wave.
+> Reproduce: `/mnt/d/hf_w15/land_w15.sh`, `/mnt/d/hf_w15/l15_score.txt` (L15-S's per-dataset table, G-e, and the
+> NO VERDICT with its failing gate named), `docs/synthetic-af-bank-followups-wave15-results.md` §3.4–§3.6, §3.8.
+
 ### F62 — σ_focus is ANTI-INFORMATIVE when an outlier rejection is what changed it: it improves by up to 88 % while the distance to a known truth improves on none
 **Status:** Open (a standing warning about the register's own favourite quantity) · found 2026-08-09 (wave 13)
 by RULE M13's D1, whose arbiter was deliberately put out of sample
@@ -4002,6 +4175,38 @@ it will use instead. Wave 13's `score_pop_w13.py` is the reference implementatio
 compared is **not computed**.
 Reproduce: `D:\hf_w13\affit_syn_score.txt`, `D:\hf_w13\score_affit_w13.py`,
 [`docs/wave14-f62-audit.md`](wave14-f62-audit.md).
+
+> ### WAVE 15 — THE LANDING-LEVEL VERSION OF THIS QUESTION IS NOW **ASKED** WITH AN OUT-OF-SAMPLE ARBITER, AND THE ANSWER IS GATED
+>
+> [F63](#f63--the-optimizers-landing-moves-on-6-of-8-runs-under-a-knob-that-is-nearly-inert-at-the-seed-so-every-landing-waves-5-12-published-was-produced-at-a-non-default-value)'s
+> *"moved is NOT worse — `BestJ` is computed by the fit under test, so neither landing can be called better"* is
+> this entry at the **landing** level, and it had stood unresolved since wave 13. Wave 15's RULE L15 built the
+> instrument that escapes it, and §6(b)'s standing line was followed: the design named the class of change and the
+> arbiter **before** the arm ran.
+>
+> **The construction, and it is the transferable part.** Compare two landings by running the detector at each
+> landing's own knobs and scoring the resulting fit's vertex against `renderRequest.OptimalFocuserPosition` — with
+> the rejection **budget fixed at 0 for both arms**, so the fit machinery is identical and the *detector* is the
+> only difference. Nothing in the comparison is computed by the fit under test: not `J`, not σ_focus, not R².
+> `truth` and `step` are read from wave 13's stored table rather than re-derived.
+>
+> **The blocker was real and it is worth carrying.** `af-fit --settings <landing>` fails **silently**: a landing
+> (`optimized_settings.json`) is a flat DTO with no `Options` member, so `HarnessSettingsStore.ResolveAt` yields
+> an **empty option bag** and the run uses code defaults — and `HarnessSettingsStore.Fingerprint` appends nothing
+> when `Options` is absent, so **two different landings of one dataset hash IDENTICALLY** and `af-fit` prints no
+> fingerprint at all. *An instrument that is not connected reports perfect agreement.* The working route is two
+> keys through the production Accept path — `Options["OptimizedSettingsJson"] = <the landing's RAW TEXT>`,
+> `Options["UseOptimizedSettings"] = "True"`, `UseAdvanced` staying **`False`** (load-bearing: `ConfigureSimpleSettings`
+> returns immediately when it is true) — which also carries
+> [F59](#f59--the-settings-export-drops-every-knob-whose-setter-validates-so-pinned_settingsjson-has-been-missing-five-detector-knobs-since-wave-5)'s
+> six validating-setter knobs for free, because they ride inside the snapshot rather than as option keys.
+>
+> **The answer is NOT delivered.** RULE L15 returned **NO VERDICT** on validity gate G-c
+> ([F67](#f67--af-fits-star-count-and-optimizes-are-not-the-same-number-so-the-control-built-on-their-equality-reports-could-not-look-on-exactly-the-datasets-where-the-intervention-bites-hardest)),
+> so the measured 7–7–5 over 19 movers is a diagnostic. **What this entry gains is the instrument and the
+> statement that the question is answerable for ~8 minutes of arm time once the gate is fixed** — not a direction.
+> Reproduce: `/mnt/d/hf_w15/convert_landing_w15.py --self-test`, `/mnt/d/hf_w15/affit_w15.sh`,
+> `/mnt/d/hf_w15/l15_score.txt`, `docs/synthetic-af-bank-followups-wave15-results.md` §3.1, §3.6.
 
 ### F61 — F58(d)'s real consumer was the SENSOR MODEL, not the AF fit: the per-star paraboloid's rejection budget came from the active profile
 **Status:** **Fixed (wave 12)** for every harness runner · found 2026-08-09 by RULE B12-D, **the control written
@@ -4189,6 +4394,15 @@ None for the export. **But the five knobs are now known to have been at code def
 worth stating in any write-up that describes `pinned_settings.json` as a full snapshot. Reproduce:
 `Joko.NINA.Plugins.HocusFocus.Tests/Harness/HarnessFitInputsTests.cs`
 (`CopyOptionSurface_CarriesAKnobWhoseSetterTHROWSOnTheObviousPoison`).
+
+> **WAVE 15 — this entry is now load-bearing for more than provenance.** Wave 15 had to feed an optimizer
+> **landing** back into the detector, and the six curated knobs an exported bag has no key for — `MaxDistortion`,
+> `StarCenterTolerance`, `HotpixelThreshold`, `DefocusDistortionMinFactor`, `DonutMinAnnularityHoleFraction`,
+> `DonutMaxStreakEccentricity` — are **exactly** the six a lift-by-key converter would silently drop. The wave
+> routed around them by embedding the landing's raw snapshot (`Options["OptimizedSettingsJson"]`) instead of
+> lifting knobs, so the converter never needs a knob's option-key spelling and F59's six ride along. *The design
+> defect is not only a provenance gap: it is the reason the obvious converter is the wrong one.*
+> Reproduce: `docs/synthetic-af-bank-followups-wave15-results.md` §3.1.
 
 ### F58 — Concurrent `optimize` processes each acquire a DIFFERENT NINA profile, and the profile decides the fit: F55's "two attractors" are two values of `MaxOutlierRejections`
 **Status:** Open · found 2026-08-08 (wave 11) **at zero compute, out of logs wave 9 left on disk** ·
