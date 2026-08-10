@@ -158,6 +158,15 @@ namespace TestApp {
             baseParams.ModelPSF = false; // AutoFocus never models PSF; HFR is the measured quantity.
             Console.WriteLine($"Detector params from: {paramsSource}");
             Console.WriteLine($"Region: {baseParams.Region}");
+            // RULE P16 (F67): the FULL params surface, printed by the same formatter `optimize` uses, so the two
+            // entry points' bundles can be diffed field by field instead of guessed at from five fields. This is
+            // baseParams in its final state — nothing below mutates it before StarDetector.Detect receives it.
+            //
+            // TO THE CONSOLE, AND NOT THROUGH `Emit`. Emit appends to `sb`, which becomes af_fit_summary.txt, and
+            // clause W1 is a BYTE comparison of that file against wave 14's control rung. Diagnostic provenance
+            // belongs in the log; one extra line in the report would spend the only clause that can catch a
+            // wave-16 change that is not inert at its default.
+            ParamsDump.Write(Console.WriteLine, ParamsDump.AfFitDetector, baseParams);
 
             int stepSize = (int)ParseDouble(DiagnosticUtil.GetArg(args, "--step-size"),
                 EstimateStepSize(frames, profileService));

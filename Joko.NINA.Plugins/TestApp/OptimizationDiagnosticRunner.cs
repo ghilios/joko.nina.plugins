@@ -392,6 +392,23 @@ namespace TestApp {
             Console.WriteLine($"Current (baseline) params: Sensitivity={F(baseline.Sensitivity)}, StarClippingMultiplier={F(baseline.StarClippingMultiplier)}, " +
                 $"NoiseClippingMultiplier={F(baseline.NoiseClippingMultiplier)}, StructureLayers={baseline.StructureLayers}, " +
                 $"MeasurementAverage={starDetectionOptions.MeasurementAverage}");
+            // RULE P16 (F67): the five fields above are a summary, not a diff — they are five of ~45, and the
+            // question is whether `af-fit` and `optimize` build DIFFERENT detectors from one settings file. Both
+            // bundles go out through the SAME formatter af-fit uses, reflectively, so the two printouts cannot
+            // drift and a field added in a later wave is covered on both sides without anyone remembering to.
+            //
+            // Two dumps because there are genuinely two bundles: `baseline` is the user's current settings (the
+            // same BuildStarDetectorParams(options) call af-fit falls back to — this is the apples-to-apples
+            // side, and the only one score_params_w16.py reads) and `seed` is what the search starts from, which
+            // is the fully-default bundle unless --start-from-current makes it the baseline's twin.
+            //
+            // Printed HERE, where the bundles are constructed. Two fields are re-derived per run afterwards and
+            // are logged where that happens: PixelScale (per-run, from the frame headers — inert by proof,
+            // consumed only inside the ModelPSF block, which is false on both paths) and, only under
+            // --apply-run-detection-binning, DetectionBinning + PixelScale together via
+            // ApplyRunDetectionBinningIfRequested. Neither the gate nor the P16 probe passes that flag.
+            ParamsDump.Write(Console.WriteLine, ParamsDump.OptimizeBaseline, baseline);
+            ParamsDump.Write(Console.WriteLine, ParamsDump.OptimizeSeed, seed);
 
             // The fixed AF-detection sigma rejections the wizard's RunEvaluationLoader uses (the
             // HocusFocusDetectionParams class defaults, NOT the live AF path): high = 4.0, low = 3.0. These feed
