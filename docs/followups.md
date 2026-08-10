@@ -3814,6 +3814,130 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
+### F70 — `NoiseReductionRadius` has TWO shipped defaults, and the drift-guard test asserts the one path where they agree
+**Status:** Open · found 2026-08-10 (wave 17) by reconciling two clauses of RULE D17 that appeared to
+contradict each other · **~0 to measure (it is printed in every `optimize` log), and it is a PRODUCT
+observation, not a harness one**
+
+RULE D17 diffed the pinned settings file's detector bundle against the shipped code defaults over the 50 fields
+`ApplyAfContext` does not set, on 8 wave-17 gate logs and 10 wave-16 logs. **Exactly one field differs, every
+time:**
+
+```
+NoiseReductionRadius    optimize/seed (shipped default) = 3        optimize/baseline (loaded options) = 4
+```
+
+The same rule's `D17-4` reports the `UseAdvanced=False` warning saying the Simple-mode presets override **0**
+recorded knobs. Both are correct, and reconciling them is where the finding is.
+
+| where | value | why |
+|---|---|---|
+| `HocusFocusStarDetection.BuildDefaultStarDetectorParams()` — **the shipped Optimization Wizard's seed** (`:418`, used by `GetDefaultStarDetectorParams` at `:542`) and the harness's `optimize/seed` | **3** | a hardcoded literal |
+| `StarDetectionOptions.ResetDefaultsImpl()` (`:348`) | **3** | the literal, assigned **after** the `Simple_*` properties, so it is the object's final state on that path |
+| **any `StarDetectionOptions` constructed from an accessor** in Simple mode — the harness's, and the app's | **4** | `InitializeOptions()` → `ConfigureSimpleSettings()` → `DerivePresetSettings()`: `Typical` ⇒ 3, then `StarDetectionOptions.cs:221-224` adds **+1** whenever `HotpixelThresholdingEnabled && HotpixelFiltering` — *"Without thresholding, hotpixel filtering does a blur. To compensate, we increase the noise reduction radius"* — and **both are on by default** |
+
+> **`ResetDefaults()` leaves the object in a state that constructing it never produces.** The drift guard,
+> `StarDetectionOptionsTests.BuildDefaultStarDetectorParams_MatchesResetDefaultsBuild`, does exactly
+> `options.ResetDefaults(); BuildStarDetectorParams(options)` and asserts `NoiseReductionRadius` against
+> `BuildDefaultStarDetectorParams()`. **It is green** (3824 of 3824 pass) — on the one path where the `+1` never
+> fires. The path every real load takes disagrees by one, and no test looks at it.
+
+**Why it matters.** `NoiseReductionRadius` is **live**, not cosmetic: it is in `StarDetector`'s early-key list
+(`:153`) and sets the measurement-image smoothing kernel at
+`CvImageUtility.ConvolveGaussian(srcImage, srcImage, p.NoiseReductionRadius * 2 + 1)` — **7 px against 9 px**.
+So the optimizer's seed — in the harness **and in the shipped wizard** — starts its search from a smoothing
+radius that no Simple-mode options object with hotpixel thresholding enabled ever holds. The wizard's own
+docstring calls it *"the fully-default detector params … so the search starts from a clean, reproducible
+point"*, and it is clean and reproducible; it is just not the point the user is at.
+
+**Two things this does NOT say.** It does not say either value is wrong — the `+1` compensation is deliberate
+and reasoned. And it does not say any prior measurement is invalid: every arm in this series pinned the same
+settings file, so the baseline side has been a uniform 4 throughout and the seed side a uniform 3.
+
+### Next step
+(a) **Decide which of the two is the default**, and make the other follow it — either apply the hotpixel
+compensation inside `BuildDefaultStarDetectorParams()`, or move the `+1` out of `DerivePresetSettings()` into the
+place both paths pass through. **~30 m + tests**, and it moves the wizard's seed, so it needs a gate arm.
+(b) **Whatever (a) decides, widen the drift guard**: assert `BuildDefaultStarDetectorParams()` against a
+**constructed** options object as well as a reset one. **~10 m**, and it is the half that has value even if (a)
+is declined — *a guard that only checks the path where two things agree is a check that cannot fail*
+([F66](#f66--three-of-wave-14s-checks-could-not-return-their-own-pass-and-the-register-has-been-reading-strings-as-one-instrument-when-it-is-two)(a)).
+(c) **Do not re-pin the settings file for it.** See
+[F63](#f63--the-optimizers-landing-moves-on-6-of-8-runs-under-a-knob-that-is-nearly-inert-at-the-seed-so-every-landing-waves-5-12-published-was-produced-at-a-non-default-value)(b):
+the offset is published instead, and the eight-value coordinate system is not moved.
+Reproduce: `python3 /mnt/d/hf_w17/score_d17_w17.py --gate /mnt/d/hf_w17/gate --w16 /mnt/d/hf_w16 --affit
+/mnt/d/hf_w16/affit_N --out /mnt/d/hf_w17/d17_score.txt`; the raw evidence is
+`grep -o "NoiseReductionRadius=[0-9]*" /mnt/d/hf_w17/gate/toml999.log` (baseline first, seed second);
+`docs/synthetic-af-bank-followups-wave17-results.md` §4.4.
+
+### F69 — F39(b)'s flag NAMES and its own COMMENT state the opposite of its default, and that cost a pre-registered rule its verdict
+**Status:** Open · found 2026-08-10 (wave 17) while deciding
+[F67](#f67--af-fits-star-count-and-optimizes-are-not-the-same-number-so-the-control-built-on-their-equality-reports-could-not-look-on-exactly-the-datasets-where-the-intervention-bites-hardest)(c)
+· **the behaviour is correct and deliberate; only its self-description is wrong, and the self-description is what
+everyone read**
+
+[F39](#f39--the-harness-records-a-detection-binning-the-run-never-applied-and-7-datasets-have-never-run-at-theirs)(b)
+was adopted as the **default** in wave 8. Wave 7's opt-in flag was kept working as a no-op, which was the right
+call for reproducibility. What was not noticed is that **the surviving flag name now asserts the opposite of the
+behaviour**:
+
+```csharp
+// OptimizationDiagnosticRunner.cs:216
+bool applyRunDetectionBinning = !DiagnosticUtil.HasFlag(args, "--no-run-detection-binning");
+```
+
+`--apply-run-detection-binning` is still accepted and does **nothing**. A reader who greps for it — or who reads
+`docs/followups.md`'s own F39 shipping note, *"`optimize --apply-run-detection-binning` (opt-in, absent ⇒
+bit-identical)"*, written before the wave-8 adoption paragraph below it — concludes the behaviour is opt-in. It
+is on.
+
+**And the file says both things, 190 lines apart.** The comment at `:205-216` documents the default correctly
+and at length. The comment sitting **directly over the two `ParamsDump.Write` calls** at `:405-409` reads:
+
+```
+// ... and, only under --apply-run-detection-binning, DetectionBinning + PixelScale together via
+// ApplyRunDetectionBinningIfRequested. Neither the gate nor the P16 probe passes that flag.
+```
+
+**Every clause of that is backwards.** `ApplyRunDetectionBinningIfRequested` runs unless the *other* flag is
+passed; the gate and the probe both ran it; and it mutates `ctx.Baseline`'s `DetectionBinning` **and**
+`PixelScale` *after* the dump above it has already printed them.
+
+### It is not cosmetic: it produced a wrong verdict in a pre-registered rule
+
+Wave 16's **RULE P16** dumped both runners' full `StarDetectorParams` through one shared reflective formatter —
+a genuinely good instrument — and concluded *"53 of 55 fields identical, therefore the disagreement is
+downstream, narrowed by construction to two candidates."* It had compared `optimize`'s params **as constructed**
+against `af-fit`'s **as detected**, because the comment told it the mutation could not happen. `DetectionBinning`
+was **F-live**, both named candidates were dead, and the actual cause was the field the dump could not see.
+Wave 16's results doc carries the correction; wave 17's `RULE C17` closed F67 by intervention instead.
+
+**Why it matters.**
+
+- **A comment that is wrong about control flow is worse than no comment**, because it is *evidence* — it was
+  cited in a pre-registration, and the pre-registration was believed. The register's own habit of reading source
+  to exclude candidates depends on the source being honest about itself.
+- **A retained no-op whose name states the opposite of the default is a trap with a long half-life.** It was
+  kept so wave 7's scripts *"keep working and keep meaning what they said"*, and it does keep them working. The
+  flag name has been misleading since the **wave-8** adoption — nine waves — while the `:405-409` comment that
+  finally cashed the trap in is only one wave old (it arrived with wave 16's `PARAMS-DUMP`, `4fd613d`). *The
+  trap was laid long before the thing that stepped in it.*
+- **This is [F66](#f66--three-of-wave-14s-checks-could-not-return-their-own-pass-and-the-register-has-been-reading-strings-as-one-instrument-when-it-is-two)'s
+  shape in a new place**: an instrument that cannot observe the thing it was built to observe.
+
+### Next step
+(a) **Fix the `:405-409` comment** — it is four lines and it is the piece that did the damage. **~5 m.** Do it in
+the next wave that ships code; it changes no behaviour and needs no gate.
+(b) **Print the resolved factor inside the dump block itself**, or emit a second dump *after*
+`ApplyRunDetectionBinningIfRequested`, so the printed bundle is the one that detected. **~20 m + a test**, and it
+is the durable fix: a comment asserting when a snapshot is taken is exactly the thing that goes stale.
+(c) **Decide whether `--apply-run-detection-binning` still earns its keep.** Deleting it breaks wave 7's scripts;
+keeping it keeps the trap. A third option is to make it *print* that it is a no-op and that the behaviour is on
+by default — **~10 m**, and it converts a silent misnomer into a loud one.
+Reproduce: `OptimizationDiagnosticRunner.cs:205-216` against `:405-409` and `:570-586`; the artifact line that
+said so all along is `/mnt/d/hf_w16/probe/D12_c14_585_afbin2.log:135`;
+`docs/synthetic-af-bank-followups-wave17-results.md` §3.1.
+
 ### F68 — A threshold stated as a COUNT carries a denominator, and three consecutive satisfiability analyses have checked the VALUE a clause can reach without checking the POPULATION it is computed over
 **Status:** Open (a standing discipline entry) · found 2026-08-10 (wave 16) when a clause returned **100 % of the
 property it was written to express and FAILED** · **the defect is arithmetically provable from the pre-registration
@@ -3923,9 +4047,48 @@ constructor chooses the denominator.** The generic form of the question, which i
   is the price of the register meaning anything, and it is the cheapest thing in the wave to get wrong.*
 - **It is the third wave in a row**, which makes it a property of the method rather than of any one design.
 
+> ### REINFORCED 2026-08-10 (wave 17): (a) was taken, the template WORKED, and two new instances turned up outside it
+>
+> **(a) is DONE.** Wave 17's pre-registration carries the **P / S / A / E** columns on every clause of RULE G17,
+> RULE C17 and RULE D17, and derived every denominator **on the artifacts the clause reads, at pre-registration
+> time**. It paid twice:
+>
+> - **`C17-A`'s bar had both ends OBSERVED before the wave ran** — 0.000 of 63 at the status quo (measured in
+>   waves 15 and 16 on the same pair of artifacts) and 1.0000 of 63 under the treatment. *That is the check
+>   `S16-A(b)` never made.*
+> - **`C17-D` and `D17-1` were written so an empty domain routes AWAY from the expected verdict**, not toward it:
+>   `C17-D` empty prints **NOT ESTABLISHED**, and `D17`'s self-test distinguishes *"seed block absent everywhere"*
+>   from *"union is empty"* so an empty population can never read as `D-NOOP`. That is
+>   `P16-INSTRUMENT-vs-PRODUCT`'s defect closed twice in one wave, in two different rules.
+> - **No median appears anywhere in the design**, so `S16-E(i)`'s aggregation defect had no way in.
+>
+> **The two new instances are both outside the pre-registered clauses, which is the useful part.**
+>
+> 1. **The controller's own progress counter had no *could-not-look* state.** It looked for the wrong filename in
+>    the wrong directory and printed `summaries=0` for two arms that had each produced **10 of 10** landings, and
+>    the wave was reported as failed twice on the strength of it. It could return "0 found"; it could not return
+>    "the path I looked at does not exist." **The three-state rule held in all three pre-registered scorers and in
+>    no improvised one** — which is the honest description of how a discipline fails.
+> 2. **`query session` is an n = 1 sample of a time-varying quantity, quoted for eight waves as a standing
+>    property of the machine.** Recorded as `Disc` at wave time and **`console ghili 1 Active`** forty minutes
+>    later. Neither reading is wrong; the instrument simply has **no `when` and no population** attached to it.
+>    The repair is to sample at the start and the end of an arm and report both — *the smallest possible clause
+>    with the same defect.*
+>
+> **And one generalization worth carrying, from the control side rather than the clause side:** *a file class
+> that becomes evidence must become a control in the same wave.* Item A's answer reads
+> `synthetic_meta.json` and `harness_settings.json`, and `HarnessSettingsStore.ResolveForRun` **writes** the
+> latter when it is absent — so wave 17 fingerprinted all 59 of them (39 + 20) before the gate and after every
+> arm, alongside the 42 landings. **59 of 59 byte-identical.** Cost: one Python file.
+> Reproduce: `docs/synthetic-af-bank-followups-wave17-design.md` §1.1/§2.5/§3.2 and §5;
+> `docs/synthetic-af-bank-followups-wave17-results.md` §2.3, §6, §7.2.
+
 ### Next step
 
-(a) **Add the population/statistic/aggregation triple to the satisfiability template**, as three named columns
+(a) **DONE (wave 17)** — the P/S/A/E columns are in the template and were applied to all three of wave 17's
+rules. **Keep them**, and note the two places the wave still got caught: improvised instrumentation, and a
+one-sample reading of a time-varying quantity.
+(a′) **Add the population/statistic/aggregation triple to the satisfiability template**, as three named columns
 beside "max attainable" — **~0**, a design-template change, and it should be taken by the next wave that writes a
 pre-registration. **Add one more column while doing it: for any clause quantifying over a set, what does it return
 when that set is EMPTY?**
@@ -3941,7 +4104,24 @@ Reproduce: the two populations are `/mnt/d/hf_w14/stageA/sem_audit.tsv` (42 rows
 
 ### F67 — `af-fit`'s star count and `optimize`'s are NOT the same number, so the control built on their equality reports "could not look" on exactly the datasets where the intervention bites hardest
 
-> ### **CAUSE FOUND 2026-08-10 (wave 17), at zero compute, and it refutes wave 16's OWN narrowing: it is DETECTION BINNING.**
+> ### **CLOSED 2026-08-10 (wave 17) BY INTERVENTION. The cause is DETECTION BINNING — and it refutes wave 16's OWN narrowing.**
+>
+> **The decisive clause is `C17-A`, and it is an intervention rather than a correlation.** Two arms, one binary,
+> one settings file, one profile, sequential: **X0** adds `--no-run-detection-binning` and nothing else.
+>
+> | clause | pre-registered threshold | measured |
+> |---|---|---|
+> | **C17-A** *decisive* | rate **1.000 of 63** — X0's `currentStarCount` equals wave 16's `af-fit` `Stars` on the 7 factor-2 datasets | **63 of 63 = 1.0000**, 9 of 9 on every one of the seven. **The status quo measures 0.000 of 63, so BOTH ENDS OF THE BAR WERE OBSERVED** |
+> | **C17-B** *control* | **27 of 27 on both equalities** — the flag is a no-op where the derived factor is already 1 | X0==X1 **27 of 27**; X0==`af-fit` **27 of 27**. (The three controls also took 167 s and 165 s of wall time in the two arms — 1.2 % apart) |
+> | **C17-C** *by-construction, recomputed* | reported; never decisive alone | factor 1 **188 of 188**; factor 2 **0 of 63**; could-not-look **0** |
+> | **C17-D** *inertness precondition* | every `PARAMS-DUMP` block reads a FULL `Region` **and** `MeasurementAverage=Median`; total asserted > 0 | **95 of 95** blocks |
+> | **C17-V1/V2/V3** *validity* | status quo reproduces at **1.000 of 90**; 10 of 10 landings per arm; the flag demonstrably took | **90 of 90**; **10 / 10** both arms; `DISABLED` in **10 of 10** X0 logs and **0 of 10** X1 logs |
+>
+> **`RULE C17: C-BINNING`.** X0 equals `af-fit` position for position, and X1 — one flag away — is larger by up
+> to **2.2×** at the sweep wings. **This entry's own recorded ratios are reproduced to three decimals**: it says
+> *"`D08` … runs 0.46–0.52 of `optimize`'s count at the extremes against 0.82 at focus"*; measured under the
+> intervention, **0.455–0.522** at the extremes and **0.819** at focus. `D11_rc10_585_afbin2` was chosen as a
+> control deliberately — *its name says `afbin2` and its derived factor is 1.*
 >
 > **F39(b) is ON BY DEFAULT.** `OptimizationDiagnosticRunner.cs:216` is
 > `!DiagnosticUtil.HasFlag(args, "--no-run-detection-binning")`, and `--apply-run-detection-binning` is a
@@ -3970,14 +4150,32 @@ Reproduce: the two populations are `/mnt/d/hf_w14/stageA/sem_audit.tsv` (42 rows
 > is simply **inert at S0** and is not what anyone was tripping over. On the 13 factor-1 synthetic datasets and
 > all 5 real gate runs the two numbers **are the same number**.
 >
-> **Next step:** wave 17's RULE C17 buys the **intervention** rather than the discovery — arms with and without
-> `--no-run-detection-binning` over the 7 factor-2 datasets plus 3 factor-1 controls, ~36 m and no code. The
-> decisive clause is that the `--no-run-detection-binning` arm reproduces wave 16's `affit_N` counts, currently
-> measured at **0.000 of 63**, so both ends of the bar are *observed* rather than merely attainable.
-> Reproduce: `docs/synthetic-af-bank-followups-wave17-design.md`, `/mnt/d/hf_w17/score_c17_w17.py`.
+> **PRODUCT or INSTRUMENT: the answer differs from wave 16's, and it is recorded rather than inherited.** Wave 16
+> called F67 a PRODUCT finding because both surviving candidates were production code paths. F39(b) is
+> **harness-only** — `optimize` applies a per-run factor by default, `golden eval` opt-in, **`af-fit` and
+> `bank-verify` not at all**, and the shipped wizard reads the profile's `DetectionBinning` with no
+> `synthetic_meta.json` and no per-run physics derivation. So this is **an INSTRUMENT fact with a real product
+> consequence**: the instrument fact is that three harness commands disagree about what binning a bank run is
+> detected at; the product consequence is the pre/post-filter distinction, which is real, unchanged, **inert at
+> S0**, and *not* what caused this.
+>
+> **The register consequence is larger than F67.** Any wave-to-wave comparison of `af-fit` against `optimize` on
+> `{D08, D09, D10, D12, D14, D15, D17}` has been comparing two detectors. Wave 15's RULE L15 lost its verdict to
+> exactly this — G-c returned *could not look* on exactly those seven.
+>
+> **The self-description defect this exposed is [F69](#f69--f39bs-flag-names-and-its-own-comment-state-the-opposite-of-its-default-and-that-cost-a-pre-registered-rule-its-verdict) rather than an amendment here**, because
+> F39's entry is correct about the *behaviour* and burying a live defect inside a mostly-closed entry hides it.
+>
+> Reproduce: `python3 /mnt/d/hf_w17/score_c17_w17.py --x1 /mnt/d/hf_w17/binX1 --x0 /mnt/d/hf_w17/binX0
+> --affit16 /mnt/d/hf_w16/affit_N --gate16 /mnt/d/hf_w16/gate --w13 /mnt/d/hf_w13 --w15 /mnt/d/hf_w15
+> --gate /mnt/d/hf_w17/gate --out /mnt/d/hf_w17/c17_score.txt`;
+> `python3 /mnt/d/hf_w17/score_c17_w17.py --self-test` (13 demonstrations, every branch of the table reached, and
+> every empty set returns UNEVALUATED); `docs/synthetic-af-bank-followups-wave17-results.md` §3.
 
-**Status:** Open · found 2026-08-10 (wave 15) when RULE L15's gate **G-c** returned TOOK on 13 of 20 · **the test
-that settles it was free, already on disk, and predates the control by two waves**
+**Status:** **CLOSED 2026-08-10 (wave 17)** — cause identified at zero compute and confirmed by a 39-minute
+intervention with both ends of the bar observed · found 2026-08-10 (wave 15) when RULE L15's gate **G-c**
+returned TOOK on 13 of 20 · **the test that settles it was free, already on disk, and predated the control by two
+waves**
 
 Wave 15 needed to prove that a converted **landing** (`optimized_settings.json`, lifted into a harness settings
 file through the production Accept path) actually reached the detector, because
@@ -4113,10 +4311,19 @@ identical), each equal to its own landing. Consistently, `DID-NOT-TAKE` occurred
 (a) **DONE (wave 16)** — G-c re-scored on the knob-diff control: 40 runs, 205 knobs, 0 could-not-look.
 (b) **DONE (wave 16), and the framing was wrong** — one side's params is not a diff. Both sides now dump all 55
 fields through one shared reflective formatter; verdict **P-b**.
-(c) **Identify the pipeline disagreement's cause** — **~1 h, and now much better posed**: P16 narrows it to
-**two** candidates (frame loading vs counting/gating), so deciding between them needs an instrumented run of both
-loaders on one frame rather than a search. The defocus-graded deficit is *consistent with* a sensitivity- or
-size-gate difference; that is a hypothesis, not a result, and this entry does not assert it.
+(c) **DONE (wave 17) — the cause is `DetectionBinning`, and it is NEITHER of P16's two candidates.** Both were
+dead before wave 17 ran a command: candidate 1 names `RunEvaluationLoader`, the **wizard's** loader, which
+`TestApp optimize` never calls (it calls the same `DiagnosticUtil.LoadRenderedImage` as `af-fit`); candidate 2 is
+arithmetically impossible in the observed direction, because the post-filter set is a **subset** and the
+measurement had the pre-filter side smaller — *a subset cannot be larger than its superset*. The defocus-graded
+deficit this entry recorded as *"a hypothesis, not a result"* is now explained exactly: `StarDetector.cs:494`
+resamples by `p.DetectionBinning`, so at factor 2 the gates see 4× the flux per binned pixel and admit fainter
+stars, which is largest at the wings where the star is faint and spread.
+**Nothing further is owed.** What remains is a *different* question, priced in
+`docs/synthetic-af-bank-followups-wave17-results.md` §8: the seven datasets' published landings were produced at
+factor 2 while thirteen waves of `af-fit` evidence about them was produced at factor 1, and comparing them needs
+an out-of-sample arbiter at **both** factors (~30 m of `af-fit` plus a rule). No `BestJ` may be quoted across the
+two factors ([F62](#f62--σ_focus-is-anti-informative-when-an-outlier-rejection-is-what-changed-it-it-improves-by-up-to-88--while-the-distance-to-a-known-truth-improves-on-none)).
 Reproduce: `python3 /mnt/d/hf_w15/score_land_w15.py --arm0 /mnt/d/hf_w15/land_mor0 --arm1 /mnt/d/hf_w15/land_mor1
 --score0 /mnt/d/hf_w15/affit_mor0 --score1 /mnt/d/hf_w15/affit_mor1 --w13 /mnt/d/hf_w13 --gate /mnt/d/hf_w15/gate
 --out /mnt/d/hf_w15/l15_score.txt` (G-c's four states, by name); the base-level test is
@@ -4394,6 +4601,44 @@ Reproduce: `D:\hf_w13\land_w13.sh`, `D:\hf_w13\land_score.txt`.
 > both values explicitly on every arm, so nothing is left to move. It should close next wave.
 > Reproduce: `/mnt/d/hf_w15/land_w15.sh`, `/mnt/d/hf_w15/l15_score.txt` (L15-S's per-dataset table, G-e, and the
 > NO VERDICT with its failing gate named), `docs/synthetic-af-bank-followups-wave15-results.md` §3.4–§3.6, §3.8.
+
+> ### (b) CLOSES 2026-08-10 (wave 17) AS A COSTED RECOMMENDATION: **DO NOT RE-PIN.** The offset is ONE FIELD, and it cost zero minutes of compute to measure
+>
+> **(b) split in two and only half was ever cheap.** The **fit inputs** half is a no-op: all four values in
+> `pinned_settings_w11.json` equal the shipped code defaults. The **detector knobs** half was the open one — the
+> file was exported from `Default-2026-08-05T10:54:36` (**not `astrodet`**; the register's old shorthand was
+> wrong) with `UseAdvanced=False` and `Simple_*` all `Typical`, so its advanced knobs are **preset-derived**, and
+> nobody had measured how far that is from the shipped default. **The measurement was already printed**: since
+> wave 16 every `optimize` log carries `PARAMS-DUMP optimize/seed` — `BuildDefaultStarDetectorParams()`, the
+> shipped code defaults — beside `PARAMS-DUMP optimize/baseline`, the pinned file's bundle.
+>
+> **RULE D17, over the 50 fields `ApplyAfContext` does not set (the other 5 are equal by construction, and a
+> check that cannot fail is not a check):**
+>
+> | clause | pre-registered threshold | measured |
+> |---|---|---|
+> | **D17-1** | report the **union** of differing field names with both values, per-log counts printed beside it | union size **1**, the same field on each of the 8 logs |
+> | **D17-2** *domain* | 50 fields compared, 55 parsed, per log | 8 of 8 logs, **0 could-not-look** |
+> | **D17-3** *reproduction control* | the same union on wave 16's 8 gate + 2 probe logs | 10 of 10 read, **SAME SET** |
+> | **D17-4** *the `UseAdvanced` trap* | the override warning present, `N` reported | **N = 0 on every log** |
+>
+> > **`D-SMALL`. The whole offset is `NoiseReductionRadius`: shipped default 3, pinned file 4.**
+>
+> **DO NOT RE-PIN, and this was fixed before the data.** The eight-value coordinate system has reproduced across
+> **eight binaries** and two settings files and is the most valuable instrument this series owns. Moving it costs
+> a fresh **~42 m** baseline plus the re-derivation of every cross-wave comparison, and buys an alignment no open
+> question depends on. **Publishing the offset is the deliverable.**
+>
+> **And the offset is not the pinned file drifting — it is two shipped defaults**, which is
+> [F70](#f70--noisereductionradius-has-two-shipped-defaults-and-the-drift-guard-test-asserts-the-one-path-where-they-agree)
+> and is a *product* observation. D17-4's `N = 0` and D17-1's union of 1 look contradictory and are both correct:
+> the presets compute **4** (Typical ⇒ 3, then a `+1` hotpixel compensation), so the file's recorded 4 is exactly
+> what they produce, while the seed's 3 is the value one step **before** that compensation.
+>
+> Reproduce: `python3 /mnt/d/hf_w17/score_d17_w17.py --gate /mnt/d/hf_w17/gate --w16 /mnt/d/hf_w16 --affit
+> /mnt/d/hf_w16/affit_N --out /mnt/d/hf_w17/d17_score.txt`; `python3 /mnt/d/hf_w17/score_d17_w17.py --self-test`
+> (7 demonstrations; **both** ways of producing an empty union are distinguished, so an empty population can
+> never read as `D-NOOP`); `docs/synthetic-af-bank-followups-wave17-results.md` §4.
 
 ### F62 — σ_focus is ANTI-INFORMATIVE when an outlier rejection is what changed it: it improves by up to 88 % while the distance to a known truth improves on none
 **Status:** Open (a standing warning about the register's own favourite quantity) · found 2026-08-09 (wave 13)
