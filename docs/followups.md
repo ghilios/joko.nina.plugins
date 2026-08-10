@@ -3140,6 +3140,95 @@ to a fifth of its own error bar, and is discarded as an outlier anyway.
 > `python3 /mnt/d/hf_w14/score_affit_w14.py --root /mnt/d/hf_w14 --w13 /mnt/d/hf_w13 --stagea /mnt/d/hf_w14/stageA`,
 > `docs/synthetic-af-bank-followups-wave14-results.md` §3.
 
+> ### WAVE 16: THE SEM CRITERION IS BUILT AND MEASURED ON SIX RUNGS — **RULE S16 returns NO RECOMMENDATION, MECHANISM RECORDED**, and no rung is named
+>
+> `SemScaleSpec` (commit `9e95446`), modelled line-for-line on `MadFloorSpec`: `default` is `None`, private ctor,
+> `Veto(t)` and `Rank()` the only factories. Threaded `SelectBestModel → FitWithOutlierRejection → RejectionTest`
+> with `N*` as a `Func<double,double>` side map keyed by `p.X` — **not** on `ScatterErrorPoint.Tag`, because
+> `WeightRegularization` rebuilds every point and forwarding `Tag` means editing a production class on the
+> production path. **Off by default; 28 tests; six rungs × 39 runs in 66 m 19 s.**
+>
+> **Rungs: `N` (control), `V0.07`, `V1.00`, `V2.00`, `V4.00` (family V — veto the selected rejection when its
+> `s = |r|·√N*` is below `t`), `R` (family R — rescale `errors_i ← r_i·√N*_i` before the median/MAD).** Only the
+> **veto** is licensed by wave 14's measurement, and **family R was excluded from V4′ and from RECOMMEND by
+> pre-registration**: wave 14 measured `s` at the point the *current* rule selects, and a re-rank changes which
+> point is selected.
+>
+> **All five validity gates PASS.** W1 — the control rung's 39 `af_fit_summary.txt` are **byte-identical** to wave
+> 14's `affit_A0.00`, 0 field differences over 39 × 4 × 7 — is the only clause that can catch a parameter that is
+> not inert at its default, and it is measured **where the rejection executes** (the gate runs at
+> `MaxOutlierRejections = 0`, where `RejectionTest` is never called). W3 ties three independently printed
+> quantities — `s`, `|r|`, `N*` — to the CSV on every round: **0 mismatches, 0 could-not-look.** V4′ 468 triples /
+> 0 violations; V4′-CONFORM reproduces wave 15's 585 / 0 / 2 / 195.
+>
+> | clause | threshold, fixed before the data | measured |
+> |---|---|---|
+> | **S16-A(a)** | at `V1.00`, rejections surviving on runs with `ρ > 2` **== 0** | **0 of 2** — *n = 1 run by construction: `caboose`* |
+> | **S16-A(b)** | at `V1.00`, rejections surviving on runs with `ρ ≤ 1.10` **≥ 30 of 33** | **12 of 12** — 100 % of the property, **FAILS an unsatisfiable bar**. [F68](#f68--a-threshold-stated-as-a-count-carries-a-denominator-and-three-consecutive-satisfiability-analyses-have-checked-the-value-a-clause-can-reach-without-checking-the-population-it-is-computed-over) |
+> | **S16-B** `ΔR² ≥ −0.005` and `κ ≤ 3.0` vs each run's own budget-0 row at `N` | per rung | `V0.07` / `V1.00` / `V2.00` **−0.000053 / 1.246** (`D17`) · `V4.00` **+0.000000 / 1.000** · **`R` −0.085240 / 1.243e+04 FAIL** (`caboose`, identical to the control's own failing values) |
+> | **S16-C** | `N_fire@1 ≥ 1` and `N_fire@3 ≥ 1` | `V0.07` 7/13 · `V1.00` 7/12 · `V2.00` 4/7 · `V4.00` 4/4 · `R` 9/15 — **a criterion, not an off-switch, at every rung** |
+> | **S16-D** | three-valued on `caboose` at budget 3 | **`V0.07` CONTAINS-SELECTIVELY** · `V1.00` / `V2.00` / `V4.00` **CONTAINS-BLUNTLY** · `R` **DOES NOT CONTAIN** |
+> | **S16-E** | veto at median \|Δe\| ≥ 0.10 step; alarm at any `e` ≥ 1.0 step | **no veto anywhere** (median \|Δe\| = 0.00000 at every rung); **alarm never fires** (max `e` 0.03000 step on V, 0.13150 under `R`) |
+>
+> **S16-B deliberately uses statistics with no `n − p` term**, against each run's own budget-0 row at rung `N` —
+> a reference the treatment **cannot move**, because budget 0 never calls `RejectionTest`. σ_focus and `ρ` are
+> reported and are never a bar
+> ([F62](#f62--σ_focus-is-anti-informative-when-an-outlier-rejection-is-what-changed-it-it-improves-by-up-to-88--while-the-distance-to-a-known-truth-improves-on-none)).
+>
+> **What is established.** (1) The separation is real at the **production consensus level over all four candidate
+> models** for the first time — the gap that refuted wave 14's V4: at `V1.00`, `caboose`'s budget-3 catastrophe is
+> fully suppressed and **16 of the 18 consensus rejections on the bank survive**. (2) **Selectivity is attainable
+> in this family and no MAD floor could reach it**: `V0.07`'s budget-3 row for `caboose` is `N`'s budget-2 row
+> exactly — the damaging rejection of `6975` (s = 0.0403) gone, the benign rejection of `7275` (s = 0.1010) kept,
+> R² 0.999999, κ 0.223. Wave 14 measured **every** floor rung that repaired budget 3 as also suppressing budget 2.
+> **`V0.07` is a `caboose`-derived probe rung, `n = 1` by construction, and outcome 2 was defined on `V1.00` alone
+> so it could never become a recommendation.** (3) The parameter is **inert at its default, to the byte**. (4) Out
+> of sample, family V moves two datasets and **both move toward truth** — `D08` −0.00122 step, `D12` −0.00993 —
+> both exactly the maximum the pre-registration computed as reachable.
+>
+> **FAMILY R: R-REDIRECTS on 12 of 39 runs**, each rejecting positions rung `N` never rejects at **any** budget.
+> R rejects **more**, not fewer — 30 consensus rejections at budget 3 against the control's 18 — and on
+> `CWhiteFocus`, where the four models disagree so completely that the intersection is empty at every budget, the
+> rescaling **manufactures a consensus** on 20350 and 20650. It fails containment by four orders of magnitude and
+> produces the only out-of-sample movement in the wave above the materiality floor:
+>
+> > **`D13_apo200_1800mm` under `R`: R² 0.998952 → 0.999834, and the vertex lands 16.7 focuser counts from the
+> > generator's truth having been 0.1 counts from it — Δe = +0.13071 step, 3.9× the sum of the five improvements
+> > R does produce** (truth 12000, step 127). The fit got
+> > better and the answer got worse: [F62](#f62--σ_focus-is-anti-informative-when-an-outlier-rejection-is-what-changed-it-it-improves-by-up-to-88--while-the-distance-to-a-known-truth-improves-on-none)
+> > reproduced on a mechanism F62 never touched. **Re-ranking should not be pursued.**
+>
+> **The honest half, unchanged.** `D16_esprit550_ha3` — this entry's headline case, where the discarded point
+> **is** the generator's true focus — sits at **`s` = 8.7260**. No threshold anywhere near 1 touches it and none
+> is proposed that would.
+>
+> ### AND IT SHIPS NOTHING — the harness change is done, the product change is not, and the price is recorded
+>
+> `N*` is available where σ is **computed** (`HocusFocusStarDetection.cs:804-806`, where `hfrStars.Count` and
+> `result.DetectedStars` both sit beside the `MedianMAD`) and **gone by the time the fit's points are built**
+> (`AutoFocusEngine.cs:1071`), because the only carrier between them is `MeasureAndError` — a NINA NuGet `struct`
+> with exactly two `double`s, not subclassable. **There is no `MeasurePoint` type in this repo**; the harness's
+> row type is `AfFitDiagnosticRunner.PointRow`, which already carries `Stars`, which is why the harness change
+> needed no production plumbing at all.
+>
+> **Shipping needs ~3–4 h plus tests**: (a) a count map on `AutoFocusRegionState` cleared with the measurements;
+> (b) a **pooling rule** for multi-frame points that does not double-divide against `AverageMeasurement`'s
+> existing `/√frames` (`CvImageUtility.cs:891-921`); (c) the same again in `RunEvaluationData` (`:745, :783,
+> :788`), the optimizer's independent point-building path; (d) a decision between `DetectedStars` and
+> `hfrStars.Count`, which differ whenever saturated stars are excluded and only the second of which is σ's actual
+> denominator. **The ~2 h the register carried was right for the HARNESS and wrong for the PRODUCT.**
+>
+> **The wave's best reachable outcome was a costed recommendation, never a ship — and it reached outcome 4
+> instead, so there is not even that.** The price above is recorded so a future wave does not re-derive it.
+>
+> Reproduce: `bash /mnt/d/hf_w16/affit_w16.sh <rung>` (the driver refuses every rung but `N` until
+> `/mnt/d/hf_w16/W1_PASSED` exists, and only the scorer writes it);
+> `python3 /mnt/d/hf_w16/score_sem_w16.py --w1 /mnt/d/hf_w16/affit_N --w14 /mnt/d/hf_w14/affit_A0.00` (clause W1);
+> `python3 /mnt/d/hf_w16/score_sem_w16.py --conform --w14root /mnt/d/hf_w14` (V4′-CONFORM);
+> `python3 /mnt/d/hf_w16/score_sem_w16.py --root /mnt/d/hf_w16 --w13 /mnt/d/hf_w13 --w14root /mnt/d/hf_w14 --out
+> /mnt/d/hf_w16/s16_score.txt`; `python3 /mnt/d/hf_w16/score_sem_w16.py --self-test` (both directions, every
+> clause); `docs/synthetic-af-bank-followups-wave16-results.md` §2.
+
 **Next step, and what NOT to do.** Three separable questions, deliberately not answered here:
 (a) should the queue anchor be a *fitted* vertex (`HyperbolicFitting.Minimum.X`, or `Intersection`) rather than a
 post-rejection argmin data point — note `Minimum` is also the anchor for the left/right trend split, so changing
@@ -3162,6 +3251,13 @@ and re-scoring the six rungs already on disk costs **minutes of Python and zero 
 **And after wave 14's item 1 the ship value of any floor is contingent**: with `MaxOutlierRejections` defaulting
 to 0 the rejection does not run at all, so a floor reaches only profiles that explicitly store ≥ 1, and any
 future decision to raise the budget.
+
+**Wave 16 BUILT the named successor and measured it** — the block above. Two corrections to the pricing carried
+here for six waves: **there is no `MeasurePoint` type in this repo** (the harness's row type is
+`AfFitDiagnosticRunner.PointRow`, which already carries `Stars`; production's carrier is `MeasureAndError` →
+`ScatterErrorPoint`), and **~2 h is right for the HARNESS change and wrong for the PRODUCT change**, which is
+**~3–4 h plus tests** for reasons (a)–(d) above. **The measurement is now done and the criterion still ships
+nothing**, on the pre-registered branch table's own terms.
 
 **Reproduce (offline, no rig, ~1 min):** feed the eleven `MeasurePoints` above through
 `WeightRegularization.Regularize` → `AlglibHyperbolicFitting.Create(…, TiltedHyperbola, pts, stepSize: 15,
@@ -3718,6 +3814,131 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
+### F68 — A threshold stated as a COUNT carries a denominator, and three consecutive satisfiability analyses have checked the VALUE a clause can reach without checking the POPULATION it is computed over
+**Status:** Open (a standing discipline entry) · found 2026-08-10 (wave 16) when a clause returned **100 % of the
+property it was written to express and FAILED** · **the defect is arithmetically provable from the pre-registration
+alone, before any wave-16 data**
+
+Wave 16's **S16-A(b)** read:
+
+```
+S16-A(b) rho <= 1.1: 12 of 12 rejections SURVIVE at V1.00 (threshold: >= 30)   -> FAIL
+```
+
+**12 of 12 is 100 %. The bar's own implied rate is 30/33 = 90.9 %. It fails on the absolute count and only on the
+absolute count**, because the maximum attainable value of its numerator on the instrument the clause reads is
+**12**, and the bar was fixed at 30.
+
+### The two populations, and why the denominator does not transfer
+
+Both are views of the same 39 runs. They are not the same measurement.
+
+| | wave 14's SEM audit (`/mnt/d/hf_w14/stageA/sem_audit.tsv`) | wave 16's S16-A (`score_sem_w16.py:461-492`) |
+|---|---|---|
+| a row is | one round of the **single winning model's** printed Grubbs trace that ended in a rejection | one position in the **budget-3 row of the production budget table** |
+| the set is | one model's greedy rejection sequence | the **consensus** — the intersection of what all four Hybrid candidate models reject |
+| total over 39 runs | **42** | **18** |
+| in the `ρ ≤ 1.10` bucket — **the denominator** | **33** | **12** |
+
+**All 18 consensus rejections are inside wave 14's 42 (the consensus is a strict subset), and the other 24 are
+rejections production never performs.** `CWhiteFocus_AutoFocus_20220429_000244_attempt01` is the clean case: its
+traced winner `Symmetric` rejects 20350, 20650 and 20800 in its own loop, while `TiltedHyperbola` on the same data
+rejects **nothing**, so the intersection is `(none)` at every budget and the production budget table reads 0
+rejections on all four rows. Wave 14's audit counted three. The 24 phantoms are concentrated at the **top** of the
+s-distribution — 79.7824, 47.5143, 25.6755, 24.2482, 19.0993, 18.2715, 16.3351, 8.6853.
+
+### The design knew, wrote it down, and carried the number across anyway
+
+The pre-registration's **§4.1 is the section whose entire job is to compute every clause's maximum attainable
+value with the arithmetic before the data.** Its table reads *"S16-A(b) | max attainable 33 of 33 | attainable?
+yes"*. The scorer's own header, **one line above the threshold**, reads:
+
+```
+S16-A  SEPARATION, on a NEW population (all four candidate models' consensus, not one printed trace).
+       (b) at V1.00, rejections surviving on runs with control-rung rho <= 1.10  >=  30 of 33
+```
+
+and [F65](#f65--the-hybrid-consensus-is-an-intersection-over-four-models-that-can-reject-the-same-points-in-a-different-order-so-the-rejected-set-at-budget-b-is-not-a-prefix-of-anything)
+— the register entry that exists **because** the consensus is an intersection over models that need not agree — is
+cited four times elsewhere in the same design. **The population change was known, named and given its own register
+entry, and the absolute count was carried across it regardless.**
+
+### The same error is harmless in one clause and fatal in its twin
+
+**S16-A(a)** is a `== 0` bar: shrinking its denominator from 3 to 2 cannot break a clause demanding that *nothing*
+survive, and it passed at **0 of 2**. **S16-A(b)** is a `≥ 30` bar: shrinking its denominator from 33 to 12 makes
+it unreachable by 18. *A bar stated as a count is hostage to its denominator. A bar stated as a rate, or as a
+maximum, is not.*
+
+### And a second instance in the same section, in a different shape
+
+**S16-E(i)** vetoes a rung when the **median** `|Δe|` over 20 synthetic datasets reaches 0.10 step. §4.1 proved it
+foreclosed for family V by arithmetic — correct, and stated — and then declared it *"live for `R` and `R` alone"*
+on the grounds that R's `|Δe|` is not bounded by the same table. That is true about the **quantity** and says
+nothing about the **statistic**: moving a median of 20 requires at least **11** datasets to move by ≥ 0.10 step.
+R moved **6**, one of them by **0.13071 step**. **A dataset cleared the materiality floor by 31 % and the veto
+stayed silent.** Weaker than S16-A(b) — the veto is not provably unreachable for R, only unreachable for any
+effect confined to fewer than half the bank — and the same omission: the range was computed for the value, never
+for the aggregation.
+
+### Three waves, three satisfiability sections, three defects of the section's own class
+
+| wave | the section's stated job | the defect it contained |
+|---|---|---|
+| 14 | check every clause can fire | **C4** was decisive and arithmetic had already foreclosed it |
+| 15 | check every clause's PASS value is attainable | **G-d** could never observe *"converted files identical"* — every landing carries `CreatedAtUtc`. *The section written to catch unreachable branches contained one.* |
+| 16 | check every clause's **maximum attainable value**, with the arithmetic, before the data | **S16-A(b)** computed the maximum over a population the clause does not read; **S16-E(i)** was declared live for `R` without computing what its aggregation requires |
+
+**And a third shape in the same wave, on a clause the both-branches table never reached.**
+`P16-INSTRUMENT-vs-PRODUCT` reads *"if **every F-live difference** is a field that exists only because the harness
+configures `af-fit` … then F67 is an instrument artifact; otherwise it is a product finding."* Under the **P-b**
+verdict there **are** no F-live differences, so the universal quantifier is vacuously true and the clause returns
+**INSTRUMENT** — while the **P-b row of the same rule** says P-b is *"Also a product finding, and the more
+interesting one."* **Two clauses of one rule give opposite answers on the branch that actually occurred.** The
+clause was written for the P-a branch and never asked what it returns when its domain is empty; §4.3's
+both-branches table lists P16's outcomes as P-a / P-b / P-c / UNEVALUATED and never reaches the
+instrument-vs-product test at all. *(Wave 16 recorded PRODUCT, on the specific clause written for the outcome that
+happened rather than the general one written for the other, and gave the substantive reason: both surviving
+candidates are production code paths, and the harness's configuration was measured identical to the product's on
+all 53 live fields. `docs/synthetic-af-bank-followups-wave16-results.md` §3.4.)* **A quantifier whose domain can be
+empty is a denominator wearing different clothes.**
+
+**Each section was written to prevent the previous wave's failure, and each prevented it.** Wave 15's Lesson 4 —
+*"ask of every clause: what input makes this return each of its outcomes?"* — was honoured: wave 16's §4.3 lists
+*"3 constructed populations"* for S16-A. **Constructed populations cannot detect a denominator error, because the
+constructor chooses the denominator.** The generic form of the question, which is this entry:
+
+> **For every clause: name the POPULATION it is computed over, the STATISTIC computed on it, and the AGGREGATION
+> applied to that statistic — then compute the bar's reachable range under all three, on the real artifacts, not
+> on constructed input.** A threshold derived from a different instrument's view of the same runs must be
+> re-derived on the instrument the clause reads, or restated as a rate.
+
+### Why it matters
+
+- **It cost a clause its verdict, on a measurement that succeeded.** S16-A(b)'s underlying property held at 100 %.
+  RULE S16 reached outcome 4 (NO RECOMMENDATION) rather than outcome 2 with S16-A(b) as one of its conjuncts, and
+  outcome 2's other six conjuncts all held at `V1.00`.
+- **The rule was applied as written and the clause stands at FAIL.** No repaired form was evaluated anywhere in
+  wave 16, and re-deciding it would have cost **zero minutes** of compute — it is Python over data on disk. *That
+  is the price of the register meaning anything, and it is the cheapest thing in the wave to get wrong.*
+- **It is the third wave in a row**, which makes it a property of the method rather than of any one design.
+
+### Next step
+
+(a) **Add the population/statistic/aggregation triple to the satisfiability template**, as three named columns
+beside "max attainable" — **~0**, a design-template change, and it should be taken by the next wave that writes a
+pre-registration. **Add one more column while doing it: for any clause quantifying over a set, what does it return
+when that set is EMPTY?**
+(b) **Prefer rates and maxima to counts wherever a clause can be phrased either way**, and where a count is
+genuinely required, derive its denominator **on the artifacts the clause will read**, at pre-registration time —
+which for S16-A(b) would have been one `load_rung` call over wave 14's `affit_A0.00`, already on disk. **~0.**
+(c) **Do not re-score S16-A(b).** Recorded as a next step so that no later wave takes it as an oversight.
+Reproduce: the two populations are `/mnt/d/hf_w14/stageA/sem_audit.tsv` (42 rows) and the budget-3 rows of
+`/mnt/d/hf_w16/affit_N/*/*/af_fit_summary.txt` (18 positions); the clause is
+`python3 /mnt/d/hf_w16/score_sem_w16.py --root /mnt/d/hf_w16 --w13 /mnt/d/hf_w13 --w14root /mnt/d/hf_w14 --out
+/mnt/d/hf_w16/s16_score.txt`; `docs/synthetic-af-bank-followups-wave16-results.md` §2.4 and §2.7;
+`docs/synthetic-af-bank-followups-wave16-design.md` §4.1.
+
 ### F67 — `af-fit`'s star count and `optimize`'s are NOT the same number, so the control built on their equality reports "could not look" on exactly the datasets where the intervention bites hardest
 **Status:** Open · found 2026-08-10 (wave 15) when RULE L15's gate **G-c** returned TOOK on 13 of 20 · **the test
 that settles it was free, already on disk, and predates the control by two waves**
@@ -3798,17 +4019,68 @@ identical), each equal to its own landing. Consistently, `DID-NOT-TAKE` occurred
   was promoted to a wave rule and honoured: the control was shown to PASS and to FAIL before it was quoted. It was
   shown on **one dataset out of twenty**, and the axis it varied was not the axis that decides its answer.
 
+> ### WAVE 16: (a) AND (b) ARE DONE — **RULE P16 returns P-b**, and the two counts are confirmed to be DIFFERENT MEASUREMENTS WITH THE SAME NAME
+>
+> Both sides' **full** `StarDetectorParams` were dumped through **one reflective formatter** shared by
+> `AfFitDiagnosticRunner` and `OptimizationDiagnosticRunner` (`TestApp/ParamsDump.cs`, commit `4fd613d`) —
+> reflective rather than a hand-written field list, because a hand list would reproduce the very defect being
+> measured, two printouts that drift apart. **Printing one side's params is not a diff**, which is why (b) as
+> originally written could not have closed this: `optimize` printed **5** fields against what turns out to be a
+> **55**-property object.
+>
+> | clause | pre-registered threshold | measured |
+> |---|---|---|
+> | coverage | both sides dumped | `af-fit` **39 of 39** logs, `optimize` **10 of 10** (8 gate + 2 probe), could-not-look **0** on both |
+> | **P16-POP** | ≥ 1 dataset from the **disagreeing** set **and** ≥ 1 from the agreeing set | **`D12`, `D17`** (disagreeing) + **`D18`, `D19`, `D20`** (agreeing) — **met** |
+> | PER-RUN | any field varying across runs is reported and never generalised over | **none vary**, on either side |
+> | **P16-a** | one **F-live** difference ⇒ P-a | **0 F-live differences on all five datasets.** 55 fields per side, **53 byte-identical** |
+> | the 2 that differ | must be F-inert-by-proof or be promoted | `PixelScale` (`1` / `NaN`) and `SuppressInfoLogging` (`False` / `True`) — **both inert by proof** |
+> | conditionals | `Region` / `MeasurementAverage` / `ModelPSF` inert only while a **checked** condition holds | Full / Median / False on both sides — all three hold, nothing promoted |
+>
+> > **RULE P16: P-b.** The detectors are configured **identically** from one settings file and the counts still
+> > differ. **So the disagreement is DOWNSTREAM of the params**, and (c) is narrowed from three candidates to
+> > **two, by construction and not by hypothesis**: (1) the **frame loading** (`DetectionSource` /
+> > `DiagnosticUtil.LoadRenderedImage` vs `RunEvaluationLoader`), (2) the **counting/gating stage**
+> > (`StarDetectorResult.DetectedStars.Count`, **pre**-filter, vs `HocusFocusStarDetectionResult.DetectedStars`,
+> > **post** ROI-crop and post-`MeanOutliers`, `HocusFocusStarDetection.cs:759`).
+>
+> **This is a PRODUCT finding, and the register records which number the user gets.** The
+> `P16-INSTRUMENT-vs-PRODUCT` test was decided in advance: an instrument artifact requires an F-live difference
+> that exists only because the harness configures `af-fit`, and **there are no F-live differences at all**. Both
+> surviving candidates are production code — `HocusFocusStarDetection` is what the running app calls on every
+> autofocus frame, and `RunEvaluationLoader` is the optimizer's. **The app reports the post-ROI,
+> post-`MeanOutliers` count; `af_fit_points.csv`'s `Stars` — quoted in fourteen waves — is the pre-filter one.**
+> Neither is wrong and nothing in either artifact says which definition it is using.
+>
+> **(a) is also done and it reproduces exactly**: wave 15's G-c re-scored on the knob-diff control gives
+> **40 runs read, 205 overridden knobs, 0 could-not-look**, with 20 + 20 distinct preset sets. *It is a re-score
+> of a previous wave's data and can never be quoted as new evidence.*
+>
+> **Two things worth carrying from the instrument itself.** The scorer's `Region` predicate, as pre-registered,
+> matched **any** region with a null inner crop — true of a genuinely **cropped** outer boundary — so a cropped
+> region would have been excused as inert instead of promoted to F-live. Fixed before any P16 verdict was read;
+> it does not change this verdict (both sides are Full) and that is exactly why it was safe to fix there. **A
+> condition that cannot promote is a check that cannot fail** ([F66](#f66--three-of-wave-14s-checks-could-not-return-their-own-pass-and-the-register-has-been-reading-strings-as-one-instrument-when-it-is-two)(a)).
+> It matters beyond this wave because `af-fit`'s **primary** params path is `LoadOriginalDetectorParams` — the
+> run's own saved detection JSON, which **can** carry a non-Full region. And `F_INERT_BY_PROOF` listed
+> `ModelPSFPixelScaleOnly`, which **is not a property of the object**: a dead exclusion entry that can never
+> exclude anything, F66's shape again.
+>
+> Reproduce: `python3 /mnt/d/hf_w16/score_params_w16.py --gate /mnt/d/hf_w16/gate --probe /mnt/d/hf_w16/probe
+> --affit /mnt/d/hf_w16/affit_N --out /mnt/d/hf_w16/p16_score.txt`;
+> `python3 /mnt/d/hf_w16/score_params_w16.py --self-test` (13 demonstrations, every clause in both directions);
+> `python3 /mnt/d/hf_w16/score_params_w16.py --gc-rescore /mnt/d/hf_w15`;
+> `docs/synthetic-af-bank-followups-wave16-results.md` §3.
+
 ### Next step
 
-(a) **Re-score G-c on the knob-diff control above instead of on star counts** — pure Python over artifacts already
-on disk, **< 5 m**, and it transfers to all 40 runs. The next wave should do this *before* it runs another landing
-arm.
-(b) **Print the detector's own params from `af-fit`** — the 25 knob values and `StarDetector.EffectiveSensitivityGate`
-beside the existing `Region:` line. That closes the last gap outright (the options object holding the right values
-and the detector running at them are one `BuildStarDetectorParams` call apart). **~45 m** including a rebuild, a
-fresh gate and a re-run of both scoring passes; it is a code change, so it belongs to a wave already shipping code.
-(c) **Identify the pipeline disagreement's cause** — ~1 h. The defocus-graded deficit is *consistent with* a
-sensitivity- or size-gate difference; that is a hypothesis, not a result, and this entry does not assert it.
+(a) **DONE (wave 16)** — G-c re-scored on the knob-diff control: 40 runs, 205 knobs, 0 could-not-look.
+(b) **DONE (wave 16), and the framing was wrong** — one side's params is not a diff. Both sides now dump all 55
+fields through one shared reflective formatter; verdict **P-b**.
+(c) **Identify the pipeline disagreement's cause** — **~1 h, and now much better posed**: P16 narrows it to
+**two** candidates (frame loading vs counting/gating), so deciding between them needs an instrumented run of both
+loaders on one frame rather than a search. The defocus-graded deficit is *consistent with* a sensitivity- or
+size-gate difference; that is a hypothesis, not a result, and this entry does not assert it.
 Reproduce: `python3 /mnt/d/hf_w15/score_land_w15.py --arm0 /mnt/d/hf_w15/land_mor0 --arm1 /mnt/d/hf_w15/land_mor1
 --score0 /mnt/d/hf_w15/affit_mor0 --score1 /mnt/d/hf_w15/affit_mor1 --w13 /mnt/d/hf_w13 --gate /mnt/d/hf_w15/gate
 --out /mnt/d/hf_w15/l15_score.txt` (G-c's four states, by name); the base-level test is
