@@ -3051,13 +3051,94 @@ to a fifth of its own error bar, and is discarded as an outlier anyway.
 >
 > **What IS serious is what happens with a bigger budget.** At `MaxOutlierRejections` = 3, `caboose` — a real
 > run whose fit has R² = **0.99987** — degrades to σ_focus **1.4325 → 18.185 (12.7×)**, R² → 0.9235, reduced χ²
-> **0.00427 → 3.342**. That is this entry's own mechanism running to completion: the better the fit, the smaller
+> **0.00427 → 3.342**.
+>
+> > **The DIRECTION carries this, not the factor** (wave-14 [F62](#f62--σ_focus-is-anti-informative-when-an-outlier-rejection-is-what-changed-it-it-improves-by-up-to-88--while-the-distance-to-a-known-truth-improves-on-none)
+> > audit, [`docs/wave14-f62-audit.md`](wave14-f62-audit.md) H4). F62's arithmetic predicts a rejection makes
+> > σ_focus *fall*; here it rose, so the effect cannot be the fit grading itself. But σ_focus also grows
+> > **mechanically** as the surviving point count approaches the parameter count — `s² = weighted RSS/(n−p)` and
+> > `(JᵀWJ)⁻¹` both grow, and this is 5 points against 4 parameters — so **"12.7× worse σ_focus" is not an
+> > accuracy factor and must not be quoted as one**, and no out-of-sample vertex check was ever run at budget 3.
+> > **Reduced χ² 0.00427 → 3.342 and R² 0.99987 → 0.9235 carry no `n − p` term**: the refit fails on the points
+> > it *kept*. *(The same catastrophe measured through `af-fit` instead of `bank-verify` gives σ_focus
+> > 0.364344 → 16.4599 — 45.2×. Two pipelines, not two measurements of one number. Never quote one for the
+> > other.)*
+>
+> That is this entry's own mechanism running to completion: the better the fit, the smaller
 > the MAD, the more aggressively the test fires, and each removal tightens the scale for the next. **The shipped
 > default of 1 is the BOUND, not merely a safe value** — the smallness of the budget is the only thing containing
 > it. See [F63](#f63--the-optimizers-landing-moves-on-6-of-8-runs-under-a-knob-that-is-nearly-inert-at-the-seed-so-every-landing-waves-5-12-published-was-produced-at-a-non-default-value)
 > for the one place the knob is NOT inert: the optimizer's landing moves on 6 of 8 runs.
 >
 > Reproduce: `D:\hf_w13\affit_w13.sh`, `D:\hf_w13\affit_syn_score.txt`, `D:\hf_w13\bv_compare_mor3.txt`.
+
+> ### WAVE 14: SUB-QUESTION (b) MEASURED ON A SIX-RUNG LADDER — **RULE F14 RETURNS NO VERDICT**, and the sub-question turns out to be written in the WRONG UNITS
+>
+> An off-by-default scale floor was added to `MathUtility.RejectionTest` (`--mad-floor f` / `--round1-floor α`
+> on `af-fit`) and all 39 runs were re-fitted at six rungs: family **A** `scale_k ← max(scale_k, f)` for
+> `f ∈ {0.00, 0.25, 0.50, 1.00}`, family **B** `scale_k ← max(scale_k, α·scale_1)` for `α ∈ {0.50, 1.00}`.
+> The floor is applied **after** the existing degenerate-scale guards, so it can only ever **suppress** a
+> rejection, never add or redirect one. 66 m 44 s for six rungs.
+>
+> **The verdict is NO VERDICT and the failing gate is V4** — the clause that tests the counterfactual's own
+> prefix lemma. It failed on `Panos_attempt01` for a reason that is a real property of the shipped fit and not a
+> defect in the floor: see [F65](#f65--the-hybrid-consensus-is-an-intersection-over-four-models-that-can-reject-the-same-points-in-a-different-order-so-the-rejected-set-at-budget-b-is-not-a-prefix-of-anything).
+> **Everything below is therefore raw numbers, not a recommendation, and no rung is named.**
+>
+> | rung | max ρ = σ_focus(b3)/σ_focus(b0) over the 13 firing runs | `N_fire@1 / @2 / @3` of 39 | `caboose` at budget 3 |
+> |---|---|---|---|
+> | `A0.00` (control) | **45.1768** (`caboose`) | 7 / 13 / 13 | Symmetric, R² 0.91475, minPos 7112.74 |
+> | `A0.25` | 1.1304 (`D12`) | 3 / 5 / 5 | **fixed** — TiltedHyperbola, R² 0.99999, minPos 7101.58 |
+> | `A0.50` | 1.0000 | 2 / 2 / 2 | **fixed** |
+> | `A1.00` | 1.0000 | **0 / 0 / 0** | **fixed** |
+> | `B0.50` | 45.1768 | 7 / 13 / 13 | unchanged |
+> | `B1.00` | 45.1768 | 7 / 11 / 11 | unchanged |
+>
+> **What the ladder does establish.** (1) Family A **reaches** `caboose` at every rung ≥ 0.25 and family B
+> reaches it at neither — pre-registered before the arms and confirmed, because `caboose`'s scale is already
+> collapsed at round 1 (1.48e-5) so an anchor at round 1 is an anchor to the collapse. (2) The fix is never
+> **selective**: every rung that repairs budget 3 also suppresses budget 2's *benign* rejection (σ 0.364 →
+> 0.172, R² → 0.999999). (3) The window where containment and selectivity coexist is **one rung wide** on this
+> ladder. (4) The out-of-sample arbiter cannot decide it: median `|Δe|` is **0.00000 step** at every rung, and
+> the largest movement reachable anywhere in the synthetic bank is **0.00993 step** against a 0.10-step
+> materiality floor. (5) The added parameter is **inert at its default**, measured — all 39 budget tables
+> reproduce wave 13 field-for-field at `f = 0.00`.
+>
+> ### AND THE SUB-QUESTION'S OWN WORDING IS WRONG ABOUT THE UNITS
+>
+> (b) asks that a point not be an outlier *"while sitting well inside its own error bar"*. `AlglibHyperbolicFitting`
+> documents that its per-point σ is the **star-ensemble scatter** (1.483·MAD), which *"overstates the uncertainty
+> of the plotted median HFR by roughly √(detected stars)"*. So the standardized residual `r` is ≈√N\* smaller
+> than a unit-normal residual **by construction**, and an **absolute** floor in `r` units has an aggressiveness
+> set by the star count — the wrong dependency. Across this bank √N\* spans 10× while the ladder spans 4×:
+> **the ladder measures behaviour at fixed `f` and cannot select `f`.**
+>
+> The right quantity is free — `af_fit_points.csv` prints `Stars` per position — and it separates cleanly.
+> **`s = |r|·√N\*` is the residual in units of the standard error of the plotted median.** Over all 42
+> rejections in the 39 wave-13 runs:
+>
+> | | measured |
+> |---|---|
+> | rejections on the one run with ρ > 2 (`caboose`, 45.18) | **3 of 3 at `s` < 1** — 0.1010, 0.0403, 0.0000 |
+> | rejections on runs with ρ ≤ 1.10 | **32 of 33 at `s` ≥ 1** (97 %); the exception is `D08`'s third, `s` = 0.3883 |
+> | spread over all 42 | min 0.0000, median 3.71335, max 79.7824 |
+>
+> **The pathological rejections sit at a tenth of a standard error and the benign ones at three to eighty. No
+> floor in raw `r` units can tell them apart** — `caboose` round 1's scale is 1.48e-5 and `D01`'s is 0.9885, five
+> orders of magnitude apart on the same ladder — **and a floor in SEM units can, with one threshold.**
+>
+> **It does NOT vindicate this entry's original complaint, and that is the honest half.** `D16_esprit550_ha3` —
+> the case where the discarded point **is** the generator's true focus — sits at `r` = +1.3307, N\* = 43,
+> **`s` = 8.7260**. A SEM-unit floor near 1 leaves that rejection untouched. *A point can be a genuine large
+> deviation in its own error bar and still be the one you must keep, and no scale floor of any kind knows which.*
+>
+> **ρ is a CONTAINMENT measure, not an accuracy factor** — it is legitimate above only because `ρ = 1` exactly
+> when nothing was removed. And `ρ > 2` is `caboose` and nothing else: n = 1 on the benefit side, stated here
+> rather than discovered later.
+>
+> Reproduce: `bash /mnt/d/hf_w14/affit_w14.sh <family> <rung>`, `/mnt/d/hf_w14/stageA/sem_audit.tsv`,
+> `python3 /mnt/d/hf_w14/score_affit_w14.py --root /mnt/d/hf_w14 --w13 /mnt/d/hf_w13 --stagea /mnt/d/hf_w14/stageA`,
+> `docs/synthetic-af-bank-followups-wave14-results.md` §3.
 
 **Next step, and what NOT to do.** Three separable questions, deliberately not answered here:
 (a) should the queue anchor be a *fitted* vertex (`HyperbolicFitting.Minimum.X`, or `Intersection`) rather than a
@@ -3070,6 +3151,17 @@ budget be raised safely; (c) should the walk's
 `while (rightMostPosition < targetMaxFocuserPosition)` compare with a half-step tolerance, which bounds the
 symptom without touching either fit. **(b) changes every AF fit in the product** and must be measured on the bank
 before it is contemplated — the AF-bank σ_focus/R² arms are the instrument.
+
+**Wave 14 re-shapes (b) and prices its successor.** (b) as literally written — an absolute floor in `r` units —
+is measured above and returns NO VERDICT; it is also the wrong parameterisation, because `r` carries a ≈√N\*
+factor the ladder cannot span. **The named successor is the SEM-unit floor**: compute `z` on `r·√N\*` rather
+than on `r`. **Price ~2 h** — `ScatterErrorPoint` carries `(X, Y, ErrorX, ErrorY)` and no star count, so `N*`
+must be threaded from `MeasurePoint` construction through the fit to `RejectionTest`, plus tests. **The cheapest
+unfinished piece is not that**: repairing RULE F14's V4 ([F65](#f65--the-hybrid-consensus-is-an-intersection-over-four-models-that-can-reject-the-same-points-in-a-different-order-so-the-rejected-set-at-budget-b-is-not-a-prefix-of-anything))
+and re-scoring the six rungs already on disk costs **minutes of Python and zero `TestApp` time**.
+**And after wave 14's item 1 the ship value of any floor is contingent**: with `MaxOutlierRejections` defaulting
+to 0 the rejection does not run at all, so a floor reaches only profiles that explicitly store ≥ 1, and any
+future decision to raise the budget.
 
 **Reproduce (offline, no rig, ~1 min):** feed the eleven `MeasurePoints` above through
 `WeightRegularization.Regularize` → `AlglibHyperbolicFitting.Create(…, TiltedHyperbola, pts, stepSize: 15,
@@ -3228,9 +3320,30 @@ differ. A median over a set dominated by forced ties reports "no effect" for a d
 and two clear losses in it.
 
 **Why it matters.** The wins are concentrated in the ×0.25-step scenarios (S1), i.e. runs recovering from a
-too-narrow sweep, and the losses in S6 (step AND exposure both wrong). That is a real, structured signal — a
-narrower executed sweep helps when the fit is being rebuilt and hurts when the run is also photon-starved — and
-the median threw it away.
+too-narrow sweep, and the losses in S6 (step AND exposure both wrong). That looks like a structured signal — a
+narrower executed sweep helping when the fit is being rebuilt and hurting when the run is also photon-starved —
+and the median threw it away.
+
+> **WAVE 14 — the "real, structured signal" reading is INVALIDATED, and the DENOMINATOR lesson is not**
+> ([F62](#f62--σ_focus-is-anti-informative-when-an-outlier-rejection-is-what-changed-it-it-improves-by-up-to-88--while-the-distance-to-a-known-truth-improves-on-none)
+> audit H2/H5). **Arm S changes the STEP, so the two arms fit different focuser positions**, and σ_focus is
+> `√(mgᵀ·s²·(JᵀWJ)⁻¹·mg)` in raw focuser units over the points actually fitted — a joint property of the curve
+> **and of the sampling geometry**. Comparing it across arms that sampled different positions cannot separate
+> *"the vertex is better determined"* from *"the abscissa was rearranged"*, and a **40×** ratio on `D05` S1 is
+> far outside anything the register attributes to a real focus improvement anywhere else. There is no other
+> support: no recall, no assertion count, and — the sharp part — **these are synthetic datasets, whose
+> `renderRequest.OptimalFocuserPosition` was available the whole time and was never consulted.**
+>
+> **What stands.** The wave-7 verdict (the rule was applied as written, arm S does not ship) and **the
+> methodological finding — *"the choice of denominator was worth more than the entire effect being measured"*** —
+> which is about the arithmetic of medians over forced ties and which F62 cannot touch: the verdict really would
+> have flipped on the movable denominator. **What does not stand is the reading underneath it**, that arm S
+> produces *better* fits by 10.2 %. **No behaviour was changed on the strength of the number**, which is why this
+> is a correction rather than a retraction. Arm D's half is untouched — *"arm D is 1.0000 on all twelve"* is a
+> **non-identity** reading, and it never acted.
+>
+> **To close it:** re-score both arms on `|fitted vertex − renderRequest.OptimalFocuserPosition|`, which the bank
+> has carried since it was built. Until then the S1-helps / S6-hurts reading is a hypothesis.
 
 **Next step.** Two separable pieces. (a) Re-score arm S on the cells where the arms CAN differ (more than one
 round rendered), which needs no new runs — the reports are on disk at `D:\hf_w7\f18arms`. (b) For any future
@@ -3605,6 +3718,121 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
+### F66 — Three of wave 14's checks could not return their own PASS, and the register has been reading `strings` as one instrument when it is two
+**Status:** Open (a standing discipline entry) · found 2026-08-09 (wave 14), three of them in one wave, by
+running each check against the state it was meant to **accept**
+
+Every check below failed **closed** — the safe direction, and the one wave 12/13's "could not look" discipline
+was built to produce. None of them could ever have said PASS.
+
+| check | what it asserts | why its PASS branch is unreachable |
+|---|---|---|
+| `prov_w14.py`'s profile pin **(REPAIRED, wave 14)** | `ProfileId == "ce3f3e63-…"` | the landing records `astrodet (ce3f3e63-…)` — **name and GUID**. Unequal for every landing that can exist. Reported `RULE G14 free controls: **FAIL**` on a passing gate |
+| `score_affit_w14.py`'s **V3** | `<stagea>/stageA_report.txt` exists | `stageA_w14.py` writes `rounds.tsv`, `predict.tsv`, `sem_audit.tsv` and prints its gate to **stdout**. The file is never produced |
+| `score_affit_w14.py`'s **V4** | a production row equals one of wave 13's printed rows | plain tuple equality on rows containing `NaN`, so a row **fails to match itself**. `Panos`'s budget-2/3 σ_focus is the string `"NaN"`. The scorer's own `eq()` handles this and V4 does not call it |
+
+**And the oldest instance is a probe, not a scorer.** `strings` scans for runs of ASCII bytes. A .NET assembly
+stores **type and member names** in the `#Strings` heap as UTF-8 — findable — and **string literals** in the
+`#US` heap as **UTF-16**, where every character is followed by a null and no ASCII run exists.
+
+```
+strings    D:\hf_w13\exe\TestApp.dll | grep -c -- '--profile-id'   ->   0   <-- on a binary that ACCEPTS the flag
+strings -el D:\hf_w13\exe\TestApp.dll | grep -c -- '--profile-id'  ->  28
+```
+
+Wave 13's provenance probe (`grep AtrousWaveletFast`) works **because `AtrousWaveletFast` is a type name**.
+`--profile-id` is a literal (`DiagnosticUtil.GetArg(args, "--profile-id")`). **Two probes, two heaps, and the
+register has been treating them as one instrument.**
+
+### Why it matters
+
+- **It cost an item four waves.** [F57](#f57--a---settings-pinned-arm-is-not-pinned-the-active-nina-profile-moves-baselinej-by-0014-and-every-cross-wave-comparison-inherits-it)(d)'s
+  landing-level wavelet bisect was deferred as *"not constructible — `exe_v1wav` cannot be pinned"*, on this
+  probe returning 0. The current binary returns 0 too. **A test that reports "absent" for a binary known to have
+  the flag is not measuring presence**, and the control that catches it is one command.
+- **Failing closed is better and it is still broken.** A control that always says FAIL trains its reader to skip
+  it, which is how a real failure gets through. Wave 13's `RX_BUDGET` defect printed **"PASS — 0 of 0 rounds
+  reproduced"** and failed *open*; that is worse, and both are the same omission.
+- **Smoke-running demonstrates one branch.** Wave 14's scorers were smoke-run during authoring and that found
+  two real defects. It exercised the failure path.
+
+### Next step
+
+(a) **Every gate must be demonstrated to PASS on a known-good input and to FAIL on a known-bad one before it is
+quoted.** Wave 13's `stageA_w14.py` already carries the pattern — a self-test that must *flip* the verdict.
+(b) **When a probe reports absence, run it against a known positive.** For .NET binaries: `strings -el` for
+literals, plain `strings` for type names, and say which you are looking for.
+**One of the three was repaired in the same wave, and the repair was then demonstrated in BOTH directions** —
+`prov_w14.py` now tests the pin by **containment** of the GUID plus a separate "exactly one distinct `ProfileId`
+across the arm" clause, and it was shown to **PASS** on the real 8-landing gate and to **FAIL** on a copy with
+one landing's `ProfileId` rewritten to `Default (b10b1d6d-…)`. *The first attempt at that demonstration wrote its
+mutation to a path that does not exist, so nothing was mutated and the scorer reported PASS on an unmodified
+copy — which looks exactly like a control that cannot discriminate. A test that a control can fail is itself a
+check that can silently not run.* The other two are left as-is and named in §7.3's costed list, because
+repairing V4 after it failed is the one repair this wave must not make.
+
+Reproduce: `python3 /mnt/d/hf_w14/prov_w14.py /mnt/d/hf_w14/gate` (PASS since the repair; it exited 1 on this
+same passing arm before it);
+`python3 /mnt/d/hf_w14/score_affit_w14.py --root /mnt/d/hf_w14 --w13 /mnt/d/hf_w13 --stagea /mnt/d/hf_w14/stageA`
+(V3 ABSENT, V4 four rows of which two are the NaN artifact); `docs/synthetic-af-bank-followups-wave14-results.md`
+§1.1, §1.3, §3.4, §3.5.
+
+### F65 — The Hybrid consensus is an INTERSECTION over four models that can reject the same points in a DIFFERENT ORDER, so the rejected set at budget B is not a prefix of anything
+**Status:** Open · found 2026-08-09 (wave 14) when RULE F14's V4 failed on `Panos_attempt01` · **the mechanism
+is printed in wave 13's own artifact and had been read three times for other purposes**
+
+`AlglibHyperbolicFitting.SelectBestModel` runs the Grubbs cascade **per candidate model** and removes only the
+**intersection** across all four — *"a point only some models reject is model-misfit (tilt signal), not a true
+outlier; consensus keeps it."* Wave 13's `af_fit_summary.txt` for `Panos_attempt01` prints the orders:
+
+```
+model            | would-reject          |  budget | #rej | rejected
+Symmetric        | 38396 40396           |    0    |  0   | (none)
+UnevenBlend      | 38396 40396           |    1    |  0   | (none)     <-- the models disagree on round 1
+TiltedHyperbola  | 40396 38396   <--     |    2    |  2   | 38396 40396
+SmoothBlend      | 38396 40396           |    3    |  2   | 38396 40396
+```
+
+**The budget-1 consensus is EMPTY because the four models pick different first points; the budget-2 consensus is
+BOTH because they agree on the pair.** So the sequence of consensus sets is `{} , {} , {38396, 40396}` — it
+jumps by two, and no budget of this run ever produces a one-element consensus.
+
+**What made it visible.** Wave 14 measured a round-2 scale floor (family B, `α = 1.00`). It suppresses
+`TiltedHyperbola`'s second round only, leaving that model at `{40396}` while the other three keep both — and the
+intersection becomes **`{40396}`, a set no budget of the unfloored run produces**:
+
+```
+budget | winner    | #rej | rejected | sigma(focus) | redChi^2 | R^2      | minPos
+  2    | Symmetric |   1  | 40396    |   139.097    | 0.12256  | 0.998856 | 33276.8
+```
+
+### Why it matters
+
+- **A per-model prefix property does NOT lift to the consensus.** Each model's floored rejection set really is a
+  prefix of its unfloored set, and `consensus^f_B ⊆ consensus_B` really does hold (**585 of 585** (run, rung,
+  budget) triples in wave 14). But **the intersection of prefixes is not a prefix of the intersection** when the
+  orders differ, so "the outcome must be one of the printed budget rows" is false. Wave 14's V4 asserted the
+  false version, failed, and returned **NO VERDICT** on an item whose measurement was otherwise complete.
+- **Any counterfactual over the rejection cascade must be phrased over the consensus, not over the printed
+  trace.** `af-fit` prints the per-round detail for **one** model (the budget-0 winner) and the production table
+  for **all four**. Those are different objects, and the register now has a case where reading one as the other
+  changed a verdict.
+- **It is also a statement about the shipped fit.** Raising `MaxOutlierRejections` by one does not necessarily
+  remove one more point: on `Panos` it removes two, and there exist reachable consensus sets that no budget
+  reaches. Anyone reasoning about "budget N means at most N rejections" should read that as an upper bound on
+  each model, not a description of the consensus trajectory.
+
+### Next step
+
+(a) **Repair RULE F14's V4** to test what the design proved — `consensus^f_B ⊆ consensus_B` plus a cardinality
+bound — and to compare rows NaN-safely, then re-score wave 14's six rungs. **Cost: minutes of Python, zero
+`TestApp` time**; all six rungs are on disk.
+(b) **Print the per-model rejection ORDER in `af_fit_summary.txt`'s consensus block**, or at minimum the
+per-model round-by-round scales, so a future counterfactual does not have to infer four models from one trace.
+Reproduce: `/mnt/d/hf_w13/affit_real/Panos_attempt01/af_fit_summary.txt` (the per-model `would-reject` column),
+`/mnt/d/hf_w14/affit_B1.00/real/Panos_attempt01/af_fit_summary.txt`,
+`docs/synthetic-af-bank-followups-wave14-results.md` §3.5.
+
 ### F63 — The optimizer's LANDING moves on 6 of 8 runs under a knob that is nearly inert at the seed, so every landing waves 5-12 published was produced at a NON-DEFAULT value
 **Status:** Open · found 2026-08-09 (wave 13) by RULE M13's D5 — **the clause that asked whether the
 RECOMMENDATION moves, which is the one question nobody had asked**
@@ -3653,6 +3881,29 @@ coordinate system RULE G13 has now reproduced four times, so it needs a new base
 cleanup — the same price as [F59](#f59--the-settings-export-drops-every-knob-whose-setter-validates-so-pinned_settingsjson-has-been-missing-five-detector-knobs-since-wave-5)'s five knobs.
 Reproduce: `D:\hf_w13\land_w13.sh`, `D:\hf_w13\land_score.txt`.
 
+> **WAVE 14 — this entry is now the user-visible cost of a SHIPPED change, and (b) is cheaper than it was.**
+> The code default flipped **1 → 0** (`AutoFocusOptions.cs:62` and `:81`), as an owner's product-coherence
+> decision that **overrides** wave 13's RULE M13 — whose D1 did not fire and whose pre-registered outcome was NO
+> CHANGE. Profiles that store the key keep their value; the fallback is what moved.
+>
+> **Measured reach on this machine's nine profiles:** the partition flips from **2 at 0 / 7 at 1** under the old
+> default to **6 / 3** under the new one — and the parse reproduces
+> [F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections)'s
+> published 2 / 7 exactly under the old default, which is a free control on the parse before either number is
+> quoted. **Five profiles set the key explicitly and do not move** (`astrodet` 0, `AA1600MM Copy` 0, `Default` 1,
+> `AA1600MM` 1, `40mm` 1); **four have it absent and therefore move**, all `Default-*` snapshots.
+>
+> **So this entry's "6 of 8 landings move" is what those four profiles just did**: every profile with the key
+> absent silently changes what the wizard recommends, by up to **17 %** on the AF step size and a **factor of
+> two** on brightness sensitivity. That belongs in the PR body, and *"moved is not worse"* still holds — `BestJ`
+> is not comparable across the two values and this wave did not compute one.
+>
+> **(b) is re-priced downward:** after the change the shipped default **is** `astrodet`'s value, so pinning the
+> shipped default no longer moves the coordinate system RULE G14 has now reproduced a **fifth** time. It should
+> be re-priced properly next wave rather than carried at F59's price.
+> Reproduce: `/mnt/d/hf_w14/profiles_after_default_change_w14.txt`,
+> `docs/synthetic-af-bank-followups-wave14-results.md` §2.3.
+
 ### F62 — σ_focus is ANTI-INFORMATIVE when an outlier rejection is what changed it: it improves by up to 88 % while the distance to a known truth improves on none
 **Status:** Open (a standing warning about the register's own favourite quantity) · found 2026-08-09 (wave 13)
 by RULE M13's D1, whose arbiter was deliberately put out of sample
@@ -3687,12 +3938,60 @@ third, on data where it never once moved the answer closer to the truth.
 DETECTOR (the point set is then common to both arms). The failure is specific to changes that alter **which
 points are fitted**.
 
+> ### WAVE 14: THIS ENTRY WAS AUDITED AGAINST THE WHOLE REGISTER, AND TWO OF ITS OWN CLAUSES ARE WRONG
+>
+> The audit is [`docs/wave14-f62-audit.md`](wave14-f62-audit.md) — 12 hits over the register and waves 2–13:
+> **2 INVALIDATED** ([F58](#f58--concurrent-optimize-processes-each-acquire-a-different-nina-profile-and-the-profile-decides-the-fit-f55s-two-attractors-are-two-values-of-maxoutlierrejections)'s
+> *"allowing one Grubbs rejection improves a fit"*, [F48](#f48--the-executed-sweep-step-sizing-is-bimodal-6-cells-better-2-worse-and-the-median-hides-both)'s
+> *"a real, structured signal"*), **3 WEAKENED** ([F61](#f61--f58ds-real-consumer-was-the-sensor-model-not-the-af-fit-the-per-star-paraboloids-rejection-budget-came-from-the-active-profile)'s
+> `sChi`, [F45](#f45--the-grubbs-test-rejects-the-in-focus-point-of-a-near-perfect-curve-and-the-blind-walk-then-buys-an-extra-exposure)'s
+> `caboose` magnitude, F48's 10.2 %), **7 SURVIVES**, **2 UNEVALUATED**. The prediction *"other conclusions may
+> rest on this"* is confirmed, and two of the five were being cited the same wave in support of changing a
+> shipped default.
+>
+> **(1) The DETECTOR carve-out is FALSIFIABLE, and the register falsifies it twice.** *"The point set is then
+> common to both arms"* is true of the **stars** and not guaranteed of the **positions**: `JRun` applies a hard
+> `NHard` floor per frame, so a detector knob that starves one frame removes a **focuser position** from the fit
+> outright. [F20](#f20--below-minhfr-the-autofocus-objective-collapses-to-exactly-zero-with-no-diagnostic)/[F35](#f35--minhfr-should-be-seeded-from-the-sweep-wings-and-neither-available-hfr-statistic-can-size-it)
+> document exactly this for `MinHFR` (*"5 stars back on the vertex frame … clears the `NHard` = 3 stars-per-frame
+> requirement"*), and wave 8 records `D17`'s `BaselineJ` going **0.000000 → 0.994830** under a *binning* change.
+> **The test is not "was it the detector"; it is "did a frame or a star enter or leave the fit."** The most
+> exposed ruling under the old wording is wave 4's `mccomiskey` shedder — 3606 → 43 detections across nine
+> frames, where a frame crossing `NHard` is plausible and unrecorded.
+>
+> **(2) "It must improve" is NOT a theorem, and this entry's own table shows it.** `D12_c14_585_afbin2` above is
+> **+13.0 %** — worse — at budget 1. σ_focus is `√(mgᵀ·s²·(JᵀWJ)⁻¹·mg)` with `s² = weighted RSS/(n−p)`, so
+> dropping a point shrinks the residual sum **and** the degrees of freedom **and** the information matrix, and
+> the last two can dominate. Read it as **biased to improve**, not obliged to.
+>
+> > **The corollary is asymmetric and is worth more than the correction: a within-fit statistic that DEGRADES
+> > under a rejection is evidence; one that IMPROVES is not.** That is precisely why F45's `caboose` result is
+> > readable — a bias cannot manufacture its own opposite — and why F58's *"it improves"* is not.
+>
+> **(3) The warning has a second consumer nobody named.** The sensor paraboloid weights by `1/σ²` where σ is the
+> **per-star hyperbola's own `MinimumStdError`** (`SensorModel.cs:838-841` → `SensorParaboloidDataPoint.RegularizeStdDev`
+> → `OutputStdDevs`), so `sChi` and `sR2` are contaminated by a per-star rejection budget through a route that is
+> not the paraboloid's own point set — and F61's like-for-like control (hold `sStars` fixed) does not close it.
+> See [F61](#f61--f58ds-real-consumer-was-the-sensor-model-not-the-af-fit-the-per-star-paraboloids-rejection-budget-came-from-the-active-profile).
+
 ### Next step
 
-None required. Recorded so the next arm over a rejection, a point-pruning rule, or any change that alters the
-fitted point set puts its arbiter out of sample — on the synthetic bank, which has had known focus positions
-since it was built and had never been scored against them. Reproduce: `D:\hf_w13\affit_syn_score.txt`,
-`D:\hf_w13\score_affit_w13.py`.
+None required for the original finding. Recorded so the next arm over a rejection, a point-pruning rule, or any
+change that alters the fitted point set puts its arbiter out of sample — on the synthetic bank, which has had
+known focus positions since it was built and had never been scored against them.
+
+**(a) Two hits are UNEVALUATED and each names the artifact that would close it** (audit §3): wave 12's exposure
+ladder anchors (needs per-rung `HardFloorPassed`/`WorstFrameCount` for the 13 usable rungs), and wave 9's φ
+verdict, whose **pre-registered out-of-sample clause R1(b) was never reported** in `wave9-results.md` — a
+*permanent* default decision on a star-keeping constraint resting on `J` and σ_focus with its one external
+clause silently dropped.
+**(b) A standing line for the wave design template, from the audit's §6(h):** *say which class of change an arm
+is, in the design, before it runs.* If the arm can move a point into or out of the fit, then σ_focus, `J`, R²,
+reduced χ², `sChi` and `sR2` are **magnitudes, not votes**, and the design must name the out-of-sample arbiter
+it will use instead. Wave 13's `score_pop_w13.py` is the reference implementation: the quantity that must not be
+compared is **not computed**.
+Reproduce: `D:\hf_w13\affit_syn_score.txt`, `D:\hf_w13\score_affit_w13.py`,
+[`docs/wave14-f62-audit.md`](wave14-f62-audit.md).
 
 ### F61 — F58(d)'s real consumer was the SENSOR MODEL, not the AF fit: the per-star paraboloid's rejection budget came from the active profile
 **Status:** **Fixed (wave 12)** for every harness runner · found 2026-08-09 by RULE B12-D, **the control written
@@ -3755,6 +4054,24 @@ every converted runner and stored in `bank-verify`'s and `synth-validate`'s repo
 > (`fmeschia_Focus`), median 0.67 %. On the **14 runs whose star population is unchanged** — the only subset
 > where the goodness-of-fit statistics compare like with like — **`MOR`=0 is better on 10 of 10 moved `sChi`**
 > and 9 of 10 `sRMS`: *the sensor paraboloid fits WORSE when each star's own curve is allowed a rejection.*
+>
+> > **WAVE 14: THE `sChi` HALF IS [F62](#f62--σ_focus-is-anti-informative-when-an-outlier-rejection-is-what-changed-it-it-improves-by-up-to-88--while-the-distance-to-a-known-truth-improves-on-none)
+> > ARRIVING ONE LEVEL UP, AND ONLY `sRMS` CARRIES THIS.** Verified in code, not conjectured
+> > ([`docs/wave14-f62-audit.md`](wave14-f62-audit.md) H3): the paraboloid is weighted by `1/σ²` where σ is
+> > **the per-star hyperbola's own `MinimumStdError`** — `SensorModel.cs:838-841` sets
+> > `bestFocusStdDevMicrons = fitting.MinimumStdError × focuserSizeMicrons`, `:869` passes it through
+> > `SensorParaboloidDataPoint.RegularizeStdDev` (a 2 µm quadrature floor), and `NonLinearLeastSquaresSolverBase`
+> > turns it into the weights behind `ReducedChiSquared` and `GoodnessOfFit`. **Where the per-star rejection
+> > fires, σ falls, the weight rises, and reduced χ² rises — the observed direction, for reasons that are not
+> > about the surface fitting worse.** `sR2` inherits the same weighting; the 2 µm floor damps the effect and
+> > does not remove it. **The like-for-like control fixes the OUTER point set (which stars enter the paraboloid)
+> > and cannot close this one, because the contamination arrives through the WEIGHTS.**
+> >
+> > **`sRMS` is the uncontaminated half** — `NonLinearLeastSquaresSolver.RMSError` is an **unweighted** RMS of
+> > the µm residuals — so **9 of 10 is what this conclusion should be quoted from**, and it is what wave 14's
+> > item 1 cites. It is insulated, not immune: the surface those residuals are measured against was still solved
+> > with the contaminated weights. **"10 of 10 `sChi`" is not independent corroboration and should not be quoted
+> > as any.** To make `sChi` readable, re-score both arms with the `MOR`=0 weights **held fixed**.
 >
 > **So the AF fit and the sensor fit do NOT prefer opposite values.** The AF fit is silent, the sensor fit
 > prefers 0, and the out-of-sample arbiter never prefers 1 ([F62](#f62--σ_focus-is-anti-informative-when-an-outlier-rejection-is-what-changed-it-it-improves-by-up-to-88--while-the-distance-to-a-known-truth-improves-on-none)).
@@ -3962,10 +4279,25 @@ values are identical rather than merely close.
 | **"stable within a process/session, variable across them … does fit some process-level state … acquired once"** | **a profile is acquired once, at startup.** Wave 9 named the shape of the answer and the search kept looking below the fit |
 
 **And it explains F57 without a second cause.** Wave 9's gate ran under `Default` (`MaxOutlierRejections = 1`),
-wave 10's under `astrodet` (`0`); `toml999`'s `BaselineJ` went 0.997840 → 0.983477, and allowing one Grubbs
-rejection improves a fit, which is the observed direction. **F57(c)'s answer is a named field**, and it is
+wave 10's under `astrodet` (`0`); `toml999`'s `BaselineJ` went 0.997840 → 0.983477, and the group that may drop a
+Grubbs outlier is the group with the higher `J`. **F57(c)'s answer is a named field**, and it is
 [F45](#f45--the-grubbs-test-rejects-the-in-focus-point-of-a-near-perfect-curve-and-the-blind-walk-then-buys-an-extra-exposure)'s
 outlier rejection deciding the objective from machine state that nothing recorded.
+
+> **WAVE 14 — the clause this sentence used to end with is INVALIDATED, and the entry's answer is not.** It read
+> *"and allowing one Grubbs rejection improves a fit, which is the observed direction"*, offered as corroboration.
+> **It is a tautology** ([F62](#f62--σ_focus-is-anti-informative-when-an-outlier-rejection-is-what-changed-it-it-improves-by-up-to-88--while-the-distance-to-a-known-truth-improves-on-none)
+> audit H1): `J` is computed by the fit **after** the fit was allowed to discard its worst point, so "it improves"
+> was guaranteed before the data were seen — and wave 13 measured that same improvement buying accuracy on
+> **0 of 4** datasets against the generator's truth, opposing it on three. *A prediction that cannot fail is not
+> corroboration.*
+>
+> **The attribution does not depend on it.** It rests on the **5-of-5 partition**, on `OutlierRejectionConfidence`
+> varying *within* the firing group and moving nothing, and on
+> [F57](#f57--a---settings-pinned-arm-is-not-pinned-the-active-nina-profile-moves-baselinej-by-0014-and-every-cross-wave-comparison-inherits-it)'s
+> later one-key intervention with an explicit negative control. Those are claims of **non-identity** and of
+> **attribution**, which F62 cannot threaten — it says the number moves for a reason that is not quality, which
+> is precisely this entry's point.
 
 ### Two operational consequences that are not obvious
 
@@ -4129,6 +4461,33 @@ and took none. **Cost to run it anyway: ~42 minutes** (one 8-run gate, measured 
 it open: a build directory that every future wave has to explain.** Recommend closing (d) and deleting
 `exe_v1wav`, or running it once and closing it either way — what should not continue is carrying it.
 Reproduce: `D:\hf_w10\crossbuild_probe.sh`, `D:\hf_w10\crossbuild.log`, `D:\hf_w10\xb_prof.log`.
+
+> **WAVE 14 — TWO REASONS TO SKIP (d) WERE OFFERED AND BOTH WERE WRONG, IN OPPOSITE DIRECTIONS, FROM THE SAME
+> HABIT. The arm is RUNNING.** *(This block records what was fixed before any wave-14 measurement existed; the
+> arm's outcome and RULE W14-D's verdict belong in
+> [`docs/synthetic-af-bank-followups-wave14-results.md`](synthetic-af-bank-followups-wave14-results.md) §6 and
+> are not stated here.)*
+>
+> - **"Not constructible — `exe_v1wav` cannot be pinned" was produced by a probe that cannot fail.**
+>   `strings … | grep -c -- '--profile-id'` returns **0** on both wave-10 binaries *and* on the current one,
+>   which demonstrably accepts the flag on every arm of waves 11–14. `strings -el` returns **28** on all three:
+>   **both wave-10 binaries support `--profile-id`. The arm is CONSTRUCTIBLE and PINNABLE.** See
+>   [F66](#f66--three-of-wave-14s-checks-could-not-return-their-own-pass-and-the-register-has-been-reading-strings-as-one-instrument-when-it-is-two).
+> - **"Confounded" does not survive either.** The only comparison that matters is `exe_v1wav` against
+>   `D:\hf_w10\exe` — the **same tree, one variable**. Every wave-11+ change (F58's `HarnessFitInputs`, F15,
+>   F61) is absent from *both* arms identically and cannot confound an A/B between them. The arm never needs to
+>   be compared to a modern number at all, which makes it **cleaner than the reason given for skipping it**.
+> - **The three bounds quoted above are also weaker than they read**, and only one bears on the question: wave
+>   10's crossbuild probe covers the **seed** (on point); RULE A12 perturbs *timing*, not arithmetic (close to
+>   tautological for a deterministic pipeline); RULE G13 measures **build-to-build determinism of the same
+>   source**, which cannot produce a wavelet difference at all.
+> - **Both halves are re-run**, because wave 10's stored landings are VOID (this entry voided RULE G10-B: they
+>   ran under a different active profile and were never `--profile-id` pinned). **~84 m, not 42.** The
+>   comparison is arm-to-arm, **never against wave 11's table** — a wave-10 binary is not expected to reproduce
+>   the modern gate and a mismatch there would mean nothing.
+>
+> *The item survived four waves of deferral on unchecked reasons. It was cheaper to run it than to keep arguing
+> about it.*
 
 ### F55 — `optimize` is NOT reproducible when several instances run at once, and the SEED evaluation is what moves
 **Status:** Open · found 2026-08-07 (wave 9) when the confirmation arm's own pre-registered control fired ·
@@ -4988,6 +5347,22 @@ never read them.
 Note the interaction that makes this sharper than it looks: `bank-verify --opt-a/--opt-b` and
 `golden eval --params optimized` both read the **run folder** copy by default. So a prepass and a later scoring
 run that were meant to be independent can silently share an arm.
+
+> **WAVE 14 — CONFIRMED IN AN ARM, not only in the unit tests written with the fix.** Wave 14's gate was the
+> first arm in this series to run on a post-fix binary, where the write-back is opt-in behind
+> `--update-run-folder` and no arm passes it. All **42** bank `optimized_settings.json` files (both banks plus
+> `_prior_reports`) were fingerprinted by sha256 + size + mtime **before** any arm ran.
+>
+> **42 of 42 byte-identical after the 8-run gate AND after all six 39-run `af-fit` rungs. 0 changed, 0
+> could-not-look.** For thirteen waves every `optimize --per-run` pass silently re-baselined both banks; this is
+> the first arm that provably did not.
+>
+> *A fix confirmed only by the tests written with it is confirmed by its author*, and the fingerprint had to be
+> taken **before** anything ran or there would have been nothing to compare against. **Read it against the
+> pre-arm snapshot, not against the live bank**: `D:\hf_w14\bank_landing_snapshot_BEFORE_W14D` holds all 42 files
+> as they stood after Stage B, because wave 14's item 5 runs **wave-10 binaries that predate this fix**.
+> Reproduce: `/mnt/d/hf_w14/bank_landing_fingerprint_BEFORE.json` vs
+> `/mnt/d/hf_w14/bank_landing_snapshot_BEFORE_W14D`.
 
 ### Fixed (wave 13)
 
