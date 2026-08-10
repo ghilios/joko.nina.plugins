@@ -146,11 +146,25 @@ mccomiskey 0.976746 | D18 0.999882 | D19 0.999487 | D20 0.999738
 `--settings D:\hf_w11\pinned_settings_w11.json` (md5 `a67ffc06`) **and**
 `--profile-id ce3f3e63-8fd3-4b72-a0ca-d90db9441382` (astrodet), sequential, `--per-run --max-evals 250`, both
 named in the script header. Score with `python3 /mnt/d/hf_w12/score_w12.py /mnt/d/hf_w<N>/gate --rule G<N>` and
-`python3 /mnt/d/hf_w15/prov_w15.py --self-test /mnt/d/hf_w<N>/gate`. Free controls as FIELDS: `BuildId` (must
-differ from `62334f10`, `084e3485`, `a2693968`…), `DetectorVersion`, `ProfileId`, `ConcurrencyCheck` read across
-the arm, `FitInputs`, `BaselineJ`. Wave 5's φ table is invalid on three axes — never quote it.
+`python3 /mnt/d/hf_w15/prov_w15.py --self-test /mnt/d/hf_w<N>/gate`. Free controls as FIELDS: `BuildId`,
+`DetectorVersion`, `ProfileId`, `ConcurrencyCheck` read across the arm, `FitInputs`, `BaselineJ`. Wave 5's φ
+table is invalid on three axes — never quote it.
 
-**Budget:** the gate costs ~42 m (8 runs, mixed real+synthetic, ~5.2 m/run). All-synthetic runs are ~2.6 m/run.
+**The `BuildId` novelty list, and read this before extending it.** The recorded ids are wave 12 `103d61c4…`,
+wave 13 `62334f10…`, wave 14 (gate) `084e3485…`, wave 15 `df3a867d6fc74204a0dbfc75060b9a96`.
+**Wave 14's `exe_floor` never recorded one** — `af-fit` writes no landing — so it cannot be listed.
+
+> **The first version of this file listed `a2693968` here. That is wave 15's `TestApp.dll` **sha256**, not its
+> `BuildId`.** A novelty list mixing a file hash with build ids can never fire on the entry it believes it
+> guards — **F66's exact shape, committed into the document that warns about it.** Keep dll hashes in a
+> separate, labelled table, and have the scorer fail loudly if a `BuildId` field ever matches a known dll hash.
+
+**Budget — and price from the same INSTRUMENT, not merely a representative population.** `optimize --per-run
+--max-evals 250` costs ~5.2 m/run on the gate's mixed real+synthetic set and ~2.6 m/run all-synthetic (the gate
+is ~42 m; wave 15's 40-run all-synthetic pair was 1 h 42 m). **`af-fit` is a different order of cost and those
+rates do not transfer to it**: it detects each frame ONCE and then evaluates four budgets on those points, so a
+**39-run rung is ~11 m** (wave 14 measured 11 m 06 s). Applying the `optimize` rate to an `af-fit` rung
+over-prices it by roughly an order of magnitude.
 
 ---
 
