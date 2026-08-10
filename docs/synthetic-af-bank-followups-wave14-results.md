@@ -45,7 +45,7 @@ Register: [`docs/followups.md`](followups.md).
 | **item 2** — F45(b), the σ-tied MAD floor | **RULE F14 returns NO VERDICT. The failing gate is V4.** All six rungs ran; the numbers are recorded as diagnostics. §3 |
 | **item 3** — the F62 audit | **DONE**, [`docs/wave14-f62-audit.md`](wave14-f62-audit.md). 12 hits: 2 INVALIDATED, 3 WEAKENED, 7 SURVIVES, 2 UNEVALUATED. §4 |
 | **item 4** — the nine UI changes A1–A9 | **NOT ATTEMPTABLE.** Fifth wave. §5 |
-| **item 5** — F57(d), RULE W14-D | **RUNNING at the time of writing.** §6 is a placeholder and contains no result |
+| **item 5** — F57(d), RULE W14-D | **8 of 8 BIT-IDENTICAL — and the PREMISE is refuted.** The two wave-10 binaries are not one-variable variants; F57(d) closes as NOT CONSTRUCTIBLE, **measured** rather than argued. §6 |
 
 ---
 
@@ -643,9 +643,83 @@ launch, already passes).
 
 ---
 
-## §6 — Item 5: F57(d) and RULE W14-D — **PLACEHOLDER, NO RESULT**
+## §6 — Item 5: F57(d) and RULE W14-D — the arm ran, and it is NOT the contrast the rule assumed
 
-**This arm was still running when this document was written, and nothing about its outcome is stated here.**
+> ## **RULE W14-D: the measurement is clean and its PREMISE is refuted. F57(d) closes as NOT CONSTRUCTIBLE — established by measurement rather than by a probe, which is the one thing four waves of arguing never produced.**
+>
+> **8 of 8 bit-identical**, to all sixteen digits, both arms, `UNEVALUATED` 0. 23:45:07Z–01:06:10Z, **81 m**
+> against an 84 m estimate. And that number answers a different question from the one it was aimed at, because
+> **the two binaries are not "the same tree, one variable".**
+
+### §6.1 What the arms actually are, read off their own landings
+
+The scorer prints the free controls across each arm. They do not match each other:
+
+| | `D:\hf_w10\exe` (arm **v2**) | `D:\hf_w10\exe_v1wav` (arm **v1**) |
+|---|---|---|
+| `BuildId` | **absent** | `6e93a6d5eac844b481296a6edf9b05b5` |
+| `ConcurrencyCheck` | **absent** | `exclusive` |
+| `DetectorVersion` | **absent** | **2** |
+| `Producer` / `CommandLine` / `SettingsFingerprint` | present | present |
+| `TestApp.dll` mtime | 2026-08-08 **09:03** | 2026-08-08 **12:41** |
+
+`BuildId`, `ConcurrencyCheck` and `DetectorVersion` were added by later waves ([F53](followups.md)(a),
+[F57](followups.md)(a), F58). **One arm records them and the other does not, so `exe_v1wav` is built from a
+LATER TREE than `exe` — three and a half hours later — and the pair differs by an unknown amount of source, not
+by one variable.** And the arm that was supposed to be the *v1* wavelet reports **`DetectorVersion = 2`**, which
+is what the modern gate reports.
+
+**The detector probe cannot separate them either, and that is §1.3 a third time:**
+
+```
+strings <plugin>.dll | grep -c AtrousWaveletFast
+   hf_w10/exe  1      hf_w10/exe_v1wav  1      hf_w14/exe  1
+```
+
+`AtrousWaveletFast` is a **type name**, so it is present wherever the type is compiled in — which is everywhere,
+including a build that selects a different implementation at run time. **Wave 13's provenance line cites this
+probe as evidence of `DetectorVersion` 2. The probe hits on every binary this project has produced; the
+`DetectorVersion` FIELD is what carried that claim, and the probe beside it was decoration.**
+
+### §6.2 So what the 81 minutes did buy
+
+**A real invariance result, and it is broader than the one that was asked for.** Two binaries from *different*
+wave-10-era trees, differing in the wavelet build **and in whatever else moved in those three and a half hours**,
+produce **bit-identical landings on all eight runs**. Separately — and deliberately outside RULE W14-D, whose
+scorer refuses the comparison — those sixteen digits are also wave 11's:
+
+> **The eight gate values now reproduce across SEVEN binaries spanning waves 10 through 14**, including two
+> wave-10 builds with different provenance surfaces and the wave-14 build with a changed code default.
+
+**What it does NOT buy is the wavelet answer.** "8 of 8 bit-identical ⇒ the wavelet version does not reach the
+landing" requires that the wavelet version is what differs, and nothing establishes that. The honest reading is
+weaker and still worth having: *no difference between these two binaries, whatever it is, reaches the landing.*
+
+### §6.3 RULE W14-D had a fourth outcome and did not name it
+
+The rule fixed three: 8-of-8 ⇒ ANSWERED, any difference ⇒ ANSWERED-POSITIVE, an arm fails to run ⇒ NOT
+CONSTRUCTIBLE. **The case that occurred is "both arms ran perfectly and the contrast was never verified to be a
+contrast", and the rule has no branch for it** — because it never required a control that the two binaries
+actually differ in the intended variable. That is the same defect as V4 (§3.5) and as F66's three unpassable
+checks, for the third time in one wave: **a comparison whose premise was assumed rather than measured.**
+
+### §6.4 The controller was right about the reason and wrong about the conclusion
+
+The amendment (design §item 5) retracted the pre-registration's *"`exe_v1wav` cannot be pinned"* because the
+probe behind it returns 0 on a binary that accepts the flag. **That retraction was correct and the arm did run,
+pinned, on both binaries — which is now a measured fact instead of an inference.** But the pre-registration's
+*conclusion* — close it, do not spend the time — was right, for a reason neither it nor the controller gave.
+
+> **Refuting an argument is not refuting its conclusion.** The controller checked that the stated reason was
+> false and treated that as licence to spend 81 minutes; the check that would have settled it — *do these two
+> binaries differ in the wavelet, and only there?* — costs one `diff` of two provenance blocks and was never
+> run. **The cheapest control was the one nobody thought to ask for, again.**
+
+*The 81 minutes are not wasted — they produced the invariance result in §6.2, closed a four-wave item by
+measurement, and generated the third instance of the wave's central defect. They are, however, mispriced: this
+was sold as a one-variable bisect and delivered a two-binary agreement test.*
+
+### §6.5 What was fixed in advance, unchanged
 
 What is fixed, and was fixed before any wave-14 data existed (design §item 5, AMENDMENT): two arms × 8 gate
 runs, on `D:\hf_w10\exe` and `D:\hf_w10\exe_v1wav`, both `--settings D:\hf_w11\pinned_settings_w11.json` and
@@ -700,8 +774,9 @@ coincidence in a test asserting equality would have passed and proved nothing.*
 | Stage B — family A, `f = 1.00` | ~11 m | **10 m 53 s** |
 | Stage B — family B, `α = 0.50` | ~11 m | **10 m 55 s** |
 | Stage B — family B, `α = 1.00` | ~11 m | **10 m 53 s** |
-| **RULE W14-D** — F57(d), 8 runs × 2 wave-10 binaries | ~84 m | *(§6, running)* |
+| **RULE W14-D** — F57(d), 8 runs × 2 wave-10 binaries | ~84 m | **81 m 03 s** (23:45:07Z → 01:06:10Z) |
 | **Stage B total** | **~66 m** | **66 m 44 s** wall (22:38:02Z → 23:44:46Z) |
+| **wave total compute** | **~3 h 14 m** | **~3 h 11 m**, against a 6 h ceiling |
 
 > **Six rungs in 66 minutes against a 66-minute estimate.** Wave 13 over-priced its `af-fit` arm by 16× and
 > learned why: the instrument detects each frame **once** and then evaluates four budgets on those points. This
@@ -784,6 +859,21 @@ works *because* it is a type name; the wave-14 pre-registration used the same id
 concluded a binary lacked a flag it has — and the control that would have caught it, running the probe against a
 binary known to accept the flag, took one command. **An item survived four waves of deferral on that inference.**
 *When a probe reports absence, run it against a known positive before you believe it.*
+
+**And the type-name probe is no better.** `grep -c AtrousWaveletFast` returns **1 on all three binaries**,
+including the modern one — a type is compiled in wherever it exists in source. So the probe that the register
+has been citing as evidence of the detector version reports the same answer for every binary the project has
+ever produced. It is what RULE W14-D leaned on to call two wave-10 builds "wavelet variants of one tree", and
+their own landings refute it (§6.1). *A probe that returns the same answer for every input is not evidence,
+whichever direction it points.*
+
+**8. Refuting an argument is not refuting its conclusion.** The pre-registration wanted to skip F57(d) and gave
+a reason that was false. The controller demonstrated it was false and spent **81 minutes** — and the conclusion
+was right all along, on a ground neither party had checked: the two binaries are not one-variable variants, and
+a `diff` of two provenance blocks says so in seconds (§6.4). **The arm was sold as a one-variable bisect and
+delivered a two-binary agreement test.** It still closed a four-wave item by measurement and produced a broader
+invariance result, so it is not wasted — it is *mispriced*, which is a different failure and worth naming as
+one. *Before overturning a decision because its stated reason is wrong, ask what would make the decision right.*
 
 **7. The first arm in thirteen waves that did not mutate the bank.** 42 of 42 landings byte-identical after the
 gate and all six Stage B rungs (§1.2). F15 was fixed in wave 13 with unit tests; this is the first time it was

@@ -3744,6 +3744,16 @@ Wave 13's provenance probe (`grep AtrousWaveletFast`) works **because `AtrousWav
 `--profile-id` is a literal (`DiagnosticUtil.GetArg(args, "--profile-id")`). **Two probes, two heaps, and the
 register has been treating them as one instrument.**
 
+**And the type-name probe does not discriminate either — which is the fourth instance and the one that cost a
+whole arm.** `strings <plugin>.dll | grep -c AtrousWaveletFast` returns **1** on `D:\hf_w10\exe`,
+`D:\hf_w10\exe_v1wav` *and* `D:\hf_w14\exe`. A type is compiled into the assembly wherever it exists in source,
+including a build that selects a different implementation at run time, so **this probe reports "v2" for every
+binary this project has produced.** Wave 13's provenance line cites it beside the `DetectorVersion` FIELD; the
+field carried the claim and the probe was decoration. Wave 14's RULE W14-D then leaned on it to assert that two
+wave-10 binaries were wavelet variants of one tree — and their own landings say otherwise
+([F57](#f57--a---settings-pinned-arm-is-not-pinned-the-active-nina-profile-moves-baselinej-by-0014-and-every-cross-wave-comparison-inherits-it)(d)).
+*A probe that returns the same answer for every input is not evidence, whichever direction it points.*
+
 ### Why it matters
 
 - **It cost an item four waves.** [F57](#f57--a---settings-pinned-arm-is-not-pinned-the-active-nina-profile-moves-baselinej-by-0014-and-every-cross-wave-comparison-inherits-it)(d)'s
@@ -4488,6 +4498,41 @@ Reproduce: `D:\hf_w10\crossbuild_probe.sh`, `D:\hf_w10\crossbuild.log`, `D:\hf_w
 >
 > *The item survived four waves of deferral on unchecked reasons. It was cheaper to run it than to keep arguing
 > about it.*
+
+> ### **(d) CLOSED 2026-08-10 (wave 14): NOT CONSTRUCTIBLE — and for the first time that is a MEASUREMENT.**
+>
+> RULE W14-D ran both arms, pinned, 8 of 8, `UNEVALUATED` 0, in **81 minutes**. The landings are **bit-identical
+> on all eight runs to all sixteen digits**. *And the premise is refuted*: the two binaries are **not**
+> one-variable variants of the same tree.
+>
+> | | `D:\hf_w10\exe` | `D:\hf_w10\exe_v1wav` |
+> |---|---|---|
+> | `BuildId` / `ConcurrencyCheck` / `DetectorVersion` | **all absent** | `6e93a6d5…` / `exclusive` / **2** |
+> | `TestApp.dll` mtime | 2026-08-08 09:03 | 2026-08-08 **12:41** |
+>
+> Those three provenance fields were added by later waves ([F53](#f53--every-build-directory-silently-gets-its-own-detector-settings-and-the-run-instructions-require-a-new-one-per-arm)(a),
+> this entry's (a), F58). **One arm records them and the other does not, so `exe_v1wav` is a LATER tree, and the
+> pair differs by an unknown amount of source.** The arm that was supposed to be *v1* reports
+> `DetectorVersion` **2** — what the modern gate reports. **And the detector probe cannot separate them either**:
+> `strings <plugin> | grep -c AtrousWaveletFast` returns **1 on all three binaries**, because it is a *type
+> name* and the type is compiled in wherever it exists. See [F66](#f66--three-of-wave-14s-checks-could-not-return-their-own-pass-and-the-register-has-been-reading-strings-as-one-instrument-when-it-is-two).
+>
+> **So the bullet above — "the same tree, one variable" — is WRONG, and it was the controller's own correction.**
+> What the 81 minutes bought instead is real and broader: *no difference between these two binaries, whatever it
+> is, reaches the landing*; and those sixteen digits are also wave 11's, so **the eight gate values now reproduce
+> across SEVEN binaries spanning waves 10–14.**
+>
+> **Refuting an argument is not refuting its conclusion.** The pre-registration's *reason* for skipping (d) was
+> false and the controller demonstrated it. Its *conclusion* — do not spend the time — was right, on a ground
+> neither party gave. The check that would have settled it is a `diff` of two provenance blocks and costs
+> seconds; nobody asked for it, in an item that had already consumed four waves of argument.
+>
+> **`D:\hf_w10\exe_v1wav` can now be archived or deleted.** Nothing further is owed to (d): a genuine wavelet
+> bisect would need two builds of ONE tree differing only in the wavelet selection, which is a **new build pair**
+> (~20 m to build, ~84 m to run) and answers a question the seed-level probe already answered exactly. **Do not
+> reopen it without that build pair and a control that the two binaries differ where they are claimed to.**
+> Reproduce: `/mnt/d/hf_w14/w14d_w14.sh`, `/mnt/d/hf_w14/score_w14d.py`, `/mnt/d/hf_w14/w14d_w14.log`,
+> [`docs/synthetic-af-bank-followups-wave14-results.md`](synthetic-af-bank-followups-wave14-results.md) §6.
 
 ### F55 — `optimize` is NOT reproducible when several instances run at once, and the SEED evaluation is what moves
 **Status:** Open · found 2026-08-07 (wave 9) when the confirmation arm's own pre-registered control fired ·
