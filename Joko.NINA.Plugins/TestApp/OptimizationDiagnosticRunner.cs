@@ -494,6 +494,21 @@ namespace TestApp {
             Console.WriteLine(applyRunDetectionBinning
                 ? "detection binning (F39b): each per-run dataset is DETECTED at its own derived binning factor (default; --no-run-detection-binning opts out)"
                 : "--no-run-detection-binning: F39(b) DISABLED — every run detects at factor 1 (the pre-wave-8 status quo)");
+            // F69(c) — say so when the OPT-IN flag is passed. It is still ACCEPTED, and since wave 8 it has been a
+            // no-op: F39(b) is the default and --no-run-detection-binning is the opt-out. Wave 7's scripts pass it
+            // and are right to keep working; what they must not do is read their own command line as evidence that
+            // the mutation happened only because they asked for it. That inference is exactly F69(a) — a comment in
+            // this file asserted it, was believed for three waves, and cost RULE P16 a wrong verdict.
+            //
+            // ASCII ONLY, and this is measured rather than stylistic: a Unicode character here arrives in a
+            // REDIRECTED log as the single byte 0x1A on this machine's console code page. (The em dash on the line
+            // just above is in the --no-run-detection-binning branch, which no wave-20 clause reads; it is left
+            // alone deliberately rather than fixed as a drive-by.)
+            if (DiagnosticUtil.HasFlag(args, "--apply-run-detection-binning")) {
+                Console.WriteLine("--apply-run-detection-binning: ACCEPTED NO-OP. F39(b) was adopted as the DEFAULT "
+                    + "in wave 8; the opt-OUT is --no-run-detection-binning. This flag is retained so wave 7's "
+                    + "scripts keep running, and it is not read (F69(c)).");
+            }
             if (noMinHfrSeed) {
                 Console.WriteLine("--no-min-hfr-seed: F35 MinHFR seeding DISABLED (pre-F35 control arm)");
             }
@@ -658,6 +673,19 @@ namespace TestApp {
                         runFolder, ctx.HarnessSettings, loaded.FirstFrameMeta,
                         HarnessSettingsStore.ReadInFocusHfr(runFolder));
                     ApplyRunDetectionBinningIfRequested(ctx, runFolder, resolvedForRun);
+                    // F69(b) — the bundle AS DETECTED, printed HERE because this is the first point at which it IS
+                    // the detecting bundle. The two dumps where the bundles are CONSTRUCTED are already past: the
+                    // per-run PixelScale assignment above and ApplyRunDetectionBinningIfRequested (F39(b), ON BY
+                    // DEFAULT) have both rewritten this object since. Wave 16's RULE P16 read the construction-site
+                    // copy, believed a comment that said the mutation only happened under an opt-in flag, and
+                    // excluded the one field that turned out to be the cause. Same shared reflective formatter as
+                    // the other two blocks, same sink (the console, never a summary file — clause W1), so the three
+                    // are field-for-field diffable and a field added by a later wave appears in all three.
+                    //
+                    // BASELINE and not seed, deliberately: optimize/baseline is the apples-to-apples side and the
+                    // only one the wave-16 scorer reads. ApplyFactor mutates BOTH bundles identically, so a later
+                    // wave that wants the seed's post-mutation copy loses nothing by it not being here today.
+                    ParamsDump.Write(Console.WriteLine, ParamsDump.OptimizeDetected, ctx.Baseline);
                     Directory.CreateDirectory(subDir);
                     var outcome = await OptimizeRunSetAsync(ctx, runsDir, subDir, loadedRuns).ConfigureAwait(false);
                     if (!outcome.HardFloorPassed) {

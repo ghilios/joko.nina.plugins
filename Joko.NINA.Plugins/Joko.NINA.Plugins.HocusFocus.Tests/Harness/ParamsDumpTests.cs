@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.Utility;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
@@ -113,14 +114,139 @@ public class ParamsDumpTests {
     }
 
     [Test]
-    public void TheSourceTags_AreTheThreePreRegisteredStrings() {
-        // MUTANT: rename a source ("affit/detector", "optimize-baseline", ...). The scorer looks the source up by
-        // exact key — `collect(af_paths, "af-fit/detector")` — so a renamed tag is not a differently-named block,
-        // it is NO block, on every log in the population.
+    public void TheSourceTags_AreTheFourPreRegisteredStrings() {
+        // MUTANT M-T1: rename a source ("affit/detector", "optimize-baseline", "optimize/baseline-resolved", ...).
+        // The scorer looks the source up by exact key — `collect(af_paths, "af-fit/detector")`, and wave 20's
+        // `one_block(blocks, "optimize/detected")` — so a renamed tag is not a differently-named block, it is NO
+        // block, on every log in the population. That is COULD-NOT-LOOK, which wave 19 has just demonstrated is
+        // indistinguishable from "the code never shipped" unless something asserts the string itself.
         Assert.Multiple(() => {
             Assert.That(ParamsDump.AfFitDetector, Is.EqualTo("af-fit/detector"));
             Assert.That(ParamsDump.OptimizeBaseline, Is.EqualTo("optimize/baseline"));
             Assert.That(ParamsDump.OptimizeSeed, Is.EqualTo("optimize/seed"));
+            Assert.That(ParamsDump.OptimizeDetected, Is.EqualTo("optimize/detected"));
+            Assert.That(ParamsDump.AllSources, Is.EqualTo(new[] {
+                "af-fit/detector", "optimize/baseline", "optimize/seed", "optimize/detected"
+            }));
+        });
+    }
+
+    [Test]
+    public void NoSourceTag_ContainsAnyOther_BecauseEveryScorerCountsThemBySubstring() {
+        // MUTANT M-T2: name the new tag "optimize/baseline-resolved" or "optimize/seed-detected". Nothing about the
+        // dump itself would break — and clause G20-P2e would fail on all eight logs, because every driver this
+        // project has saved counts a block with `grep -c "PARAMS-DUMP optimize/baseline BEGIN"`. A tag that
+        // CONTAINS another tag double-counts it; a tag CONTAINED BY another is double-counted by it. Both
+        // directions are checked, on every ordered pair, over ParamsDump.AllSources rather than over a list this
+        // test would have to remember to extend.
+        //
+        // This is not a hypothetical: G20-P2e's threshold is "optimize/baseline and optimize/seed still appear
+        // EXACTLY once per log", and its stated suspect on a failure is this tag.
+        var tags = ParamsDump.AllSources;
+        Assert.That(tags.Distinct(StringComparer.Ordinal).Count(), Is.EqualTo(tags.Count), "two tags are equal");
+        Assert.Multiple(() => {
+            foreach (var a in tags) {
+                foreach (var b in tags) {
+                    if (ReferenceEquals(a, b) || string.Equals(a, b, StringComparison.Ordinal)) {
+                        continue;
+                    }
+                    Assert.That(a.Contains(b, StringComparison.Ordinal), Is.False,
+                        $"source tag '{a}' contains '{b}' — a saved `grep -c` for '{b}' would double-count it");
+                }
+            }
+        });
+        // The one that reads as a near-miss and is not: "detector" is not a substring of "detected".
+        Assert.That(ParamsDump.OptimizeDetected.Contains("detector", StringComparison.Ordinal), Is.False);
+    }
+
+    [Test]
+    public void TheDetectedBlock_HasTheSameFieldSurfaceAsTheBaselineBlock_ThroughTheOneSharedFormatter() {
+        // MUTANT M-T3: give the new block a printer of its own, or filter the reflection for it (drop one property
+        // from Lines). Clause G20-P2b's threshold is "55 field lines and 55 UNIQUE names" and clause D20-D is a SET
+        // EQUALITY over the two blocks' field names — a block with a different surface makes D20-D's difference set
+        // include every field only one side prints, so the wave would read a printer discrepancy as a detector one.
+        // Asserted BOTH ways: identical to the baseline block line-for-line, AND equal in count to the reflected
+        // property set, so a filter applied to Lines (which would shrink both blocks equally) is still red.
+        var p = new StarDetectorParams();
+        var detected = ParamsDump.Lines(ParamsDump.OptimizeDetected, p);
+        var baseline = ParamsDump.Lines(ParamsDump.OptimizeBaseline, p);
+
+        Assert.Multiple(() => {
+            Assert.That(detected.First(), Is.EqualTo("PARAMS-DUMP optimize/detected BEGIN"));
+            Assert.That(detected.Last(), Is.EqualTo("PARAMS-DUMP optimize/detected END"));
+            Assert.That(detected.Skip(1).SkipLast(1), Is.EqualTo(baseline.Skip(1).SkipLast(1)),
+                "the two blocks must differ ONLY in their markers when the bundle is the same object");
+            Assert.That(detected.Count - 2, Is.EqualTo(ReflectedPropertyNames(p).Length),
+                "the detected block must carry every reflected property, not a curated subset");
+            var names = detected.Skip(1).SkipLast(1).Select(l => l.Trim().Split('=')[0]).ToList();
+            Assert.That(names.Distinct(StringComparer.Ordinal).Count(), Is.EqualTo(names.Count),
+                "G20-P2b counts UNIQUE names as well as lines");
+        });
+    }
+
+    [Test]
+    public void TheDetectedBlock_IsPrintableAsciiAndInvariant_UnderACommaDecimalCulture() {
+        // MUTANT: drop Ascii(), or format with the ambient culture. Demonstrated HERE for the new tag and not only
+        // for af-fit/detector, because this is the block whose PixelScale clause G20-P2c reads as a NUMBER and
+        // whose "NaN" clause reads as a TOKEN: under de-DE the detected block would print "1,4101", which parses as
+        // neither, and the scorer would report COULD-NOT-LOOK on all eight gate logs at once.
+        var previous = System.Threading.Thread.CurrentThread.CurrentCulture;
+        try {
+            System.Threading.Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
+            var p = new StarDetectorParams {
+                PixelScale = 1.4101,
+                DetectionBinning = 2,
+                SaveIntermediateFilesPath = "C:\\caf\u00e9\\\u2192"
+            };
+            var text = ParamsDump.Format(ParamsDump.OptimizeDetected, p);
+            var payload = string.Concat(text.Split(Environment.NewLine));
+            var emitted = ParseAsTheScorerWould(text, ParamsDump.OptimizeDetected);
+
+            Assert.Multiple(() => {
+                Assert.That(payload.All(c => c >= ' ' && c <= '~'), Is.True,
+                    "a non-ASCII or control character reached the detected block");
+                Assert.That(emitted["PixelScale"], Is.EqualTo("1.4101"));
+                Assert.That(emitted["DetectionBinning"], Is.EqualTo("2"));
+                Assert.That(emitted["Region"], Does.Contain("StartX=0, StartY=0, Height=1, Width=1"));
+            });
+        } finally {
+            System.Threading.Thread.CurrentThread.CurrentCulture = previous;
+        }
+    }
+
+    [Test]
+    public void ADetectedBlock_TakenAfterApplyFactor_DiffersFromTheBaselineOnExactlyDetectionBinningAndPixelScale() {
+        // This is clause D20-D's bar, asserted as a unit test, so `score_d20_w20.py` and the product agree about
+        // WHICH fields ApplyFactor touches. The scorer's expectation is a SET EQUALITY fixed before the data:
+        // {DetectionBinning, PixelScale} on a factor-2 run and {PixelScale} alone on the factor-1 gate. If
+        // ApplyFactor ever grew a third field, the scorer would report D-PRESENT-ONLY and name a product change as
+        // an instrument failure.
+        //
+        // MUTANT M-T4: make ApplyFactor write DetectionBinning without rescaling PixelScale. Red here, and in the
+        // arm it would leave every pixel-scale-dependent gate evaluated at half the scale the detector analyses at.
+        // MUTANT M-T4': make ApplyFactor also stamp, say, MinHFR. Red here; in the arm it is D20-D's "unexpected"
+        // set, which is exactly what F71's one-field control failed to notice.
+        var p = new StarDetectorParams { PixelScale = 0.31482, DetectionBinning = 1 };
+        var before = ParseAsTheScorerWould(
+            ParamsDump.Format(ParamsDump.OptimizeBaseline, p), ParamsDump.OptimizeBaseline);
+        DetectionBinningResolver.ApplyFactor(p, 2);
+        var after = ParseAsTheScorerWould(
+            ParamsDump.Format(ParamsDump.OptimizeDetected, p), ParamsDump.OptimizeDetected);
+
+        // `diff_set` in score_d20_w20.py, transcribed: the union of both key sets, kept where the values differ.
+        var moved = before.Keys.Union(after.Keys, StringComparer.Ordinal)
+            .Where(k => !string.Equals(
+                before.TryGetValue(k, out var b) ? b : null,
+                after.TryGetValue(k, out var a) ? a : null,
+                StringComparison.Ordinal))
+            .OrderBy(k => k, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Multiple(() => {
+            Assert.That(moved, Is.EqualTo(new[] { "DetectionBinning", "PixelScale" }),
+                "D20-D expects EXACTLY these two to move; an extra name here is a FAIL in the arm, not a note");
+            Assert.That(after["DetectionBinning"], Is.EqualTo("2"));
+            Assert.That(after["PixelScale"], Is.EqualTo("0.62964"));
         });
     }
 
@@ -390,6 +516,117 @@ public class ParamsDumpTests {
                 Assert.That(call.Groups[1].Value, Is.EqualTo("Console.WriteLine"),
                     "the af-fit dump must go to the console; Emit would put it in af_fit_summary.txt");
             }
+        });
+    }
+
+    // ---- F69(b): the third block, and the only property that makes it worth printing ------------------------------
+
+    //   score_d20_w20.py: RX_NOOP = re.compile(r"--apply-run-detection-binning: ACCEPTED NO-OP")
+    private static readonly Regex ScorerNoOpNotice = new Regex(@"--apply-run-detection-binning: ACCEPTED NO-OP");
+
+    /// <summary>The ONE invocation of the F39(b) mutation. The declaration wraps its parameter list, so this
+    /// pattern cannot match it — which is what lets the test count call sites.</summary>
+    private static readonly Regex BinningMutationCall =
+        new Regex(@"(?<![\w.])ApplyRunDetectionBinningIfRequested\(ctx,");
+
+    private static readonly Regex DetectedDump =
+        new Regex(@"ParamsDump\.Write\(\s*Console\.WriteLine\s*,\s*ParamsDump\.OptimizeDetected\s*,\s*ctx\.Baseline\s*\)");
+
+    [Test]
+    public void Optimize_DumpsTheDetectedBundle_AFTER_TheBinningMutation_AndExactlyOnce() {
+        // THE test for item D1. MUTANT M-T5 — move the ParamsDump.Write above ApplyRunDetectionBinningIfRequested
+        // (or above the per-run PixelScale assignment): the block still appears on 8 of 8 gate logs, G20-P2a and
+        // G20-P2b still pass, and the dump is a byte-for-byte copy of optimize/baseline. That is self-test #3 of
+        // score_d20_w20.py, the wrong-site mutant, and F69's own words for it are "a dump identical to the one
+        // above it is a dump that has not been demonstrated". Nothing else in this project would catch it: the
+        // difference only shows on a dataset whose resolved factor is not 1, and there are none on the gate.
+        //
+        // MUTANT M-T5' — dump ctx.Seed instead of ctx.Baseline: D20-D and D20-E compare against optimize/baseline,
+        // so the difference set would pick up every field on which the search's seed differs from the user's
+        // settings, and the wave would read a bundle mix-up as a mutation.
+        //
+        // "Exactly once" is clause G20-P2a's threshold and not a tidiness preference: a second call site is a block
+        // emitted twice per log, `one_block` raises, and a saved `grep -l` reads it as success.
+        var optimize = RunnerSource("OptimizationDiagnosticRunner.cs");
+        var dump = DetectedDump.Matches(optimize);
+        var mutation = BinningMutationCall.Matches(optimize);
+
+        Assert.Multiple(() => {
+            Assert.That(dump.Count, Is.EqualTo(1),
+                "the detected bundle must be dumped from exactly one call site (G20-P2a is '== 1', not '>= 1')");
+            // The design's source finding, asserted rather than recounted by hand: ONE call site, inside RunPerRun.
+            // The joint path never calls it, so the joint path carries no optimize/detected block — which is why
+            // this test pins the count instead of merely pinning the order.
+            Assert.That(mutation.Count, Is.EqualTo(1),
+                "ApplyRunDetectionBinningIfRequested must have exactly one call site");
+            Assert.That(dump[0].Index, Is.GreaterThan(mutation[0].Index),
+                "the detected dump must be taken AFTER the binning mutation, or it is optimize/baseline twice");
+            Assert.That(optimize.IndexOf("ParamsDump.Write(Console.WriteLine, ParamsDump.OptimizeBaseline", StringComparison.Ordinal),
+                Is.LessThan(mutation[0].Index),
+                "optimize/baseline must stay at the CONSTRUCTION site; it is the pre-mutation side of D20-D");
+        });
+    }
+
+    [Test]
+    public void OptimizesThreeParamsDumps_AllGoToTheConsole_AndNoneIntoASummaryFile() {
+        // MUTANT M-T6: send the new dump through a summary sink (the runner builds aggregate_summary.txt and
+        // optimize_summary.txt from StringBuilders). The block would then be absent from the LOG, which is the only
+        // artifact clause G20-P2 reads — an arm that produced the data and no way to see it. Wave 16's clause W1 is
+        // the same lesson from the af-fit side, where a summary file was under BYTE comparison.
+        var optimize = RunnerSource("OptimizationDiagnosticRunner.cs");
+        var calls = Regex.Matches(optimize, @"ParamsDump\.Write\(\s*([A-Za-z0-9_.]+)\s*,\s*ParamsDump\.([A-Za-z]+)\s*,");
+
+        Assert.That(calls.Count, Is.EqualTo(3), "optimize dumps exactly three bundles: baseline, seed, detected");
+        Assert.Multiple(() => {
+            foreach (Match call in calls) {
+                Assert.That(call.Groups[1].Value, Is.EqualTo("Console.WriteLine"),
+                    $"the {call.Groups[2].Value} dump must go to the console, never into a summary file");
+            }
+            Assert.That(calls.Select(c => c.Groups[2].Value),
+                Is.EquivalentTo(new[] { "OptimizeBaseline", "OptimizeSeed", "OptimizeDetected" }));
+        });
+    }
+
+    [Test]
+    public void TheF69cNotice_IsEmittedOnlyBehindTheFlagGuard_AndInTheShapeTheScorerParses() {
+        // Item D2. The notice says the OPT-IN flag is an accepted no-op and that F39(b) has been the DEFAULT since
+        // wave 8. Clause D20-C requires it EXACTLY ONCE in the probe log — the probe is the only arm that passes
+        // the flag — and requires the text to name both the flag and the default.
+        //
+        // NOTE ON WHAT "EXACTLY ONCE" IS KEYED ON, because it is easy to misread: the notice is keyed on the FLAG
+        // BEING PASSED, not on the resolved factor being != 1. The resolved factor and the rescaled PixelScale are
+        // reported by the pre-existing per-run F39(b) line, which is what clauses D20-V1 and D20-B parse. The gate
+        // passes no flag, so the notice is absent from all eight gate logs — which is the "not at all" direction.
+        //
+        // MUTANT M-T7: drop the `if` guard. The line then appears on every arm this project runs, D20-C still
+        // passes on the probe, and the claim the notice exists to make — "this flag changed nothing" — is printed
+        // on runs where the flag was never passed. MUTANT M-T7': reword the prefix; RX_NOOP stops matching and
+        // D20-C fails as a FAIL rather than a could-not-look, because the flag WAS passed and the probe DID run.
+        var optimize = RunnerSource("OptimizationDiagnosticRunner.cs");
+        var guarded = Regex.Match(
+            optimize,
+            @"if \(DiagnosticUtil\.HasFlag\(args, ""--apply-run-detection-binning""\)\) \{\s*"
+            + @"Console\.WriteLine\((?<arg>.*?)\);\s*\}",
+            RegexOptions.Singleline);
+        Assert.That(guarded.Success, Is.True,
+            "the F69(c) notice must sit behind a HasFlag(--apply-run-detection-binning) guard");
+
+        var notice = string.Concat(Regex.Matches(guarded.Groups["arg"].Value, "\"([^\"]*)\"")
+            .Select(m => m.Groups[1].Value));
+
+        Assert.Multiple(() => {
+            Assert.That(ScorerNoOpNotice.IsMatch(notice), Is.True,
+                "score_d20_w20.py's RX_NOOP does not match the emitted notice");
+            Assert.That(notice, Does.Contain("--apply-run-detection-binning"));
+            Assert.That(notice, Does.Contain("--no-run-detection-binning"));
+            Assert.That(notice, Does.Contain("adopted as the DEFAULT"));
+            Assert.That(notice, Does.Contain("F69(c)"));
+            Assert.That(notice.All(c => c >= ' ' && c <= '~'), Is.True,
+                "ASCII only: a Unicode character reaches a redirected log as the single byte 0x1A on this machine");
+            Assert.That(ScorerNoOpNotice.Matches(optimize).Count, Is.EqualTo(1),
+                "the notice must be emitted from one place, or D20-C's 'exactly once' counts a source duplicate");
+            Assert.That(ScorerNoOpNotice.Match(optimize).Index, Is.InRange(guarded.Index, guarded.Index + guarded.Length),
+                "the only occurrence must be the guarded one");
         });
     }
 }

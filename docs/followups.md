@@ -3845,6 +3845,68 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
+### F74 — A driver and its scorer each rebuilt the artifact path from a template, disagreed, and cost a pre-registered rule its verdict — while the interlock marker between them already carried the answer
+
+**Status:** Open · found 2026-08-11 (wave 20) when **RULE D20 returned `D-UNEVALUATED` on a probe that ran
+successfully and measured exactly what it was built to measure** · **the fix is ~5 lines on each side; the
+measurement it lost costs ~3 minutes to redo**
+
+Wave 20's detected-probe ran, `TestApp.exe` exited 0 in 16 s, and the log it produced contains the wave's whole
+result. The rule scored **nothing**, because three path assumptions were written independently and none of them
+matched what the driver actually did:
+
+| # | the driver did | the reader expected | consequence |
+|---|---|---|---|
+| 1 | console → **`<probe>/probe.log`** (`detected_probe_w20.sh:100`) | **`<probe>/<DS>/run.log`** (same driver, `:104`; and `score_d20_w20.py:281`) | the driver aborted **its own** post-check and **never wrote `D20_PROBE_READY`** |
+| 2 | `--out "D:\hf_w20\dprobe"`, **without** the per-dataset component the sibling gate driver passes (`gate_w20.sh:207`: `--out "${OUT}\\${r}"`) | a per-dataset subdirectory | outputs landed flat: `dprobe/attempt01/`, `dprobe/aggregate_summary.json` |
+| 3 | — | `find "$OUT" -mindepth 2 -name aggregate_summary.json`, and `<probe>/<DS>/attempt01/optimized_settings.json` for clause `D20-V2` | both miss at depth 1, so **patching (1) alone would still not have produced a verdict** |
+
+**The interlock behaved perfectly and that is the point.** The driver refused to certify a log it could not
+find; the scorer refused to score without the certificate; the controller copied the log to the expected path
+(byte-identical, sha256 `c61ef1ec…`) and the scorer **still** refused, correctly, because the marker is the
+driver's to write. **No marker was hand-written.** The machinery did its job on a wave that had 3 h 52 m of
+slack, a working binary and a correct measurement sitting in a file.
+
+**Why it is a register entry and not a wave-20 Lessons line.**
+
+- **It is the fourth instance in one run** — after `exeB1`/`exe_b1`, a mis-named fingerprint file, and a progress
+  counter with no could-not-look state. One is an incident; four is a class, and classes belong where the next
+  wave's author reads them.
+- **It cost a pre-registered rule its verdict** — the same cost
+  [F69](#f69--f39bs-flag-names-and-its-own-comment-state-the-opposite-of-its-default-and-that-cost-a-pre-registered-rule-its-verdict)(a)
+  is in the register for. A wrong path and a wrong comment are the same failure with different syntax.
+- **The wrong path is not even the wave's own convention.** `<root>/<dataset>/run.log` is **wave 19's** arm
+  layout (`redo_w19.sh:157`). Wave 20's gate writes `<gate>/<name>.log` beside a `<gate>/<name>/` output root;
+  wave 20's probe writes `<probe>/probe.log` beside a flat one. **Three layouts across two waves, and the scorer
+  was written against the one that appears in neither of this wave's drivers.**
+- **The fallback inherited the drift.** `score_d20_w20.py:301-305` already carries an `os.walk` fallback for
+  exactly this hazard — rooted at `<probe>/<DS>`, the directory that does not exist. *A fallback rooted at the
+  same wrong parent as the primary path is not a second chance.*
+
+### Next step
+
+(a) **Make the scorer read the path the driver printed. ~5 lines each side, and it is the durable fix.** The
+marker was *already specified* to carry it — wave 20's design §8 gives `D20_PROBE_READY`'s contents as *"the
+resolved factor and the probe log path"*, and the driver does write `log=$LOG` into it. **The scorer never
+opens the marker; it checks existence and rebuilds the path from a template.** Parse `log=` (and add
+`landing=`) out of the marker, so the marker's existence and the marker's contents are one handoff instead of a
+boolean plus a coincidence. *An interlock that transmits one bit where it could transmit the path is a
+handshake with the payload thrown away.*
+
+(b) **Weaker, worth doing anyway: make sibling drivers in the same wave lay out identically** — the probe's
+`--out` and log naming should be the gate's. This re-establishes agreement **by convention**, which is what
+just failed; (a) establishes it **by construction**.
+
+(c) **~3 minutes to recover RULE D20's verdict** — the probe is 16 s of `TestApp` plus the path fix. It must be
+re-run and re-scored by the instrument; **the diagnostic must not be promoted to a verdict by hand.**
+See also [F68](#f68--a-threshold-stated-as-a-count-carries-a-denominator-and-three-consecutive-satisfiability-analyses-have-checked-the-value-a-clause-can-reach-without-checking-the-population-it-is-computed-over):
+a satisfiability analysis that verifies a clause's *values* while never verifying that its *population is
+addressable* has checked the easier half.
+
+Reproduce: `sed -n '100p;104p' /mnt/d/hf_w20/detected_probe_w20.sh`; `sed -n '281p;300p;301,305p'
+/mnt/d/hf_w20/score_d20_w20.py`; `sed -n '207p' /mnt/d/hf_w20/gate_w20.sh`;
+`docs/synthetic-af-bank-followups-wave20-results.md` §3 and §4.
+
 ### F73 — The gate has certified nine binaries by checking ONE of a landing's 35 fields, and the other 33 had never been looked at — they are identical, 660 of 660
 
 **Status:** **MEASURED 2026-08-11 (wave 19, RULE R19 = `R-DETERMINISTIC`)** · the error term every cross-wave
@@ -3995,8 +4057,14 @@ snapshot's; all eight of `mutant`'s are the base's.** Seven fields would have co
 > \|D\| = 0, \|D\| = 1, missing dump, missing snapshot, mismatched snapshots, unaliased field named), converter
 > **11 of 11**.
 >
-> **Still owed: the live direction, `C19-D2`, ~1 minute.** Wave 19 never ran `probe_w19.sh`, so the scorer's own
-> interlock refused to write `C19_PROBE_PASSED` and downgraded to `C-UNEVALUATED`. *Why the bar is \|D\| ≥ 3 and
+> ~~**Still owed: the live direction, `C19-D2`, ~1 minute.** Wave 19 never ran `probe_w19.sh`, so the scorer's
+> own interlock refused to write `C19_PROBE_PASSED` and downgraded to `C-UNEVALUATED`.~~ **FALSE — corrected
+> 2026-08-11 (wave 20); see the block at the top of this entry.** `probe_w19.sh` *was* run, `C19_PROBE_PASSED`
+> exists (572 bytes, `C-DEMONSTRATED`, `05:43:28Z`), and nothing is owed. *Struck rather than deleted, and
+> struck at the sentence rather than at the entry's head, because
+> [F69](#f69--f39bs-flag-names-and-its-own-comment-state-the-opposite-of-its-default-and-that-cost-a-pre-registered-rule-its-verdict)(a)
+> is the standing demonstration of what a correction filed only at the top of an entry leaves behind.*
+> *Why the bar is \|D\| ≥ 3 and
 > not "one field matched": a two-directional demonstration proves the branches are DISTINGUISHABLE, not that they
 > are CORRECTLY ASSIGNED — both directions are scored by the same definition, so a definition error moving both
 > verdicts the same way reads as a clean PASS. Wave 18's was caught only because the labels came out swapped.*
@@ -4245,11 +4313,31 @@ Reproduce: `python3 /mnt/d/hf_w17/score_d17_w17.py --gate /mnt/d/hf_w17/gate --w
 > own defect, in the manual instead of a settings file.* **Both lines must change; wave 18's saved
 > `part2_w18.patch` touches only the table row and is not a template for the documentation half.**
 
+> ### WAVE 20 (2026-08-11): **the manual is FIXED, at BOTH sites** — `2678ecd`, committed before the build
+>
+> `documentation/docs/settings/preprocessing.md:23` (the settings-at-a-glance row) **and** `:41` (the prose
+> `**Default:**`) both now read **4**, and the prose carries a new sentence saying **the default is *derived, not
+> a literal***: the Simple-mode preset sets a base of `3` and adds `1` when hot-pixel filtering is on, which it
+> is by default, so every settings object a user can construct starts at 4 — and the `3` a reader will find by
+> grepping the source is the pre-compensation base, not what the detector receives. **Wave 18's
+> `part2_w18.patch` was explicitly not used as a template**, because it fixes the row and leaves the prose: *a
+> half-corrected manual is worse than an uncorrected one, because the two halves then disagree with each other.*
+>
+> **Arm-level corroboration on an eleventh binary:** `optimize/baseline.NoiseReductionRadius == 4` on **8 of 8**
+> wave-20 gate logs and on the probe log, with `optimize/seed == 3` beside it (clause `G20-P1`) — the two
+> quantities that share the name, printed in the same log, in two separately-tagged blocks.
+>
+> **This closes the documentation half only.** (a) the seed literal, (b′) the 20 preset-owned dead literals, and
+> the out-of-sample pass over wave 18's two arms are **unchanged and still owed**;
+> `/mnt/d/hf_w18/seedA0` and `seedA1` were fingerprinted and proven byte-identical (48 of 48) by a wave that read
+> neither.
+
 ### F69 — F39(b)'s flag NAMES and its own COMMENT state the opposite of its default, and that cost a pre-registered rule its verdict
 **Status:** Open · found 2026-08-10 (wave 17) while deciding
 [F67](#f67--af-fits-star-count-and-optimizes-are-not-the-same-number-so-the-control-built-on-their-equality-reports-could-not-look-on-exactly-the-datasets-where-the-intervention-bites-hardest)(c)
-· **the behaviour is correct and deliberate; only its self-description is wrong, and the self-description is what
-everyone read**
+· **(b) and (c) SHIPPED in wave 20 — see the wave-20 block at the end of this entry. (a) is STILL FALSE IN THE
+TREE at a SECOND address, `OptimizationDiagnosticRunner.cs:593`** · **the behaviour is correct and deliberate;
+only its self-description is wrong, and the self-description is what everyone read**
 
 [F39](#f39--the-harness-records-a-detection-binning-the-run-never-applied-and-7-datasets-have-never-run-at-theirs)(b)
 was adopted as the **default** in wave 8. Wave 7's opt-in flag was kept working as a no-op, which was the right
@@ -4327,6 +4415,66 @@ by default — **~10 m**, and it converts a silent misnomer into a loud one.
 Reproduce: `OptimizationDiagnosticRunner.cs:205-216` against `:405-409` and `:570-586`; the artifact line that
 said so all along is `/mnt/d/hf_w16/probe/D12_c14_585_afbin2.log:135`;
 `docs/synthetic-af-bank-followups-wave17-results.md` §3.1.
+
+> ### WAVE 20 (2026-08-11): **(b) and (c) SHIPPED and are measured on an eleventh binary. (a) is STILL FALSE, at an address this entry never named.**
+>
+> **(b) — the `optimize/detected` dump is in the product and in the logs.**
+> `ParamsDump.OptimizeDetected = "optimize/detected"` (the tag this entry fixed in advance, chosen because it
+> contains no existing tag as a substring), plus `ParamsDump.AllSources` so the non-collision property is
+> asserted over the **set** rather than a list a later wave must remember to extend, plus a third
+> `ParamsDump.Write` at `OptimizationDiagnosticRunner.cs:688` — **immediately after**
+> `ApplyRunDetectionBinningIfRequested` (`:675`), inside `RunPerRun`.
+>
+> | measurement | value |
+> |---|---|
+> | clause **`G20-P2`**, wave 20's gate | **PASS, 8 of 8 on all five sub-clauses**: block exactly once; 55 field lines / 55 unique names; `detected.PixelScale` finite while `baseline.PixelScale` is the token `NaN`; `detected.DetectionBinning == 1` (an equality — the gate's eight datasets all resolve factor 1, so a "differs" clause there would be unsatisfiable, [F68](#f68--a-threshold-stated-as-a-count-carries-a-denominator-and-three-consecutive-satisfiability-analyses-have-checked-the-value-a-clause-can-reach-without-checking-the-population-it-is-computed-over)); `optimize/baseline` and `optimize/seed` still exactly once each |
+> | the **same scorer** on wave 19's gate logs | **`G20-P2a` 0 of 8** — *"F69(b) IS NOT IN THIS BINARY"*. **The FAIL end is observed on real artifacts, in the same minute as the PASS end.** This is the shape wave 19's claim lacked: its ten thresholded clauses read identically with item D present or absent |
+> | inertness | `G20-1` reproduces the eight-value coordinate system **bit-identically at sixteen digits** with the dump present, so its inertness is a **measurement, not an assumption** |
+> | the post-mutation property, on a factor-2 run | **`optimize/baseline` `DetectionBinning=1 PixelScale=NaN` → `optimize/detected` `DetectionBinning=2 PixelScale=0.6296504611753467`**, difference set over all 55 fields **exactly `{DetectionBinning, PixelScale}`**; on the 8 factor-1 gate logs the same set is **exactly `{PixelScale}`, 8 of 8** |
+>
+> **That last row is a DIAGNOSTIC, not a clause result.** RULE D20 returned **`D-UNEVALUATED`** naming `D20-V1`,
+> because the probe driver and its scorer disagreed on where the log lives
+> ([F74](#f74--a-driver-and-its-scorer-each-rebuilt-the-artifact-path-from-a-template-disagreed-and-cost-a-pre-registered-rule-its-verdict--while-the-interlock-marker-between-them-already-carried-the-answer)).
+> The instrument P16 lacked now exists and prints; **the rule that would certify it has not issued**, and
+> recovering it costs ~3 minutes. Until then this entry claims *the dump is shipped, reached and inert* — all
+> gate-measured — and **not** *the dump is demonstrably post-mutation*.
+>
+> **(c) — the no-op notice ships.** Behind the flag guard: *"`--apply-run-detection-binning`: ACCEPTED NO-OP.
+> F39(b) was adopted as the DEFAULT in wave 8; the opt-OUT is `--no-run-detection-binning`. This flag is
+> retained so wave 7's scripts keep running, and it is not read (F69(c))."* Measured in **both** directions:
+> once on the probe log (flag passed), **zero times on all 8 gate logs** (flag absent). ASCII-only, deliberately
+> — a Unicode character in a *redirected* log arrives as the single byte `0x1A` on this machine's console code
+> page. The misnomer is now loud instead of silent, which is this entry's option (c) as written.
+>
+> **(a) IS STILL OWED, and the interesting part is where.** This entry said *"fix the `:405-409` comment — it is
+> four lines and it is the piece that did the damage"*, and that site **was** fixed in wave 18 (`93e366a`);
+> `:410-419` now carries an explicit *"THIS PARAGRAPH USED TO SAY THE OPPOSITE, AND WAS BELIEVED"*. **The same
+> false sentence exists a second time**, as the XML doc on the method itself, `:591-594`, where it has sat since
+> `9cd4c02` (the commit that introduced F39(b)):
+>
+> ```csharp
+> /// No-op unless <c>--apply-run-detection-binning</c> was passed, so the flag's
+> /// absence leaves the run bit-identical to before it existed (F41's one-binary-is-both-arms rule).
+> ```
+>
+> It is backwards in exactly the way that cost RULE P16 its verdict, and it now sits **three lines above a body
+> that prints the opposite at runtime**. It was outside wave 20's pre-registration and was therefore not
+> touched. **Fix, ~2 minutes, no behaviour change, no gate:** *"Runs by DEFAULT (F39(b), wave 8); the opt-OUT is
+> `--no-run-detection-binning`. `--apply-run-detection-binning` is an accepted no-op, retained for wave 7's
+> scripts (F69(c))."*
+>
+> > **The generalisable half, and it is
+> > [F71](#f71--a-converted-settings-file-carries-every-detector-knob-twice-and-the-control-that-checked-the-conversion-read-the-copy-the-loader-ignores)'s
+> > lesson wearing documentation's clothes.** This entry named a **line range**. The defect was a **sentence**,
+> > and it existed in two copies. Fixing the cited copy made the entry look discharged while the other copy went
+> > on being true-looking and false for two more waves. *When a register entry names where a false statement
+> > lives, the next step must be `grep` for the statement, not an edit at the address.*
+>
+> Also shipped alongside, and pinned by a test: **`ApplyRunDetectionBinningIfRequested` has exactly ONE call
+> site** (`:675`, in `RunPerRun`), so the joint (non-`--per-run`) path never calls it and correctly carries no
+> `optimize/detected` block. `ParamsDumpTests` asserts the call-site count is 1, so a later wave that adds a
+> second site is told rather than left to read a missing block as a regression. **7 new tests, suite 3831 → 3838,
+> verified by COUNT before the build.**
 
 ### F68 — A threshold stated as a COUNT carries a denominator, and three consecutive satisfiability analyses have checked the VALUE a clause can reach without checking the POPULATION it is computed over
 **Status:** Open (a standing discipline entry) · found 2026-08-10 (wave 16) when a clause returned **100 % of the

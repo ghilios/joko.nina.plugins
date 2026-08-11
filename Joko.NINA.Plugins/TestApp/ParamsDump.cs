@@ -80,6 +80,38 @@ namespace TestApp {
         /// </summary>
         internal const string OptimizeSeed = "optimize/seed";
 
+        /// <summary>
+        /// <c>optimize</c>'s bundle AS DETECTED — the baseline AFTER the per-run <c>PixelScale</c> assignment and
+        /// AFTER <c>ApplyRunDetectionBinningIfRequested</c>, so the printed object is the one the detector actually
+        /// received (F69(b)).
+        ///
+        /// <para><b>Why a third block exists at all.</b> <see cref="OptimizeBaseline"/> and
+        /// <see cref="OptimizeSeed"/> are printed where the bundles are CONSTRUCTED. Two fields are re-derived per
+        /// run afterwards — <c>PixelScale</c> from the run's own frame headers, and <c>DetectionBinning</c> +
+        /// <c>PixelScale</c> together through <c>DetectionBinningResolver.ApplyFactor</c>, which F39(b) runs BY
+        /// DEFAULT. Wave 16's RULE P16 compared <c>optimize</c>'s params as CONSTRUCTED against <c>af-fit</c>'s as
+        /// DETECTED, excluded <c>DetectionBinning</c> as a candidate on the strength of a comment that was
+        /// backwards (F69(a)), and reached a wrong verdict; wave 17 then found the cause to be exactly that field.
+        /// A dump taken at the construction site cannot answer that question, and a dump identical to the one
+        /// above it is a dump that has not been demonstrated.</para>
+        ///
+        /// <para><b>The tag is chosen, not incidental.</b> It contains none of the other tags as a substring and is
+        /// a substring of none of them, so a prior wave's saved <c>grep -c "PARAMS-DUMP optimize/baseline BEGIN"</c>
+        /// cannot double-count it. <c>optimize/baseline-resolved</c> would have broken wave 17's and wave 18's saved
+        /// drivers on a population they had already scored. Note also that <c>detector</c> is NOT a substring of
+        /// <c>detected</c>, so <c>af-fit/detector</c> is safe too. <c>ParamsDumpTests</c> asserts the whole
+        /// pairwise non-collision property rather than trusting this paragraph.</para>
+        /// </summary>
+        internal const string OptimizeDetected = "optimize/detected";
+
+        /// <summary>
+        /// Every source tag this class defines, in declaration order. Exposed so the non-collision property can be
+        /// asserted over the SET rather than over a list a later wave has to remember to extend — the same reason
+        /// <see cref="Lines"/> reflects instead of carrying a field list.
+        /// </summary>
+        internal static readonly IReadOnlyList<string> AllSources =
+            new[] { AfFitDetector, OptimizeBaseline, OptimizeSeed, OptimizeDetected };
+
         /// <summary>Leading whitespace on a field line. The parser REQUIRES it (<c>RX_FIELD</c> is <c>^\s+...</c>).</summary>
         internal const string FieldIndent = "  ";
 
