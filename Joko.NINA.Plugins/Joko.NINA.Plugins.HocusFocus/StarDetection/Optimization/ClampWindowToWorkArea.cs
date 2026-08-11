@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -62,6 +62,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
             } else {
                 fe.Loaded -= OnLoaded;
+                if (Window.GetWindow(fe) is Window w) {
+                    w.SizeChanged -= OnWindowSizeChanged;
+                }
             }
         }
 
@@ -89,9 +92,52 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 HwndSourceHook hook = (IntPtr h, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) =>
                     WndProc(window, h, msg, lParam, ref handled);
                 source.AddHook(hook);
+                // F76. The Win32 hook alone is NOT enough. It edits pos.cy inside individual messages while
+                // SizeToContent stays ACTIVE, so WPF recomputes the content height on the next layout pass and
+                // re-asserts it — and WPF wins. On a screen small enough that the wizard's summary greatly
+                // exceeds the work area the window therefore ends up taller than the screen, and the footer
+                // (Back / Review frames / Continue optimizing / Accept / Close) is off the bottom. Dragging it
+                // only snaps it to work.Top via the y-clamp below, with the bottom still off-screen; the reason a
+                // manual resize "fixes" it is that WPF sets SizeToContent = Manual automatically when the USER
+                // resizes. So do that ourselves, in WPF, the way Review/ReviewViewportHostBase already does.
+                window.SizeChanged += OnWindowSizeChanged;
             }
             // The first shown step is small, but clamp the current bounds defensively in case it already overshoots.
+            ApplyWorkAreaLimit(window, SystemParameters.WorkArea);
             ClampNow(hwnd);
+        }
+
+        private static void OnWindowSizeChanged(object sender, SizeChangedEventArgs e) {
+            if (sender is Window w) {
+                ApplyWorkAreaLimit(w, SystemParameters.WorkArea);
+            }
+        }
+
+        /// <summary>
+        /// Stops WPF re-growing the window past the work area, in device-independent pixels.
+        ///
+        /// Engages ONLY once the window would exceed the work area, so ordinary per-step SizeToContent growth is
+        /// untouched on a screen with room for it. Once it engages it turns SizeToContent OFF — that is the whole
+        /// point (F76): leaving it on is what lets WPF overwrite the Win32 clamp on the next layout pass.
+        ///
+        /// Re-entrant by construction: setting Height raises SizeChanged again, and the second pass sees
+        /// height == work.Height and returns false.
+        /// </summary>
+        /// <returns>true if the window was clamped.</returns>
+        internal static bool ApplyWorkAreaLimit(Window window, Rect work) {
+            if (window is null || work.Height <= 0.0) {
+                return false;
+            }
+            var height = double.IsNaN(window.Height) ? window.ActualHeight : window.Height;
+            if (height <= work.Height) {
+                return false;
+            }
+            window.SizeToContent = SizeToContent.Manual;
+            window.Height = work.Height;
+            if (window.Top < work.Top || window.Top + work.Height > work.Bottom) {
+                window.Top = work.Top;
+            }
+            return true;
         }
 
         private static IntPtr WndProc(Window window, IntPtr hwnd, int msg, IntPtr lParam, ref bool handled) {
@@ -144,7 +190,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             return IntPtr.Zero;
         }
 
-        /// <summary>One-time clamp of the window's current bounds into the work area (height only; keeps it on-screen).</summary>
+        /// <summary>One-time clamp of the window's current bounds into the work area, in PHYSICAL pixels: height,
+        /// and the top so the bottom stays inside. Complements <see cref="ApplyWorkAreaLimit"/>, which is the WPF-level
+        /// half and is the one that stops SizeToContent re-growing the window (F76).</summary>
         private static void ClampNow(IntPtr hwnd) {
             if (!TryGetWorkArea(hwnd, out var work, out _) || !GetWindowRect(hwnd, out var r)) {
                 return;
