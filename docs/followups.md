@@ -13,58 +13,76 @@ Status: **Open** · **In progress** · **Done** · **Won't fix**
 
 ## Detector / optimizer behaviour
 
-### F76 — The optimizer wizard's whole action row (including **Accept**) is clipped off the bottom when the result summary is long, and 180 passing VM tests cannot see it
-**Status:** **Open — product defect** · found 2026-08-11 (wave 21) by the A1–A9 *rendered pixels* check, on the first run of the wizard that check has ever completed · **the VM is fine; the failing half is the XAML**
+### F76 — The optimizer wizard opens with its footer below the bottom of the screen, so `Accept` is unreachable until the window is moved
+**Status:** **Open — positioning defect** · found 2026-08-11 (wave 21) by the A1–A9 *rendered pixels* check, on the first run of the wizard that check has ever completed · **SUBSTANTIALLY CORRECTED the same day — see "what the first write-up got wrong"**
 
 Running the Optimization Wizard to completion (Plugins → Hocus Focus → Star Detector → **Optimize Star
-Detection**) produces a summary containing a V-curve, a per-position stars-per-frame strip, a **long
-Star-signal advisory paragraph**, the auto-focus settings block, the detection-binning block and a
-**12-row Changed parameters table**. With that much content the window's action row —
+Detection**) produces a long summary. **The footer — `Back | Review frames | Continue optimizing | Accept |
+Close` — was not on screen**, and the only reachable control was the title-bar **X**, which *discards* the run,
+while the help text says *"…then Accept to apply the selected variant … or Close to discard."*
+
+**The one measurement taken BEFORE anything was perturbed**, read via `GetWindowRect` on the wizard's hwnd:
 
 ```
-Back | Review frames | Continue optimizing | Accept | Close
+window   : T=444  B=1836   height=1392
+work area: T=0    B=1392   height=1392
+screen   : 3440 x 1440
 ```
 
-— **is not on screen.** All five buttons are present in the visual tree and every one of them reports
-coordinates `(0,0)`, i.e. no hit-testable location.
+**The height is already correct** — 1392, exactly the work area, which is `ClampWindowToWorkArea` doing its job.
+**The position is not:** the window's bottom sits **444 px below the work area** (396 below the screen), so the
+correctly-pinned footer renders off the bottom of the display. `ClampWindowToWorkArea`'s docstring says
+`WM_WINDOWPOSCHANGING` clamps the height *"and nudged back on-screen"*; the height clamp demonstrably ran and
+the on-screen nudge demonstrably did not leave the window on-screen. **Which of the two — never fired, or fired
+and was overridden by NINA's owner-centring — is NOT established here.**
 
-**The measurement that settles it:**
+### What the first write-up of F76 got wrong, and why it is recorded rather than quietly amended
 
-```
-window   : T=12  B=1404  height=1392
-work area: T=0   B=1392  height=1392      <-- EXACTLY equal
-```
+The first version of this entry asserted the cause was *"a `SizeToContent` window with no ScrollViewer"* and
+recommended *"a ScrollViewer around the content with the action row pinned outside it."* **Reading the source
+refuted every part of that:**
 
-The dialog is `SizeToContent`, so WPF sizes it to its content and then **clamps it to the monitor work area**.
-Content taller than the work area is simply cut, and the action row is the last thing in the layout. Confirmed:
-the window **refuses programmatic resize** (`SetWindowPos` with a new width/height returns the same 842×1392),
-and **no inner ScrollViewer responds to the wheel** anywhere in the dialog — over the table, over the advisory,
-or over the help text. The only reachable control is the title-bar **X**, which *discards* the run.
+| the claim | the source |
+|---|---|
+| "no ScrollViewer" | **There is one** — `Optimization/DataTemplates.xaml:292`, closed at `:1190`, `VerticalScrollBarVisibility="Auto"` |
+| "the action row should be pinned outside it" | **It already is** — the root grid has four rows; the body ScrollViewer is `Grid.Row="1"` (`Height="*"`) and the footer is a later `Auto` row, outside it (`:1240+`). The XAML comment at `:762` states the intent: *"Accept lives in the footer outside this ScrollViewer and is always reachable"* |
+| "WPF clamps a SizeToContent window to the work area" | The clamping is **deliberate plugin code**, `StarDetection/Optimization/ClampWindowToWorkArea.cs`, whose docstring describes *this exact failure mode* as the thing it exists to prevent |
 
-**So on a 1440-px-tall display the user can complete an optimization and then have no way to accept it.** The
-help text at the bottom even tells them to do the thing they cannot do: *"…then Accept to apply the selected
-variant … or Close to discard."*
+**So the recommended fix was already shipped, and the design is right.** The defect is that the window is
+*placed* outside the work area, not that its content cannot scroll.
 
-**Why the suite is green.** `StarDetectionOptimizerWizardVMTests` has **180 tests** and they all pass, because
-the ViewModel *is* correct — it exposes the commands, and they would execute if invoked. Wave 13's results
-named this exact gap: *"What is untested is the XAML half — that these strings and rows appear, in the right
-panel, unclipped, in the running app."* **This is that gap producing a real defect**, and it is the first
-finding the A1–A9 check has ever returned, on the first run of the wizard it has ever reached.
+**Evidence withdrawn as confounded.** After the first measurement the controller moved and tried to resize the
+window with `SetWindowPos` to bring the footer into view. Every later observation is therefore about a window
+the controller had perturbed, and three of them must not be quoted:
 
-**Honest scope — it is content-length dependent, not universal.** The overflow here is only ~20–40 px: the help
-text ends at screen `1385` and the window bottom is `1404`. A shorter Star-signal advisory (this run's was long
-*because* Brightness Sensitivity bottomed out), fewer changed-parameter rows, a taller monitor, or a lower DPI
-scale would all fit. **What is not conditional is the failure mode:** a `SizeToContent` window with no
-ScrollViewer has no graceful degradation — one extra line of advisory text silently removes `Accept`.
+- *"all five buttons report coordinates `(0,0)`"* — taken after the move, and `(0,0)` is the automation's
+  no-resolvable-point value, not a measured location.
+- *"no inner ScrollViewer responds to the wheel"* — the wheel was sent over a `DataGrid`, which swallows it, and
+  **scrolling was never going to reveal the footer anyway**, because the footer is outside the ScrollViewer by
+  design. The test was invalid for the conclusion it was used to support.
+- *"the window refuses programmatic resize"* — expected: `ClampWindowToWorkArea` hooks
+  `WM_WINDOWPOSCHANGING` precisely to override external resizes. That was the guard working, quoted as a symptom.
+
+*A finding whose mechanism is refuted by the source it is about must be rewritten, not defended — and the parts
+of it that were measured on an instrument the observer had already disturbed have to be withdrawn by name.*
+
+**What survives is still a real user-facing defect** and still explains the original symptom: on a 3440×1440
+display the wizard opens with `Accept` off the bottom of the screen.
+
+**Why the suite is green, unchanged.** `StarDetectionOptimizerWizardVMTests` has **180 passing tests** and is
+right to pass — the ViewModel is correct and so is the XAML. The failure is in window *placement*, which no VM
+test and no XAML review reaches. Wave 13's results named this gap: *"what is untested is … that these rows
+appear, in the right panel, unclipped, in the running app."*
 
 ### Next step
-Give the wizard's result page a **ScrollViewer** around the content with the action row pinned outside it, or
-set a `MaxHeight` with scrolling, so the buttons are reachable at any content length. A regression test cannot
-be an ordinary VM test — it must assert the **rendered** layout (e.g. measure the result page at a constrained
-height and assert the action row's `IsVisible`/transformed bounds lie inside the window), which is the same
-"rendered, not computed" bar A1–A9 were written for.
+Reproduce **without touching the window** and capture `GetWindowRect` at first paint: confirm whether
+`ClampWindowToWorkArea`'s `WM_WINDOWPOSCHANGING` handler fires at all for the initial placement, and whether it
+clamps the height but not the top. Likely fix is in that handler — after clamping height, also clamp `y` so
+`y + cy <= workArea.Bottom`. A regression test must assert the **placed rectangle**, not the layout: show the
+window off-screen-tall on a simulated small work area and assert the resulting rect lies inside it.
 **Reproduce:** launch NINA → profile `astrodet` → Plugins → Hocus Focus → Star Detector → *Optimize Star
-Detection* → Browse to a saved run → Start → wait for *Optimization complete* on a 3440×1440 display.
+Detection* → Browse to a saved run → Start → wait for *Optimization complete* on a 3440×1440 display, and read
+the hwnd's rect before moving anything.
 
 ### F1 — The donut heuristic misses small donuts
 **Status:** Open · found 2026-07-30 during the bank donut audit
