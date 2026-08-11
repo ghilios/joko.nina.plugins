@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -32,7 +32,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection.Optimization;
 /// ViewModel test can reach this: all 180 StarDetectionOptimizerWizardVMTests passed while the defect shipped,
 /// correctly, because the ViewModel and the XAML were both fine.
 /// </summary>
+/// <remarks>
+/// EXPLICIT, and the reason is an instrument failure worth recording. Constructing a WPF <c>Window</c> in an
+/// <c>[Apartment(STA)]</c> fixture passes locally and makes the GitHub Actions testhost fail to connect at all
+/// ("vstest.console process failed to connect to testhost process after 90 seconds") — the whole assembly, not
+/// just this fixture. The geometry these tests cover is pinned CI-side by WorkAreaClampGeometryTests; what only
+/// runs here is the adapter half, above all the assertion that <c>SizeToContent</c> is switched to Manual.
+/// Run on demand with: dotnet test --filter "FullyQualifiedName~ClampWindowToWorkAreaTests"
+/// </remarks>
 [TestFixture]
+[Explicit("Constructing a WPF Window hangs the CI testhost; geometry is covered by WorkAreaClampGeometryTests")]
 [Apartment(ApartmentState.STA)]
 public class ClampWindowToWorkAreaTests {
 

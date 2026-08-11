@@ -15,6 +15,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using NINA.Core.Utility;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
@@ -46,6 +47,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public static bool GetEnabled(DependencyObject obj) => (bool)obj.GetValue(EnabledProperty);
 
         public static void SetEnabled(DependencyObject obj, bool value) => obj.SetValue(EnabledProperty, value);
+
+        // Dedupe the F76 diagnostic: SizeChanged fires often and only distinct states are informative.
+        private static string lastLoggedNote;
 
         // One hook per window; the modal dialog and its HwndSource are short-lived, so the hook dies with the window.
         // The table only guards against a repeated Loaded re-adding the hook, and lets the window be collected.
@@ -101,6 +105,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // manual resize "fixes" it is that WPF sets SizeToContent = Manual automatically when the USER
                 // resizes. So do that ourselves, in WPF, the way Review/ReviewViewportHostBase already does.
                 window.SizeChanged += OnWindowSizeChanged;
+                Logger.Info($"F76 clamp: attached to '{window.GetType().Name}' hwnd={hwnd}; workArea={SystemParameters.WorkArea}");
             }
             // The first shown step is small, but clamp the current bounds defensively in case it already overshoots.
             ApplyWorkAreaLimit(window, SystemParameters.WorkArea);
@@ -129,14 +134,40 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return false;
             }
             var height = double.IsNaN(window.Height) ? window.ActualHeight : window.Height;
-            if (height <= work.Height) {
+            var clamping = TryComputeWorkAreaClamp(height, window.Top, work, out var newHeight, out var newTop);
+            // F76 has been misdiagnosed three times from reasoning without instrumentation, and a fix shipped that
+            // did not work. Make the behaviour self-reporting: one line per DISTINCT state, so the log says whether
+            // the clamp engaged and on what numbers, instead of the next person inferring it.
+            var note = $"F76 clamp: h={height:F0} actual={window.ActualHeight:F0} top={window.Top:F0} " +
+                       $"stc={window.SizeToContent} work={work.Height:F0}@{work.Top:F0} => " +
+                       (clamping ? $"CLAMP h={newHeight:F0} top={newTop:F0}" : "declined");
+            if (note != lastLoggedNote) {
+                lastLoggedNote = note;
+                Logger.Info(note);
+            }
+            if (!clamping) {
                 return false;
             }
+            // Turning SizeToContent off is the FIX, not a side effect: leaving it on is what let WPF recompute the
+            // content height on the next layout pass and overwrite the Win32 clamp (F76).
             window.SizeToContent = SizeToContent.Manual;
-            window.Height = work.Height;
-            if (window.Top < work.Top || window.Top + work.Height > work.Bottom) {
-                window.Top = work.Top;
+            window.Height = newHeight;
+            window.Top = newTop;
+            return true;
+        }
+
+        /// <summary>
+        /// The geometry decision, split out so it is testable WITHOUT constructing a WPF <see cref="Window"/> —
+        /// a Window-constructing STA fixture hangs the CI testhost (see WorkAreaClampGeometryTests).
+        /// </summary>
+        internal static bool TryComputeWorkAreaClamp(double height, double top, Rect work, out double newHeight, out double newTop) {
+            newHeight = height;
+            newTop = top;
+            if (work.Height <= 0.0 || height <= work.Height) {
+                return false;
             }
+            newHeight = work.Height;
+            newTop = (top < work.Top || top + newHeight > work.Bottom) ? work.Top : top;
             return true;
         }
 
