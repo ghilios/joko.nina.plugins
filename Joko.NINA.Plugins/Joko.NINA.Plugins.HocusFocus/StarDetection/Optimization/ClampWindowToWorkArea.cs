@@ -308,7 +308,29 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             pendingFits.Add(window, window);
             window.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => {
                 pendingFits.Remove(window);
-                // SET IT THROUGH WIN32, NOT THROUGH THE WPF PROPERTY. Measured twice in the field: assigning
+                // GO FULLY MANUAL FIRST, KEEPING THE WIDTH AUTO-SIZING ALREADY PRODUCED.
+                //
+                // Measured: SetWindowPos honoured the MOVE and ignored the RESIZE in the same call --
+                //   "asked cy=1128px y=0px; rect was 738px@119 now 738px@0; wpf H=492 A=492 stc=Width"
+                // and 738px / 1.5 = 492 DIPs, exactly WPF's own Height. With SizeToContent still set (to Width),
+                // WPF re-applies its size on every layout pass and overwrites both the property assignment and the
+                // native resize. Clearing it is what lets a height stick.
+                //
+                // The width is explicitly carried over rather than left to Manual's default. Freezing the width at
+                // whatever an earlier, narrower step used is what clipped Accept and Close before; by the summary
+                // step SizeToContent.Width has already produced the correct width, so pinning THAT keeps the footer
+                // intact while handing us the height.
+                if (window.SizeToContent != SizeToContent.Manual) {
+                    var keepWidth = window.ActualWidth;
+                    window.SizeToContent = SizeToContent.Manual;
+                    if (keepWidth > 0.0) {
+                        window.Width = keepWidth;
+                    }
+                }
+                window.Height = target;
+                window.Top = top;
+
+                // SET IT THROUGH WIN32 TOO, as a belt-and-braces follow-up. Measured twice in the field: assigning
                 // window.Height = 752 reads back as the OLD value immediately, both inside SizeChanged and from a
                 // dispatcher callback, with MaxHeight = Infinity so nothing was capping it. WPF is refusing the
                 // write. SetWindowPos is not refused -- ClampNow in this same file already repositions this very
@@ -330,7 +352,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 GetWindowRect(hwnd, out var after);
                 LogOnce($"F76 applied: target={target:F0}dip -> asked cy={cy}px y={y}px; " +
                         $"rect was {before.Bottom - before.Top}px@{before.Top} now {after.Bottom - after.Top}px@{after.Top}; " +
-                        $"wpf H={window.Height:F0} A={window.ActualHeight:F0} scale={toDevice.M22:F2} stc={window.SizeToContent}");
+                        $"wpf H={window.Height:F0} A={window.ActualHeight:F0} W={window.Width:F0} " +
+                        $"scale={toDevice.M22:F2} stc={window.SizeToContent}");
             }));
             return true;
         }
