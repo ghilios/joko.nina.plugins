@@ -6394,6 +6394,55 @@ is not repeatedly investigated.
 
 ## Process
 
+### F72 — The A1–A9 UI check was blocked for NINE waves by a crash that does not reproduce, and the "decisive" isolation test would have produced a confident WRONG attribution
+**Status:** **item C UNBLOCKED 2026-08-11 (wave 18/19 boundary)** · found by re-running the same configuration, which nobody had done · **the plugin loads cleanly and the UI renders**
+
+Waves 8–17 recorded item C as blocked. Wave 17 got a connected session at last, cleared every previously-named
+blocker — composited desktop, **deploy verified byte-for-byte before launch**, NINA launched with a non-zero
+hwnd and a real title — and then NINA crashed during startup:
+
+```
+CompositionRoot.cs|Compose|145  System.NullReferenceException
+  AsyncObservableCollection`1.RunOnSynchronizationContext (:44) / InsertItem (:49)
+  PluggableBehaviorSelector`2..ctor (:39)
+```
+
+The controller reported this twice: first as "entirely NINA core, so probably not our plugin", then — after the
+wave-18 pre-registration correctly pointed out that `PluggableBehaviorSelector<,>..ctor` is **exactly** where
+MEF-imported plugin behaviours are inserted and HocusFocus exports two — as "the blocked isolation test is
+DECISIVE". **Both readings were over-confident, and the second would have been actively wrong.**
+
+| configuration | outcome |
+|---|---|
+| 16:06 local, NINA 3.3.0.1048 **with** plugin | **ran fine** — 169 KB log, **148 Hocus mentions**, 0 NREs |
+| 18:12 local, same NINA **with** plugin | **crashed** — 3 `PluggableBehaviorSelector` NREs, 0 Hocus mentions |
+| 23:41 local, same NINA **without** plugin (the authorised isolation test) | alive |
+| 23:43 local, same NINA **with** plugin | **alive** — `Successfully loaded plugin Hocus Focus version 4.0.0.12`, **0 ERROR, 0 NRE** |
+
+> **The crash does not reproduce.** Run alone, the isolation test reads as decisive — *works without the plugin,
+> crashes with it* — and it would have convicted the plugin. **The control that mattered was REPETITION, not
+> isolation**, and it costs one extra launch. *n = 1 on a crash is not an attribution*, and a blocker recorded
+> from a single sample held an item for nine waves.
+
+**The host is `3.3 NIGHTLY #048`**, which makes a transient startup race far likelier than a plugin defect.
+
+### What the UI check then established, as rendered pixels
+- **The plugin loads in NINA 3.3.0.1048** — `PluginLoader.cs:410 Successfully loaded plugin Hocus Focus version
+  4.0.0.12`, and `Found 1 Hocus Focus Cameras`. Final log: **0 ERROR, 0 NRE**.
+- **The options UI renders unclipped**, all four tabs present (`AF AutoFocus`, `Star Detector`, `Star Annotator`,
+  `Camera Sim`), every control bound.
+- **`Max Outlier Rejections: 0` is visible in the rendered AF panel** — wave 14's product change confirmed in the
+  running app for the first time. *(`astrodet` stores 0 explicitly, so this shows the control renders and binds,
+  not that the code default was consulted.)*
+- **A3/A9's exposure-recommendation row renders**: *"Run an auto-focus to get a recommendation"*, in the right
+  panel, unclipped.
+
+### Next step
+**A1, A2, A4–A8 remain unconfirmed as rendered pixels** — they need a loaded AF run and the optimizer wizard
+driven, ~30 m on a connected session with NINA not competing with a pinned arm. The blocker is gone; only the
+work remains. Reproduce: launch NINA, Plugins → Hocus Focus.
+
+
 ### F15 — `optimize --per-run` overwrites each run's stored settings
 **Status:** **Fixed (wave 13)** · open for thirteen waves · the fix does BOTH halves of the next step, because
 they answer different failures
