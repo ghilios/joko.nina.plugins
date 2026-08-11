@@ -1290,6 +1290,20 @@ artifact of the render, and the affected population is not hypothetical.
    down, which is the bias F35 exists to route around.
 
 ### F21 — `StepSizeRecommender`'s half-width is not stable against noise, even on a perfect fit
+
+> **WAVE 20, item P: the price probe ran and returned `COULD-NOT-LOOK` in 0 s — `synth-validate` exits 2 as
+> invoked.** The rate is **UNMEASURED** and the exit code is recorded by name; it is *not* "the instrument is
+> fast". `synth-validate` requires `--spec <json>` (its usage line: `--spec <json> --out <dir> [--datasets …]
+> [--scenarios …] [--max-rounds 4] …`) and the probe passes none, so nothing was measured about half-width
+> instability. The probe also refused to read its own two empty field lines as "no second round occurred",
+> printing *"if these are empty, the fields are named differently in this build: SAY SO"* instead.
+>
+> **After four waves of deferral this is the useful answer, and it is cheaper than a fifth deferral: the
+> blocker is not the population, it is that nobody has ever invoked the instrument successfully.** The next
+> attempt costs a `--spec` file and one run, not an arm — and it must establish that a second round happens at
+> all before any clause is written over one, since [F68](#f68--a-threshold-stated-as-a-count-carries-a-denominator-and-three-consecutive-satisfiability-analyses-have-checked-the-value-a-clause-can-reach-without-checking-the-population-it-is-computed-over)
+> forbids a bar over a population nobody has shown exists.
+> Reproduce: `/mnt/d/hf_w20/f21_probe_w20.sh`, `/mnt/d/hf_w20/f21_probe_w20.log`.
 **Status:** Open · found 2026-08-02 running the synthetic bank's S0 control
 
 Two sweeps of the **same dataset at the same step**, differing only in noise seed and both fitting at
