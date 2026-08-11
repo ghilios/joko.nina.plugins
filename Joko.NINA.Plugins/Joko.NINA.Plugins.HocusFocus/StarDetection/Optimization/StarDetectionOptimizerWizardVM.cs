@@ -1029,7 +1029,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
-        private SourceMode sourceMode = SourceMode.Replay;
+        // Default to Live: the wizard is most often reached with no saved run on disk, and Live captures its own
+        // frames rather than requiring the user to go and produce one first (owner's decision, 2026-08-11).
+        private SourceMode sourceMode = SourceMode.Live;
 
         public SourceMode SourceMode {
             get => sourceMode;
