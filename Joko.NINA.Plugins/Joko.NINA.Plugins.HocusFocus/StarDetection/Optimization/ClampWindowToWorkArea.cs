@@ -308,15 +308,29 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             pendingFits.Add(window, window);
             window.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => {
                 pendingFits.Remove(window);
-                var beforeHeight = window.Height;
-                var beforeActual = window.ActualHeight;
-                window.Height = target;
-                window.Top = top;
-                // Still read it back: a fix that cannot report whether it engaged is not finished (F76's own lesson).
-                LogOnce($"F76 applied: target={target:F0} -> Height={window.Height:F0} Actual={window.ActualHeight:F0} " +
-                        $"Top={window.Top:F0} (was H={beforeHeight:F0} A={beforeActual:F0}) stc={window.SizeToContent} " +
-                        $"min={window.MinHeight:F0} max={window.MaxHeight:F0} state={window.WindowState} " +
-                        $"resize={window.ResizeMode}");
+                // SET IT THROUGH WIN32, NOT THROUGH THE WPF PROPERTY. Measured twice in the field: assigning
+                // window.Height = 752 reads back as the OLD value immediately, both inside SizeChanged and from a
+                // dispatcher callback, with MaxHeight = Infinity so nothing was capping it. WPF is refusing the
+                // write. SetWindowPos is not refused -- ClampNow in this same file already repositions this very
+                // window that way, which is how it lands at top=0.
+                var helper = new WindowInteropHelper(window);
+                var hwnd = helper.Handle;
+                if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var before)) {
+                    LogOnce("F76 applied: DECLINED -- no hwnd to resize");
+                    return;
+                }
+                // The work area and SetWindowPos are in PHYSICAL pixels; target/top are DIPs. Convert with the
+                // window's own composition target rather than assuming a scale factor.
+                var toDevice = PresentationSource.FromVisual(window)?.CompositionTarget?.TransformToDevice
+                               ?? Matrix.Identity;
+                var cy = (int)Math.Round(target * toDevice.M22);
+                var y = (int)Math.Round(top * toDevice.M22);
+                var cx = before.Right - before.Left;
+                SetWindowPos(hwnd, IntPtr.Zero, before.Left, y, cx, cy, SWP_NOZORDER | SWP_NOACTIVATE);
+                GetWindowRect(hwnd, out var after);
+                LogOnce($"F76 applied: target={target:F0}dip -> asked cy={cy}px y={y}px; " +
+                        $"rect was {before.Bottom - before.Top}px@{before.Top} now {after.Bottom - after.Top}px@{after.Top}; " +
+                        $"wpf H={window.Height:F0} A={window.ActualHeight:F0} scale={toDevice.M22:F2} stc={window.SizeToContent}");
             }));
             return true;
         }
