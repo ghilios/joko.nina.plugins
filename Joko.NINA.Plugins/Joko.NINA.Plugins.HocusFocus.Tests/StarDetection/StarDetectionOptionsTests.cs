@@ -513,8 +513,15 @@ public class StarDetectionOptionsTests {
     // ---- F70(b'): the preset-owned PARTITION, probed at runtime -------------------------------------------
     //
     // ResetDefaultsImpl assigns 53 public properties. Exactly 20 of them are ALSO assigned by
-    // DerivePresetSettings, which ResetDefaultsImpl re-runs unconditionally as its last statement -- so those 20
-    // literals are dead and the derivation is the authority. The other 33 are live defaults.
+    // DerivePresetSettings, which ResetDefaultsImpl re-runs unconditionally as its last statement.
+    //
+    // NAMING, and it matters: these tests measure which properties the derivation ASSIGNS, not which ones the
+    // preset system OWNS. They are different claims and the second does not follow from the first. The Simple-mode
+    // preset system owns the whole detector configuration; DerivePresetSettings assigns only 20 because only those
+    // 20 currently VARY across Simple_NoiseLevel x Simple_PixelScale x Simple_FocusRange. A default identical for
+    // every combination is still preset-owned, it just has nothing to compute. An earlier version of this file
+    // called the 20 "DerivationOwned" and a proposal to delete their literals was built on that word; it was
+    // rejected, because the split is a snapshot of what varies today and not a design boundary.
     //
     // The register carried that as a hand-counted "20" with no membership, and the membership is the dangerous
     // half: Simple_NoiseLevel, Simple_PixelScale and Simple_FocusRange are the derivation's own INPUTS, and
@@ -527,7 +534,7 @@ public class StarDetectionOptionsTests {
     // sentinel write actually landed first -- a clamping or no-op setter must report could-not-look rather than
     // pass silently (F66).
 
-    private static readonly string[] DerivationOwnedProperties = {
+    private static readonly string[] DerivationAssignedProperties = {
         "BrightnessSensitivity", "HotpixelFiltering", "HotpixelThreshold", "MaxDistortion", "MinHFR",
         "MinStarBoundingBoxSize", "NoiseClippingMultiplier", "NoiseReductionRadius", "PSFFitThreshold",
         "PSFFitType", "PSFResolution", "PixelSampleSize", "StarBackgroundBoxExpansion", "StarCenterTolerance",
@@ -540,7 +547,7 @@ public class StarDetectionOptionsTests {
     // derivation from its own setter, IntermediateSavePath creates directories, and Simple_FocusRange is the
     // trigger itself. Those four are excluded BY NAME rather than quietly dropped -- a literal the test cannot
     // cover stays uncovered and says so.
-    private static readonly string[] NotDerivationOwnedProperties = {
+    private static readonly string[] NotDerivationAssignedProperties = {
         "AdaptiveNoiseBlockSize", "ContaminationSensitivity", "DebugMode", "DefocusAwareDonutDetection",
         "DefocusAwareGates", "DefocusAwareStructure", "DefocusCenteringToleranceFactor",
         "DefocusDistortionMinFactor", "DefocusDistortionSizeReference", "DetectionBinning",
@@ -560,7 +567,7 @@ public class StarDetectionOptionsTests {
     // One property remains undrivable and the reason is mechanical, not effort: setting UseAdvanced is the one
     // write that stops the derivation from running at all (ConfigureSimpleSettings returns immediately), so the
     // probe cannot distinguish "the derivation left it alone" from "the derivation never ran". It stays
-    // uncovered, and PresetOwnedPartition_CountsAndDisjointness_ArePinned asserts it never sneaks into either
+    // uncovered, and PresetAssignedPartition_CountsAndDisjointness_ArePinned asserts it never sneaks into either
     // list -- an uncovered literal must not masquerade as a covered one.
     private static readonly string[] ProbeExcludedByName = { "UseAdvanced" };
 
@@ -638,7 +645,7 @@ public class StarDetectionOptionsTests {
     }
 
     [Test]
-    public void DerivationOwnedProperties_RevertWhenTheDerivationRuns([ValueSource(nameof(DerivationOwnedProperties))] string name) {
+    public void DerivationAssignedProperties_RevertWhenTheDerivationRuns([ValueSource(nameof(DerivationAssignedProperties))] string name) {
         var (options, _, _) = Build();
         var (prop, before, _) = WriteSentinel(options, name);
         FireDerivation(options, name);
@@ -649,7 +656,7 @@ public class StarDetectionOptionsTests {
     }
 
     [Test]
-    public void NotDerivationOwnedProperties_SurviveWhenTheDerivationRuns([ValueSource(nameof(NotDerivationOwnedProperties))] string name) {
+    public void NotDerivationAssignedProperties_SurviveWhenTheDerivationRuns([ValueSource(nameof(NotDerivationAssignedProperties))] string name) {
         var (options, _, _) = Build();
         var (prop, _, sentinel) = WriteSentinel(options, name);
         FireDerivation(options, name);
@@ -659,9 +666,9 @@ public class StarDetectionOptionsTests {
     }
 
     [Test]
-    public void PresetOwnedPartition_CountsAndDisjointness_ArePinned() {
-        var owned = new HashSet<string>(DerivationOwnedProperties);
-        var notOwned = new HashSet<string>(NotDerivationOwnedProperties);
+    public void PresetAssignedPartition_CountsAndDisjointness_ArePinned() {
+        var owned = new HashSet<string>(DerivationAssignedProperties);
+        var notOwned = new HashSet<string>(NotDerivationAssignedProperties);
         Assert.Multiple(() => {
             Assert.That(owned, Has.Count.EqualTo(20), "the preset-owned set is 20, derived from source by wave 21");
             Assert.That(owned.Overlaps(notOwned), Is.False, "a property cannot be in both halves");
