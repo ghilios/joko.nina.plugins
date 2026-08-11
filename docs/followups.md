@@ -113,6 +113,18 @@ config. Not necessarily wrong — but it should not be assumed uniformly benefic
 F6 diagonal valley, but it means **a single landing is not evidence** about which corner the optimizer prefers,
 and any claim resting on one `optimize` run should be treated as anecdote.
 
+> **BOUNDED 2026-08-11 (wave 19, RULE R19).** This entry's headline does **not** survive `--settings` +
+> `--profile-id` pinning with one `TestApp.exe`. Re-running the same 20-dataset arm on a second build and diffing
+> the **full 33-key landing vector** gave **20 of 20 datasets and 660 of 660 key comparisons identical** —
+> `FinalJ` and `BaselineJ` included, and every knob besides. See
+> [F73](#f73--the-gate-has-certified-nine-binaries-by-checking-one-of-a-landings-35-fields-and-the-other-33-had-never-been-looked-at--they-are-identical-660-of-660).
+>
+> **The entry is bounded, not refuted, and the distinction is the evidence it rests on.** Its three landings came
+> from three *different pipelines*, before `--settings`/`--profile-id` pinning existed; wave 19's null arm varied
+> only the build stamp and the invocation. **So "not reproducible across invocations" is now measured false for a
+> pinned pipeline, and remains untested across code changes** — which is the axis `bobp_m101` actually varied.
+> Cite this entry for unpinned or cross-pipeline runs; cite F73 for the pinned noise floor.
+
 ### F18 — Step size is sized by curve geometry alone, so the sweep outruns what the detector can see
 **Status:** Open — **mechanism shipped behind flags, default OFF (wave 7)**; both open decisions closed; the
 σ_focus arms RAN and returned a **null** — the bank cannot exercise this defect · found 2026-08-02 reproducing a
@@ -1352,6 +1364,25 @@ hypothesis — is still owed**, and the entry stays Open.
 > matter would suppress 4 of 6 of those and bury F18's open question about which of the two is right.
 > **Still owed: WHY the fitted vertex moves**, which is a fit-identifiability question and not a search one.
 > Reproduce: `D:\hf_w10\step_probe.sh`, `D:\hf_w10\score_step.py`.
+
+> **The instrument has now been UNPRICED for three consecutive waves (2026-08-11).** Wave 17 asked what one
+> `synth-validate` round costs, wave 18 dropped the probe, and wave 19 pre-registered it as a rule-free,
+> hard-timeboxed tail item (`timeout 1200`, driver `/mnt/d/hf_w19/f21_probe_w19.sh`) and dropped it too — first
+> in the drop order, in a wave that used 1 h 35 m of a 6 h ceiling.
+>
+> **This series has never run `synth-validate` as an arm**, so its cost is not merely unrecorded, it has no
+> measured rate at all — and it must **not** be priced from the `optimize` rate (5.2 m/run mixed, 2.64–2.73 m/run
+> all-synthetic) or the `af-fit` rate (~11 s/dataset). *Pricing one instrument from another over-prices by
+> roughly an order of magnitude*, which is why the timebox is the deliverable and `"> 20 m, UNMEASURED"` is a
+> more useful answer than a wave that ran long.
+>
+> **No clause should be written over it until then**, and that is deliberate: this entry's own hypothesis was
+> refuted in wave 10 and its headline case *did not reproduce*, so a rule over the population would be a rule
+> over a population that may not exist — exactly the defect
+> [F68](#f68--a-threshold-stated-as-a-count-carries-a-denominator-and-three-consecutive-satisfiability-analyses-have-checked-the-value-a-clause-can-reach-without-checking-the-population-it-is-computed-over)
+> catalogues. The probe asks only: *does the population exist, and what does one round cost?* Deliverables and
+> nothing else: the wall time, the round count, `HalfWidth` and recommended step per round, and whether a second
+> round occurred at all.
 
 ### F22 — Detection binning is a hard threshold on a measurement that under-reads, so boundary rigs get the wrong factor
 **Status:** Open · found 2026-08-02 running the synthetic bank's S0 control
@@ -3814,6 +3845,89 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
+### F73 — The gate has certified nine binaries by checking ONE of a landing's 35 fields, and the other 33 had never been looked at — they are identical, 660 of 660
+
+**Status:** **MEASURED 2026-08-11 (wave 19, RULE R19 = `R-DETERMINISTIC`)** · the error term every cross-wave
+landing comparison in this series carries is now measured, and it is **exactly zero** · **~53 m, already paid;
+do not re-run it** ([F53](#f53--wave-8s-arm-x-does-not-reproduce-from-wave-8s-own-exe-because-the-arm-ran-on-an-earlier-build-of-it)(c))
+
+For nine waves the eight-value gate established that a new binary reproduces the coordinate system by checking
+**one field** — `BestJ`, the landing's `FinalJ` — on eight runs. A landing carries **35 top-level keys**: 25
+curated detector knobs, `RecommendedStepSize`, `RecommendedOffsetSteps`, `CreatedAtUtc`, `BaselineJ`, `FinalJ`
+and a `Provenance` block. **Nobody had ever checked the other 33.**
+
+The gap was not hypothetical. `J` is saturated near 1.0 on this bank
+([F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains)) and the
+search crosses a flat valley ([F6](#f6--sensitivity-and-star-clip-act-only-in-combination),
+[F8](#f8--optimizer-landings-are-not-reproducible-across-invocations)), so **two different knob vectors with the
+same `J` to sixteen digits is exactly what a flat valley produces.**
+
+### The measurement
+
+Wave 18's 20-dataset arm A0 was re-run on a tenth binary, `--settings`- and `--profile-id`-pinned, one
+`TestApp.exe`, sequential, `--max-evals 250`, and the **full 33-key landing vector** was diffed pairwise.
+
+| clause | what it measures | result |
+|---|---|---|
+| **R19-A** | the whole landing, key by key | **20 of 20 datasets with zero differing keys; 660 of 660 key comparisons identical** |
+| **R19-B** | the objective alone — what nine waves of gates have actually been checking | `FinalJ` **20 of 20**; `BaselineJ` **20 of 20** |
+| **R19-C** | invocation alone (same binary, different `--out`) | **3 of 3** |
+
+> **`R19-A` minus `R19-B` is zero. Nothing in the landing moves that `J` does not.**
+
+The only differing members were the three excluded **in advance**: `CreatedAtUtc`, `Provenance.BuildId` (which
+MUST differ) and `Provenance.CommandLine` (which MUST differ because `--out` differs). No exclusion was invented
+after the data, and an independently-written differ sharing no code with the wave's scorer reproduced 660 of 660.
+
+### What it licenses, and the boundary that matters
+
+Cross-wave landing comparisons in this series treat a **code difference** as the treatment and everything else
+as **error**. This measures that error term directly and finds it zero, so
+[F63](#f63--the-optimizers-landing-moves-on-6-of-8-runs-under-a-knob-that-is-nearly-inert-at-the-seed-so-every-landing-waves-5-12-published-was-produced-at-a-non-default-value)'s
+6-of-8, wave 15's 19-of-20 and wave 18's `N18-M` are retro-validated **against noise**: whatever moved in them
+was not the harness moving under its own feet. Wave 18's 40 arm landings are a **measurement**, not a sample.
+
+**And the population is narrower than the rule's own prose.** The wave intended the two roots to differ by
+shipped code (its item D), and **item D never landed** — `git diff --name-only` between the two build trees over
+`*.cs` / `*.csproj` / `*.props` / `*.targets` is **empty**. `BuildId` still separated them, because by its own
+documented semantics (`OptimizedStarDetectionSettings.cs:386`) it is the assembly **MVID**, *"which the compiler
+regenerates on every build even when the source is byte-identical."* **A differing `BuildId` proves a rebuild
+happened; it has never proved the code differs.**
+
+So what was measured is: two independent Release builds of the **same C# source**, two invocations, two output
+directories, ~10 hours apart, 20 synthetic datasets, `--max-evals 250`, `ConcurrencyCheck = exclusive`,
+`DetectorVersion` 2 on both roots. **Zero differences.** It is therefore:
+
+- **NOT** evidence that a **code** change cannot move a landing while `J` stays fixed — nothing measures that,
+  and the `R-J-ONLY` branch could only have fired here from run-to-run nondeterminism;
+- **NOT** a claim under concurrency ([F55](#f55--optimize-is-not-reproducible-when-several-instances-run-at-once-and-the-seed-evaluation-is-what-moves)), across detector changes, on the real bank, or at other `--max-evals`;
+- and `D01…D17` — 17 of the 20 — still have **no cross-code `J` check** at all, only this cross-build one.
+
+**The accident improved the instrument.** For measuring an *error term* you want the treatment **absent**: as
+executed this is a clean **null arm**, which is the correct control for "does a cross-wave comparison carry
+noise?", and the binary/invocation confound the design worried about collapsed on its own. *Better control than
+designed, weaker claim than written* — and the distinction is only visible because the tree diff was checked.
+
+### Why it matters
+
+- **A control on one field is a control on one field.** The gate's `BestJ` clause is not wrong; it was simply
+  never established to stand in for the landing. Now it is, on this population, and the substitution can be
+  cited instead of assumed.
+- **The reachable-but-never-reached branch is the valuable one.** `R-J-ONLY` was reachable by construction and
+  would have cost the register a great deal — every cross-wave landing comparison conditional, wave 18's 40
+  landings demoted to a sample. **Fixing that consequence before the data is what made the null informative**;
+  a null with no pre-registered alternative is just a shrug.
+- **Determinism is a property of a pinned pipeline, not of the optimizer.** Every clause that made this hold —
+  `--settings`, `--profile-id`, one `TestApp.exe`, exclusive concurrency — was *verified*, not assumed. Drop any
+  of them and the measurement does not transfer.
+
+### Next step
+The honest missing arm is the **code** axis: re-run the same 20 datasets on a binary that differs by a change
+believed inert on the search, and diff all 33 keys. **~53 m**, and it is the arm wave 19 thought it was running.
+Until then, cite this entry for the **noise** floor only.
+Reproduce: `python3 /mnt/d/hf_w19/score_r19_w19.py --new /mnt/d/hf_w19/reA0 --old /mnt/d/hf_w18/seedA0 --gate /mnt/d/hf_w19/gate --out -`;
+`docs/synthetic-af-bank-followups-wave19-results.md` §2.
+
 ### F71 — A converted settings file carries every detector knob TWICE, and the control that checked the conversion read the copy the loader ignores
 **Status:** Open · found 2026-08-11 (wave 18) when a control returned a demonstrated PASS and a demonstrated FAIL
 **on the wrong inputs** · **it cost RULE N18 its verdict, and the evidence that it was wrong was in the same file
@@ -3852,10 +3966,32 @@ the live one only because of the `+1`.**
 
 ### The verification took no compute, from the files the control had already read
 
-The same two `run.log` files carry **56 detector fields** each, of which **8 differ** between `good` and
+The same two `run.log` files carry **55 detector fields** each, of which **8 differ** between `good` and
 `mutant`: `HotpixelThreshold`, `MaxDistortion`, `MinHFR`, `NoiseReductionRadius`, `Sensitivity`,
 `StarCenterTolerance`, `StarClippingMultiplier`, `StructureLayers`. **All eight of `good`'s values are the
 snapshot's; all eight of `mutant`'s are the base's.** Seven fields would have contradicted the verdict for free.
+
+> **Correction, wave 19:** the dump carries **55** fields, not the 56 this entry and wave 18's results §5.3 both
+> originally stated. Counted directly on both saved logs: 55 lines, 55 unique names, no duplicates, on `good` and
+> on `mutant` alike. Nothing downstream moves — \|D\| is still 8 — and it is corrected rather than repeated.
+
+> **The corrected control is built and half-demonstrated (wave 19, RULE C19 = `C-UNEVALUATED`).**
+> `score_c19_w19.py` reads `Options["OptimizedSettingsJson"]` and **refuses to fall back** to `Options[<knob>]`
+> (F71(a)); it requires corroboration on **\|D\| ≥ 3** independent fields rather than nominating a signature knob
+> (F71(b)); and `convert_landing_w19.py` prints every curated knob's `(Options, snapshot)` pair in three named
+> states — `BOTH-DIFFER`, `SNAP-ONLY`, `BOTH-AGREE` (F71(c)).
+>
+> **Demonstrated:** the retro direction on wave 18's own saved probe — **\|D\| = 8, good agrees with the snapshot
+> on 8 of 8, mutant on 0 of 8** — reconciling exactly with the converter's independent table (5 `BOTH-DIFFER` +
+> 3 `SNAP-ONLY` whose code default differs from the snapshot). Self-tests: scorer **9 of 9** (inverted pair,
+> \|D\| = 0, \|D\| = 1, missing dump, missing snapshot, mismatched snapshots, unaliased field named), converter
+> **11 of 11**.
+>
+> **Still owed: the live direction, `C19-D2`, ~1 minute.** Wave 19 never ran `probe_w19.sh`, so the scorer's own
+> interlock refused to write `C19_PROBE_PASSED` and downgraded to `C-UNEVALUATED`. *Why the bar is \|D\| ≥ 3 and
+> not "one field matched": a two-directional demonstration proves the branches are DISTINGUISHABLE, not that they
+> are CORRECTLY ASSIGNED — both directions are scored by the same definition, so a definition error moving both
+> verdicts the same way reads as a clean PASS. Wave 18's was caught only because the labels came out swapped.*
 
 ### Why it matters
 
@@ -4059,6 +4195,48 @@ Reproduce: `python3 /mnt/d/hf_w17/score_d17_w17.py --gate /mnt/d/hf_w17/gate --w
 `grep -o "NoiseReductionRadius=[0-9]*" /mnt/d/hf_w17/gate/toml999.log` (baseline first, seed second);
 `docs/synthetic-af-bank-followups-wave17-results.md` §4.4.
 
+> ### Wave 19 (2026-08-11): (a) escalated to the owner as not decidable by measurement; (b′) and the manual line pre-registered to ship and DID NOT SHIP
+>
+> **(a) is a decision to be taken on the source argument, by the owner.** Every class of evidence that could
+> decide the seed literal has been enumerated and each one is either complete-but-not-a-measurement, spent, or
+> structurally unable to decide:
+>
+> | evidence class | state |
+> |---|---|
+> | source / counting argument | **COMPLETE and free** — the answer is 4. **Not a measurement**, so it cannot satisfy a measurement rule |
+> | in-sample objective (`FinalJ`) | **SPENT** — published at A1-better 13, A0-better 7, 0 ties |
+> | anchoring rate (`N18-A`) | **SPENT** — published at 0.900 / 0.750 |
+> | out-of-sample `e` | **UNMEASURED and deliberately preserved.** Structurally weak even unspent: the largest landing-driven out-of-sample movement ever measured on this bank is **0.02584 step**, the largest of any kind **0.00993**, against a **0.10-step** materiality floor. **`e` can be a VETO; a veto is not a decider**, and a rule whose only measurement clause is a foreclosed veto cannot fail to ship |
+> | reach on real profiles | **0 of 9, by construction.** Argues neither way |
+> | the other 11 `BuildDefaultStarDetectorParams` call sites | unmeasured, ~30 m each, buys no decision |
+>
+> **The only clause with a live range was in-sample `FinalJ`, and it is spent.** The precedent exists: wave 14's
+> `MaxOutlierRejections` default was set to 0 by the owner, overriding wave 13's pre-registration, and the
+> register recorded it as such. Cost: one literal, plus [F69](#f69--f39bs-flag-names-and-its-own-comment-state-the-opposite-of-its-default-and-that-cost-a-pre-registered-rule-its-verdict)(b)'s
+> dump so the next wave can see which value actually ran. *A diagnostic published under an UNEVALUATED verdict is
+> not free — it SPENDS the population it reads, which is why RULE F14 is permanently NO VERDICT and why wave 19
+> shipped no driver that could look.*
+>
+> **(b′) did not ship**, so the residual hazard stands exactly as wave 18 left it. When it is done, the shared set
+> must be **derived from source** (the properties `DerivePresetSettings` assigns) and not guessed, one
+> parametrized test must perturb each property and assert the derived value after `ResetDefaults()`, and the test
+> must be demonstrated red against the named mutant **M-R1** — *remove the unconditional
+> `ConfigureSimpleSettings()` at the end of `ResetDefaultsImpl`*. **Any literal the test cannot cover stays.**
+>
+> **The manual is still wrong, and this is now two waves old.**
+> `documentation/docs/settings/preprocessing.md` gives `NoiseReductionRadius`'s default as **3** in the
+> settings-at-a-glance table **and again** in the prose (`**Default:** \`3\``, eighteen lines further down, in the
+> section a reader actually reads). **It is 4**, measured on 28 wave-19 logs: the `optimize/baseline` block reads
+> `NoiseReductionRadius=4` on 8 of 8 gate logs and 20 of 20 arm logs. It is wrong under *both* answers to (a) —
+> the page documents the **option**, whose derivation gives Typical's 3 plus the `+1` hotpixel compensation, and
+> **since `93e366a` nothing in the product produces 3 for it**, because Part 1 made `ResetDefaults()` derive too.
+> Wave 18 made the fix conditional on RULE N18, N18 returned `N-UNEVALUATED`, and the revert left a line the same
+> wave's Part 1 had just made unambiguously wrong; wave 19 pre-registered it unconditionally and did not make it.
+> *Two quantities sharing a name —
+> [F71](#f71--a-converted-settings-file-carries-every-detector-knob-twice-and-the-control-that-checked-the-conversion-read-the-copy-the-loader-ignores)'s
+> own defect, in the manual instead of a settings file.* **Both lines must change; wave 18's saved
+> `part2_w18.patch` touches only the table row and is not a template for the documentation half.**
+
 ### F69 — F39(b)'s flag NAMES and its own COMMENT state the opposite of its default, and that cost a pre-registered rule its verdict
 **Status:** Open · found 2026-08-10 (wave 17) while deciding
 [F67](#f67--af-fits-star-count-and-optimizes-are-not-the-same-number-so-the-control-built-on-their-equality-reports-could-not-look-on-exactly-the-datasets-where-the-intervention-bites-hardest)(c)
@@ -4123,6 +4301,21 @@ is the durable fix: a comment asserting when a snapshot is taken is exactly the 
 (c) **Decide whether `--apply-run-detection-binning` still earns its keep.** Deleting it breaks wave 7's scripts;
 keeping it keeps the trap. A third option is to make it *print* that it is a no-op and that the behaviour is on
 by default — **~10 m**, and it converts a silent misnomer into a loud one.
+
+> **(b) and (c) were pre-registered by wave 19 as item D, to ship unconditionally, and DID NOT SHIP
+> (2026-08-11).** Both are still owed. The tag for (b) is fixed and should be reused: **`optimize/detected`**,
+> chosen because it contains **no existing tag as a substring** (`optimize/baseline`, `optimize/seed`,
+> `af-fit/detector`), so a prior wave's `grep -l "PARAMS-DUMP optimize/baseline"` cannot double-count it — a name
+> like `optimize/baseline-resolved` would break wave 17's and wave 18's saved drivers. The test that makes it
+> real: the block exists **and** its `DetectionBinning` *and* `PixelScale` differ from the pre-mutation block on a
+> run whose resolved factor is not 1. *A dump identical to the one above it is a dump that has not been
+> demonstrated.*
+>
+> **Measured absence, so no later wave reads the design as evidence the code exists:**
+> `PARAMS-DUMP optimize/detected` appears on **0 of 8** wave-19 gate logs and **0 of 20** wave-19 arm logs; every
+> one of the 28 carries exactly two blocks. That count was in the driver as a *reported number with no threshold
+> attached*, and it is the only clause in the wave whose value depended on the shipped code — **it is what caught
+> the non-delivery**, while the gate's ten thresholded clauses passed identically either way.
 Reproduce: `OptimizationDiagnosticRunner.cs:205-216` against `:405-409` and `:570-586`; the artifact line that
 said so all along is `/mnt/d/hf_w16/probe/D12_c14_585_afbin2.log:135`;
 `docs/synthetic-af-bank-followups-wave17-results.md` §3.1.
