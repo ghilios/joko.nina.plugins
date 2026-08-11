@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -21,11 +21,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection.Optimization;
 /// Continue optimizing / <b>Accept</b> / Close — off the bottom, so a completed run could not be applied at all
 /// except via the title-bar X, which discards it.
 ///
-/// These cover the geometry decision without constructing a WPF <c>Window</c>, because a Window-constructing
-/// <c>[Apartment(STA)]</c> fixture makes the CI testhost fail to connect for the whole assembly. The Window-level
-/// adapter — above all the assertion that <c>SizeToContent</c> is switched to Manual, which is the actual defect —
-/// lives in <c>ClampWindowToWorkAreaTests</c> and is <c>[Explicit]</c>, so it runs on demand and NOT here. That
-/// split is recorded rather than hidden: the single most important assertion about this fix is not enforced by CI.
+/// These cover the geometry decision without constructing a WPF <c>Window</c>: fast, and immune to whatever
+/// makes a testhost flaky on a slow runner. They are NOT sufficient on their own — mutant M-F76 (leave
+/// <c>SizeToContent</c> active, which is exactly what shipped) passes all of them. The assertion that actually
+/// catches the defect lives in <c>ClampWindowToWorkAreaTests</c>, which also runs in CI.
 /// </summary>
 [TestFixture]
 public class WorkAreaClampGeometryTests {

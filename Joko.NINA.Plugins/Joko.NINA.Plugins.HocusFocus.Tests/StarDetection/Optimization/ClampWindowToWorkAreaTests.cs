@@ -33,15 +33,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection.Optimization;
 /// correctly, because the ViewModel and the XAML were both fine.
 /// </summary>
 /// <remarks>
-/// EXPLICIT, and the reason is an instrument failure worth recording. Constructing a WPF <c>Window</c> in an
-/// <c>[Apartment(STA)]</c> fixture passes locally and makes the GitHub Actions testhost fail to connect at all
-/// ("vstest.console process failed to connect to testhost process after 90 seconds") — the whole assembly, not
-/// just this fixture. The geometry these tests cover is pinned CI-side by WorkAreaClampGeometryTests; what only
-/// runs here is the adapter half, above all the assertion that <c>SizeToContent</c> is switched to Manual.
-/// Run on demand with: dotnet test --filter "FullyQualifiedName~ClampWindowToWorkAreaTests"
+/// These RUN IN CI, and the reason that sentence is here is a misattribution worth not repeating. One run failed
+/// with "vstest.console process failed to connect to testhost process after 90 seconds", and this fixture — new,
+/// STA, WPF-Window-constructing — was the obvious suspect, so it was marked [Explicit]. It was not the cause: the
+/// very next commit carried the identical fixture and passed, running 3895 tests in 26m56s against a normal ~15m.
+/// The failure message names its own cause ("may occur due to machine slowness") and the duration corroborates it.
+/// Marking it Explicit had removed the ONLY test that catches the actual defect — the SizeToContent assertion —
+/// from CI, so the marking was reverted. A single red run that names infrastructure is not evidence your new test
+/// is at fault; check whether a later commit with the same test passed before you weaken the suite.
 /// </remarks>
 [TestFixture]
-[Explicit("Constructing a WPF Window hangs the CI testhost; geometry is covered by WorkAreaClampGeometryTests")]
 [Apartment(ApartmentState.STA)]
 public class ClampWindowToWorkAreaTests {
 
