@@ -4565,11 +4565,26 @@ offering *candidate* sentinels nearest-first (`d*0.95` lands inside the range) a
 generic-probe equivalent of a clamping instrument: without the candidate ladder it would have silently
 misclassified a property, and without the could-not-look state it would have reported a guess as a measurement.*
 
-**Four properties are excluded BY NAME and are therefore still uncovered** — `UseAdvanced` (switches the object
-out of Simple mode, so the derivation would not run at all), `UseOptimizedSettings` (re-enters the derivation
-from its own setter), `IntermediateSavePath` (creates directories), and `Simple_FocusRange` (it *is* the
-trigger). `PresetOwnedPartition_CountsAndDisjointness_ArePinned` asserts none of the four reappears in either
-list, so an uncovered literal cannot masquerade as a covered one. **A literal the test cannot cover stays.**
+**The uncovered set was four, and three of them were effort rather than mechanism — it is now ONE.** The first
+pass excluded `UseAdvanced`, `UseOptimizedSettings`, `IntermediateSavePath` and `Simple_FocusRange`. Re-examined,
+only one of those exclusions was real:
+
+| property | first-pass reason | what it actually was |
+|---|---|---|
+| `Simple_FocusRange` | "it *is* the trigger" | **effort.** The probe now keeps **two** triggers and picks the one that is not the subject; `Simple_PixelScale` fires an equally complete re-derivation |
+| `IntermediateSavePath` | "creates directories" | **wrong.** The directory creation lives in `ResetDefaultsImpl`, which the probe never calls |
+| `UseOptimizedSettings` | "re-enters the derivation from its own setter" | **inert here.** `ConfigureSimpleSettings` requires `UseOptimizedSettings && HasOptimizedSettings`, and the second is false on a virgin object |
+| **`UseAdvanced`** | switches out of Simple mode | **REAL, and mechanical.** It is the one write that stops the derivation running at all, so the probe cannot distinguish *"the derivation left it alone"* from *"the derivation never ran"* |
+
+Suite **3888 → 3891**. `PresetOwnedPartition_CountsAndDisjointness_ArePinned` asserts `UseAdvanced` never
+appears in either list, so the one uncovered literal cannot masquerade as a covered one. **A literal the test
+cannot cover stays — but "cannot" has to mean mechanism, not the first reason that came to mind.**
+
+**The recovered coverage is demonstrated, not assumed.** Mutant **M-P2** — insert
+`Simple_FocusRange = FocusRangeEnum.Typical;` into `DerivePresetSettings`, making an *input* wrongly
+derivation-owned — gives **1 failed, 30 passed: exactly `Simple_FocusRange`**. Restored from a byte backup,
+verified sha-identical. *Three cases recovered from a could-not-look list are worth nothing until one of them is
+shown to fail on a defect, which is the same bar F66 sets for a gate.*
 
 ### F69 — F39(b)'s flag NAMES and its own COMMENT state the opposite of its default, and that cost a pre-registered rule its verdict
 **Status:** Open · found 2026-08-10 (wave 17) while deciding

@@ -549,13 +549,30 @@ public class StarDetectionOptionsTests {
         "LocallyAdaptiveBinarization", "MeasurementAverage", "ModelPSF", "PSFParallelPartitionSize",
         "PSFPixelIntegration", "RejectContaminatedStars", "SaturationThreshold", "SaveIntermediateImages",
         "Simple_NoiseLevel", "Simple_PixelScale", "StructureLayerBoost", "UsePSFAbsoluteDeviation",
+        // Recovered from the exclusion list: each is drivable once the probe can pick a second trigger.
+        // Simple_FocusRange only needed a trigger that is not itself; IntermediateSavePath never reaches the
+        // directory-creating code (that lives in ResetDefaultsImpl, which the probe does not call); and
+        // UseOptimizedSettings is inert here because ConfigureSimpleSettings requires HasOptimizedSettings too,
+        // which is false on a virgin object.
+        "Simple_FocusRange", "IntermediateSavePath", "UseOptimizedSettings",
     };
 
-    private static readonly string[] ProbeExcludedByName = {
-        "UseAdvanced", "UseOptimizedSettings", "IntermediateSavePath", "Simple_FocusRange",
-    };
+    // One property remains undrivable and the reason is mechanical, not effort: setting UseAdvanced is the one
+    // write that stops the derivation from running at all (ConfigureSimpleSettings returns immediately), so the
+    // probe cannot distinguish "the derivation left it alone" from "the derivation never ran". It stays
+    // uncovered, and PresetOwnedPartition_CountsAndDisjointness_ArePinned asserts it never sneaks into either
+    // list -- an uncovered literal must not masquerade as a covered one.
+    private static readonly string[] ProbeExcludedByName = { "UseAdvanced" };
 
-    private static void FireDerivation(StarDetectionOptions options) {
+    // The trigger cannot be the property under test, so the probe keeps two and picks the one that is not the
+    // subject. Both are inputs to DerivePresetSettings, so either fires a complete re-derivation.
+    private static void FireDerivation(StarDetectionOptions options, string subject = null) {
+        if (subject == "Simple_FocusRange") {
+            var wasScale = options.Simple_PixelScale;
+            options.Simple_PixelScale = wasScale == PixelScaleEnum.Typical ? PixelScaleEnum.WideField : PixelScaleEnum.Typical;
+            options.Simple_PixelScale = wasScale;
+            return;
+        }
         var was = options.Simple_FocusRange;
         options.Simple_FocusRange = was == FocusRangeEnum.Typical ? FocusRangeEnum.WideRange : FocusRangeEnum.Typical;
         options.Simple_FocusRange = was;
@@ -624,7 +641,7 @@ public class StarDetectionOptionsTests {
     public void DerivationOwnedProperties_RevertWhenTheDerivationRuns([ValueSource(nameof(DerivationOwnedProperties))] string name) {
         var (options, _, _) = Build();
         var (prop, before, _) = WriteSentinel(options, name);
-        FireDerivation(options);
+        FireDerivation(options, name);
         Assert.That(prop.GetValue(options), Is.EqualTo(before),
             $"{name} is listed as preset-owned, so DerivePresetSettings must reassign it and the sentinel must " +
             "not survive. If this fails, the property left the derivation and its ResetDefaultsImpl literal is " +
@@ -635,7 +652,7 @@ public class StarDetectionOptionsTests {
     public void NotDerivationOwnedProperties_SurviveWhenTheDerivationRuns([ValueSource(nameof(NotDerivationOwnedProperties))] string name) {
         var (options, _, _) = Build();
         var (prop, _, sentinel) = WriteSentinel(options, name);
-        FireDerivation(options);
+        FireDerivation(options, name);
         Assert.That(prop.GetValue(options), Is.EqualTo(sentinel),
             $"{name} is listed as NOT preset-owned, so the derivation must leave it alone. If this fails, the " +
             "property joined the derivation and its ResetDefaultsImpl literal is now dead.");
