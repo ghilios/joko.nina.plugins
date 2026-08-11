@@ -14,7 +14,9 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;
 using NINA.Core.Utility;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
@@ -205,6 +207,49 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         }
 
         /// <summary>
+        /// The height the window should have, derived from how much the body is ACTUALLY scrolling.
+        ///
+        /// Measuring the content was the wrong instrument twice over. SizeToContent asks a ScrollViewer for a
+        /// desired height and it reports whatever it is offered; and measuring the template root against an
+        /// infinite height does not help either, because the ScrollViewer sits in a <c>Height="*"</c> grid row,
+        /// which collapses to its desired size rather than its content's. Measured in the field: it answered
+        /// <c>content=548</c> for a body that genuinely overflowed a 752 work area.
+        ///
+        /// The ScrollViewer already knows the number. <c>ExtentHeight - ViewportHeight</c> is exactly how much
+        /// content is off-screen, so growing the window by that much shows it — capped at the work area. Naturally
+        /// idempotent: once nothing is clipped the shortfall is 0 and the target equals the current height.
+        /// </summary>
+        internal static double ChooseWindowHeightFromOverflow(double currentHeight, double extentHeight, double viewportHeight, double workAreaHeight) {
+            if (workAreaHeight <= 0.0 || currentHeight <= 0.0) {
+                return double.NaN;
+            }
+            if (double.IsNaN(extentHeight) || double.IsNaN(viewportHeight) || viewportHeight <= 0.0) {
+                return double.NaN;
+            }
+            var shortfall = Math.Max(0.0, extentHeight - viewportHeight);
+            return Math.Min(currentHeight + shortfall, workAreaHeight);
+        }
+
+        /// <summary>Depth-first search for the first ScrollViewer under <paramref name="root"/>.</summary>
+        private static ScrollViewer FindScrollViewer(DependencyObject root) {
+            if (root is null) {
+                return null;
+            }
+            var count = VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < count; i++) {
+                var child = VisualTreeHelper.GetChild(root, i);
+                if (child is ScrollViewer sv) {
+                    return sv;
+                }
+                var found = FindScrollViewer(child);
+                if (found != null) {
+                    return found;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Measures what the window's content wants vertically, given unlimited height, and fits the window to
         /// <see cref="ChooseWindowHeight"/>. Returns false when the content cannot be measured, so the caller falls
         /// back to the plain overflow clamp rather than guessing.
@@ -218,16 +263,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 LogOnce($"F76 fit: DECLINED -- content root not laid out yet (ActualWidth={root.ActualWidth:F0})");
                 return false;
             }
-            // The chrome (title bar + borders) is whatever the window has beyond its content, measured from the
-            // laid-out sizes rather than assumed.
-            var chrome = Math.Max(0.0, window.ActualHeight - root.ActualHeight);
-            root.Measure(new Size(root.ActualWidth, double.PositiveInfinity));
-            var target = ChooseWindowHeight(root.DesiredSize.Height, chrome, work.Height);
-            if (double.IsNaN(target)) {
-                LogOnce($"F76 fit: DECLINED -- unusable measurement (content={root.DesiredSize.Height:F0} work={work.Height:F0})");
+            var current = EffectiveHeight(window.ActualHeight, window.Height);
+            var scroller = FindScrollViewer(root);
+            if (scroller is null) {
+                LogOnce("F76 fit: DECLINED -- no ScrollViewer under the content root");
                 return false;
             }
-            var current = EffectiveHeight(window.ActualHeight, window.Height);
+            var target = ChooseWindowHeightFromOverflow(current, scroller.ExtentHeight, scroller.ViewportHeight, work.Height);
+            if (double.IsNaN(target)) {
+                LogOnce($"F76 fit: DECLINED -- unusable scroll metrics (extent={scroller.ExtentHeight:F0} " +
+                        $"viewport={scroller.ViewportHeight:F0} current={current:F0} work={work.Height:F0})");
+                return false;
+            }
             var top = window.Top;
             if (top + target > work.Bottom) {
                 top = work.Bottom - target;
@@ -235,7 +282,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (top < work.Top) {
                 top = work.Top;
             }
-            LogOnce($"F76 fit: content={root.DesiredSize.Height:F0} chrome={chrome:F0} work={work.Height:F0} " +
+            LogOnce($"F76 fit: extent={scroller.ExtentHeight:F0} viewport={scroller.ViewportHeight:F0} " +
+                    $"short={Math.Max(0.0, scroller.ExtentHeight - scroller.ViewportHeight):F0} work={work.Height:F0} " +
                     $"current={current:F0}@{window.Top:F0} => h={target:F0} top={top:F0}");
             if (Math.Abs(current - target) < 1.0 && Math.Abs(window.Top - top) < 1.0) {
                 return true;   // already right; do not churn layout
@@ -245,8 +293,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             } else if (window.SizeToContent == SizeToContent.Height) {
                 window.SizeToContent = SizeToContent.Manual;
             }
+            var beforeHeight = window.Height;
+            var beforeActual = window.ActualHeight;
             window.Height = target;
             window.Top = top;
+            // ASSERT THE WRITE TOOK. The field log showed this method compute the correct target (h=752 from
+            // content=1350) while the window stayed at 594 and no SizeChanged followed -- i.e. the assignment did
+            // not change the window. Every other check in this file demands the mutation be observed; this one
+            // wrote a value and trusted it. Read it back, with the constraints that could be overriding it.
+            LogOnce($"F76 applied: target={target:F0} -> Height={window.Height:F0} Actual={window.ActualHeight:F0} " +
+                    $"Top={window.Top:F0} (was H={beforeHeight:F0} A={beforeActual:F0}) stc={window.SizeToContent} " +
+                    $"min={window.MinHeight:F0} max={window.MaxHeight:F0} state={window.WindowState} " +
+                    $"resize={window.ResizeMode}");
             return true;
         }
 
