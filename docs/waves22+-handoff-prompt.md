@@ -34,7 +34,7 @@ whether it has a finding worth an entry, and "no" is an acceptable answer.
 
 | | state |
 |---|---|
-| **the gate** | Eight values, **reproduced on eleven binaries** (waves 11–20) plus wave 21's twelfth, bit-identical to sixteen digits every time. It has never moved. §5 |
+| **the gate** | Eight values, **reproduced on TWELVE binaries** (waves 11–21), bit-identical to sixteen digits every time. It has never moved. Wave 21's `G21` PASSED on BuildId `58b3b0828eaa494499feec0b1098822f`, with `P1a/P1b/P2a–e/P3a` all **8 of 8**. §5 |
 | **F67** | **CLOSED by intervention (wave 17).** The cause is **`DetectionBinning`** — **neither** of wave 16's two candidates. `C17-A` **63 of 63 = 1.0000** against a status quo of **0.000 of 63**. Nothing further is owed on the entry itself; the residual is a *different* question, §2 |
 | **F73 / RULE R19** | **`R-DETERMINISTIC`** (wave 19): 20 of 20 datasets, **660 of 660** landing keys, `R19-A` minus `R19-B` = zero. **But it is a NULL ARM** — the two build trees were C#-identical (`git diff --name-only … '*.cs'` empty), so it measures the **noise** floor and **not** whether a code change can move a landing at fixed `J`. The code axis was never run |
 | **F69** | **(b) and (c) SHIPPED (wave 20)**, measured on the eleventh binary: `optimize/detected` on 8 of 8 gate logs and 1 of 1 probe log, 55/55 fields; the no-op notice once on the probe, zero times on the gate. **(a) shipped in wave 21 — verify in that wave's results** |
@@ -42,11 +42,13 @@ whether it has a finding worth an entry, and "no" is an acceptable answer.
 | **F74** | New (wave 20): a driver and a scorer rebuilt the same artifact path from a template and cost RULE D20 its verdict. **Fixed BY CONSTRUCTION in wave 21** — see the discipline in §4 |
 | **RULE D20** | **`D-UNEVALUATED`, permanently.** Do not convert the diagnostic to a verdict — see §3b |
 | **F72 / item C** | **UNBLOCKED.** The nine-wave crash does not reproduce; the plugin loads, the options UI renders, `Max Outlier Rejections: 0` confirmed as pixels. **A1, A2, A4–A8 still owed, ~30 m** |
-| **F21** | Wave 20's probe returned **COULD-NOT-LOOK**: `synth-validate` exits **2** because it needs `--spec <json>` and the probe passed none. **Wave 21 found the spec and it ships with the build** — see §2. Still **no measured rate** |
+| **F21** | **PRICED at last (wave 21, item P): 45–52 s.** `exit=0` by name, `roundsUsed=2`, and a second round **did** occur. The working invocation is in §2. An unregistered rule-free follow-on at `--max-rounds 5` stopped at `roundsUsed=2` again with an **identical** trajectory, so the convergence is a **real stop, not `maxRounds` running out**. **Seed sensitivity is UNMEASURED** — the per-round seeds are *derived* from spec+scenario (identical in both runs: `[-25215000, 1539450862]`), so the repeat is ordinary determinism and says nothing about seeds |
+| **RULE B21** | **`B-DEMONSTRATED`** (wave 21), **6 of 6** on V1/V2/V3/A/B/D over the six factor-2 datasets `D20` never touched (`D10, D17, D09, D08, D15, D14`). `optimize/detected` **is** the post-mutation bundle: binning 1 → 2, `PixelScale` `NaN` → finite and equal to the console at its own precision, difference set from `optimize/baseline` **exactly** `{DetectionBinning, PixelScale}` over 55 fields. `B-REFUTED` was reachable and did not occur. **This is how D20's question was answered WITHOUT harvesting D20** — a new population, not a re-score |
+| **F75** | New (wave 21): the wave held **two standards for its two interlocks**. `B21_ARM_READY` is driver-written, last, only on `>= 4` rows, under an explicit *"never hand-write the marker"*; `G21_PASSED` — the one the arm blocks on — was a controller `printf` named only in the plan. **An interlock whose writer is a human is a note, not an interlock.** One-line repair named in the entry |
 | **F45(b)** | **REJECTED ON TIME by wave 21** (~3–4 h against a 3 h 25 m wave). Remains behind the RULE S16 fence, §3a |
 | **F59** | **REJECTED ON THE MERITS** (wave 20's measurement, wave 21 concurring). §2 carries the corrected costing — do not re-cost it at "~1 h" |
-| **F15** | 42 of 42 bank landings byte-identical for **seven consecutive waves** |
-| **the suite** | **3838** after wave 20 (3831 + 7). **The superseded charter's "3781" and "3831" are BOTH stale.** Wave 21 adds tests: **read wave 21's results for the new number** and verify **by COUNT**, never the tick ([F37](followups.md)) |
+| **F15** | 42 of 42 bank landings byte-identical for **eight consecutive waves**. Wave 21's other three controls also passed: **59 of 59** aux files, **48 of 48** prior-wave arm landings across three roots, **10 of 10** wave-20 logs — all byte-identical, **0 could-not-look** |
+| **the suite** | **3839**, verified **by COUNT** at the end of wave 21 (`Failed: 0, Passed: 3839, Skipped: 0`). **"3781", "3831" and "3838" are ALL stale.** Verify by count, never the tick ([F37](followups.md)) |
 
 **Artifacts:** `D:\hf_w17\` … `D:\hf_w21\`. Reusable: `score_w12.py` (the gate), `prov_w<N>.py` (free controls,
 self-testing), `convert_landing_w15.py` (landing → harness settings, via the production Accept path),
@@ -74,10 +76,34 @@ a control it does not have. Name the check that *does* reach them instead.
 | **F73's honest missing arm — the CODE axis** | it *is* the arm: same 20 datasets, a binary differing by a change **believed inert on the search**, all **33** keys diffed. Wave 19's `git diff --name-only <old> <new> -- '*.cs'` line is now mandatory provenance for any two-binary rule | **~53 m** |
 | **F59** | **NO, and the cost is not "~1 h".** `DerivePresetSettings()` assigns four of the five (`MaxDistortion`, `StarCenterTolerance`, `HotpixelThreshold`, `Sensitivity`), so under the pinned file's `UseAdvanced=False` they are **overwritten on load** and repairing the exporter changes the detector by exactly nothing for them. The fifth, `SaturationThreshold`, is **not** preset-owned and **would** bind — making this a **coordinate-system move owing a fresh 42 m baseline**, and that is the whole price | **42 m baseline** + re-derivation |
 | **F45(b)** production plumbing | **NO.** Fenced, §3a. `N*` is not reachable in `AutoFocusEngine` (`:901` drops the count into `MeasureAndError`, a NuGet struct of two doubles) | **~3–4 h** + tests |
-| **F21** | **NO.** Unpriced — **and that IS the deliverable**. Wave 21 pre-registered it as the rule-free tail item, **FIRST in the drop order**; read wave 21's results | **unpriced by design** |
+| **F21** | **NO.** **Now priced — the deliverable was delivered.** Nothing further is owed unless a *rule* over `synth-validate` is wanted, and one is now affordable | **45–52 s** per dataset×scenario×2 rounds |
 
-**F21, everything wave 21 established before running it** (pre-registered; read wave 21's results for the
-outcome): the spec **ships with the build** at `<exe>\SynthBank\synthetic-bank-spec.json`, sha256
+**F21 — the working invocation, measured. Copy it; do not re-derive it:**
+
+```bash
+timeout 1200 <exe>/TestApp.exe synth-validate \
+  --spec 'D:\hf_w21\exe\SynthBank\synthetic-bank-spec.json' --out '<out>' \
+  --datasets D11_rc10_585_afbin2 --scenarios S1 --max-rounds 2 \
+  --settings 'D:\hf_w11\pinned_settings_w11.json' --profile-id 'ce3f3e63-8fd3-4b72-a0ca-d90db9441382'
+```
+
+**Read the report with the RIGHT field names** — wave 21's probe printed four `None`s because it guessed them,
+and every one of them existed under another name (F74's family, in the reader):
+
+| the obvious guess | what the report actually calls it |
+|---|---|
+| `dataset`, `scenario` | **`datasetId`**, **`scenarioId`** |
+| per-round `HalfWidth`, `step` | **nested**: `rounds[N].stepRecommendation.{halfWidth, stepSize}` — a flat key scan finds nothing |
+| assertion `name`, `passed` | **`id`**, **`verdict`**, `detail` |
+
+Round records also carry `bootstrap`, `fit`, `exposureRecommendation`, `binningRecommendation` and `applied`;
+the scenario-level `terminal` block carries `converged`, `roundsUsed`, `stoppedReason`, `stepToleranceBand`,
+`stepTheory`, `stepBehavioral`, `finalStepSize`, `expectedStepSize` and `overallVerdict`. On `D11`/`S1` the
+trajectory is `14 → 24 → 41` with `wasCapped=True` both rounds at a pinned `1.714…` growth ratio, stopping on
+`converged (step 41 within the 22 tolerance band of step_behavioral 55)`.
+
+**Everything below was established at zero compute BEFORE the probe ran, and still holds:** the spec
+**ships with the build** at `<exe>\SynthBank\synthetic-bank-spec.json`, sha256
 `bf10522e670a119e260a8b3d06c2cc6ec52ce513dde25ca9ca13f426c38672d6`. **Caveat, not a blocker:** the bank's own
 `synthetic_meta.json` records `generator.specSha256 = 621455a1…`, so **the shipped spec is a LATER revision than
 the one that rendered the bank.** Scenario ids are **S0–S6** (`SynthValidationScenarios.cs`); **S1** (step ×0.25,
@@ -176,6 +202,20 @@ arm**; **a gate never shown to PASS is not a gate, and the demonstration must as
   `/mnt/d/hf_w21/b21_manifest.tsv` (dataset, log path, landing path, resolved factor per row) and the scorer
   reads paths **only** out of it; both drivers source **one shared layout function**
   (`/mnt/d/hf_w21/layout_w21.sh`) — F74(b). *A fallback rooted at the same wrong parent is not a second chance.*
+- **An interlock whose writer is a HUMAN is not an interlock — it is a note** ([F75](followups.md)). Wave 21
+  held two standards at once: `B21_ARM_READY` was written by the driver, last, only on `>= 4` rows, under an
+  explicit *"never hand-write the marker"* — while `G21_PASSED`, **the marker the arm actually blocks on**, was
+  a controller `printf` named only in the plan. Nothing mechanically coupled it to the check it attested, so it
+  could have been written before the FAIL-end demonstration and nothing would have caught it. **The writer must
+  be the code that computes the verdict**: a scorer that already knows `rc` and the BuildId should emit the
+  marker on `rc == 0` and only then — which also makes the FAIL end *unable* to leave one behind, a
+  two-directional demonstration of the interlock for free. **And when a marker seems to have no writer, grep the
+  PLAN too, not just `*.sh` and `*.py`** — wave 21's controller called it "a reader and no writer" and was
+  wrong; the writer was a human step at plan line 173.
+- **A self-test that runs AFTER the thing it guards is not a guard.** Wave 21 launched the B21 arm and ran
+  `b21_arm_w21.sh --self-test` while it was four datasets deep. It passed and it was read-only, so nothing was
+  harmed — but had it failed, the arm was already running. Recorded as a deviation, not laundered into
+  "the self-test passed."
 - **A report and an exit status are two channels. Wire BOTH to the verdict, and self-test the message against the
   mechanism it describes.** Wave 20 shipped two counter-examples: `prov_w20.py` printed *"novel against NINE
   recorded ids"* while checking ten, and `score_d20_w20.py --gate` **exited 0 on a `G20-P2` FAIL**. Wave 21's
