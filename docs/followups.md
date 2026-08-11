@@ -14,7 +14,7 @@ Status: **Open** · **In progress** · **Done** · **Won't fix**
 ## Detector / optimizer behaviour
 
 ### F76 — The optimizer wizard opens with its footer below the bottom of the screen, so `Accept` is unreachable until the window is moved
-**Status:** **Open — positioning defect** · found 2026-08-11 (wave 21) by the A1–A9 *rendered pixels* check, on the first run of the wizard that check has ever completed · **SUBSTANTIALLY CORRECTED the same day — see "what the first write-up got wrong"**
+**Status:** **FIXED (`83330ef`)** — `SizeToContent` is now turned off once the window would outgrow the work area · found 2026-08-11 (wave 21) by the A1–A9 *rendered pixels* check, on the first run of the wizard that check has ever completed · **SUBSTANTIALLY CORRECTED the same day — see "what the first write-up got wrong"**
 
 Running the Optimization Wizard to completion (Plugins → Hocus Focus → Star Detector → **Optimize Star
 Detection**) produces a long summary. **The footer — `Back | Review frames | Continue optimizing | Accept |
@@ -110,20 +110,27 @@ clamps at the Win32 level while leaving `SizeToContent` on is the one that fails
 geometry alone. That `SizeToContent` re-assertion is the *cause* is the leading hypothesis, strongly supported by
 row 3 and by the sibling window's contrasting approach, but the message sequence has still not been logged.
 
-### Next step
-1. **Fix, following the sibling:** in `ClampWindowToWorkArea`'s `OnLoaded`/`ClampNow`, set
-   `window.SizeToContent = SizeToContent.Manual` before clamping, then set `Height`/`Top` from
-   `SystemParameters.WorkArea`. Keep the Win32 hook for later user drags. Re-clamp after each wizard step, since
-   the step change is what re-grows the window.
-2. **Confirm while fixing** by logging `pos.flags`, `pos.cy` and the window's `SizeToContent` across a run —
-   cheap, and it converts the remaining hypothesis into a measurement.
-3. **Regression test:** assert the **placed rectangle** against a simulated small work area, not the layout. No
-   ViewModel test reaches this — 180 of them pass on the defect.
-4. Fix the stale docstring at `:146` (`ClampNow` says "height only" but clamps `y` too).
+### FIXED — `ApplyWorkAreaLimit`, following the sibling that already worked
 
-**Reproduce on a small screen.** The controller's 3440×1440 monitor masked it: there the window happened to land
-at exactly the work-area height, which is why the first write-up called the height clamp "correct". A screen
-small enough that the summary's content greatly exceeds the work area is what exposes it.
+`ClampWindowToWorkArea.ApplyWorkAreaLimit(Window, Rect)` engages **only** once the window would exceed the work
+area, so ordinary per-step `SizeToContent` growth is untouched on a screen with room for it. When it engages it
+does the three things the Win32 hook could not: sets **`SizeToContent = Manual`** (the actual defect — leaving it
+on is what let WPF overwrite the clamp on the next layout pass), pins `Height` to the work area, and moves `Top`
+back inside. Wired to `Window.SizeChanged` and called from `Attach`; the Win32 hook is kept for user drags and
+maximize. Idempotent, so the `SizeChanged` handler cannot recurse.
+
+**Four tests, asserting the PLACED RECTANGLE** against a simulated `1920×1000` work area
+(`ClampWindowToWorkAreaTests`, `[Apartment(STA)]`): the clamp case, the fits-already case (which guards that
+`SizeToContent` **survives** when there is room — otherwise the wizard stops sizing itself per step), idempotence,
+and an exact-fit case that guards the comparison direction. Suite **3891 → 3895**.
+
+**Demonstrated red against the shipped defect.** Mutant **M-F76** — leave `SizeToContent` active, which is
+precisely what shipped — fails `TallerThanWorkArea_TurnsSizeToContentOff_AndPinsHeightAndTop`, **1 of 4**.
+Restored from a byte backup, verified sha-identical.
+
+**Still owed: a live confirmation on a small screen.** The fix is verified by test and by reasoning from the
+owner's repro, but nobody has re-run the wizard on the reduced-resolution display and watched the footer appear.
+That is the check that closes it for real — and this entry has been wrong twice from reasoning without it.
 
 ### F1 — The donut heuristic misses small donuts
 **Status:** Open · found 2026-07-30 during the bank donut audit
