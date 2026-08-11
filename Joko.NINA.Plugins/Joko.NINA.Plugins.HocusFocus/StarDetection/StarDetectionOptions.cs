@@ -336,26 +336,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             UseAdvanced = false;
             DebugMode = false;
             ModelPSF = true;
-            PSFFitType = StarDetectorPSFFitType.Moffat_40;
             Simple_NoiseLevel = NoiseLevelEnum.Typical;
             Simple_PixelScale = PixelScaleEnum.Typical;
             Simple_FocusRange = FocusRangeEnum.Typical;
             DetectionBinning = DetectionBinningEnum.Bin1;
-            HotpixelFiltering = true;
             HotpixelThresholdingEnabled = true;
             UseAutoFocusCrop = true;
-            StarMeasurementNoiseReductionEnabled = false;
-            NoiseReductionRadius = 3;
-            NoiseClippingMultiplier = 4.0; // INTERIM revert to v3.0.0.26 (lockstep with the Simple preset + optimizer seed)
-            StarClippingMultiplier = 2.0;
             ContaminationSensitivity = 5.0;
             RejectContaminatedStars = true;
-            StructureLayers = 4;
             DefocusAwareStructure = false;
             StructureLayerBoost = 0;
-            BrightnessSensitivity = 10.0; // INTERIM revert to v3.0.0.26 (lockstep with the Simple preset + optimizer seed)
-            StarPeakResponse = 0.75;
-            MaxDistortion = 0.5;
             DefocusAwareGates = false;
             DefocusDistortionSizeReference = 30.0;
             DefocusDistortionMinFactor = 0.25;
@@ -367,23 +357,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             DonutMinAnnularityHoleFraction = 0.15;
             DonutMaxStreakEccentricity = 1.0;
             DonutSaturationBloomRadius = 0.0;
-            StarCenterTolerance = 0.3;
-            StarBackgroundBoxExpansion = 3;
-            MinStarBoundingBoxSize = 5;
-            MinHFR = 1.2;
-            StructureDilationSize = 3;
-            StructureDilationCount = 0;
-            PixelSampleSize = 1.0;
             IntermediateSavePath = Path.Combine(CoreUtil.APPLICATIONTEMPPATH, "HocusFocusIntermediate");
             if (!Directory.Exists(IntermediateSavePath)) {
                 Directory.CreateDirectory(IntermediateSavePath);
             }
             SaveIntermediateImages = false;
             PSFParallelPartitionSize = 100;
-            PSFResolution = 10;
-            PSFFitThreshold = 0.9;
             UsePSFAbsoluteDeviation = false;
-            HotpixelThreshold = 0.001d;
             SaturationThreshold = 0.99d;
             ExcludeSaturatedStarsFromHFR = true;
             MeasurementAverage = MeasurementAverageEnum.Median;
@@ -404,10 +384,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // ConfigureSimpleSettings, and DerivePresetSettings adds the hotpixel compensation at :221-224
             // whenever HotpixelThresholdingEnabled && HotpixelFiltering, which are both on by default.
             //
-            // The preset-owned literals above are retained as documentation of the intended defaults, but the
-            // derivation is the AUTHORITY for the 20 properties the two share — hand-transcribing them is what
-            // drifted in the first place. Pinned by StarDetectionOptionsTests
-            // .ResetDefaults_EqualsFreshConstruction_* (four entry states, every property).
+            // F70(b'). The 20 preset-owned literals that used to sit above have been REMOVED. They assigned a
+            // value and this call overwrote it before the method returned, so they could not affect the result —
+            // but they were not inert text: each ran its setter, which persists to the options accessor and
+            // raises PropertyChanged, and each stated a number that nothing forced to match the derivation.
+            // NoiseReductionRadius is why that matters: the literal said 3 while every constructed object holds
+            // 4 (the Typical base plus the +1 hotpixel compensation at DerivePresetSettings), and hand-
+            // transcribing it is exactly how the two drifted apart. DerivePresetSettings is now the single
+            // authority for those 20; the ~33 defaults that remain above are the ones it does NOT own.
+            //
+            // Do not "restore" any of the 20 for readability. Three of the survivors above are its INPUTS
+            // (Simple_NoiseLevel / Simple_PixelScale / Simple_FocusRange) and HotpixelThresholdingEnabled is READ
+            // by it for the +1 — those four look preset-owned and are not. The membership is pinned at runtime by
+            // StarDetectionOptionsTests.DerivationOwnedProperties_RevertWhenTheDerivationRuns /
+            // NotDerivationOwnedProperties_SurviveWhenTheDerivationRuns, and the removal itself is guarded by
+            // ResetDefaults_EqualsFreshConstruction_* (four entry states, every property).
             ConfigureSimpleSettings();
         }
 
