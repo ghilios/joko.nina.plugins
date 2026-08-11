@@ -13,6 +13,59 @@ Status: **Open** · **In progress** · **Done** · **Won't fix**
 
 ## Detector / optimizer behaviour
 
+### F76 — The optimizer wizard's whole action row (including **Accept**) is clipped off the bottom when the result summary is long, and 180 passing VM tests cannot see it
+**Status:** **Open — product defect** · found 2026-08-11 (wave 21) by the A1–A9 *rendered pixels* check, on the first run of the wizard that check has ever completed · **the VM is fine; the failing half is the XAML**
+
+Running the Optimization Wizard to completion (Plugins → Hocus Focus → Star Detector → **Optimize Star
+Detection**) produces a summary containing a V-curve, a per-position stars-per-frame strip, a **long
+Star-signal advisory paragraph**, the auto-focus settings block, the detection-binning block and a
+**12-row Changed parameters table**. With that much content the window's action row —
+
+```
+Back | Review frames | Continue optimizing | Accept | Close
+```
+
+— **is not on screen.** All five buttons are present in the visual tree and every one of them reports
+coordinates `(0,0)`, i.e. no hit-testable location.
+
+**The measurement that settles it:**
+
+```
+window   : T=12  B=1404  height=1392
+work area: T=0   B=1392  height=1392      <-- EXACTLY equal
+```
+
+The dialog is `SizeToContent`, so WPF sizes it to its content and then **clamps it to the monitor work area**.
+Content taller than the work area is simply cut, and the action row is the last thing in the layout. Confirmed:
+the window **refuses programmatic resize** (`SetWindowPos` with a new width/height returns the same 842×1392),
+and **no inner ScrollViewer responds to the wheel** anywhere in the dialog — over the table, over the advisory,
+or over the help text. The only reachable control is the title-bar **X**, which *discards* the run.
+
+**So on a 1440-px-tall display the user can complete an optimization and then have no way to accept it.** The
+help text at the bottom even tells them to do the thing they cannot do: *"…then Accept to apply the selected
+variant … or Close to discard."*
+
+**Why the suite is green.** `StarDetectionOptimizerWizardVMTests` has **180 tests** and they all pass, because
+the ViewModel *is* correct — it exposes the commands, and they would execute if invoked. Wave 13's results
+named this exact gap: *"What is untested is the XAML half — that these strings and rows appear, in the right
+panel, unclipped, in the running app."* **This is that gap producing a real defect**, and it is the first
+finding the A1–A9 check has ever returned, on the first run of the wizard it has ever reached.
+
+**Honest scope — it is content-length dependent, not universal.** The overflow here is only ~20–40 px: the help
+text ends at screen `1385` and the window bottom is `1404`. A shorter Star-signal advisory (this run's was long
+*because* Brightness Sensitivity bottomed out), fewer changed-parameter rows, a taller monitor, or a lower DPI
+scale would all fit. **What is not conditional is the failure mode:** a `SizeToContent` window with no
+ScrollViewer has no graceful degradation — one extra line of advisory text silently removes `Accept`.
+
+### Next step
+Give the wizard's result page a **ScrollViewer** around the content with the action row pinned outside it, or
+set a `MaxHeight` with scrolling, so the buttons are reachable at any content length. A regression test cannot
+be an ordinary VM test — it must assert the **rendered** layout (e.g. measure the result page at a constrained
+height and assert the action row's `IsVisible`/transformed bounds lie inside the window), which is the same
+"rendered, not computed" bar A1–A9 were written for.
+**Reproduce:** launch NINA → profile `astrodet` → Plugins → Hocus Focus → Star Detector → *Optimize Star
+Detection* → Browse to a saved run → Start → wait for *Optimization complete* on a 3440×1440 display.
+
 ### F1 — The donut heuristic misses small donuts
 **Status:** Open · found 2026-07-30 during the bank donut audit
 
@@ -7111,13 +7164,45 @@ now confirmed **in the running app, against the bytes on disk** — not against 
 `± -- steps` — those fields are absent from this 2026-07-24 report, so the blank is correct behaviour and *not*
 a confirmation that they round-trip. A report that carries them is needed to check those two rows.
 
+### Wave 21 — the wizard was driven to completion for the first time; **A4 and A6 confirmed, and the run found [F76](#f76)**
+
+The entry point is **not** the Imaging dock (which is collapsed to a sliver on the right edge). It is
+**Plugins → Hocus Focus → Star Detector → "Optimize Star Detection"**, a button in
+`Resources/OptionsDataTemplates.xaml:1002` bound to `OptimizeStarDetectionCommand`, which calls
+`HocusFocusPlugin.LaunchStarDetectionOptimizer`. *Finding that in source cost two greps and saved rearranging
+the user's saved dock layout.*
+
+The run was pointed at a **copy** of `D11_rc10_585_afbin2` at `D:\hf_w21\uicheck_run`, never at the bank
+itself — the 42 landings are fingerprinted and were re-verified byte-identical afterwards.
+
+**A4 — in-run guidance: CONFIRMED, rendered.**
+```
+Refining settings
+[========                    ]  64 / 400 (008)
+Found better settings so far
+49 ms per step - at most 17 s more, usually much less
+```
+
+**A6 — abort advice: CONFIRMED, rendered unclipped**, on the same in-run page:
+> *"Cancel stops the search only. Nothing is written to your profile unless you click Accept."*
+
+**A3/A9 upgraded:** the exposure row, previously only ever seen as the placeholder *"Run an auto-focus to get a
+recommendation"*, rendered a **real** recommendation — `2.5 s (unchanged; measured star S/N 18.8; target 10)`.
+
+**A5 and A7 — NOT confirmed, and the reason is the defect.** `Continue optimizing` (the re-run / F32 exposed
+restart) and the rest of the action row **exist in the visual tree but have no on-screen location** — see
+**[F76](#f76)**. They cannot be confirmed as rendered pixels until F76 is fixed.
+
+**A8 — NOT exercised.** A8 is *"the capped step says what it converges toward"*. This run's step was
+`55 → 53`, **not capped**, so the F49(c) text never had to appear. A8 needs a replay that actually hits a
+capped step; it is not enough to reach the summary.
+
 ### Next step
-**A4–A8 remain unconfirmed as rendered pixels.** They need the **Star Detection Optimizer wizard driven to an
-in-run state** (A4 in-run guidance, A5 re-run button, A6 abort advice, A7 F32's exposed restart, A8 the capped
-step naming what it converges toward). In the Imaging tab that dock is **collapsed to a sliver on the right
-edge** and must be widened or floated first; A8 additionally needs a replay that actually **hits a capped
-step**, which is not guaranteed. Budget ~30 m on a connected session with NINA not competing with a pinned arm.
-Reproduce: launch NINA → load profile `astrodet` → Imaging tab.
+**A5, A7 and A8 remain unconfirmed as rendered pixels.** A5/A7 are **blocked on [F76](#f76)**. A8 needs a saved
+run whose recommended step is capped. Nothing was written to the profile by this session: the wizard was closed
+via the title-bar X, which discards.
+**Reproduce:** launch NINA → profile `astrodet` → Plugins → Hocus Focus → Star Detector → *Optimize Star
+Detection*.
 
 
 ### F15 — `optimize --per-run` overwrites each run's stored settings
