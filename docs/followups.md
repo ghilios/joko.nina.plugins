@@ -14,7 +14,7 @@ Status: **Open** · **In progress** · **Done** · **Won't fix**
 ## Detector / optimizer behaviour
 
 ### F76 — The optimizer wizard opens with its footer below the bottom of the screen, so `Accept` is unreachable until the window is moved
-**Status:** **FIXED (`83330ef`)** — `SizeToContent` is now turned off once the window would outgrow the work area · found 2026-08-11 (wave 21) by the A1–A9 *rendered pixels* check, on the first run of the wizard that check has ever completed · **SUBSTANTIALLY CORRECTED the same day — see "what the first write-up got wrong"**
+**Status:** **FIXED (`2489a78`) — by MEASUREMENT, after four wrong diagnoses.** The clamp read `Window.Height` (requested) instead of `ActualHeight` (rendered) and declined on every call · **field-confirmation still owed** · found 2026-08-11 (wave 21) by the A1–A9 *rendered pixels* check, on the first run of the wizard that check has ever completed · **SUBSTANTIALLY CORRECTED the same day — see "what the first write-up got wrong"**
 
 Running the Optimization Wizard to completion (Plugins → Hocus Focus → Star Detector → **Optimize Star
 Detection**) produces a long summary. **The footer — `Back | Review frames | Continue optimizing | Accept |
@@ -110,27 +110,66 @@ clamps at the Win32 level while leaving `SizeToContent` on is the one that fails
 geometry alone. That `SizeToContent` re-assertion is the *cause* is the leading hypothesis, strongly supported by
 row 3 and by the sibling window's contrasting approach, but the message sequence has still not been logged.
 
-### FIXED — `ApplyWorkAreaLimit`, following the sibling that already worked
+### FIXED by MEASUREMENT — and the measurement cost 20 lines of logging after four wrong diagnoses
 
-`ClampWindowToWorkArea.ApplyWorkAreaLimit(Window, Rect)` engages **only** once the window would exceed the work
-area, so ordinary per-step `SizeToContent` growth is untouched on a screen with room for it. When it engages it
-does the three things the Win32 hook could not: sets **`SizeToContent = Manual`** (the actual defect — leaving it
-on is what let WPF overwrite the clamp on the next layout pass), pins `Height` to the work area, and moves `Top`
-back inside. Wired to `Window.SizeChanged` and called from `Attach`; the Win32 hook is kept for user drags and
-maximize. Idempotent, so the `SizeChanged` handler cannot recurse.
+The clamp was made self-reporting and the owner ran the wizard once. **The log named the defect in a single
+line**, and nothing about it could have been reached by reading the source harder:
 
-**Four tests, asserting the PLACED RECTANGLE** against a simulated `1920×1000` work area
-(`ClampWindowToWorkAreaTests`, `[Apartment(STA)]`): the clamp case, the fits-already case (which guards that
-`SizeToContent` **survives** when there is room — otherwise the wizard stops sizing itself per step), idempotence,
-and an exact-fit case that guards the comparison direction. Suite **3891 → 3895**.
+```
+F76 clamp: attached to 'CustomWindow' hwnd=557846578; workArea=0,0,1280,752
+F76 clamp: h=505 actual=505 top=101 stc=WidthAndHeight work=752@0 => declined
+F76 clamp: h=505 actual=492 top=123 stc=WidthAndHeight work=752@0 => declined
+F76 clamp: h=492 actual=581 top=123 stc=WidthAndHeight work=752@0 => declined
+F76 clamp: h=581 actual=492 top=123 stc=WidthAndHeight work=752@0 => declined
+F76 clamp: h=492 actual=817 top=123 stc=WidthAndHeight work=752@0 => declined   <-- the summary step
+```
 
-**Demonstrated red against the shipped defect.** Mutant **M-F76** — leave `SizeToContent` active, which is
-precisely what shipped — fails `TallerThanWorkArea_TurnsSizeToContentOff_AndPinsHeightAndTop`, **1 of 4**.
-Restored from a byte backup, verified sha-identical.
+**`ActualHeight` reached 817 against a 752 work area.** Bottom at `123 + 817 = 940` versus `752` — **188 DIPs,
+about 282 physical px at the owner's 150 % scaling**, which is precisely the overflow in the screenshot. And
+`Height`, the **requested** value, lagged at **492**. The code read `Height`, saw `492 <= 752`, and declined.
 
-**Still owed: a live confirmation on a small screen.** The fix is verified by test and by reasoning from the
-owner's repro, but nobody has re-run the wizard on the reduced-resolution display and watched the footer appear.
-That is the check that closes it for real — and this entry has been wrong twice from reasoning without it.
+**Everything else was already correct**: the behaviour was attached (to NINA's `CustomWindow`), the work area was
+right, the geometry was right, `SizeToContent` handling was right. **The only defect was WHICH NUMBER was
+measured** — and three of the four earlier write-ups had proposed changing things that were already correct.
+
+`EffectiveHeight(actualHeight, heightProperty)` now returns `max(ActualHeight, Height)` with `NaN` treated as 0:
+the rendered height is what puts `Accept` off the bottom, and a larger pending request would do so on the next
+layout pass. Pinned by three tests carrying the measured values **verbatim**, so this entry and the assertions
+cite the same numbers. Red against exactly what shipped: mutant **M-F76c** ("prefer the requested height") fails
+`EffectiveHeight_PrefersTheRenderedHeight_WhenTheHeightPropertyLags` and
+`TheMeasuredOverflowingWindow_IsBroughtFullyOnScreen`, **2 of 10**. Suite **3905**.
+
+### The lesson, which is the expensive part of this entry
+
+**F76 was diagnosed wrong FOUR times, every one of them by reasoning from source, and settled on the first run
+that produced numbers.** The four:
+
+| # | claimed cause | refuted by |
+|---|---|---|
+| 1 | "`SizeToContent` window with **no ScrollViewer**" | the ScrollViewer is at `DataTemplates.xaml:292` with the footer already pinned outside it |
+| 2 | "the **`y` clamp** is missing / unreachable under `SWP_NOMOVE`" | both code paths already clamp `y` |
+| 3 | "`SizeToContent` is never **disabled**, so WPF re-asserts the height" | plausible, shipped, and the bug survived it — the owner reproduced on the fixed build |
+| 4 | "the condition asks *too tall* instead of *does it fit*" | a real gap, fixed, but still not why it declined |
+
+Each proposed a change to code that was already correct, and the third one **shipped a fix that did nothing**.
+The controller also mis-attributed a red CI run to its own new test and marked it `[Explicit]`, removing the only
+test that catches the defect from CI — reverted after noticing the next commit passed with the same fixture.
+
+> **Instrument first when the mechanism is not observable.** Twenty lines of `Logger.Info` printing the numbers a
+> decision is made from would have been cheaper than any single one of those four attempts, and cheaper than the
+> two ~20-minute runs the owner spent reproducing. **A fix that cannot report whether it engaged is not
+> finished** — attempt 3 shipped, changed nothing, and looked identical from the outside to a fix that worked.
+
+### Still owed
+**Field confirmation.** Nobody has yet seen the footer appear. The owner's NINA is running the pre-fix build; the
+next wizard run on the current build either shows `Accept` or leaves a `F76 clamp: … => CLAMP …` line with the
+next number. **Do not mark this closed until one of those two is in hand** — this entry has claimed "fixed" once
+already and was wrong.
+
+**Known, unaddressed:** `SystemParameters.WorkArea` reports the **primary** monitor's work area. If the wizard
+opens on a secondary monitor the clamp will use the wrong rectangle. The Win32 half already resolves the correct
+per-monitor work area via `MonitorFromWindow`; the WPF half does not. Deliberately not folded in until the fix
+above is confirmed.
 
 ### F1 — The donut heuristic misses small donuts
 **Status:** Open · found 2026-07-30 during the bank donut audit
