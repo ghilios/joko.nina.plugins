@@ -4570,10 +4570,23 @@ asserts exactly that over **four entry states and every property**. It is red ag
 unconditional `ConfigureSimpleSettings()`), which is why wave 21 Part 1 added it. **So the deletion is a
 mechanically safe edit behind an existing test** — what is missing is not safety, it is a decision.
 
-**Wave 21 did NOT delete them, deliberately.** `ResetDefaultsImpl:405-407` records an explicit prior decision —
-*"The preset-owned literals above are retained as documentation of the intended defaults, but the derivation is
-the AUTHORITY"* — and overturning a reasoned in-source decision is an owner's call, not a cleanup. Like (a), this
-half of F70 is **not decidable by measurement**: both states pass every test.
+**Wave 21 did NOT delete them, deliberately** — it recorded the choice as an owner's call, because
+`ResetDefaultsImpl` carried an explicit prior decision to keep them *"as documentation of the intended
+defaults"*, both states pass every test, and overturning a reasoned in-source decision is not a cleanup.
+
+> **DECISION TAKEN by the owner, 2026-08-11: delete them.** Proposed on branch
+> `ghilios/f70-remove-dead-preset-literals` as a PR into the wave-13 branch so the diff could be reviewed on its
+> own. All 20 removed; the 33 the derivation does not own remain. The justifying comment was rewritten to record
+> *why* they are gone and to warn against "restoring" any of them for readability — three of the survivors are
+> the derivation's own inputs. Suite **3891, unchanged**, and the guard was demonstrated able to fail: mutant
+> **M-T1** (delete the trap literal `Simple_NoiseLevel`) turns
+> `ResetDefaults_EqualsFreshConstruction_FromNonDefaultSimplePresets` red, 1 of 4.
+
+**F70(a) is untouched by this and remains open.** The other `NoiseReductionRadius = 3` — the Optimization
+Wizard's seed at `HocusFocusStarDetection.cs:428` — is **not** overwritten by any derivation and **does** take
+effect: the wizard starts its search from a radius no constructed object with hotpixel thresholding holds. Its
+own doc comment at `:417` concedes it as *"exactly one named exception"*. Deleting the `ResetDefaultsImpl`
+literals does not change that by one line.
 
 ### Next step
 Two things, and they are independent:
