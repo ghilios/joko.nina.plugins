@@ -51,9 +51,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // Dedupe the F76 diagnostic: SizeChanged fires often and only distinct states are informative.
         private static string lastLoggedNote;
 
+        /// <summary>Logs a line at most once per distinct message. Every EXIT from the fit path goes through this:
+        /// a check that declines without saying why is what made this defect look like "no change" (F66).</summary>
+        private static void LogOnce(string note) {
+            if (note != lastLoggedNote) {
+                lastLoggedNote = note;
+                Logger.Info(note);
+            }
+        }
+
         // One hook per window; the modal dialog and its HwndSource are short-lived, so the hook dies with the window.
         // The table only guards against a repeated Loaded re-adding the hook, and lets the window be collected.
         private static readonly ConditionalWeakTable<Window, object> hookedWindows = new();
+
+        // The element the attached property lives on (the wizard DataTemplate's root Grid) IS the content to
+        // measure. Window.Content is not usable here: on NINA's custom-chrome CustomWindow it is not the template
+        // root, so `window.Content is FrameworkElement` failed and TryFitToContent declined on every call -- while
+        // logging nothing, so the log showed no `F76 fit:` line at all and the rule looked like it had no effect.
+        private static readonly ConditionalWeakTable<Window, FrameworkElement> contentRoots = new();
 
         private static void OnEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
             if (d is not FrameworkElement fe) {
@@ -105,6 +120,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // manual resize "fixes" it is that WPF sets SizeToContent = Manual automatically when the USER
                 // resizes. So do that ourselves, in WPF, the way Review/ReviewViewportHostBase already does.
                 window.SizeChanged += OnWindowSizeChanged;
+                contentRoots.Remove(window);
+                contentRoots.Add(window, fe);
                 Logger.Info($"F76 clamp: attached to '{window.GetType().Name}' hwnd={hwnd}; workArea={SystemParameters.WorkArea}");
             }
             // The first shown step is small, but clamp the current bounds defensively in case it already overshoots.
@@ -193,7 +210,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// back to the plain overflow clamp rather than guessing.
         /// </summary>
         private static bool TryFitToContent(Window window, Rect work) {
-            if (window.Content is not FrameworkElement root || root.ActualWidth <= 0.0) {
+            if (!contentRoots.TryGetValue(window, out var root) || root is null) {
+                LogOnce("F76 fit: DECLINED -- no content root recorded for this window");
+                return false;
+            }
+            if (root.ActualWidth <= 0.0) {
+                LogOnce($"F76 fit: DECLINED -- content root not laid out yet (ActualWidth={root.ActualWidth:F0})");
                 return false;
             }
             // The chrome (title bar + borders) is whatever the window has beyond its content, measured from the
@@ -202,6 +224,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             root.Measure(new Size(root.ActualWidth, double.PositiveInfinity));
             var target = ChooseWindowHeight(root.DesiredSize.Height, chrome, work.Height);
             if (double.IsNaN(target)) {
+                LogOnce($"F76 fit: DECLINED -- unusable measurement (content={root.DesiredSize.Height:F0} work={work.Height:F0})");
                 return false;
             }
             var current = EffectiveHeight(window.ActualHeight, window.Height);
@@ -212,12 +235,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (top < work.Top) {
                 top = work.Top;
             }
-            var note = $"F76 fit: content={root.DesiredSize.Height:F0} chrome={chrome:F0} work={work.Height:F0} " +
-                       $"current={current:F0}@{window.Top:F0} => h={target:F0} top={top:F0}";
-            if (note != lastLoggedNote) {
-                lastLoggedNote = note;
-                Logger.Info(note);
-            }
+            LogOnce($"F76 fit: content={root.DesiredSize.Height:F0} chrome={chrome:F0} work={work.Height:F0} " +
+                    $"current={current:F0}@{window.Top:F0} => h={target:F0} top={top:F0}");
             if (Math.Abs(current - target) < 1.0 && Math.Abs(window.Top - top) < 1.0) {
                 return true;   // already right; do not churn layout
             }
