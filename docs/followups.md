@@ -14,7 +14,7 @@ Status: **Open** · **In progress** · **Done** · **Won't fix**
 ## Detector / optimizer behaviour
 
 ### F76 — The optimizer wizard opens with its footer below the bottom of the screen, so `Accept` is unreachable until the window is moved
-**Status:** **FIXED (`2489a78`) — by MEASUREMENT, after four wrong diagnoses.** The clamp read `Window.Height` (requested) instead of `ActualHeight` (rendered) and declined on every call · **field-confirmation still owed** · found 2026-08-11 (wave 21) by the A1–A9 *rendered pixels* check, on the first run of the wizard that check has ever completed · **SUBSTANTIALLY CORRECTED the same day — see "what the first write-up got wrong"**
+**Status:** **FIXED (`2489a78`) and CONFIRMED IN THE FIELD 2026-08-11 12:44 local.** The clamp read `Window.Height` (requested) instead of `ActualHeight` (rendered) and declined on every call · four wrong diagnoses before the first measurement · found 2026-08-11 (wave 21) by the A1–A9 *rendered pixels* check, on the first run of the wizard that check has ever completed · **SUBSTANTIALLY CORRECTED the same day — see "what the first write-up got wrong"**
 
 Running the Optimization Wizard to completion (Plugins → Hocus Focus → Star Detector → **Optimize Star
 Detection**) produces a long summary. **The footer — `Back | Review frames | Continue optimizing | Accept |
@@ -192,8 +192,40 @@ report its own failure — applied to the deploy step rather than to a test.*
 Make the PostBuild copy **fail loudly** when the target is locked, or skip with an explicit warning naming the
 running process. A silent `xcopy` failure inside a successful build is the whole defect.
 
+### CONFIRMED IN THE FIELD — the same log line, on the same window, now clamps
+
+Third run, on a binary verified to contain the fix per [F77](#f77): session started `12:36:16` local and loaded
+the plugin at `12:36:26`; the fixed DLL was deployed at `16:29:07Z`, **seven minutes earlier**.
+
+```
+F76 clamp: attached to 'CustomWindow' hwnd=333978352; workArea=0,0,1280,752
+F76 clamp: h=505 actual=505 top=101 stc=WidthAndHeight work=752@0 => declined
+F76 clamp: h=505 actual=492 top=123 stc=WidthAndHeight work=752@0 => declined
+F76 clamp: h=581 actual=581 top=123 stc=WidthAndHeight work=752@0 => declined
+F76 clamp: h=581 actual=492 top=123 stc=WidthAndHeight work=752@0 => declined
+F76 clamp: h=817 actual=817 top=123 stc=WidthAndHeight work=752@0 => CLAMP h=752 top=0   <-- the summary
+F76 clamp: h=752 actual=752 top=0   stc=Manual         work=752@0 => declined            <-- settled, idempotent
+```
+
+**The before/after differ in exactly one quantity, which is the whole fix:**
+
+| | the summary step |
+|---|---|
+| shipped (declined) | `h=492 actual=817 top=123 => declined` — read the stale requested height |
+| fixed (clamps) | `h=817 actual=817 top=123 => CLAMP h=752 top=0` — reads the rendered height |
+
+The settled line is the property that matters: height **exactly** the work area at `top=0`, so `top + height =
+752 = work.Bottom` and the footer — `Back / Review frames / Continue optimizing / **Accept** / Close` — is on
+screen. `stc=Manual` confirms `SizeToContent` was disabled *because* the window shrank, and the second pass
+**declines rather than recursing**, which is what `ClampingIsIdempotent_*` asserts offline.
+
+**The instrumentation is kept deliberately.** It is a handful of `Logger.Info` lines per wizard run, one per
+distinct state, and it is the only reason this entry has an answer instead of a fifth guess. An entry with four
+wrong diagnoses has earned the right to keep reporting itself.
+
 ### Still owed
-**Field confirmation.** *Neither of the owner's two runs tested the fix* — the first ran the original
+Nothing on the fix itself. **Previously owed and now discharged:** *neither of the owner's first two runs tested
+the fix* — the first ran the original
 `ApplyWorkAreaLimit` (which genuinely declined, and that measurement stands), the second ran the same stale
 binary again. The fixed DLL was deployed at `16:29:07Z`, verified to contain `EffectiveHeight`.
 **The next wizard run is the first real test of the fix.** Nobody has yet seen the footer appear. The owner's NINA is running the pre-fix build; the
