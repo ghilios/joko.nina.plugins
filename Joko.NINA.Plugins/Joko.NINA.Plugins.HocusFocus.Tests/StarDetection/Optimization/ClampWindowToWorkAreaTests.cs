@@ -64,8 +64,11 @@ public class ClampWindowToWorkAreaTests {
         Assert.Multiple(() => {
             Assert.That(clamped, Is.True, "a window taller than the work area must be clamped");
             // The heart of F76: leaving SizeToContent on is what let WPF re-grow the window over the Win32 clamp.
-            Assert.That(window.SizeToContent, Is.EqualTo(SizeToContent.Manual),
-                "SizeToContent must be turned OFF, or WPF re-asserts the content height on the next layout pass");
+            // Only the HEIGHT flag may be dropped. Clearing width auto-sizing too froze the window at an earlier,
+            // narrower step's width and clipped Accept and Close out of the footer -- a regression this fix caused,
+            // found in the field.
+            Assert.That(window.SizeToContent, Is.EqualTo(SizeToContent.Width),
+                "height auto-sizing must be turned off, but WIDTH auto-sizing must survive or the footer is clipped");
             Assert.That(window.Height, Is.EqualTo(SmallWorkArea.Height),
                 "the window must not be taller than the work area");
             Assert.That(window.Top, Is.EqualTo(SmallWorkArea.Top),
@@ -74,6 +77,19 @@ public class ClampWindowToWorkAreaTests {
             Assert.That(window.Top + window.Height, Is.LessThanOrEqualTo(SmallWorkArea.Bottom),
                 "the bottom of the window -- where the Accept button lives -- must be inside the work area");
         });
+    }
+
+    [Test]
+    public void ClampingAHeightOnlyAutoSizedWindow_TurnsSizeToContentFullyOff() {
+        // If width was never auto-sized there is nothing to preserve, so Manual is correct here.
+        var window = new Window {
+            SizeToContent = SizeToContent.Height,
+            Top = 444,
+            Height = 2000,
+        };
+
+        Assert.That(ClampWindowToWorkArea.ApplyWorkAreaLimit(window, SmallWorkArea), Is.True);
+        Assert.That(window.SizeToContent, Is.EqualTo(SizeToContent.Manual));
     }
 
     [Test]

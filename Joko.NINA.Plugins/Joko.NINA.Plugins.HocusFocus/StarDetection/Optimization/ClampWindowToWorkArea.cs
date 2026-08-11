@@ -149,10 +149,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 return false;
             }
             if (newHeight < height) {
-                // Turning SizeToContent off is half the fix: leaving it on lets WPF recompute the content height on
-                // the next layout pass and overwrite the clamp. Only do it when we actually SHRANK the window -- a
-                // pure reposition must not freeze the wizard's per-step growth on a screen with room for it.
-                window.SizeToContent = SizeToContent.Manual;
+                // Stop WPF re-asserting the content HEIGHT over the clamp -- but only the height. Setting
+                // SizeToContent.Manual froze the WIDTH too, at whatever an earlier and narrower wizard step needed,
+                // and the summary footer (Back / Review frames / Continue optimizing / Accept / Close) then no longer
+                // fit horizontally: Accept and Close were clipped INSIDE the window. That was a regression this fix
+                // introduced, reported from the field. Drop only the Height flag and leave width auto-sizing on.
+                window.SizeToContent = window.SizeToContent == SizeToContent.WidthAndHeight
+                    ? SizeToContent.Width
+                    : SizeToContent.Manual;
                 window.Height = newHeight;
             }
             window.Top = newTop;
