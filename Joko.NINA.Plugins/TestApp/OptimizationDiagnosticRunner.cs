@@ -562,7 +562,9 @@ namespace TestApp {
             public int ContinueRounds;  // --continue-rounds: extra chained passes after the first (0-2)
             public double? KeepFloor;   // --keep-floor: F32 detection-keep feasibility floor (null = unconstrained)
             public bool NoMinHfrSeed;   // --no-min-hfr-seed: F35 seeding off, so this binary can produce its own control
-            public bool ApplyRunDetectionBinning; // --apply-run-detection-binning: F39(b); false => bit-identical
+            // F39(b), the DEFAULT since wave 8: --no-run-detection-binning is the opt-OUT that makes this false
+            // (=> bit-identical to a pre-F39(b) run); --apply-run-detection-binning is an accepted no-op (F69(c)).
+            public bool ApplyRunDetectionBinning;
             public bool UpdateRunFolder; // --update-run-folder: F15; write the landing back INTO each run's source folder
 
             // F30: which invocation is producing these landings. Stamped onto every optimized_settings.json this
@@ -590,8 +592,10 @@ namespace TestApp {
 
         /// <summary>
         /// F39(b) — DETECT this run at its own detection-binning factor, instead of writing the factor to disk and
-        /// running at the default of 1. No-op unless <c>--apply-run-detection-binning</c> was passed, so the flag's
-        /// absence leaves the run bit-identical to before it existed (F41's one-binary-is-both-arms rule).
+        /// running at the default of 1. Runs by DEFAULT (adopted in wave 8, see the flag comment in RunImpl); the
+        /// opt-OUT is <c>--no-run-detection-binning</c>, and passing it leaves the run bit-identical to before
+        /// F39(b) existed (F41's one-binary-is-both-arms rule). <c>--apply-run-detection-binning</c> is still
+        /// ACCEPTED and is NOT read: a no-op retained so wave 7's scripts keep working (F69(c)).
         ///
         /// <para>Applied through <see cref="DetectionBinningResolver.ApplyFactor"/> rather than by writing
         /// <c>DetectionBinning</c> directly, because <c>StarDetectorParams.PixelScale</c> carries the factor too

@@ -629,4 +629,131 @@ public class ParamsDumpTests {
                 "the only occurrence must be the guarded one");
         });
     }
+
+    // ---- F69(a) wave 21 item A: the polarity of the F39(b) flags, guarded mechanically ----------------------------
+    //
+    // F39(b) is ON BY DEFAULT (`bool applyRunDetectionBinning = !HasFlag(args, "--no-run-detection-binning")`), and
+    // `--apply-run-detection-binning` is an accepted no-op. Two comments in TestApp said the opposite. They were
+    // PARAPHRASES sharing only the flag name ("only under …" at :405-419, fixed in wave 18; "No-op unless … was
+    // passed" in the XML doc at :591-594, fixed here), so wave 20's lesson "grep for the sentence" would have missed
+    // the second exactly as the edit-at-the-address did. The rule that works is: grep for the IDENTIFIER — and then
+    // leave a test that does it for you. This is that test.
+
+    private const string BinningOptInFlag = "--apply-run-detection-binning";
+    private const string BinningOptOutFlag = "--no-run-detection-binning";
+
+    private static IReadOnlyList<string> TestAppSourceFiles([CallerFilePath] string thisFile = null) {
+        var harness = Path.GetDirectoryName(thisFile);
+        var solutionDir = Path.GetDirectoryName(Path.GetDirectoryName(harness));
+        var testApp = Path.Combine(solutionDir ?? string.Empty, "TestApp");
+        // FAIL, never skip: a test that cannot look must not report a pass.
+        Assert.That(Directory.Exists(testApp), Is.True, $"could not read the TestApp sources at {testApp}");
+        var sep = Path.DirectorySeparatorChar;
+        var files = Directory.EnumerateFiles(testApp, "*.cs", SearchOption.AllDirectories)
+            .Where(p => !p.Contains($"{sep}obj{sep}") && !p.Contains($"{sep}bin{sep}"))
+            .OrderBy(p => p, StringComparer.Ordinal)
+            .ToList();
+        Assert.That(files, Is.Not.Empty, $"no *.cs found under {testApp}");
+        return files;
+    }
+
+    /// <summary>The comment text on one line — <c>//</c> or <c>///</c>, leading or trailing — or null if the line
+    /// carries none. String and char literals are skipped, so `Console.WriteLine("--apply-…")` and a "http://" in a
+    /// message are not mistaken for comments; that distinction is the whole point, since the runner PRINTS the
+    /// correct polarity on lines whose comments used to deny it.</summary>
+    private static string CommentTextOf(string line) {
+        bool inString = false, verbatim = false, inChar = false;
+        for (var i = 0; i < line.Length; i++) {
+            var c = line[i];
+            if (inString) {
+                if (verbatim) {
+                    if (c == '"') {
+                        if (i + 1 < line.Length && line[i + 1] == '"') { i++; } else { inString = false; verbatim = false; }
+                    }
+                } else if (c == '\\') { i++; } else if (c == '"') { inString = false; }
+                continue;
+            }
+            if (inChar) {
+                if (c == '\\') { i++; } else if (c == '\'') { inChar = false; }
+                continue;
+            }
+            if (c == '@' && i + 1 < line.Length && line[i + 1] == '"') { inString = true; verbatim = true; i++; continue; }
+            if (c == '"') { inString = true; continue; }
+            if (c == '\'') { inChar = true; continue; }
+            if (c == '/' && i + 1 < line.Length && line[i + 1] == '/') { return line.Substring(i); }
+        }
+        return null;
+    }
+
+    private sealed class CommentBlock {
+        public string File;
+        public int StartLine;
+        public int EndLine;
+        public string Text;
+    }
+
+    /// <summary>Maximal runs of adjacent comment-bearing lines. A paragraph is the unit because the polarity is a
+    /// property of the paragraph, not of the line the flag name lands on: at :196-215 the opt-in is named on the
+    /// first line and the opt-out nineteen lines later, and that comment is true.</summary>
+    private static List<CommentBlock> CommentBlocks(string file) {
+        var blocks = new List<CommentBlock>();
+        var lines = File.ReadAllLines(file);
+        CommentBlock current = null;
+        var text = new System.Text.StringBuilder();
+        for (var i = 0; i < lines.Length; i++) {
+            var comment = CommentTextOf(lines[i]);
+            if (comment == null) {
+                if (current != null) { current.Text = text.ToString(); blocks.Add(current); current = null; }
+                continue;
+            }
+            if (current == null) {
+                current = new CommentBlock { File = file, StartLine = i + 1 };
+                text.Clear();
+            }
+            current.EndLine = i + 1;
+            text.Append(comment).Append('\n');
+        }
+        if (current != null) { current.Text = text.ToString(); blocks.Add(current); }
+        return blocks;
+    }
+
+    [Test]
+    public void ApplyRunDetectionBinning_EveryCommentNamingTheOptInFlag_AlsoNamesTheOptOut() {
+        // THE invariant: the behaviour is decided by the OPT-OUT, so any honest comment about the opt-in must name
+        // the flag that actually controls it. Stated one-directionally on purpose — a comment may name only the
+        // opt-out (the F69(c) notice's own comment does), because that one is never the backwards direction.
+        //
+        // MUTANT: restore ":591-594 — No-op unless <c>--apply-run-detection-binning</c> was passed". That block then
+        // names the opt-in and not the opt-out, and this test goes red with the file and line. A THIRD block added
+        // later that names only the opt-in fails the same way, which is the point: this guards additions, not just
+        // the two copies known today.
+        var files = TestAppSourceFiles();
+        var withOptIn = files
+            .SelectMany(CommentBlocks)
+            .Where(b => b.Text.Contains(BinningOptInFlag, StringComparison.Ordinal))
+            .ToList();
+
+        TestContext.Out.WriteLine($"comment blocks naming {BinningOptInFlag}: {withOptIn.Count} "
+            + $"(over {files.Count} *.cs under TestApp) — "
+            + string.Join(", ", withOptIn.Select(b => $"{Path.GetFileName(b.File)}:{b.StartLine}-{b.EndLine}")));
+
+        // Could-not-look, and it FAILS. A rename of the flag must break this test loudly rather than empty its
+        // population and pass on zero occurrences (F66).
+        Assert.That(withOptIn, Is.Not.Empty,
+            $"the identifier this test is about ({BinningOptInFlag}) is gone from TestApp's comments; "
+            + "it can no longer see its subject");
+        Assert.That(withOptIn.Count, Is.GreaterThanOrEqualTo(2),
+            $"expected at least the two known truthful sites to name {BinningOptInFlag}; "
+            + $"found {withOptIn.Count} comment block(s)");
+
+        var backwards = withOptIn
+            .Where(b => !b.Text.Contains(BinningOptOutFlag, StringComparison.Ordinal))
+            .Select(b => $"{b.File}:{b.StartLine}-{b.EndLine}\n{b.Text}")
+            .ToList();
+        Assert.That(backwards, Is.Empty,
+            $"every comment naming {BinningOptInFlag} must also name {BinningOptOutFlag} — F39(b) is ON BY DEFAULT "
+            + $"and the opt-in is an accepted no-op, so a comment that names only the opt-in reads the polarity "
+            + $"backwards (F69(a); it cost RULE P16 its verdict in wave 16). Offending block(s):\n"
+            + string.Join("\n\n", backwards));
+    }
 }
