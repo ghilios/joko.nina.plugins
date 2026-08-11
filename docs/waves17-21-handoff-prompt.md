@@ -211,7 +211,7 @@ measurement arm.** Agents read, write, design and analyse. **Only one `TestApp.e
 7. Spawn a **CODE** agent if the wave ships anything. **Every new test must be shown to fail against the
    pre-change source** — or, for new API where a revert fails the build, against a **named mutant**, and you
    verify that claim yourself.
-8. **You run the full suite**, verified by COUNT, baseline **3781**. Name every added test.
+8. **You run the full suite**, verified by COUNT, baseline **3831**. Name every added test.
 9. **You commit and push**, append the wave's section to PR #191, and verify CI by COUNT read out of the log.
 
 **Commit with the privacy email:**

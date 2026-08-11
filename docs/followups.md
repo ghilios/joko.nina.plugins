@@ -3929,6 +3929,14 @@ Reproduce: `python3 /mnt/d/hf_w19/score_r19_w19.py --new /mnt/d/hf_w19/reA0 --ol
 `docs/synthetic-af-bank-followups-wave19-results.md` §2.
 
 ### F71 — A converted settings file carries every detector knob TWICE, and the control that checked the conversion read the copy the loader ignores
+
+> **CORRECTED 2026-08-11 (wave 20): the repaired control IS demonstrated, in both directions.** Wave 19's
+> results doc said `C19-D2` was never run and that ~1 minute was still owed. It had already been paid:
+> `/mnt/d/hf_w19/C19_PROBE_PASSED` was written at **05:43:28Z**, 33 seconds before the results commit, and reads
+> `C-DEMONSTRATED`. Comparing the **snapshot** rather than the dead base copy, the conversion **took** on `good`
+> and **did not take** on `mutant`, corroborated on **8 fields**, in both the retro and the live half.
+> See [`wave19-results`](synthetic-af-bank-followups-wave19-results.md) §3.5 for why the document was wrong at
+> the moment of its own commit.
 **Status:** Open · found 2026-08-11 (wave 18) when a control returned a demonstrated PASS and a demonstrated FAIL
 **on the wrong inputs** · **it cost RULE N18 its verdict, and the evidence that it was wrong was in the same file
 the control read**

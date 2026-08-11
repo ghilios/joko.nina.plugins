@@ -38,7 +38,7 @@ Register: [`docs/followups.md`](followups.md).
 |---|---|---|---|
 | the gate | **RULE G19** | **PASS** — 8 of 8 to 6 dp, **bit-identical at all sixteen digits**, on a **tenth** binary | **(a) only.** A tenth binary reproduces the coordinate system. **The pre-registered (b) — "the measurement that item D is inert" — is VOID: item D is not in this binary.** §1.4 |
 | **A** | **RULE R19** | **`R-DETERMINISTIC`** — `R19-A` 20 of 20 datasets, **660 of 660 keys**; `R19-B` `FinalJ` 20/20 and `BaselineJ` 20/20; `R19-C` 3 of 3 | **`R19-A` minus `R19-B` is zero.** Nothing in the landing moves that `J` does not. §2 — including the narrower population than the design's prose claims |
-| **B** | **RULE C19** | **`C-UNEVALUATED`** — `C19-D1` (retro) is `TOOK-CORRECTLY` with \|D\| = 8; **`C19-D2` was never run** | The corrected control is demonstrated in one of its two required directions-of-evidence. `C19_PROBE_PASSED` **was not written**, correctly, by the scorer's own interlock. §3 |
+| **B** | **RULE C19** | **`C-DEMONSTRATED`** — see the CORRECTION below. `C19-D1` **and** `C19-D2` are both `TOOK-CORRECTLY`; the marker was written at 05:43:28Z | This row read `C-UNEVALUATED` when committed, and was **wrong at the moment of its own commit**. §3, §3.5 |
 | **D** | — (was to ship unconditionally) | **DID NOT SHIP** | F69(b), F69(c), F70(b′) and the manual line are all still owed. §4 |
 | **E** | — | **RECORDED** | F70(a) is **not decidable by measurement on this bank**; escalated to the owner. §5 |
 | **F** | — (rule-free) | **DROPPED** (drop-order `D1`) | `synth-validate` is now **unpriced for three consecutive waves** (17, 18, 19). §7 |
@@ -222,7 +222,40 @@ re-run.** Recorded because a cap not spent is worth as much as a cap enforced.
 
 ---
 
-## §3 — RULE C19: **`C-UNEVALUATED`**, and the interlock refused correctly
+## §3.5 — CORRECTION, 2026-08-11 (wave 20): C19 IS `C-DEMONSTRATED`, AND THIS DOCUMENT WAS WRONG WHEN IT WAS COMMITTED
+
+**§3 below is superseded, and the way it went wrong matters more than the verdict it got.**
+
+| event | time |
+|---|---|
+| the analysis agent finished, having correctly found the probe unrun | ~05:33Z |
+| **the controller ran `probe_w19.sh` and scored it** | 05:37–05:43Z |
+| **`C19_PROBE_PASSED` written** — `C-DEMONSTRATED` | **05:43:28.576Z** |
+| this document committed at `95753a9`, still saying `C-UNEVALUATED` | **05:44:01Z** |
+
+**Thirty-three seconds.** The controller ran the missing measurement, updated the *commit message* to say
+`C-DEMONSTRATED`, and did not update the *document* — so `95753a9` shipped a results doc contradicting its own
+commit message, and F71 kept a "still owed, ~1 minute" that had already been paid.
+
+**The measured result:** `C19-D1` **and** `C19-D2` are both `TOOK-CORRECTLY`. With the comparison against the
+**snapshot** rather than wave 18's dead base copy, the conversion **took** on `good` and **did not take** on
+`mutant`, corroborated on **8 fields**, in both the retro and the live half. **F71's inverted control is
+repaired and demonstrated in both directions.**
+
+> **The general defect is worse than the wrong cell, and it is not "the agent was out of date".** A results
+> document is a measurement of the wave, and this one **raced its own wave** — it asserted that every number had
+> been re-derived at write-up time while an artifact created 33 seconds before its commit falsified one of them.
+> *A wave's last measurement must precede its write-up, or the write-up must be re-derived after it.* Wave 20's
+> plan puts every measurement before the write-up and makes the write-up's first action an `ls --time-style=full-iso`
+> of the wave directory, so an artifact newer than the analysis cannot pass unnoticed.
+>
+> **§3's reasoning about the interlock stands and is worth keeping**: the scorer *did* refuse to write its own
+> marker on one direction of evidence, which is why the gap was visible at all. What follows is left unedited as
+> the record of what was believed at 05:33Z.
+
+---
+
+## §3 — RULE C19: ~~**`C-UNEVALUATED`**~~ **SUPERSEDED BY §3.5**, and the interlock refused correctly
 
 | clause | threshold | **measured** |
 |---|---|---|
