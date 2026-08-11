@@ -160,8 +160,43 @@ test that catches the defect from CI — reverted after noticing the next commit
 > two ~20-minute runs the owner spent reproducing. **A fix that cannot report whether it engaged is not
 > finished** — attempt 3 shipped, changed nothing, and looked identical from the outside to a fix that worked.
 
+### F77 — The plugin deploy fails SILENTLY while NINA is running, so two field tests ran against a stale binary
+**Status:** **open** · found 2026-08-11 (F76's confirmation) · **cost: two ~20-minute owner runs that tested the wrong code**
+
+The csproj's PostBuild step xcopies the plugin into NINA's plugin folder on every build. **NINA holds that DLL
+open while it runs, the copy fails, and nothing surfaces it** — the build reports success and the developer
+believes the fix is deployed.
+
+Measured: NINA ran `15:02Z → 16:26Z`. Every build in that window — including the ones carrying `a68c7f2` (the
+*does it FIT* widening) and `2489a78` (`EffectiveHeight`) — left the deployed DLL at its `14:59:44Z` version.
+Proven rather than assumed: with NINA closed, `cp` of the same file **succeeded immediately**, and
+`strings <deployed> | grep -c EffectiveHeight` went `0 → 1`.
+
+**Consequence, and it is the dangerous part.** The owner re-ran the wizard to confirm F76's fix. That run
+exercised a binary **without** the fix, and its log looked *encouraging* — the window reached `752@0`, fitting
+the work area exactly. Reading that as "the fix works" would have been a false confirmation of code that was
+never loaded. **A green field test against a stale binary is worse than no test**, because it closes the entry.
+
+**Check the binary, not the build log.** Before quoting any field result, verify the deployed artifact contains
+the symbol under test:
+
+```bash
+strings "<plugin dir>/NINA.Joko.Plugins.HocusFocus.dll" | grep -c <NewMethodName>
+```
+
+and compare its mtime against the process start time (the NINA log filename encodes both:
+`<yyyyMMdd>-<HHmmss>-<version>.<pid>-*.log`). *This is the same family as [F66](#f66) — an instrument that cannot
+report its own failure — applied to the deploy step rather than to a test.*
+
+### Next step
+Make the PostBuild copy **fail loudly** when the target is locked, or skip with an explicit warning naming the
+running process. A silent `xcopy` failure inside a successful build is the whole defect.
+
 ### Still owed
-**Field confirmation.** Nobody has yet seen the footer appear. The owner's NINA is running the pre-fix build; the
+**Field confirmation.** *Neither of the owner's two runs tested the fix* — the first ran the original
+`ApplyWorkAreaLimit` (which genuinely declined, and that measurement stands), the second ran the same stale
+binary again. The fixed DLL was deployed at `16:29:07Z`, verified to contain `EffectiveHeight`.
+**The next wizard run is the first real test of the fix.** Nobody has yet seen the footer appear. The owner's NINA is running the pre-fix build; the
 next wizard run on the current build either shows `Accept` or leaves a `F76 clamp: … => CLAMP …` line with the
 next number. **Do not mark this closed until one of those two is in hand** — this entry has claimed "fixed" once
 already and was wrong.
