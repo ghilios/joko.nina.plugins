@@ -74,40 +74,56 @@ right to pass — the ViewModel is correct and so is the XAML. The failure is in
 test and no XAML review reaches. Wave 13's results named this gap: *"what is untested is … that these rows
 appear, in the right panel, unclipped, in the running app."*
 
-### The defect is LOCATED: the height clamp and the `y` clamp are on different code paths
+### The defect is LOCATED — by the OWNER'S behavioural evidence, which refuted the controller's third guess too
 
-Reading `ClampWindowToWorkArea.cs` rather than guessing at it a second time. **Both** paths do clamp `y` — the
-first version of this Next step suggested adding a clamp that already exists, which would have been the same
-error twice. The defect is that the two clamps are not reachable at the same time:
+The owner reproduced it on a smaller screen and supplied the two state transitions that discriminate between
+hypotheses. **This is the account that survives; the two earlier ones in this entry did not.**
 
-| path | when it runs | clamps `cy` | clamps `y` |
-|---|---|---|---|
-| `ClampNow(hwnd)` (`:147`) | **once**, on `Loaded` | yes | **yes** — `if (y + cy > work.Bottom) y = work.Bottom - cy` |
-| `WM_WINDOWPOSCHANGING` (`:115`) | every normal-state resize | yes, `pos.cy > maxHeight` | **only inside `if ((pos.flags & SWP_NOMOVE) == 0)`** (`:127`) |
+| # | observed | what it proves |
+|---|---|---|
+| 1 | the wizard **opens** with its bottom below the screen; the body's ScrollViewer is present and **working** (visible, draggable scrollbar) | the layout is fine — the *window* is too tall |
+| 2 | **dragging** it makes it **jump to the top of the screen, and the footer is STILL not visible** | **the height is `> work area`.** Had `cy` been clamped, a window at `work.Top` would be wholly on screen. The jump is `ClampWindowToWorkArea:127-133` firing in sequence: `y = work.Bottom - cy` goes negative, then `if (y < work.Top) y = work.Top` pins it to 0 |
+| 3 | **resizing** it by hand makes the buttons **appear immediately** | resizing is the one action that makes WPF set `SizeToContent = Manual` |
 
-**So a resize that sets `SWP_NOMOVE` clamps the height and leaves the top exactly where it was** — and that
-reproduces the measured rectangle precisely. The window is at `T=444`; the summary step's `SizeToContent` growth
-asks for a height past the work area; `cy` is clamped to `1392`; `y` is never touched because `pos.y` is
-meaningless under `SWP_NOMOVE`; the result is `T=444 B=1836`, which is what `GetWindowRect` returned. And
-`ClampNow` cannot save it: it fires once at `Loaded`, when — per its own comment at `:94` — *"the first shown
-step is small"*, so nothing overshoots yet. The wizard grows to the summary **after** the only y-aware clamp has
-already run.
+**So the height clamp is not holding, and row 3 says why.** `SizeToContent` is still **active** on this window.
+The hook only edits `pos.cy` inside individual `WM_WINDOWPOSCHANGING` messages; it **never turns `SizeToContent`
+off**, so WPF keeps re-asserting a content-derived height and wins the tug-of-war. A user resize is the fix
+precisely because WPF *automatically* switches `SizeToContent` to `Manual` when the user resizes a window —
+after which the Grid reflows (body ScrollViewer at `Height="*"` shrinks, footer `Auto` row gets its space) and
+the buttons render.
 
-**Not yet confirmed, and it is one line of logging away:** the `SWP_NOMOVE` flag was not observed on the actual
-messages. This is the only path in the file that clamps `cy` while leaving `y`, and it matches the measurement —
-but *"consistent with"* is not *"observed"*, and the last time this entry skipped that distinction it was wrong.
+**The correct pattern is already in this codebase, in the same folder.** `Review/ReviewViewportHostBase.cs:86`
+does it the working way — it takes control in WPF rather than fighting it from below:
+
+```csharp
+var work = SystemParameters.WorkArea;   // DIPs, excludes the taskbar
+window.SizeToContent = SizeToContent.Manual;
+window.Height = Math.Min(DesiredWindowHeight, Math.Max(window.MinHeight, work.Height - margin));
+window.Top    = work.Top + (work.Height - window.Height) / 2.0;
+```
+
+`grep -rn SizeToContent` over `StarDetection/Optimization/` returns that file and two *comments* in
+`ClampWindowToWorkArea.cs` — **the wizard never disables it.** Two sibling windows, two strategies; the one that
+clamps at the Win32 level while leaving `SizeToContent` on is the one that fails.
+
+**Confidence, stated honestly.** Row 2's inference (`cy > work area`) is solid — it follows from the observed
+geometry alone. That `SizeToContent` re-assertion is the *cause* is the leading hypothesis, strongly supported by
+row 3 and by the sibling window's contrasting approach, but the message sequence has still not been logged.
 
 ### Next step
-1. **Confirm** by logging `pos.flags`, `pos.y` and `pos.cy` in the `WM_WINDOWPOSCHANGING` branch across a full
-   wizard run, and check that the summary step's growth arrives with `SWP_NOMOVE` set.
-2. **Fix**, if confirmed: in that branch, when `SWP_NOMOVE` is set, read the window's current top with
-   `GetWindowRect` and — if `currentTop + pos.cy > work.Bottom` — clear `SWP_NOMOVE` and set
-   `pos.y = max(work.Top, work.Bottom - pos.cy)`. Calling `ClampNow(hwnd)` once the size has settled is the
-   smaller alternative and reuses the logic that is already correct.
-3. **Regression test:** assert the **placed rectangle**, never the layout. Drive the window to a content height
-   greater than a simulated work area and assert the resulting rect lies inside it. A ViewModel test cannot
-   reach this and neither can a XAML review — 180 of the former pass on the defect today.
-4. Fix the stale docstring at `:146`, which says `ClampNow` is *"height only"* while the code clamps `y` too.
+1. **Fix, following the sibling:** in `ClampWindowToWorkArea`'s `OnLoaded`/`ClampNow`, set
+   `window.SizeToContent = SizeToContent.Manual` before clamping, then set `Height`/`Top` from
+   `SystemParameters.WorkArea`. Keep the Win32 hook for later user drags. Re-clamp after each wizard step, since
+   the step change is what re-grows the window.
+2. **Confirm while fixing** by logging `pos.flags`, `pos.cy` and the window's `SizeToContent` across a run —
+   cheap, and it converts the remaining hypothesis into a measurement.
+3. **Regression test:** assert the **placed rectangle** against a simulated small work area, not the layout. No
+   ViewModel test reaches this — 180 of them pass on the defect.
+4. Fix the stale docstring at `:146` (`ClampNow` says "height only" but clamps `y` too).
+
+**Reproduce on a small screen.** The controller's 3440×1440 monitor masked it: there the window happened to land
+at exactly the work-area height, which is why the first write-up called the height clamp "correct". A screen
+small enough that the summary's content greatly exceeds the work area is what exposes it.
 
 ### F1 — The donut heuristic misses small donuts
 **Status:** Open · found 2026-07-30 during the bank donut audit
