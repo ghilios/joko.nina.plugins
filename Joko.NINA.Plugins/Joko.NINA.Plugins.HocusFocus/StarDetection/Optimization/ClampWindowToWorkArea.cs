@@ -133,6 +133,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (window is null || work.Height <= 0.0) {
                 return false;
             }
+            if (TryFitToContent(window, work)) {
+                return true;
+            }
             var height = EffectiveHeight(window.ActualHeight, window.Height);
             var clamping = TryComputeWorkAreaClamp(height, window.Top, work, out var newHeight, out var newTop);
             // F76 has been misdiagnosed three times from reasoning without instrumentation, and a fix shipped that
@@ -160,6 +163,71 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 window.Height = newHeight;
             }
             window.Top = newTop;
+            return true;
+        }
+
+        /// <summary>
+        /// The height the window SHOULD have: everything the content wants to render, capped at the work area.
+        ///
+        /// Asked for directly by the owner — with the footer finally on screen, the window was settling ~400 px
+        /// SHORTER than the screen while still showing a scrollbar, so content was being scrolled that there was
+        /// room to display. The cause is that a <c>ScrollViewer</c> has no natural desired height: it reports
+        /// whatever height it is offered, so <c>SizeToContent</c> converges on an arbitrary smaller window instead
+        /// of on the content's real height. Measuring the content against an INFINITE height is what recovers the
+        /// number WPF cannot supply here.
+        /// </summary>
+        internal static double ChooseWindowHeight(double contentDesiredHeight, double chromeHeight, double workAreaHeight) {
+            if (workAreaHeight <= 0.0) {
+                return double.NaN;
+            }
+            if (double.IsNaN(contentDesiredHeight) || contentDesiredHeight <= 0.0) {
+                return double.NaN;
+            }
+            var chrome = double.IsNaN(chromeHeight) || chromeHeight < 0.0 ? 0.0 : chromeHeight;
+            return Math.Min(contentDesiredHeight + chrome, workAreaHeight);
+        }
+
+        /// <summary>
+        /// Measures what the window's content wants vertically, given unlimited height, and fits the window to
+        /// <see cref="ChooseWindowHeight"/>. Returns false when the content cannot be measured, so the caller falls
+        /// back to the plain overflow clamp rather than guessing.
+        /// </summary>
+        private static bool TryFitToContent(Window window, Rect work) {
+            if (window.Content is not FrameworkElement root || root.ActualWidth <= 0.0) {
+                return false;
+            }
+            // The chrome (title bar + borders) is whatever the window has beyond its content, measured from the
+            // laid-out sizes rather than assumed.
+            var chrome = Math.Max(0.0, window.ActualHeight - root.ActualHeight);
+            root.Measure(new Size(root.ActualWidth, double.PositiveInfinity));
+            var target = ChooseWindowHeight(root.DesiredSize.Height, chrome, work.Height);
+            if (double.IsNaN(target)) {
+                return false;
+            }
+            var current = EffectiveHeight(window.ActualHeight, window.Height);
+            var top = window.Top;
+            if (top + target > work.Bottom) {
+                top = work.Bottom - target;
+            }
+            if (top < work.Top) {
+                top = work.Top;
+            }
+            var note = $"F76 fit: content={root.DesiredSize.Height:F0} chrome={chrome:F0} work={work.Height:F0} " +
+                       $"current={current:F0}@{window.Top:F0} => h={target:F0} top={top:F0}";
+            if (note != lastLoggedNote) {
+                lastLoggedNote = note;
+                Logger.Info(note);
+            }
+            if (Math.Abs(current - target) < 1.0 && Math.Abs(window.Top - top) < 1.0) {
+                return true;   // already right; do not churn layout
+            }
+            if (window.SizeToContent == SizeToContent.WidthAndHeight) {
+                window.SizeToContent = SizeToContent.Width;   // keep width auto (F76: Manual clipped Accept/Close)
+            } else if (window.SizeToContent == SizeToContent.Height) {
+                window.SizeToContent = SizeToContent.Manual;
+            }
+            window.Height = target;
+            window.Top = top;
             return true;
         }
 

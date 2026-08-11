@@ -106,6 +106,53 @@ public class WorkAreaClampGeometryTests {
         });
     }
 
+    // ---- ChooseWindowHeight: min(everything rendered, work area) ------------------------------------------
+
+    [Test]
+    public void ChooseWindowHeight_UsesTheContentHeightWhenItFits() {
+        // Content smaller than the screen: show all of it, do not stretch to fill.
+        Assert.That(ClampWindowToWorkArea.ChooseWindowHeight(contentDesiredHeight: 500, chromeHeight: 30, workAreaHeight: 752),
+            Is.EqualTo(530));
+    }
+
+    [Test]
+    public void ChooseWindowHeight_CapsAtTheWorkAreaWhenTheContentIsTaller() {
+        // Content taller than the screen: fill the work area exactly and let the body scroll the remainder.
+        Assert.That(ClampWindowToWorkArea.ChooseWindowHeight(contentDesiredHeight: 1200, chromeHeight: 30, workAreaHeight: 752),
+            Is.EqualTo(752));
+    }
+
+    [Test]
+    public void ChooseWindowHeight_TheOwnersCase_FillsTheAvailableHeightInsteadOfLeavingItEmpty() {
+        // The reported symptom: the window settled ~730 physical px tall with ~400 px of screen unused AND a
+        // scrollbar showing. A ScrollViewer reports whatever height it is offered, so SizeToContent converged on a
+        // window shorter than the content wanted. Measured against infinity the content asks for more than the work
+        // area, so the answer is to fill it.
+        var chosen = ClampWindowToWorkArea.ChooseWindowHeight(contentDesiredHeight: 900, chromeHeight: 28, workAreaHeight: 752);
+        Assert.Multiple(() => {
+            Assert.That(chosen, Is.EqualTo(752), "fill the work area rather than leaving screen unused");
+            Assert.That(chosen, Is.GreaterThan(486), "must be taller than the ~486 DIP window that was reported");
+        });
+    }
+
+    [Test]
+    public void ChooseWindowHeight_IncludesTheChrome_SoTheContentIsNotCutByTheTitleBar() {
+        // Forgetting the chrome would size the window to the content and then steal the title bar's height from it.
+        Assert.That(ClampWindowToWorkArea.ChooseWindowHeight(400, 40, 752), Is.EqualTo(440));
+        Assert.That(ClampWindowToWorkArea.ChooseWindowHeight(400, 0, 752), Is.EqualTo(400));
+    }
+
+    [Test]
+    public void ChooseWindowHeight_DeclinesOnUnmeasurableOrDegenerateInput() {
+        Assert.Multiple(() => {
+            Assert.That(ClampWindowToWorkArea.ChooseWindowHeight(double.NaN, 30, 752), Is.NaN, "unmeasured content");
+            Assert.That(ClampWindowToWorkArea.ChooseWindowHeight(0, 30, 752), Is.NaN, "zero content is not a size");
+            Assert.That(ClampWindowToWorkArea.ChooseWindowHeight(500, 30, 0), Is.NaN, "degenerate work area");
+            // A negative chrome (ActualHeight briefly below the content's) must not shrink the target.
+            Assert.That(ClampWindowToWorkArea.ChooseWindowHeight(500, -50, 752), Is.EqualTo(500));
+        });
+    }
+
     [Test]
     public void ShorterThanWorkArea_IsLeftAlone() {
         var clamped = ClampWindowToWorkArea.TryComputeWorkAreaClamp(
