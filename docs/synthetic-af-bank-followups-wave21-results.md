@@ -683,3 +683,53 @@ ls -la --time-style=full-iso /mnt/d/hf_w21/*arm_fingerprint_BEFORE.json   # two 
 git show 9a49aa6 --stat
 grep -rn 'apply-run-detection-binning' Joko.NINA.Plugins/TestApp/*.cs
 ```
+
+---
+
+# §14 — ADDENDUM, written after the document's timestamp: how step 12 closed
+
+**Everything above was written at the artifact-root timestamp `2026-08-11T10:14:17.433Z` and is left exactly as
+it stood then.** Step 12 was correctly marked `OPEN` in place at §0, §1's suite row, the step table and §11.
+This addendum records how it closed; it does **not** edit those rows, because a document that quietly converts
+its own open items into done ones is the defect wave 19 was falsified by.
+
+| step 12 item | outcome | when |
+|---|---|---|
+| **final suite, by COUNT** | **`Failed: 0, Passed: 3839, Skipped: 0, Total: 3839`** (duration 3 m 32 s) | `10:16Z`, before the wave commit |
+| **commit** | `d0afb0f` — the wave; preceded by `9a49aa6` (item A) | `10:37Z` |
+| **push** | `9a49aa6..d0afb0f` | `10:38Z` |
+| **CI** | `31481763955` (item A) → **success**. The runs for `d0afb0f`, `82bade6` and `c41f308` were still in flight when this addendum was written — **read the branch's checks for their conclusions** | — |
+| **PR #191** | retitled to *"Waves 13-21…"*, body extended with the wave-21 section, the item C section and F76 | — |
+
+## Two further commits followed, and they are NOT part of RULE B21 or RULE G21
+
+Neither carries a pre-registered rule; both are recorded so the wave's ledger is complete.
+
+- **`82bade6` — [F76](followups.md), a product defect.** The A1–A9 *rendered pixels* check (item C, owed since
+  wave 8) reached the Star Detection Optimizer wizard for the first time in ten waves and drove it to
+  completion. **A4** (in-run guidance) and **A6** (abort advice) confirmed as rendered pixels; **A1** and **A2**
+  confirmed earlier in the same session *against the report JSON on disk*; **A3/A9** upgraded from the
+  placeholder to a real recommendation. Then the completed summary's entire action row —
+  `Back / Review frames / Continue optimizing / Accept / Close` — proved to be **clipped off the bottom of the
+  dialog**: window height `1392` == monitor work area `1392`, exactly, on a `SizeToContent` window with no
+  ScrollViewer and no resize. All five buttons sit in the visual tree at `(0,0)`. **180
+  `StarDetectionOptimizerWizardVMTests` pass on it**, correctly, because the ViewModel is fine — the failing
+  half is the XAML, which is the half wave 13's results named as untested. **A5 and A7 are blocked on F76; A8
+  was not exercised** (this run's step was `55 → 53`, not capped).
+- **`c41f308`** — carries F76 and item C's real state into `docs/waves22+-handoff-prompt.md`, including the
+  point that matters for pricing F76: **the suite does not reach it.**
+
+**The bank was protected throughout.** The wizard was pointed at a **copy** of `D11_rc10_585_afbin2` at
+`D:\hf_w21\uicheck_run`, never at `D:\SyntheticAutofocusBank`. All four fingerprint classes were re-run **after
+NINA had run and exited** and are unchanged: **42 of 42** bank landings, **59 of 59** aux files, **48 of 48**
+prior-wave arm landings across three roots, **10 of 10** wave-20 logs — byte-identical, **0 could-not-look**.
+Nothing was written to the NINA profile: the wizard was closed with the title-bar X, which discards.
+
+## A correction this addendum owes
+
+§7's follow-on was reported by the controller as showing the trajectory is **seed-independent**. **It does not.**
+The per-round seeds `[-25215000, 1539450862]` are **identical in both runs** — they are derived from the spec
+and scenario, not drawn — so the repeat is ordinary determinism under identical inputs. The analysis agent
+caught this before the document was committed and §7 states it correctly; the correction is repeated here
+because the controller's own notes and the first draft of the PR body both carried the overstatement.
+**Seed sensitivity remains UNMEASURED.**
