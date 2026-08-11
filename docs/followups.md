@@ -4486,6 +4486,62 @@ Reproduce: `python3 /mnt/d/hf_w17/score_d17_w17.py --gate /mnt/d/hf_w17/gate --w
 > `/mnt/d/hf_w18/seedA0` and `seedA1` were fingerprinted and proven byte-identical (48 of 48) by a wave that read
 > neither.
 
+### (b′) — the partition, DERIVED FROM SOURCE at last, and it contains a trap
+
+Wave 21 (2026-08-11) parsed `StarDetectionOptions.cs` by brace depth and intersected the public-property
+assignments of `ResetDefaultsImpl` with those of `DerivePresetSettings`. **`ResetDefaultsImpl` assigns 53 public
+properties. Exactly 20 are preset-owned; 33 are not; 0 are derived-but-missing.** The register's "20" was a
+hand-count and it is now confirmed mechanically — *but the count was never the risky part, the membership was.*
+
+**The 20 DEAD literals** — `DerivePresetSettings` assigns every one of them unconditionally, and
+`ResetDefaultsImpl` ends with an unconditional `ConfigureSimpleSettings()`, so each of these is redundant:
+
+```
+BrightnessSensitivity  HotpixelFiltering  HotpixelThreshold  MaxDistortion  MinHFR
+MinStarBoundingBoxSize  NoiseClippingMultiplier  NoiseReductionRadius  PSFFitThreshold  PSFFitType
+PSFResolution  PixelSampleSize  StarBackgroundBoxExpansion  StarCenterTolerance  StarClippingMultiplier
+StarMeasurementNoiseReductionEnabled  StarPeakResponse  StructureDilationCount  StructureDilationSize
+StructureLayers
+```
+
+**THE TRAP, and it is why "derived from source, not guessed" was made a precondition.** Four properties *look*
+preset-related and are **LIVE — deleting them breaks the class**:
+
+| property | why it looks preset-owned | why it is NOT |
+|---|---|---|
+| `Simple_NoiseLevel` | named `Simple_*` | it is an **INPUT** to the derivation — the `switch` reads it |
+| `Simple_PixelScale` | named `Simple_*` | **INPUT** — selects the `StructureLayers`/`MinStarBoundingBoxSize` deltas |
+| `Simple_FocusRange` | named `Simple_*` | **INPUT** — selects the WideRange deltas |
+| `HotpixelThresholdingEnabled` | sits beside `HotpixelFiltering`, which **is** owned | the derivation **READS** it at `:220` for the `NoiseReductionRadius += 1` compensation and never assigns it |
+
+*A `Simple_*`-prefix heuristic would delete the derivation's own three inputs.* The remaining 29 live literals
+(`DetectionBinning`, `SaturationThreshold`, `MeasurementAverage`, the `Defocus*`/`Donut*` family,
+`ContaminationSensitivity`, `UseAutoFocusCrop`, `LocallyAdaptiveBinarization`, `AdaptiveNoiseBlockSize`,
+`SaveIntermediateImages`, `IntermediateSavePath`, `PSFParallelPartitionSize`, `PSFPixelIntegration`,
+`UsePSFAbsoluteDeviation`, `ExcludeSaturatedStarsFromHFR`, `RejectContaminatedStars`, `StructureLayerBoost`,
+`ModelPSF`, `DebugMode`, `UseAdvanced`, `UseOptimizedSettings`, …) are ordinary defaults and must stay.
+
+**The guard already exists and it is the one that matters.** Deleting the 20 is behaviour-preserving *iff*
+reset-state still equals fresh-construction, and `StarDetectionOptionsTests.ResetDefaults_EqualsFreshConstruction_*`
+asserts exactly that over **four entry states and every property**. It is red against mutant **M-R1** (remove the
+unconditional `ConfigureSimpleSettings()`), which is why wave 21 Part 1 added it. **So the deletion is a
+mechanically safe edit behind an existing test** — what is missing is not safety, it is a decision.
+
+**Wave 21 did NOT delete them, deliberately.** `ResetDefaultsImpl:405-407` records an explicit prior decision —
+*"The preset-owned literals above are retained as documentation of the intended defaults, but the derivation is
+the AUTHORITY"* — and overturning a reasoned in-source decision is an owner's call, not a cleanup. Like (a), this
+half of F70 is **not decidable by measurement**: both states pass every test.
+
+### Next step
+Two things, and they are independent:
+1. **Owner decision:** delete the 20, or keep them and change the comment to say they are *asserted-redundant*
+   documentation rather than defaults. Either is defensible; the list above makes it a two-minute edit.
+2. **The instrument that is genuinely owed:** a test that pins the *membership* of the partition, so a future
+   edit cannot silently move a property between the two halves. Design that needs no source parsing: for each
+   property, set a sentinel, fire the derivation by toggling `Simple_FocusRange` away and back, and assert the
+   value **reverts** (owned) or **survives** (not owned) — **asserting first that the sentinel write actually
+   took effect**, so a clamping setter reports could-not-look instead of passing silently ([F66](#f66)).
+
 ### F69 — F39(b)'s flag NAMES and its own COMMENT state the opposite of its default, and that cost a pre-registered rule its verdict
 **Status:** Open · found 2026-08-10 (wave 17) while deciding
 [F67](#f67--af-fits-star-count-and-optimizes-are-not-the-same-number-so-the-control-built-on-their-equality-reports-could-not-look-on-exactly-the-datasets-where-the-intervention-bites-hardest)(c)
