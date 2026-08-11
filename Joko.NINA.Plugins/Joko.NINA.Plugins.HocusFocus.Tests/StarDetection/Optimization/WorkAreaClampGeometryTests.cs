@@ -69,6 +69,44 @@ public class WorkAreaClampGeometryTests {
     }
 
     [Test]
+    public void EffectiveHeight_PrefersTheRenderedHeight_WhenTheHeightPropertyLags() {
+        // THE measured defect, from the failing window's own log line:
+        //     F76 clamp: h=492 actual=817 top=123 stc=WidthAndHeight work=752@0 => declined
+        // ActualHeight (rendered, 817) had already overflowed the 752 work area while Height (requested) lagged at
+        // 492. The shipped clamp read Height, saw 492 <= 752, and declined on every single call.
+        Assert.That(ClampWindowToWorkArea.EffectiveHeight(actualHeight: 817, heightProperty: 492), Is.EqualTo(817),
+            "the RENDERED height is what puts the footer off the bottom of the screen");
+    }
+
+    [Test]
+    public void EffectiveHeight_HandlesTheUnsetHeightProperty() {
+        // A SizeToContent window often leaves Height as NaN; NaN must not poison the comparison.
+        Assert.Multiple(() => {
+            Assert.That(ClampWindowToWorkArea.EffectiveHeight(817, double.NaN), Is.EqualTo(817));
+            // A pending larger request still counts: it would overflow on the next layout pass.
+            Assert.That(ClampWindowToWorkArea.EffectiveHeight(400, 900), Is.EqualTo(900));
+        });
+    }
+
+    [Test]
+    public void TheMeasuredOverflowingWindow_IsBroughtFullyOnScreen() {
+        // End to end on the real numbers: rendered 817 at top 123 in a 1280x752 work area (150% DPI, the owner's
+        // screen). Bottom lands at 940 against 752 -- 188 DIPs, ~282 physical px, off the bottom. That is the
+        // screenshot.
+        var work = new Rect(0, 0, 1280, 752);
+        var h0 = ClampWindowToWorkArea.EffectiveHeight(actualHeight: 817, heightProperty: 492);
+
+        var clamped = ClampWindowToWorkArea.TryComputeWorkAreaClamp(h0, top: 123, work: work, newHeight: out var h, newTop: out var t);
+
+        Assert.Multiple(() => {
+            Assert.That(clamped, Is.True);
+            Assert.That(h, Is.EqualTo(752), "height capped to the work area");
+            Assert.That(t, Is.EqualTo(0), "pulled up so the footer is on screen");
+            Assert.That(t + h, Is.LessThanOrEqualTo(work.Bottom), "Accept must be inside the work area");
+        });
+    }
+
+    [Test]
     public void ShorterThanWorkArea_IsLeftAlone() {
         var clamped = ClampWindowToWorkArea.TryComputeWorkAreaClamp(
             height: 500, top: 100, work: SmallWorkArea, newHeight: out var h, newTop: out var t);

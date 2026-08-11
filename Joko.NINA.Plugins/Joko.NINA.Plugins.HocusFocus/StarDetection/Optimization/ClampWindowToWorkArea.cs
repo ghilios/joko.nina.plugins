@@ -133,7 +133,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (window is null || work.Height <= 0.0) {
                 return false;
             }
-            var height = double.IsNaN(window.Height) ? window.ActualHeight : window.Height;
+            var height = EffectiveHeight(window.ActualHeight, window.Height);
             var clamping = TryComputeWorkAreaClamp(height, window.Top, work, out var newHeight, out var newTop);
             // F76 has been misdiagnosed three times from reasoning without instrumentation, and a fix shipped that
             // did not work. Make the behaviour self-reporting: one line per DISTINCT state, so the log says whether
@@ -157,6 +157,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
             window.Top = newTop;
             return true;
+        }
+
+        /// <summary>
+        /// Which height decides whether the window overflows. MEASURED, not assumed: on the failing window the log
+        /// recorded <c>h=492 actual=817 top=123 work=752</c> — <see cref="FrameworkElement.ActualHeight"/> is the
+        /// RENDERED height and had already overflowed, while <see cref="FrameworkElement.Height"/> is the REQUESTED
+        /// value and lagged at 492. Reading Height alone is why the shipped clamp declined on every call and the
+        /// footer stayed off-screen. Take whichever is larger: the rendered height is what puts Accept off the
+        /// bottom, and a larger pending request would do so next layout pass.
+        /// </summary>
+        internal static double EffectiveHeight(double actualHeight, double heightProperty) {
+            var requested = double.IsNaN(heightProperty) ? 0.0 : heightProperty;
+            return Math.Max(actualHeight, requested);
         }
 
         /// <summary>
