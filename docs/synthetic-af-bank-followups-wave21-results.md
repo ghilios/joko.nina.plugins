@@ -710,12 +710,19 @@ Neither carries a pre-registered rule; both are recorded so the wave's ledger is
   completion. **A4** (in-run guidance) and **A6** (abort advice) confirmed as rendered pixels; **A1** and **A2**
   confirmed earlier in the same session *against the report JSON on disk*; **A3/A9** upgraded from the
   placeholder to a real recommendation. Then the completed summary's entire action row —
-  `Back / Review frames / Continue optimizing / Accept / Close` — proved to be **clipped off the bottom of the
-  dialog**: window height `1392` == monitor work area `1392`, exactly, on a `SizeToContent` window with no
-  ScrollViewer and no resize. All five buttons sit in the visual tree at `(0,0)`. **180
-  `StarDetectionOptimizerWizardVMTests` pass on it**, correctly, because the ViewModel is fine — the failing
-  half is the XAML, which is the half wave 13's results named as untested. **A5 and A7 are blocked on F76; A8
-  was not exercised** (this run's step was `55 → 53`, not capped).
+  `Back / Review frames / Continue optimizing / Accept / Close` — proved to be **off the bottom of the screen**.
+  **A5 and A7 are blocked on F76; A8 was not exercised** (this run's step was `55 → 53`, not capped).
+
+  > **F76's mechanism was rewritten later the same day, and this document keeps the wrong version visible.**
+  > The entry as first written blamed *"a `SizeToContent` window with no ScrollViewer"* and prescribed adding
+  > one. **The source refutes that and the prescribed fix is already shipped:** the ScrollViewer is at
+  > `Optimization/DataTemplates.xaml:292`, the footer is a later `Auto` grid row **outside** it (`:1240+`), and
+  > `ClampWindowToWorkArea.cs` is deliberate plugin code whose docstring names this failure mode as the thing it
+  > exists to prevent. What survives is a **placement** defect: measured before anything was perturbed,
+  > `T=444 B=1836 height=1392` against a work area of `0..1392` — the height clamp is correct, the position puts
+  > the bottom 444 px past it. Three later claims — the `(0,0)` coordinates, the wheel test and the
+  > refuses-to-resize observation — are **withdrawn by name** as confounded by the controller's own
+  > `SetWindowPos` calls. See [`followups.md`](followups.md) F76 for the corrected entry.
 - **`c41f308`** — carries F76 and item C's real state into `docs/waves22+-handoff-prompt.md`, including the
   point that matters for pricing F76: **the suite does not reach it.**
 
