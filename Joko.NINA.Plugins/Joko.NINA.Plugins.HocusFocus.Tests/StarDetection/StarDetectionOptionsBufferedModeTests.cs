@@ -112,7 +112,10 @@ public class StarDetectionOptionsBufferedModeTests {
 
         Assert.Multiple(() => {
             Assert.That(options.UseAdvanced, Is.False);
-            Assert.That(options.NoiseReductionRadius, Is.EqualTo(3));
+            // F70: 4, not 3 — ResetDefaults now ends in the Simple-mode derivation unconditionally, so the
+            // in-memory value is the compensated default. Suppression is unaffected: the assertion below still
+            // shows the LEGACY KEY frozen at the pre-suppression 7, which is what this test is about.
+            Assert.That(options.NoiseReductionRadius, Is.EqualTo(4));
             Assert.That(store.GetValueBoolean("UseAdvanced", false), Is.True);
             Assert.That(store.GetValueInt32("NoiseReductionRadius", -1), Is.EqualTo(7));
             Assert.That(store.Snapshot.ContainsKey("OptimizedSettingsJson"), Is.False);

@@ -392,6 +392,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             optionsAccessor.SetValueString(OptimizedSettingsJsonKey, "");
             RaisePropertyChanged(nameof(HasOptimizedSettings));
             UseOptimizedSettings = false;
+            // F70. Run the Simple-mode derivation UNCONDITIONALLY, as the last statement, so "restore defaults"
+            // leaves exactly the state a freshly constructed StarDetectionOptions holds — for every property.
+            //
+            // It used to re-enter here only BY ACCIDENT. UseOptimizedSettings is in SimplePropertyNames, so its
+            // setter's RaisePropertyChanged re-runs ConfigureSimpleSettings — but every setter in this class is
+            // change-guarded, so that happened only when the flag was already ON. The same button therefore
+            // produced two different detectors, and the branch it took depended on a checkbox the button itself
+            // clears: NoiseReductionRadius came out 4 for a user who had optimized settings enabled and 3 for one
+            // who did not. The 3 is a state NO construction ever produces — InitializeOptions always ends in
+            // ConfigureSimpleSettings, and DerivePresetSettings adds the hotpixel compensation at :221-224
+            // whenever HotpixelThresholdingEnabled && HotpixelFiltering, which are both on by default.
+            //
+            // The preset-owned literals above are retained as documentation of the intended defaults, but the
+            // derivation is the AUTHORITY for the 20 properties the two share — hand-transcribing them is what
+            // drifted in the first place. Pinned by StarDetectionOptionsTests
+            // .ResetDefaults_EqualsFreshConstruction_* (four entry states, every property).
+            ConfigureSimpleSettings();
         }
 
         private bool debugMode;

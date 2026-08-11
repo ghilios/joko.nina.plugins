@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Reflection;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
@@ -373,12 +374,17 @@ public class StarDetectionOptionsTests {
     }
 
     [Test]
-    public void BuildDefaultStarDetectorParams_MatchesResetDefaultsBuild() {
-        // The optimizer's "fully-default" seed must equal what BuildStarDetectorParams produces from a freshly
-        // reset options object — for EVERY option-derived field. If a default ever changes in only one place
-        // (ResetDefaults or BuildDefaultStarDetectorParams), this test fails loudly.
+    public void BuildDefaultStarDetectorParams_MatchesConstructedOptionsBuild() {
+        // The optimizer's "fully-default" seed must equal what BuildStarDetectorParams produces from the options
+        // object A REAL LOAD PRODUCES — a plain construction over a blank accessor — for EVERY option-derived
+        // field. If a default ever changes in only one place, this test fails loudly.
+        //
+        // F70: this used to call ResetDefaults() first. That was the ONE path on which the two sides agreed about
+        // NoiseReductionRadius, and it was a path no profile load takes: the bare literal, reached only when the
+        // preset derivation happened not to re-enter. The path every load DOES take disagreed by one and nothing
+        // in the repo looked at it. The reset path is not lost — ResetDefaults_EqualsFreshConstruction_* pins it
+        // to this same construction, over every property and from four entry states.
         var (options, _, _) = Build();
-        options.ResetDefaults();
         var fromOptions = HocusFocusStarDetection.BuildStarDetectorParams(options);
         var fromDefault = HocusFocusStarDetection.BuildDefaultStarDetectorParams();
 
@@ -388,7 +394,15 @@ public class StarDetectionOptionsTests {
             Assert.That(fromDefault.PSFFitType, Is.EqualTo(fromOptions.PSFFitType));
             Assert.That(fromDefault.HotpixelFiltering, Is.EqualTo(fromOptions.HotpixelFiltering));
             Assert.That(fromDefault.HotpixelThresholdingEnabled, Is.EqualTo(fromOptions.HotpixelThresholdingEnabled));
-            Assert.That(fromDefault.NoiseReductionRadius, Is.EqualTo(fromOptions.NoiseReductionRadius));
+            // ---- F70: the ONE named exception, asserted in BOTH directions so either side moving fails loudly.
+            // BuildDefaultStarDetectorParams carries the Typical preset's PRE-compensation base (3); every
+            // constructed options object carries the +1 DerivePresetSettings adds when hotpixel thresholding and
+            // filtering are both on (StarDetectionOptions.cs:221-224) — and the assertion two lines up is what
+            // says they are both on here, so this exception cannot be read as an unconditional licence.
+            // Whether the seed should follow the shipped default is RULE N18's question, not this test's.
+            Assert.That(fromDefault.NoiseReductionRadius, Is.EqualTo(3), "the optimizer seed's hardcoded literal");
+            Assert.That(fromOptions.NoiseReductionRadius, Is.EqualTo(4), "the value a real load produces");
+            // ---- end of the named exception; everything below is plain equality again.
             Assert.That(fromDefault.NoiseClippingMultiplier, Is.EqualTo(fromOptions.NoiseClippingMultiplier));
             Assert.That(fromDefault.StarClippingMultiplier, Is.EqualTo(fromOptions.StarClippingMultiplier));
             Assert.That(fromDefault.ContaminationSensitivity, Is.EqualTo(fromOptions.ContaminationSensitivity));
@@ -422,6 +436,165 @@ public class StarDetectionOptionsTests {
             Assert.That(fromDefault.PSFPixelIntegration, Is.EqualTo(fromOptions.PSFPixelIntegration));
             Assert.That(fromDefault.MaxStarEvaluationParallelism, Is.EqualTo(fromOptions.MaxStarEvaluationParallelism));
             Assert.That(fromDefault.MeasurementAverage, Is.EqualTo(fromOptions.MeasurementAverage));
+        });
+    }
+
+    // ---- F70: ResetDefaults() must be deterministic and must equal a construction ----
+
+    // Excluded from the "reset == fresh construction" contract: the three DetectionBinning*Hint members are
+    // view-only strings/flags computed from the last MEASURED in-focus HFR (one of them embeds a timestamp).
+    // They are not defaults, and neither ResetDefaults nor construction owns them.
+    private static readonly HashSet<string> NotPartOfDefaultState = new() {
+        nameof(StarDetectionOptions.DetectionBinningHint),
+        nameof(StarDetectionOptions.DetectionBinningHintDetail),
+        nameof(StarDetectionOptions.DetectionBinningRecommendationVisible),
+    };
+
+    private static void AssertStateEqualsFreshConstruction(StarDetectionOptions actual, string entryState) {
+        var (expected, _, _) = Build();
+        var mismatches = new List<string>();
+        foreach (var prop in typeof(StarDetectionOptions).GetProperties(BindingFlags.Public | BindingFlags.Instance)) {
+            if (!prop.CanRead || prop.GetIndexParameters().Length > 0 || NotPartOfDefaultState.Contains(prop.Name)) {
+                continue;
+            }
+            var a = prop.GetValue(actual);
+            var e = prop.GetValue(expected);
+            if (!Equals(a, e)) {
+                mismatches.Add($"{prop.Name}: after ResetDefaults={a}, fresh construction={e}");
+            }
+        }
+        Assert.That(mismatches, Is.Empty,
+            $"ResetDefaults() from entry state '{entryState}' must leave the state a construction produces");
+        Assert.That(actual.GetOptimizedSettings(), Is.Null, "ResetDefaults must clear the optimized snapshot");
+    }
+
+    // T2 — the contract, from four NAMED entry states. Reset state must equal constructed state for EVERY
+    // property, not just for the one field F70 named. Three of these four fail against the pre-change source
+    // (NoiseReductionRadius 3 vs 4); the fourth — the snapshot case — passed before the fix and still passes,
+    // and the pair of it with the virgin case IS the non-determinism (see the dedicated test below).
+
+    [Test]
+    public void ResetDefaults_EqualsFreshConstruction_FromVirginState() {
+        var (options, _, _) = Build();
+        options.ResetDefaults();
+        AssertStateEqualsFreshConstruction(options, "virgin");
+    }
+
+    [Test]
+    public void ResetDefaults_EqualsFreshConstruction_FromAdvancedWithNonDefaultKnobs() {
+        var (options, _, _) = Build();
+        options.UseAdvanced = true;
+        options.NoiseReductionRadius = 9;
+        options.MinHFR = 2.5;
+        options.StructureLayers = 7;
+        options.ResetDefaults();
+        AssertStateEqualsFreshConstruction(options, "Advanced mode with non-default knobs");
+    }
+
+    [Test]
+    public void ResetDefaults_EqualsFreshConstruction_FromOptimizedSnapshotApplied() {
+        var (options, _, _) = Build();
+        options.ApplyOptimizedSettings(MakeSnapshot());
+        Assert.That(options.UseOptimizedSettings, Is.True, "precondition: this entry state has the flag ON");
+        options.ResetDefaults();
+        AssertStateEqualsFreshConstruction(options, "UseOptimizedSettings = true with a snapshot applied");
+    }
+
+    [Test]
+    public void ResetDefaults_EqualsFreshConstruction_FromNonDefaultSimplePresets() {
+        var (options, _, _) = Build();
+        options.Simple_NoiseLevel = NoiseLevelEnum.High;
+        options.Simple_PixelScale = PixelScaleEnum.WideField;
+        options.Simple_FocusRange = FocusRangeEnum.WideRange;
+        options.ResetDefaults();
+        AssertStateEqualsFreshConstruction(options, "non-default Simple_* presets");
+    }
+
+    [Test]
+    public void ResetDefaults_IsDeterministic_WhateverUseOptimizedSettingsWasBeforehand() {
+        // F70's sharpest half, and the half the register did not have. UseOptimizedSettings is a member of
+        // SimplePropertyNames, and ResetDefaultsImpl's last statement is `UseOptimizedSettings = false`. Every
+        // setter in this class is change-guarded, so before the fix that statement re-entered the preset
+        // derivation ONLY when the flag was already on: the same "restore defaults" button left
+        // NoiseReductionRadius at 4 for a user who had optimized settings enabled and at 3 for one who did not.
+        // A button whose result depends on a checkbox it clears is not a default.
+        var (flagOn, _, _) = Build();
+        flagOn.UseOptimizedSettings = true;
+        var (flagOff, _, _) = Build();
+        Assert.That(flagOff.UseOptimizedSettings, Is.False, "precondition: the two entry states differ");
+
+        flagOn.ResetDefaults();
+        flagOff.ResetDefaults();
+        var (fresh, _, _) = Build();
+
+        Assert.Multiple(() => {
+            Assert.That(flagOn.NoiseReductionRadius, Is.EqualTo(flagOff.NoiseReductionRadius),
+                "ResetDefaults() must not depend on the state of the flag it clears");
+            Assert.That(flagOff.NoiseReductionRadius, Is.EqualTo(fresh.NoiseReductionRadius),
+                "and both must equal what constructing the object produces");
+            Assert.That(flagOff.NoiseReductionRadius, Is.EqualTo(4),
+                "Typical preset base 3 + the hotpixel compensation — the value the product actually runs");
+        });
+    }
+
+    [Test]
+    public void RepeatedDerivation_DoesNotCompoundTheHotpixelCompensation() {
+        // The +1 at StarDetectionOptions.cs:221-224 is applied AFTER a switch that assigns NoiseReductionRadius
+        // ABSOLUTELY on every branch, so re-entering the derivation cannot stack compensations. That property is
+        // precisely what makes an unconditional ConfigureSimpleSettings() safe to add to ResetDefaults, so it is
+        // pinned here directly rather than assumed. Driving the derivation is what the test must do: a
+        // ResetDefaults-only version of this test does NOT catch the mutant, because ResetDefaults re-asserts the
+        // bare literal first and hides the compounding. (Named mutant, VERIFIED to fail this test: make the
+        // Typical branch `NoiseReductionRadius = Math.Max(NoiseReductionRadius, 3)`.)
+        var (options, _, _) = Build();
+        var afterConstruction = options.NoiseReductionRadius;
+
+        for (var i = 0; i < 3; i++) {
+            // UseOptimizedSettings is in SimplePropertyNames, so each edge re-enters DerivePresetSettings.
+            options.UseOptimizedSettings = true;
+            options.UseOptimizedSettings = false;
+        }
+        var afterRederiving = options.NoiseReductionRadius;
+
+        options.ResetDefaults();
+        options.ResetDefaults();
+
+        Assert.Multiple(() => {
+            Assert.That(afterConstruction, Is.EqualTo(4));
+            Assert.That(afterRederiving, Is.EqualTo(afterConstruction), "six re-derivations must not move the radius");
+            Assert.That(options.NoiseReductionRadius, Is.EqualTo(afterConstruction), "nor must repeated resets");
+        });
+    }
+
+    [Test]
+    public void NoiseReductionRadius_AccessorFallbackAndPresetBaseAreTheSameLiteral() {
+        // T3, modelled on AutoFocusOptionsTests.TheTwoCodeDefaultSites_ResolveToTheSameBudget. This knob has two
+        // code-default sites a reader would expect to agree — InitializeOptions'
+        // GetValueInt32("NoiseReductionRadius", 3) fall-back and the Typical branch of DerivePresetSettings — and
+        // on the ordinary path NEITHER is observable, because construction always ends in the derivation and the
+        // derivation always adds the +1. Two sites that no test can see are two sites that drift.
+        var profile = Substitute.For<IProfileService>();
+
+        // The fall-back is observable through a profile already in Advanced mode: InitializeOptions reads the
+        // useAdvanced FIELD before the derivation, so ConfigureSimpleSettings returns immediately.
+        var advancedStore = new InMemoryPluginOptionsAccessor();
+        advancedStore.SetValueBoolean("UseAdvanced", true);
+        var advanced = new StarDetectionOptions(profile, advancedStore);
+
+        // The preset base is observable with the compensation's own input turned off.
+        var uncompensatedStore = new InMemoryPluginOptionsAccessor();
+        uncompensatedStore.SetValueBoolean(nameof(StarDetectionOptions.HotpixelThresholdingEnabled), false);
+        var uncompensated = new StarDetectionOptions(profile, uncompensatedStore);
+
+        var (compensated, _, _) = Build();
+
+        Assert.Multiple(() => {
+            Assert.That(advanced.UseAdvanced, Is.True, "precondition: the fall-back is only visible in Advanced mode");
+            Assert.That(uncompensated.HotpixelThresholdingEnabled, Is.False, "precondition: compensation off");
+            Assert.That(advanced.NoiseReductionRadius, Is.EqualTo(uncompensated.NoiseReductionRadius),
+                "the accessor fall-back and the Typical preset's base are one default and must move together");
+            Assert.That(compensated.NoiseReductionRadius, Is.EqualTo(uncompensated.NoiseReductionRadius + 1),
+                "and the shipped default is that base plus the hotpixel compensation, exactly once");
         });
     }
 
@@ -510,7 +683,12 @@ public class StarDetectionOptionsTests {
 
         Assert.Multiple(() => {
             Assert.That(options.UseAdvanced, Is.False);
-            Assert.That(options.NoiseReductionRadius, Is.EqualTo(3));
+            // F70: 4, not 3. ResetDefaults now ends in the Simple-mode derivation unconditionally, so it lands
+            // where a construction lands: the Typical preset's base 3 plus the hotpixel compensation
+            // (StarDetectionOptions.cs:221-224, both inputs on by default). The 3 this used to assert was the
+            // bare literal, a value the next construction overwrote — and only on the branch where the
+            // derivation happened not to re-enter.
+            Assert.That(options.NoiseReductionRadius, Is.EqualTo(4));
             Assert.That(options.PSFFitType, Is.EqualTo(StarDetectorPSFFitType.Moffat_40));
             Assert.That(options.MeasurementAverage, Is.EqualTo(MeasurementAverageEnum.Median));
             Assert.That(options.HotpixelFiltering, Is.True);

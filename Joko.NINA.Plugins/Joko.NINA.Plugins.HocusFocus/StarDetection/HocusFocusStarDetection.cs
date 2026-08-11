@@ -407,13 +407,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         /// <summary>
-        /// The "fully-default" detector params — the analogue of <see cref="BuildStarDetectorParams"/> for an
-        /// options object at <c>StarDetectionOptions.ResetDefaults()</c>. Every option-derived field is at its
-        /// documented default. Used as the Optimization Wizard's seed so the search starts from a clean,
-        /// reproducible point regardless of the user's current settings. Image-dependent fields (PixelScale,
-        /// Region) and the auto-focus overrides are layered on by <see cref="GetDefaultStarDetectorParams"/>.
-        /// The literals here are kept in lockstep with ResetDefaults by
-        /// StarDetectionOptionsTests.BuildDefaultStarDetectorParams_MatchesResetDefaultsBuild.
+        /// The "fully-default" detector params — the analogue of <see cref="BuildStarDetectorParams"/> for a
+        /// freshly constructed <c>StarDetectionOptions</c> over a blank accessor. Used as the Optimization
+        /// Wizard's seed so the search starts from a clean, reproducible point regardless of the user's current
+        /// settings. Image-dependent fields (PixelScale, Region) and the auto-focus overrides are layered on by
+        /// <see cref="GetDefaultStarDetectorParams"/>. The literals here are kept in lockstep with what a
+        /// construction produces by
+        /// StarDetectionOptionsTests.BuildDefaultStarDetectorParams_MatchesConstructedOptionsBuild — which
+        /// carries exactly one named exception, <c>NoiseReductionRadius</c> (F70): the literal below is the
+        /// Typical preset's PRE-compensation base, while a constructed object holds that base plus the +1
+        /// hotpixel compensation of <c>StarDetectionOptions.DerivePresetSettings</c>.
         /// </summary>
         internal static StarDetectorParams BuildDefaultStarDetectorParams() {
             return new StarDetectorParams() {
@@ -439,7 +442,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 DefocusDistortionMinFactor = 0.25,
                 DefocusCenteringToleranceFactor = 2.0,
                 // Donut master + knobs at their ResetDefaults values (master OFF ⇒ inert). Kept in lockstep with
-                // StarDetectionOptions.ResetDefaults by BuildDefaultStarDetectorParams_MatchesResetDefaultsBuild.
+                // StarDetectionOptions.ResetDefaults by BuildDefaultStarDetectorParams_MatchesConstructedOptionsBuild.
                 DefocusAwareDonutDetection = false,
                 DonutMorphCloseSize = 5,
                 LocallyAdaptiveBinarization = true,   // default ON (AF-bank validated)
@@ -466,7 +469,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 PSFPixelIntegration = false,
                 MaxStarEvaluationParallelism = 0,
                 // Matches StarDetectionOptions.ResetDefaults (Median); kept in lockstep by
-                // BuildDefaultStarDetectorParams_MatchesResetDefaultsBuild.
+                // BuildDefaultStarDetectorParams_MatchesConstructedOptionsBuild.
                 MeasurementAverage = MeasurementAverageEnum.Median
             };
         }

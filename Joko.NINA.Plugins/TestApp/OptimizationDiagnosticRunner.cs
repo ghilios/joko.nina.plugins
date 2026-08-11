@@ -404,9 +404,19 @@ namespace TestApp {
             //
             // Printed HERE, where the bundles are constructed. Two fields are re-derived per run afterwards and
             // are logged where that happens: PixelScale (per-run, from the frame headers — inert by proof,
-            // consumed only inside the ModelPSF block, which is false on both paths) and, only under
-            // --apply-run-detection-binning, DetectionBinning + PixelScale together via
-            // ApplyRunDetectionBinningIfRequested. Neither the gate nor the P16 probe passes that flag.
+            // consumed only inside the ModelPSF block, which is false on both paths) and DetectionBinning +
+            // PixelScale together via ApplyRunDetectionBinningIfRequested.
+            //
+            // F69(a) — THIS PARAGRAPH USED TO SAY THE OPPOSITE, AND WAS BELIEVED. It read "only under
+            // --apply-run-detection-binning … Neither the gate nor the P16 probe passes that flag". Every clause
+            // of that was backwards: F39(b) was ADOPTED AS THE DEFAULT in wave 8 (see :205-216), so
+            // ApplyRunDetectionBinningIfRequested runs unless the OPT-OUT --no-run-detection-binning is passed;
+            // --apply-run-detection-binning survives only as an accepted no-op; and the gate and the P16 probe
+            // therefore both ran the mutation. It matters because the mutation happens AFTER the two dumps below,
+            // so DetectionBinning and PixelScale as printed here are the pre-mutation values. Wave 16's RULE P16
+            // compared `optimize`'s params as CONSTRUCTED against `af-fit`'s as DETECTED, excluded
+            // DetectionBinning as a candidate on the strength of this comment, and reached a wrong verdict; wave
+            // 17's RULE C17 found the cause to be exactly that field.
             ParamsDump.Write(Console.WriteLine, ParamsDump.OptimizeBaseline, baseline);
             ParamsDump.Write(Console.WriteLine, ParamsDump.OptimizeSeed, seed);
 
