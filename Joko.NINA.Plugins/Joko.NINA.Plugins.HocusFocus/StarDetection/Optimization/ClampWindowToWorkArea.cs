@@ -17,6 +17,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using NINA.Core.Utility;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
@@ -71,6 +72,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // root, so `window.Content is FrameworkElement` failed and TryFitToContent declined on every call -- while
         // logging nothing, so the log showed no `F76 fit:` line at all and the rule looked like it had no effect.
         private static readonly ConditionalWeakTable<Window, FrameworkElement> contentRoots = new();
+
+        // One queued resize per window. SizeChanged fires repeatedly during a resize and each would otherwise
+        // queue its own dispatcher callback.
+        private static readonly ConditionalWeakTable<Window, Window> pendingFits = new();
 
         private static void OnEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
             if (d is not FrameworkElement fe) {
@@ -293,18 +298,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             } else if (window.SizeToContent == SizeToContent.Height) {
                 window.SizeToContent = SizeToContent.Manual;
             }
-            var beforeHeight = window.Height;
-            var beforeActual = window.ActualHeight;
-            window.Height = target;
-            window.Top = top;
-            // ASSERT THE WRITE TOOK. The field log showed this method compute the correct target (h=752 from
-            // content=1350) while the window stayed at 594 and no SizeChanged followed -- i.e. the assignment did
-            // not change the window. Every other check in this file demands the mutation be observed; this one
-            // wrote a value and trusted it. Read it back, with the constraints that could be overriding it.
-            LogOnce($"F76 applied: target={target:F0} -> Height={window.Height:F0} Actual={window.ActualHeight:F0} " +
-                    $"Top={window.Top:F0} (was H={beforeHeight:F0} A={beforeActual:F0}) stc={window.SizeToContent} " +
-                    $"min={window.MinHeight:F0} max={window.MaxHeight:F0} state={window.WindowState} " +
-                    $"resize={window.ResizeMode}");
+            // APPLY OUTSIDE THE LAYOUT PASS. This runs from SizeChanged, and a window's size assigned from inside
+            // its own SizeChanged is made during layout and is discarded. Proven in the field rather than assumed:
+            // the read-back showed `target=752 -> Height=492 ... (was H=492)` with max=Infinity, i.e. nothing was
+            // capping it -- the write simply did not stick. Posting to the dispatcher runs it after layout settles.
+            if (pendingFits.TryGetValue(window, out _)) {
+                return true;   // one queued application is enough; SizeChanged fires many times per resize
+            }
+            pendingFits.Add(window, window);
+            window.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => {
+                pendingFits.Remove(window);
+                var beforeHeight = window.Height;
+                var beforeActual = window.ActualHeight;
+                window.Height = target;
+                window.Top = top;
+                // Still read it back: a fix that cannot report whether it engaged is not finished (F76's own lesson).
+                LogOnce($"F76 applied: target={target:F0} -> Height={window.Height:F0} Actual={window.ActualHeight:F0} " +
+                        $"Top={window.Top:F0} (was H={beforeHeight:F0} A={beforeActual:F0}) stc={window.SizeToContent} " +
+                        $"min={window.MinHeight:F0} max={window.MaxHeight:F0} state={window.WindowState} " +
+                        $"resize={window.ResizeMode}");
+            }));
             return true;
         }
 
