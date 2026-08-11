@@ -148,10 +148,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (!clamping) {
                 return false;
             }
-            // Turning SizeToContent off is the FIX, not a side effect: leaving it on is what let WPF recompute the
-            // content height on the next layout pass and overwrite the Win32 clamp (F76).
-            window.SizeToContent = SizeToContent.Manual;
-            window.Height = newHeight;
+            if (newHeight < height) {
+                // Turning SizeToContent off is half the fix: leaving it on lets WPF recompute the content height on
+                // the next layout pass and overwrite the clamp. Only do it when we actually SHRANK the window -- a
+                // pure reposition must not freeze the wizard's per-step growth on a screen with room for it.
+                window.SizeToContent = SizeToContent.Manual;
+                window.Height = newHeight;
+            }
             window.Top = newTop;
             return true;
         }
@@ -163,11 +166,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         internal static bool TryComputeWorkAreaClamp(double height, double top, Rect work, out double newHeight, out double newTop) {
             newHeight = height;
             newTop = top;
-            if (work.Height <= 0.0 || height <= work.Height) {
+            if (work.Height <= 0.0) {
                 return false;
             }
-            newHeight = work.Height;
-            newTop = (top < work.Top || top + newHeight > work.Bottom) ? work.Top : top;
+            // The question is "does the window FIT INSIDE the work area", not "is it too tall". The first version
+            // asked only the second, and that is why the shipped fix did nothing: the Win32 hook caps the height
+            // FIRST, so by the time this runs height already equals work.Height and the too-tall test declines --
+            // leaving the top exactly where it was. The measured failing rect was T=444 B=1836 h=1392 against a
+            // work area of 0..1392: the height was already correct and the POSITION was the whole defect.
+            var h = Math.Min(height, work.Height);
+            var t = top;
+            if (t + h > work.Bottom) {
+                t = work.Bottom - h;
+            }
+            if (t < work.Top) {
+                t = work.Top;
+            }
+            if (h == height && t == top) {
+                return false;
+            }
+            newHeight = h;
+            newTop = t;
             return true;
         }
 

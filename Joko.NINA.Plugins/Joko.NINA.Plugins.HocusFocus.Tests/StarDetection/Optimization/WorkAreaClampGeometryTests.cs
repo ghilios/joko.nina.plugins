@@ -49,6 +49,26 @@ public class WorkAreaClampGeometryTests {
     }
 
     [Test]
+    public void TheMeasuredFailingRectangle_IsRepositioned_EvenThoughItsHeightAlreadyFits() {
+        // THE regression test for F76, built from the rect actually measured on the failing window:
+        //     T=444  B=1836  height=1392   against a work area of 0..1392
+        // The height is ALREADY correct -- the Win32 hook caps it before this code runs -- and the position is the
+        // entire defect. The first version of the fix asked "is it too tall", declined here, and shipped doing
+        // nothing. Ask "does it FIT" instead.
+        var work = new Rect(0, 0, 3440, 1392);
+
+        var clamped = ClampWindowToWorkArea.TryComputeWorkAreaClamp(
+            height: 1392, top: 444, work: work, newHeight: out var h, newTop: out var t);
+
+        Assert.Multiple(() => {
+            Assert.That(clamped, Is.True, "a window whose BOTTOM is outside the work area must be corrected");
+            Assert.That(h, Is.EqualTo(1392), "the height already fitted and must not be shrunk");
+            Assert.That(t, Is.EqualTo(0), "the top must be pulled up so the footer lands on screen");
+            Assert.That(t + h, Is.LessThanOrEqualTo(work.Bottom));
+        });
+    }
+
+    [Test]
     public void ShorterThanWorkArea_IsLeftAlone() {
         var clamped = ClampWindowToWorkArea.TryComputeWorkAreaClamp(
             height: 500, top: 100, work: SmallWorkArea, newHeight: out var h, newTop: out var t);
