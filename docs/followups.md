@@ -4536,11 +4536,40 @@ half of F70 is **not decidable by measurement**: both states pass every test.
 Two things, and they are independent:
 1. **Owner decision:** delete the 20, or keep them and change the comment to say they are *asserted-redundant*
    documentation rather than defaults. Either is defensible; the list above makes it a two-minute edit.
-2. **The instrument that is genuinely owed:** a test that pins the *membership* of the partition, so a future
-   edit cannot silently move a property between the two halves. Design that needs no source parsing: for each
-   property, set a sentinel, fire the derivation by toggling `Simple_FocusRange` away and back, and assert the
-   value **reverts** (owned) or **survives** (not owned) — **asserting first that the sentinel write actually
-   took effect**, so a clamping setter reports could-not-look instead of passing silently ([F66](#f66)).
+2. ~~The instrument that is genuinely owed~~ — **SHIPPED (wave 21), see below.**
+
+### (b′) — the membership instrument is shipped, and the runtime probe corrected the source parse
+
+`StarDetectionOptionsTests` gained **49 tests** (suite **3839 → 3888**, by COUNT):
+`DerivationOwnedProperties_RevertWhenTheDerivationRuns` (20 cases),
+`NotDerivationOwnedProperties_SurviveWhenTheDerivationRuns` (28 cases), and
+`PresetOwnedPartition_CountsAndDisjointness_ArePinned`.
+
+**No source parsing.** For each property it writes a sentinel, fires the derivation by toggling
+`Simple_FocusRange` away and back, and asserts the value **reverts** (owned) or **survives** (not owned). So the
+partition is now pinned by *behaviour*, and a future edit cannot move a property between the halves unnoticed.
+
+**Demonstrated on known-bad, not just known-good** ([F66](#f66)). Mutant **M-P1** — delete
+`StarPeakResponse = 0.75;` from `DerivePresetSettings` — was applied (the mutation asserted present in source),
+and the result was **1 failed, 19 passed: exactly `StarPeakResponse`**. The test does not merely go red; it
+*names the property that moved*. The product file was restored from a **byte backup taken before the mutation**
+and verified sha-identical, because the tree carried uncommitted work and a VCS restore would have destroyed it
+(wave 20's lesson).
+
+**The probe corrected the source parse on its first run, which is the reason to prefer it.**
+`DonutMaxStreakEccentricity` was classified LIVE by the brace-depth intersection and the probe reported it as
+*not surviving*. The cause was neither: **its setter throws outside `[0.8, 1.0]`** (`StarDetectionOptions.cs:952-954`),
+so the generic sentinel `d/2 = 0.5` was rejected and the membership was **UNMEASURED, not refuted**. Fixed by
+offering *candidate* sentinels nearest-first (`d*0.95` lands inside the range) and failing with an explicit
+**"could not look"** naming every rejected candidate if the setter accepts none. *A validating setter is the
+generic-probe equivalent of a clamping instrument: without the candidate ladder it would have silently
+misclassified a property, and without the could-not-look state it would have reported a guess as a measurement.*
+
+**Four properties are excluded BY NAME and are therefore still uncovered** — `UseAdvanced` (switches the object
+out of Simple mode, so the derivation would not run at all), `UseOptimizedSettings` (re-enters the derivation
+from its own setter), `IntermediateSavePath` (creates directories), and `Simple_FocusRange` (it *is* the
+trigger). `PresetOwnedPartition_CountsAndDisjointness_ArePinned` asserts none of the four reappears in either
+list, so an uncovered literal cannot masquerade as a covered one. **A literal the test cannot cover stays.**
 
 ### F69 — F39(b)'s flag NAMES and its own COMMENT state the opposite of its default, and that cost a pre-registered rule its verdict
 **Status:** Open · found 2026-08-10 (wave 17) while deciding

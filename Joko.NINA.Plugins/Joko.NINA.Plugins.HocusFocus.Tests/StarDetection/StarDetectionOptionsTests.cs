@@ -510,6 +510,153 @@ public class StarDetectionOptionsTests {
         AssertStateEqualsFreshConstruction(options, "non-default Simple_* presets");
     }
 
+    // ---- F70(b'): the preset-owned PARTITION, probed at runtime -------------------------------------------
+    //
+    // ResetDefaultsImpl assigns 53 public properties. Exactly 20 of them are ALSO assigned by
+    // DerivePresetSettings, which ResetDefaultsImpl re-runs unconditionally as its last statement -- so those 20
+    // literals are dead and the derivation is the authority. The other 33 are live defaults.
+    //
+    // The register carried that as a hand-counted "20" with no membership, and the membership is the dangerous
+    // half: Simple_NoiseLevel, Simple_PixelScale and Simple_FocusRange are the derivation's own INPUTS, and
+    // HotpixelThresholdingEnabled is READ by it (the NoiseReductionRadius += 1 hotpixel compensation) but never
+    // assigned. All four look preset-related; deleting them breaks the class. These tests pin the membership so
+    // a future edit cannot move a property between the halves unnoticed.
+    //
+    // The probe needs no source parsing: set a sentinel, fire the derivation by toggling Simple_FocusRange away
+    // and back, then see whether the value REVERTS (owned) or SURVIVES (not owned). Every case asserts the
+    // sentinel write actually landed first -- a clamping or no-op setter must report could-not-look rather than
+    // pass silently (F66).
+
+    private static readonly string[] DerivationOwnedProperties = {
+        "BrightnessSensitivity", "HotpixelFiltering", "HotpixelThreshold", "MaxDistortion", "MinHFR",
+        "MinStarBoundingBoxSize", "NoiseClippingMultiplier", "NoiseReductionRadius", "PSFFitThreshold",
+        "PSFFitType", "PSFResolution", "PixelSampleSize", "StarBackgroundBoxExpansion", "StarCenterTolerance",
+        "StarClippingMultiplier", "StarMeasurementNoiseReductionEnabled", "StarPeakResponse",
+        "StructureDilationCount", "StructureDilationSize", "StructureLayers",
+    };
+
+    // Live defaults the probe can drive safely. Deliberately NOT the whole 33: UseAdvanced would switch the
+    // object out of Simple mode and stop the derivation from running at all, UseOptimizedSettings re-enters the
+    // derivation from its own setter, IntermediateSavePath creates directories, and Simple_FocusRange is the
+    // trigger itself. Those four are excluded BY NAME rather than quietly dropped -- a literal the test cannot
+    // cover stays uncovered and says so.
+    private static readonly string[] NotDerivationOwnedProperties = {
+        "AdaptiveNoiseBlockSize", "ContaminationSensitivity", "DebugMode", "DefocusAwareDonutDetection",
+        "DefocusAwareGates", "DefocusAwareStructure", "DefocusCenteringToleranceFactor",
+        "DefocusDistortionMinFactor", "DefocusDistortionSizeReference", "DetectionBinning",
+        "DonutMaxStreakEccentricity", "DonutMinAnnularityHoleFraction", "DonutMorphCloseSize",
+        "DonutSaturationBloomRadius", "ExcludeSaturatedStarsFromHFR", "HotpixelThresholdingEnabled",
+        "LocallyAdaptiveBinarization", "MeasurementAverage", "ModelPSF", "PSFParallelPartitionSize",
+        "PSFPixelIntegration", "RejectContaminatedStars", "SaturationThreshold", "SaveIntermediateImages",
+        "Simple_NoiseLevel", "Simple_PixelScale", "StructureLayerBoost", "UsePSFAbsoluteDeviation",
+    };
+
+    private static readonly string[] ProbeExcludedByName = {
+        "UseAdvanced", "UseOptimizedSettings", "IntermediateSavePath", "Simple_FocusRange",
+    };
+
+    private static void FireDerivation(StarDetectionOptions options) {
+        var was = options.Simple_FocusRange;
+        options.Simple_FocusRange = was == FocusRangeEnum.Typical ? FocusRangeEnum.WideRange : FocusRangeEnum.Typical;
+        options.Simple_FocusRange = was;
+    }
+
+    // Several setters VALIDATE and throw outside a documented range (DonutMaxStreakEccentricity is [0.8, 1.0]),
+    // so there is no single generic sentinel. Offer candidates and let the setter choose: the first one it
+    // accepts is the probe value. If it rejects all of them the membership is UNMEASURED and the caller says so
+    // -- it must never be reported as confirmed.
+    private static IEnumerable<object> SentinelCandidates(object current, Type t) {
+        if (t == typeof(bool)) {
+            yield return !(bool)current;
+            yield break;
+        }
+        if (t.IsEnum) {
+            foreach (var v in Enum.GetValues(t)) {
+                if (!Equals(v, current)) yield return v;
+            }
+            yield break;
+        }
+        if (t == typeof(int)) {
+            yield return (int)current + 1;
+            yield return (int)current - 1;
+            yield break;
+        }
+        if (t == typeof(double)) {
+            var d = (double)current;
+            // Nearest first, so a narrow validated range is still reachable; then progressively further away.
+            yield return d * 0.95;
+            yield return d * 1.05;
+            yield return d > 0.0 ? d / 2.0 : 0.5;
+            yield return d + 1.0;
+            yield break;
+        }
+        if (t == typeof(string)) {
+            yield return (string)current + "_sentinel";
+            yield break;
+        }
+    }
+
+    private static (PropertyInfo prop, object before, object sentinel) WriteSentinel(StarDetectionOptions options, string name) {
+        var prop = typeof(StarDetectionOptions).GetProperty(name);
+        Assert.That(prop, Is.Not.Null, $"could not look: {name} is not a public property of StarDetectionOptions");
+        var before = prop.GetValue(options);
+        var rejected = new List<string>();
+        foreach (var candidate in SentinelCandidates(before, prop.PropertyType)) {
+            try {
+                prop.SetValue(options, candidate);
+            } catch (TargetInvocationException ex) {
+                rejected.Add($"{candidate} -> {ex.InnerException?.GetType().Name}");
+                continue;
+            }
+            // F66: the mutation must be OBSERVED, not assumed. A change-guarded or clamping setter can accept the
+            // write and keep the old value, which would make every property look owned for the wrong reason.
+            if (Equals(prop.GetValue(options), candidate)) {
+                return (prop, before, candidate);
+            }
+            rejected.Add($"{candidate} -> silently kept {before}");
+        }
+        Assert.Fail($"could not look: no sentinel was accepted by {name} (tried: {string.Join("; ", rejected)}), " +
+                    "so this property's membership is UNMEASURED rather than confirmed");
+        return (prop, before, before);
+    }
+
+    [Test]
+    public void DerivationOwnedProperties_RevertWhenTheDerivationRuns([ValueSource(nameof(DerivationOwnedProperties))] string name) {
+        var (options, _, _) = Build();
+        var (prop, before, _) = WriteSentinel(options, name);
+        FireDerivation(options);
+        Assert.That(prop.GetValue(options), Is.EqualTo(before),
+            $"{name} is listed as preset-owned, so DerivePresetSettings must reassign it and the sentinel must " +
+            "not survive. If this fails, the property left the derivation and its ResetDefaultsImpl literal is " +
+            "now LIVE -- do not delete it.");
+    }
+
+    [Test]
+    public void NotDerivationOwnedProperties_SurviveWhenTheDerivationRuns([ValueSource(nameof(NotDerivationOwnedProperties))] string name) {
+        var (options, _, _) = Build();
+        var (prop, _, sentinel) = WriteSentinel(options, name);
+        FireDerivation(options);
+        Assert.That(prop.GetValue(options), Is.EqualTo(sentinel),
+            $"{name} is listed as NOT preset-owned, so the derivation must leave it alone. If this fails, the " +
+            "property joined the derivation and its ResetDefaultsImpl literal is now dead.");
+    }
+
+    [Test]
+    public void PresetOwnedPartition_CountsAndDisjointness_ArePinned() {
+        var owned = new HashSet<string>(DerivationOwnedProperties);
+        var notOwned = new HashSet<string>(NotDerivationOwnedProperties);
+        Assert.Multiple(() => {
+            Assert.That(owned, Has.Count.EqualTo(20), "the preset-owned set is 20, derived from source by wave 21");
+            Assert.That(owned.Overlaps(notOwned), Is.False, "a property cannot be in both halves");
+            // The four names the probe cannot drive are excluded deliberately and must not silently reappear
+            // in either list -- that is how an uncovered literal would masquerade as a covered one.
+            foreach (var excluded in ProbeExcludedByName) {
+                Assert.That(owned.Contains(excluded), Is.False, $"{excluded} is probe-excluded, not owned");
+                Assert.That(notOwned.Contains(excluded), Is.False, $"{excluded} is probe-excluded, not not-owned");
+            }
+        });
+    }
+
     [Test]
     public void ResetDefaults_IsDeterministic_WhateverUseOptimizedSettingsWasBeforehand() {
         // F70's sharpest half, and the half the register did not have. UseOptimizedSettings is a member of
