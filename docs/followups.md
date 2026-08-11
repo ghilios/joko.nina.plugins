@@ -4575,6 +4575,40 @@ mechanically safe edit behind an existing test** — what is missing is not safe
 the AUTHORITY"* — and overturning a reasoned in-source decision is an owner's call, not a cleanup. Like (a), this
 half of F70 is **not decidable by measurement**: both states pass every test.
 
+### (b′) is CLOSED: the owner REJECTED the deletion, and the premise behind it was wrong
+
+Proposed as PR #192 (branch `ghilios/f70-remove-dead-preset-literals`, now deleted) and **rejected 2026-08-11**.
+The 20 literals stay. **Do not re-propose this.** The reason is not taste — the analysis the proposal rested on
+had a defect, and it is the interesting part:
+
+> **The Simple-mode preset system owns the detector configuration. All of it. That is its entire purpose —
+> consistent settings across the board.**
+
+**The "20 owned / 33 live" split is not a design boundary.** It is a snapshot of which values happen to **VARY**
+between preset combinations *today*. `DerivePresetSettings` assigns 20 because only those 20 currently differ
+across `Simple_NoiseLevel × Simple_PixelScale × Simple_FocusRange` — **not** because the other 33 sit outside the
+preset system's ownership. A default that is identical for every combination is still preset-owned; it simply has
+a constant value, so there is nothing for the derivation to compute.
+
+Two consequences that kill the deletion:
+
+1. **It would leave `ResetDefaultsImpl` stating an arbitrary subset** — exactly those defaults that happen not to
+   vary right now — instead of the complete default configuration in one readable place.
+2. **The line moves.** Make any one of the 33 preset-dependent and it silently joins the 20; make a varying one
+   constant and it leaves. A boundary that shifts whenever someone edits an unrelated preset rule is not a
+   boundary worth encoding in the source layout.
+
+**The controller's error, named.** The partition was computed correctly and then **mislabelled**: *"assigned by
+`DerivePresetSettings` today"* was reported as *"owned by the preset system"*. Those are not the same claim, and
+the second does not follow from the first. Every artifact of that work inherited the wrong word — including the
+test names `DerivationOwnedProperties_*` / `NotDerivationOwnedProperties_*`, which encode the conflation in the
+codebase. **Owed: rename them to `DerivationAssignedProperties_*` / `NotDerivationAssignedProperties_*`**, which
+is what they actually measure. The tests themselves are correct and stay — a mechanical fact about which
+properties the derivation reassigns is worth pinning; it is only the name that overclaims.
+
+*The mechanically-derived number was right, the English attached to it was wrong, and the English was what the
+proposal was built on. A partition can be exact and still not mean what its label says.*
+
 ### Next step
 Two things, and they are independent:
 1. **Owner decision:** delete the 20, or keep them and change the comment to say they are *asserted-redundant*
