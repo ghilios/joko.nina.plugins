@@ -3814,10 +3814,102 @@ result is the argument against assuming any build-level change helps — the sta
 instruction width, so wider vectors have nothing to recover. Establish the bottleneck by measurement before
 buying or building anything.
 
+### F71 — A converted settings file carries every detector knob TWICE, and the control that checked the conversion read the copy the loader ignores
+**Status:** Open · found 2026-08-11 (wave 18) when a control returned a demonstrated PASS and a demonstrated FAIL
+**on the wrong inputs** · **it cost RULE N18 its verdict, and the evidence that it was wrong was in the same file
+the control read**
+
+`convert_landing_w15.py` turns an optimizer landing into a harness settings file through the production Accept
+path. The output has the base file's `Options` block round-tripped **verbatim**, plus the landing written into
+`Options["OptimizedSettingsJson"]` with `Options["UseOptimizedSettings"] = "True"`. So **every curated detector
+knob appears twice in one file**, and on load in Simple mode the `Options` copy is **dead**:
+`ConfigureSimpleSettings` takes the `UseOptimizedSettings && HasOptimizedSettings` branch and
+`ApplyOptimizedSnapshotToLiveProperties` overwrites it.
+
+Wave 18's `N18-V7` — *"the `af-fit/detector` dump carries the converted file's `NoiseReductionRadius`"* — and its
+F66(a) probe both compared the detector against **`Options`**, the dead copy. On wave 18's probe:
+
+```
+good    settings NoiseReductionRadius=4   af-fit/detector NoiseReductionRadius=3   -> DID-NOT-TAKE
+mutant  settings NoiseReductionRadius=4   af-fit/detector NoiseReductionRadius=4   -> TOOK
+```
+
+**Both verdicts are exactly inverted.** `good` (`UseOptimizedSettings=True`) genuinely took — the snapshot bound
+and the detector ran at the landing's **3**. `mutant` (the same file with the flag flipped to `False`, asserted
+by read-back) genuinely did not — the snapshot was ignored, `DerivePresetSettings` ran, and the detector came out
+at **4**.
+
+### The two copies disagree BECAUSE of F70, which is the defect the wave existed to fix
+
+| | `Options.NoiseReductionRadius` | `OptimizedSettingsJson` → `NoiseReductionRadius` |
+|---|---|---|
+| the converted file | **4** — the base's stored value, which is `DerivePresetSettings`' `Typical ⇒ 3` plus the `+1` hotpixel compensation, persisted | **3** — `BuildDefaultStarDetectorParams`'s pre-compensation literal, followed by the search on 18 of 20 datasets |
+
+And the `mutant` side is the same defect a second time: with the snapshot ignored, the derivation re-runs and
+lands **back on 4**, so the dead stored copy agreed with the live value by arithmetic accident. **The control was
+not merely reading the wrong field — it was reading a field that is inert in Simple mode and that coincided with
+the live one only because of the `+1`.**
+
+### The verification took no compute, from the files the control had already read
+
+The same two `run.log` files carry **56 detector fields** each, of which **8 differ** between `good` and
+`mutant`: `HotpixelThreshold`, `MaxDistortion`, `MinHFR`, `NoiseReductionRadius`, `Sensitivity`,
+`StarCenterTolerance`, `StarClippingMultiplier`, `StructureLayers`. **All eight of `good`'s values are the
+snapshot's; all eight of `mutant`'s are the base's.** Seven fields would have contradicted the verdict for free.
+
+### Why it matters
+
+- **It cost a pre-registered rule its decisive clause.** The interlock refused to write `PROBE_PASSED`, both
+  arms' `af-fit` passes aborted, `N18-V7` returned COULD-NOT-LOOK on 20 of 20 in both arms, `N18-P` was
+  UNEVALUATED on an empty set, and **RULE N18 returned `N-UNEVALUATED`** on 1 h 55 m of completed arms. The
+  arms are intact on disk; the ~8 m that would have consumed them was never spent.
+- **Uncaught, it would have produced a validity gate correlated with the treatment.** `N18-V7` as coded reduces
+  to *"did this dataset's landing radius happen to equal 4?"*. From the landings: **0 of 20 on the control arm
+  and 15 of 20 on the treatment arm.** Neither reaches the 1.000 bar, so the verdict would have been the same —
+  but the printed numbers read as *"the conversion bound on the treatment arm and not on the control arm"*, a
+  conclusion about the arms drawn entirely from a defect in the instrument, pointing the way the wave wanted to
+  go.
+- **It is [F68](#f68--a-threshold-stated-as-a-count-carries-a-denominator-and-three-consecutive-satisfiability-analyses-have-checked-the-value-a-clause-can-reach-without-checking-the-population-it-is-computed-over)'s
+  shape in a dimension F68 does not cover.** The clause's **P / S / A / E** columns are all filled in correctly:
+  population (the `af-fit` dumps against the converted files), statistic (field equality), aggregation (rate per
+  arm), empty answer (COULD-NOT-LOOK, named, out of both denominators). A denominator error is a *population*
+  that is not what you think it is; **this is a *quantity* that is not what you think it is**, and no check the
+  register currently prescribes can see it.
+- **And it is [F66](#f66--three-of-wave-14s-checks-could-not-return-their-own-pass-and-the-register-has-been-reading-strings-as-one-instrument-when-it-is-two)(a)
+  honoured to the letter and still defeated.** Two inputs differing in one asserted-by-read-back byte, two runs,
+  a demonstrated TOOK and a demonstrated DID-NOT-TAKE — and they came out on the wrong sides. *A two-directional
+  demonstration proves the branches are DISTINGUISHABLE, not that they are CORRECTLY ASSIGNED*, because both
+  directions are evaluated by the same definition. It was caught only because the labels were **swapped**; a
+  definition error moving both verdicts the same way would have read as a clean PASS.
+
+### Next step
+(a) **Read the SNAPSHOT, not `Options`, in any check that asks whether a converted landing bound** — and say so
+in the clause's own text, not only in the code. **~10 m** in `score_n18_w18.py` (`score_probe` and the `N18-V7`
+block, both of which read `want.get("NoiseReductionRadius")` from `Options`). **Do not fold this into a repair of
+RULE N18**: N18 is `N-UNEVALUATED` and is not re-decided after the data. It belongs to whatever wave next
+pre-registers an out-of-sample clause on converted landings.
+(b) **Corroborate any one-field control with a second field that must move the same way.** Wave 18's probe had
+seven such fields sitting in the same dump at zero cost. **~5 m**, and it is the half that generalises past this
+one clause.
+(c) **Make `convert_landing_w15.py` say what it is doing** — its `--self-test` already asserts *"leaves
+`UseAdvanced=False` (or the snapshot is ignored)"*, so it knows the snapshot is the live copy. Have the converter
+print, for each moved knob, the pair `(Options value, snapshot value)` it is creating, so the two-copy structure
+is visible to the next reader rather than latent. **~10 m.**
+(d) **The 40 wave-18 arm landings are on disk and must not be re-run**
+([F53](#f53--wave-8s-arm-x-does-not-reproduce-from-wave-8s-own-exe-because-the-arm-ran-on-an-earlier-build-of-it)(c)):
+`/mnt/d/hf_w18/seedA0` and `/mnt/d/hf_w18/seedA1`, 20 each, provenance-clean, two distinct `BuildId`s. A repaired
+out-of-sample clause can score them for ~8 m of `af-fit`.
+Reproduce: `python3 /mnt/d/hf_w18/score_n18_w18.py --probe /mnt/d/hf_w18/probe --probe-result
+/mnt/d/hf_w18/gate/D18_m24_deep_shed/attempt01/optimize_result.csv`; the two copies are
+`python3 -c "import json; d=json.load(open('/mnt/d/hf_w18/probe/good.json'))['Options']; print(d['NoiseReductionRadius'],
+json.loads(d['OptimizedSettingsJson'])['NoiseReductionRadius'])"` → `4 3`;
+`docs/synthetic-af-bank-followups-wave18-results.md` §5.
+
 ### F70 — `NoiseReductionRadius` has TWO shipped defaults, and the drift-guard test asserts the one path where they agree
 **Status:** Open · found 2026-08-10 (wave 17) by reconciling two clauses of RULE D17 that appeared to
-contradict each other · **~0 to measure (it is printed in every `optimize` log), and it is a PRODUCT
-observation, not a harness one**
+contradict each other · **(b) DONE in wave 18 (`93e366a`); (a) DECIDED IN SOURCE AND UNSHIPPED — see the wave-18
+block below** · **~0 to measure (it is printed in every `optimize` log), and it is a PRODUCT observation, not a
+harness one**
 
 RULE D17 diffed the pinned settings file's detector bundle against the shipped code defaults over the 50 fields
 `ApplyAfContext` does not set, on 8 wave-17 gate logs and 10 wave-16 logs. **Exactly one field differs, every
@@ -3843,25 +3935,122 @@ recorded knobs. Both are correct, and reconciling them is where the finding is.
 > fires. The path every real load takes disagrees by one, and no test looks at it.
 
 **Why it matters.** `NoiseReductionRadius` is **live**, not cosmetic: it is in `StarDetector`'s early-key list
-(`:153`) and sets the measurement-image smoothing kernel at
-`CvImageUtility.ConvolveGaussian(srcImage, srcImage, p.NoiseReductionRadius * 2 + 1)` — **7 px against 9 px**.
-So the optimizer's seed — in the harness **and in the shipped wizard** — starts its search from a smoothing
-radius that no Simple-mode options object with hotpixel thresholding enabled ever holds. The wizard's own
-docstring calls it *"the fully-default detector params … so the search starts from a clean, reproducible
-point"*, and it is clean and reproducible; it is just not the point the user is at.
+(`:153`), so a candidate that moves it forces a full re-detect, and it sets a Gaussian kernel of
+`NoiseReductionRadius * 2 + 1` — **7 px against 9 px**. So the optimizer's seed — in the harness **and in the
+shipped wizard** — starts its search from a smoothing radius that no Simple-mode options object with hotpixel
+thresholding enabled ever holds. The wizard's own docstring calls it *"the fully-default detector params … so
+the search starts from a clean, reproducible point"*, and it is clean and reproducible; it is just not the point
+the user is at.
+
+> **CORRECTED 2026-08-10 (wave 18), and the finding is STRONGER than this entry first stated.** The line above
+> originally cited `StarDetector.cs:535` and called it *the measurement-image smoothing kernel*. **That call is
+> gated by `StarMeasurementNoiseReductionEnabled`, which is `false` on every default path** —
+> `ResetDefaultsImpl:347`, `BuildDefaultStarDetectorParams:421`, and the `Typical` preset at `:184` — so at
+> defaults it never runs. The call that **does** run is **`:556`**, on `noiseReducedImage`, which is copied
+> straight into `structureMap` at `:558`. The 7-vs-9 px difference is real and it acts on **the image that
+> decides WHICH STARS ARE DETECTED**, not the one that measures their HFR. It also moves the
+> `KappaSigmaNoiseEstimate` at `:562` that sets the binarization floor.
+>
+> **The user manual corroborates the correction one line above the line that carries the bug.**
+> `documentation/docs/settings/preprocessing.md:22` describes `StarMeasurementNoiseReductionEnabled` as *"Also
+> blur the **measurement** image, not just the structure-detection image"* — i.e. by default only the
+> structure-detection image is blurred. Line 23 of the same table then gives this field's default as **3**.
+
+> ### WAVE 18: (b) is DONE and shipped; (a) is DECIDED IN SOURCE, MEASURED ON TWO ARMS, AND NOT SHIPPED
+>
+> **Two further facts about the product, both measured at wave-18 pre-registration time.**
+>
+> **1. `ResetDefaults()` was not merely inconsistent with construction — it was NON-DETERMINISTIC.**
+> `ResetDefaultsImpl`'s last statement is `UseOptimizedSettings = false` (`:394`), and that property is a member
+> of `SimplePropertyNames`, so its setter's `RaisePropertyChanged()` re-entered
+> `StarDetectionOptions_PropertyChanged` → `ConfigureSimpleSettings()` → `DerivePresetSettings()` → **4**. But
+> every setter in the class is change-guarded, so the re-entry happened **only when the flag was already on**.
+> *The same button produced two different detectors, decided by a checkbox the button itself clears.* Measured
+> over the 9 `*.profile` files in `%LOCALAPPDATA%\NINA\Profiles`: **`ResetDefaults()` lands on 4 on 5 of 9 and on
+> 3 on 4 of 9** — and the drift guard's own fixture (virgin `InMemoryPluginOptionsAccessor`,
+> `UseOptimizedSettings` absent) took the **minority** branch, on a path no profile load takes. It was green
+> twice over.
+>
+> **2. The `+1` does not compound.** `DerivePresetSettings`' switch assigns `NoiseReductionRadius` absolutely
+> (`:175/180/185/190`) before the increment and the enum is covered exhaustively, so the method is idempotent at
+> 4 however many times it re-enters. That hypothesis is ruled out, not left open.
+>
+> **(b) IS DONE — `93e366a`, wave 18 item A Part 1.** `ResetDefaultsImpl` now ends in an **unconditional**
+> `ConfigureSimpleSettings()`, so reset-state == constructed-state **structurally**, for every property, from
+> every entry state. The one-test drift guard is replaced by three: **T1** `BuildDefaultStarDetectorParams()`
+> against `BuildStarDetectorParams(freshly constructed options)` over every option-derived field — *the assertion
+> nothing in the repo previously made*; **T2** `ResetDefaults()` from four named entry states; **T3** the
+> accessor-fallback / preset-base lockstep guard. **7 new tests, suite 3831.** Five fail against the pre-change
+> product source, verified by reverting the one product line. *The re-entry was the bug and the value was only
+> its symptom* — the cheaper fix of changing the accessor fall-back literal 3 → 4 was rejected in writing,
+> because it makes the two branches coincide by arithmetic luck and re-arms for the next post-adjusted field.
+>
+> **(a) IS DECIDED AND UNSHIPPED. The answer is that 4 is the shipped default and 3 is the preset's
+> pre-compensation base** — settled by counting, at zero compute: `ResetDefaultsImpl` and `DerivePresetSettings`
+> share **20** properties and agree literal-for-literal on **19**, and the twentieth is the only one the
+> derivation post-adjusts. Reinforced by three more: `BuildDefaultStarDetectorParams` sets `HotpixelFiltering`
+> and `HotpixelThresholdingEnabled` **true** — exactly the configuration the `+1` exists for — and does not carry
+> the compensation; every construction yields 4 and persists it; and `ResetDefaults()`'s 3 does not survive a
+> restart, because the next construction re-derives 4 and writes it. *A value the next launch overwrites is not a
+> default.*
+>
+> **It did not ship, because RULE N18 returned `N-UNEVALUATED`** — its conversion control was mis-specified and
+> the wave's only out-of-sample clause never ran
+> ([F71](#f71--a-converted-settings-file-carries-every-detector-knob-twice-and-the-control-that-checked-the-conversion-read-the-copy-the-loader-ignores)).
+> The seed literal stays at 3, the manual line stays at 3, and the drift guard carries `NoiseReductionRadius` as
+> **one named exception asserted in both directions** (3 on the seed bundle, 4 on the constructed one).
+>
+> **What the two 20-dataset arms measured before the rule stalled** — reported as diagnostics under an
+> UNEVALUATED verdict, licensing nothing:
+>
+> | | A0, seed 3 | A1, seed 4 |
+> |---|---|---|
+> | landing `NoiseReductionRadius` == its arm's seed | **18 of 20 = 0.900** | **15 of 20 = 0.750** |
+> | landings that moved on any curated knob | — | **20 of 20** |
+> | `FinalJ` better | **7** | **13** (tie band 1e-9, 0 ties, n = 20; min −0.000581, median +0.000086, max +0.002993) |
+> | out-of-sample `e` against the generator's truth | **NEVER MEASURED** | **NEVER MEASURED** |
+>
+> The two arms' `BaselineJ` is **bit-identical on 20 of 20 at seventeen digits**, so `J` is demonstrably one
+> function evaluated at two landings — the clause that *licenses* the cross-arm comparison rather than assuming
+> it. **The comparison it licensed is the one the wave could not consume.** *The anchoring is weaker at the
+> treatment seed than at the status quo, and A0's two exceptions are not A1's, so the seed is not a constant
+> offset on the landing.*
+>
+> **Reach, unchanged and computed at zero cost:** the shipped fix would change the **effective** radius on
+> **0 of 9** profiles on this machine, because it edits `BuildDefaultStarDetectorParams` only and no profile's
+> loaded detector reads it. What it changes is **where the wizard's search starts** — and the landing follows the
+> seed on 18 of 20 synthetic datasets, so it is in effect the value the wizard recommends on ~90 % of this bank.
 
 **Two things this does NOT say.** It does not say either value is wrong — the `+1` compensation is deliberate
 and reasoned. And it does not say any prior measurement is invalid: every arm in this series pinned the same
 settings file, so the baseline side has been a uniform 4 throughout and the seed side a uniform 3.
 
 ### Next step
-(a) **Decide which of the two is the default**, and make the other follow it — either apply the hotpixel
-compensation inside `BuildDefaultStarDetectorParams()`, or move the `+1` out of `DerivePresetSettings()` into the
-place both paths pass through. **~30 m + tests**, and it moves the wizard's seed, so it needs a gate arm.
-(b) **Whatever (a) decides, widen the drift guard**: assert `BuildDefaultStarDetectorParams()` against a
-**constructed** options object as well as a reset one. **~10 m**, and it is the half that has value even if (a)
-is declined — *a guard that only checks the path where two things agree is a check that cannot fail*
+(a) **DECIDED, NOT SHIPPED (wave 18).** The answer is **4**, established by counting in source; the one-literal
+change to `HocusFocusStarDetection.cs:433` plus the manual line and the drift guard's exception is written and
+was applied to a second binary, and it was **reverted** when RULE N18 could issue no verdict. **Whatever wave
+takes it up needs a fresh pre-registration and an out-of-sample clause that reads the SNAPSHOT**
+([F71](#f71--a-converted-settings-file-carries-every-detector-knob-twice-and-the-control-that-checked-the-conversion-read-the-copy-the-loader-ignores)(a)).
+The expensive part is already paid for: **wave 18's two 20-dataset arms are on disk**
+(`/mnt/d/hf_w18/seedA0`, `/mnt/d/hf_w18/seedA1`, two distinct `BuildId`s, provenance-clean) and must **not** be
+re-run ([F53](#f53--wave-8s-arm-x-does-not-reproduce-from-wave-8s-own-exe-because-the-arm-ran-on-an-earlier-build-of-it)(c)).
+Scoring them costs **~8 m of `af-fit`**, not the 1 h 55 m the arms cost. **And note the debt that was NOT
+created:** because Part 2 does not ship, the eight-value K8 coordinate system stays valid and no wave owes a
+42 m re-baseline.
+(a′) **The alternative that was rejected in writing, so it is not re-proposed as new.** *Move the `+1` out of
+`DerivePresetSettings` into a shared build path* — rejected: an Advanced-mode user who explicitly sets 3 would
+silently detect at 4, and `BuildDefaultStarDetectorParams` builds the *params* bundle, so it would have to carry
+the compensation anyway; the seed moves either way and an extra class of user is surprised. *Remove the `+1`* —
+rejected: it changes the effective detector for every Simple-mode user on every detection, everywhere in the
+product, and deletes a deliberate, reasoned compensation on no evidence.
+(b) **DONE (wave 18, `93e366a`).** The guard now asserts `BuildDefaultStarDetectorParams()` against a
+**constructed** options object as well as a reset one, plus `ResetDefaults()` from four named entry states and an
+accessor-fallback lockstep guard — 7 tests where there was 1. *A guard that only checks the path where two things
+agree is a check that cannot fail*
 ([F66](#f66--three-of-wave-14s-checks-could-not-return-their-own-pass-and-the-register-has-been-reading-strings-as-one-instrument-when-it-is-two)(a)).
+(b′) **Residual hazard, flagged rather than silently left.** The 20 preset-owned literals in `ResetDefaultsImpl`
+are now unobservable through any public path, so editing one is a silent no-op. Kept for a minimal diff,
+documented in code. **~20 m** to delete them in favour of the derivation, or to pin them with a reflective test.
 (c) **Do not re-pin the settings file for it.** See
 [F63](#f63--the-optimizers-landing-moves-on-6-of-8-runs-under-a-knob-that-is-nearly-inert-at-the-seed-so-every-landing-waves-5-12-published-was-produced-at-a-non-default-value)(b):
 the offset is published instead, and the eight-value coordinate system is not moved.
@@ -4083,6 +4272,50 @@ constructor chooses the denominator.** The generic form of the question, which i
 > Reproduce: `docs/synthetic-af-bank-followups-wave17-design.md` §1.1/§2.5/§3.2 and §5;
 > `docs/synthetic-af-bank-followups-wave17-results.md` §2.3, §6, §7.2.
 
+> ### REINFORCED 2026-08-11 (wave 18): all four columns were right and the clause was still broken — the question missing is WHICH FIELD
+>
+> Wave 18's design is the most thorough satisfiability section this series has written. Every clause of RULE G18
+> and RULE N18 carries **P / S / A / E**; every denominator was counted **on the artifact the clause reads** at
+> pre-registration time; the six absolute-count bars are listed with their ranges (*"wave 17's §5.1 claimed it
+> used no absolute counts while `C17-B`'s bar was literally 27 of 27; this design does not make that claim"*);
+> and the design's one median has its foreclosure computed — *"moving a median of 20 requires ≥ 11 datasets to
+> move by ≥ 0.10 step, i.e. eleven simultaneous movements each ~4× larger than any ever recorded"* — with the
+> clause labelled a **VETO** everywhere it appears rather than the decider, which is `S16-E(i)`'s defect written
+> out instead of repeated.
+>
+> **And `N18-V7` was broken anyway.** Its four columns read: population — the 2 × 20 `af-fit` `run.log` dumps
+> against the 2 × 20 converted settings files; statistic — field equality; aggregation — a rate per arm; empty
+> answer — COULD-NOT-LOOK, named, out of **both** of `N18-P`'s denominators, which are re-printed. **All four are
+> correct.** The clause still could not measure what it claimed, because a converted settings file carries
+> `NoiseReductionRadius` **twice** and the clause compared against the copy the loader ignores
+> ([F71](#f71--a-converted-settings-file-carries-every-detector-knob-twice-and-the-control-that-checked-the-conversion-read-the-copy-the-loader-ignores)).
+> The §5.2 both-branches table checked that `N18-V7` could return 1.000 and could return 0 — and it can, and
+> neither value means what the clause says.
+>
+> > **A denominator error is a POPULATION that is not what you think it is. This is a QUANTITY that is not what
+> > you think it is, and the P/S/A/E template cannot see it**, because *"field equality"* silently assumes the
+> > two sides name the same thing. **The fifth question is: name the FIELD, and if the artifact contains more
+> > than one field with that name, say which one and why.**
+>
+> **Two things wave 18 got right, recorded because they are the template working.** `N18-V4` — *"is `J` the same
+> function in both arms?"* — was written as a **checked precondition** for the decisive clause rather than an
+> assumption ([F62](#f62--σ_focus-is-anti-informative-when-an-outlier-rejection-is-what-changed-it-it-improves-by-up-to-88--while-the-distance-to-a-known-truth-improves-on-none)),
+> and it measured **20 of 20 bit-identical `BaselineJ`**. And the branch table routes **every** empty answer
+> *away* from shipping: an unevaluated `N18-P` and an unevaluated `N18-J` both reach `N-UNEVALUATED`, and the
+> scorer's self-test demonstrates all fifteen branches including *"a wholly inert treatment reaches `N-ALIGN` and
+> is NOT reported as a pass on merit"*.
+>
+> **One more instance, from the improvised side, closing wave 17's item-C thread.** Wave 17 recorded that
+> `query session` is an n = 1 sample of a time-varying quantity, quoted for eight waves as a standing property of
+> the machine. Wave 18 can say what the eight `Disc` readings were masking: the session **is** connected, NINA
+> **does** launch, and it then **crashes in `PluggableBehaviorSelector<,>..ctor`** — a NINA 3.3.0.1048 host
+> loading a plugin built against `NINA.Plugin 3.2.0.2001-beta`. **The eight-wave `Disc` reading was never the
+> whole blocker**, and the blocker underneath it is a **permission the agent does not hold** — one launch with
+> the plugin folder moved aside — not a machine state. *An instrument with no `when` and no population does not
+> merely report a stale value; it can conceal an entirely different obstruction for eight waves.*
+> Reproduce: `docs/synthetic-af-bank-followups-wave18-design.md` §5 and §4;
+> `docs/synthetic-af-bank-followups-wave18-results.md` §5.5 and §6.
+
 ### Next step
 
 (a) **DONE (wave 17)** — the P/S/A/E columns are in the template and were applied to all three of wave 17's
@@ -4091,7 +4324,17 @@ one-sample reading of a time-varying quantity.
 (a′) **Add the population/statistic/aggregation triple to the satisfiability template**, as three named columns
 beside "max attainable" — **~0**, a design-template change, and it should be taken by the next wave that writes a
 pre-registration. **Add one more column while doing it: for any clause quantifying over a set, what does it return
-when that set is EMPTY?**
+when that set is EMPTY?** **DONE (waves 17 and 18)** — the P/S/A/E columns are on every clause of both waves.
+(a″) **Add a FIFTH column: the FIELD.** For any clause that compares a value against an artifact, name the exact
+field on each side, and — the part that would have caught wave 18's `N18-V7` — **say what happens if the artifact
+contains more than one field with that name.** A converted settings file contains every detector knob twice
+([F71](#f71--a-converted-settings-file-carries-every-detector-knob-twice-and-the-control-that-checked-the-conversion-read-the-copy-the-loader-ignores));
+`ProfileId` is a name-plus-GUID string on one side and a bare GUID on the other
+([F66](#f66--three-of-wave-14s-checks-could-not-return-their-own-pass-and-the-register-has-been-reading-strings-as-one-instrument-when-it-is-two));
+`af-fit`'s star count and `optimize`'s carry the same name and are not the same number
+([F67](#f67--af-fits-star-count-and-optimizes-are-not-the-same-number-so-the-control-built-on-their-equality-reports-could-not-look-on-exactly-the-datasets-where-the-intervention-bites-hardest)).
+**Three entries in this register are the same defect in the FIELD dimension, and the template has no column for
+it.** **~0**, next pre-registration.
 (b) **Prefer rates and maxima to counts wherever a clause can be phrased either way**, and where a count is
 genuinely required, derive its denominator **on the artifacts the clause will read**, at pre-registration time —
 which for S16-A(b) would have been one `load_rung` call over wave 14's `affit_A0.00`, already on disk. **~0.**
@@ -4385,6 +4628,17 @@ wave-10 binaries were wavelet variants of one tree — and their own landings sa
 quoted.** Wave 13's `stageA_w14.py` already carries the pattern — a self-test that must *flip* the verdict.
 (b) **When a probe reports absence, run it against a known positive.** For .NET binaries: `strings -el` for
 literals, plain `strings` for type names, and say which you are looking for.
+(c) **ADDED 2026-08-11 (wave 18): a two-directional demonstration proves the branches are DISTINGUISHABLE, not
+that they are CORRECTLY ASSIGNED.** Wave 18's conversion control honoured (a) completely — two settings files
+differing in one byte, the mutation asserted by read-back, two real `af-fit` runs, a demonstrated TOOK and a
+demonstrated DID-NOT-TAKE — and **both verdicts came out on the wrong inputs**, because both directions are
+evaluated by the same definition and the definition named the wrong field
+([F71](#f71--a-converted-settings-file-carries-every-detector-knob-twice-and-the-control-that-checked-the-conversion-read-the-copy-the-loader-ignores)).
+It was caught only because the labels were **swapped**; a definition error moving both verdicts the same way
+would have read as a clean PASS. **The cheap addition: when a control reduces a property to ONE field,
+corroborate with a second field that must move the same way.** Wave 18's probe had **seven** such fields in the
+same dump, all agreeing with each other and disagreeing with the verdict — **at zero compute, in files the
+control had already read**. **~5 m per control**, and it is the half that generalises past any one clause.
 **One of the three was repaired in the same wave, and the repair was then demonstrated in BOTH directions** —
 `prov_w14.py` now tests the pin by **containment** of the GUID plus a separate "exactly one distinct `ProfileId`
 across the arm" clause, and it was shown to **PASS** on the real 8-landing gate and to **FAIL** on a copy with
