@@ -74,15 +74,40 @@ right to pass — the ViewModel is correct and so is the XAML. The failure is in
 test and no XAML review reaches. Wave 13's results named this gap: *"what is untested is … that these rows
 appear, in the right panel, unclipped, in the running app."*
 
+### The defect is LOCATED: the height clamp and the `y` clamp are on different code paths
+
+Reading `ClampWindowToWorkArea.cs` rather than guessing at it a second time. **Both** paths do clamp `y` — the
+first version of this Next step suggested adding a clamp that already exists, which would have been the same
+error twice. The defect is that the two clamps are not reachable at the same time:
+
+| path | when it runs | clamps `cy` | clamps `y` |
+|---|---|---|---|
+| `ClampNow(hwnd)` (`:147`) | **once**, on `Loaded` | yes | **yes** — `if (y + cy > work.Bottom) y = work.Bottom - cy` |
+| `WM_WINDOWPOSCHANGING` (`:115`) | every normal-state resize | yes, `pos.cy > maxHeight` | **only inside `if ((pos.flags & SWP_NOMOVE) == 0)`** (`:127`) |
+
+**So a resize that sets `SWP_NOMOVE` clamps the height and leaves the top exactly where it was** — and that
+reproduces the measured rectangle precisely. The window is at `T=444`; the summary step's `SizeToContent` growth
+asks for a height past the work area; `cy` is clamped to `1392`; `y` is never touched because `pos.y` is
+meaningless under `SWP_NOMOVE`; the result is `T=444 B=1836`, which is what `GetWindowRect` returned. And
+`ClampNow` cannot save it: it fires once at `Loaded`, when — per its own comment at `:94` — *"the first shown
+step is small"*, so nothing overshoots yet. The wizard grows to the summary **after** the only y-aware clamp has
+already run.
+
+**Not yet confirmed, and it is one line of logging away:** the `SWP_NOMOVE` flag was not observed on the actual
+messages. This is the only path in the file that clamps `cy` while leaving `y`, and it matches the measurement —
+but *"consistent with"* is not *"observed"*, and the last time this entry skipped that distinction it was wrong.
+
 ### Next step
-Reproduce **without touching the window** and capture `GetWindowRect` at first paint: confirm whether
-`ClampWindowToWorkArea`'s `WM_WINDOWPOSCHANGING` handler fires at all for the initial placement, and whether it
-clamps the height but not the top. Likely fix is in that handler — after clamping height, also clamp `y` so
-`y + cy <= workArea.Bottom`. A regression test must assert the **placed rectangle**, not the layout: show the
-window off-screen-tall on a simulated small work area and assert the resulting rect lies inside it.
-**Reproduce:** launch NINA → profile `astrodet` → Plugins → Hocus Focus → Star Detector → *Optimize Star
-Detection* → Browse to a saved run → Start → wait for *Optimization complete* on a 3440×1440 display, and read
-the hwnd's rect before moving anything.
+1. **Confirm** by logging `pos.flags`, `pos.y` and `pos.cy` in the `WM_WINDOWPOSCHANGING` branch across a full
+   wizard run, and check that the summary step's growth arrives with `SWP_NOMOVE` set.
+2. **Fix**, if confirmed: in that branch, when `SWP_NOMOVE` is set, read the window's current top with
+   `GetWindowRect` and — if `currentTop + pos.cy > work.Bottom` — clear `SWP_NOMOVE` and set
+   `pos.y = max(work.Top, work.Bottom - pos.cy)`. Calling `ClampNow(hwnd)` once the size has settled is the
+   smaller alternative and reuses the logic that is already correct.
+3. **Regression test:** assert the **placed rectangle**, never the layout. Drive the window to a content height
+   greater than a simulated work area and assert the resulting rect lies inside it. A ViewModel test cannot
+   reach this and neither can a XAML review — 180 of the former pass on the defect today.
+4. Fix the stale docstring at `:146`, which says `ClampNow` is *"height only"* while the code clamps `y` too.
 
 ### F1 — The donut heuristic misses small donuts
 **Status:** Open · found 2026-07-30 during the bank donut audit
