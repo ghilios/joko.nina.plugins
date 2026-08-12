@@ -71,6 +71,41 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         public static void SetFitContent(DependencyObject obj, bool value) => obj.SetValue(FitContentProperty, value);
 
+        /// <summary>
+        /// While true, do not re-fit. Bind it to whatever means "busy" for the host — the wizard binds
+        /// <c>ShowProgress</c>.
+        ///
+        /// Needed because the fit is driven by <c>ScrollChanged</c>, and a running job rewrites its status text
+        /// constantly: every line changed the extent, so the window resized continuously throughout the run. That is
+        /// correct by the letter of "fit the content" and horrible to watch. Resizing belongs at the boundaries —
+        /// when a step's content settles — not on every repaint inside one.
+        ///
+        /// On the true → false transition it fits ONCE, so the window is right the moment the work finishes.
+        /// </summary>
+        public static readonly DependencyProperty SuspendedProperty =
+            DependencyProperty.RegisterAttached(
+                "Suspended",
+                typeof(bool),
+                typeof(ClampWindowToWorkArea),
+                new PropertyMetadata(false, OnSuspendedChanged));
+
+        public static bool GetSuspended(DependencyObject obj) => (bool)obj.GetValue(SuspendedProperty);
+
+        public static void SetSuspended(DependencyObject obj, bool value) => obj.SetValue(SuspendedProperty, value);
+
+        private static void OnSuspendedChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
+            // Only the release matters: fit once, now that the content has stopped moving.
+            if (d is not FrameworkElement fe || (bool)e.NewValue || !(bool)e.OldValue) {
+                return;
+            }
+            var window = Window.GetWindow(fe);
+            if (window is null) {
+                return;
+            }
+            window.Dispatcher.BeginInvoke(DispatcherPriority.Background,
+                new Action(() => ApplyWorkAreaLimit(window, SystemParameters.WorkArea)));
+        }
+
         // Dedupe the F76 diagnostic: SizeChanged fires often and only distinct states are informative.
         private static string lastLoggedNote;
 
@@ -285,6 +320,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             return Math.Min(nonScroll + extentHeight, workAreaHeight);
         }
 
+        /// <summary>
+        /// Where the window should sit horizontally. When the width has just been chosen for a new step, CENTRE it:
+        /// the width is picked per step, and a window that grows only rightwards from wherever it happened to be
+        /// runs off the monitor — measured in the field, the Review step widened correctly and was then clipped by
+        /// the right edge. When the width is unchanged, leave the position alone but keep it fully inside the work
+        /// area, so a window the user has deliberately moved is not yanked back to centre on every step.
+        /// </summary>
+        internal static double ChooseWindowLeft(double currentLeft, double width, Rect work, bool recentre) {
+            if (work.Width <= 0.0 || width <= 0.0) {
+                return currentLeft;
+            }
+            if (recentre) {
+                return work.Left + ((work.Width - width) / 2.0);
+            }
+            var left = currentLeft;
+            if (left + width > work.Right) {
+                left = work.Right - width;
+            }
+            if (left < work.Left) {
+                left = work.Left;
+            }
+            return left;
+        }
+
         /// <summary>Depth-first search for the first ScrollViewer under <paramref name="root"/>.</summary>
         private static ScrollViewer FindScrollViewer(DependencyObject root) {
             if (root is null) {
@@ -310,6 +369,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// back to the plain overflow clamp rather than guessing.
         /// </summary>
         private static bool TryFitToContent(Window window, Rect work) {
+            if (contentRoots.TryGetValue(window, out var suspendRoot) && suspendRoot != null && GetSuspended(suspendRoot)) {
+                LogOnce("F76 fit: suspended -- host is busy, deferring the fit until it finishes");
+                return true;   // handled: deliberately doing nothing, not falling through to the clamp
+            }
             if (!contentRoots.TryGetValue(window, out var root) || root is null) {
                 LogOnce("F76 fit: DECLINED -- no content root recorded for this window");
                 return false;
@@ -397,14 +460,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // to sit at the top of the fit path and compare only height and top, so a step whose height was
                 // already correct skipped the entire apply and never re-auto-sized its width. That is why the
                 // Review step kept the summary's W=843: not measured and rejected, never measured at all.
+                var widthChanged = Math.Abs(window.ActualWidth - targetWidth) >= 1.0;
+                var left = ChooseWindowLeft(window.Left, targetWidth, work, recentre: widthChanged);
+
                 if (Math.Abs(window.ActualHeight - target) < 1.0
                     && Math.Abs(window.Top - top) < 1.0
-                    && Math.Abs(window.ActualWidth - targetWidth) < 1.0) {
+                    && !widthChanged
+                    && Math.Abs(window.Left - left) < 1.0) {
                     return;
                 }
                 if (naturalWidth > 0.0) {
                     window.Width = targetWidth;
                 }
+                window.Left = left;
                 window.Height = target;
                 window.Top = top;
 
@@ -425,11 +493,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                                ?? Matrix.Identity;
                 var cy = (int)Math.Round(target * toDevice.M22);
                 var y = (int)Math.Round(top * toDevice.M22);
-                var cx = before.Right - before.Left;
-                SetWindowPos(hwnd, IntPtr.Zero, before.Left, y, cx, cy, SWP_NOZORDER | SWP_NOACTIVATE);
+                var cx = (int)Math.Round((naturalWidth > 0.0 ? targetWidth : window.ActualWidth) * toDevice.M11);
+                var x = (int)Math.Round(left * toDevice.M11);
+                SetWindowPos(hwnd, IntPtr.Zero, x, y, cx, cy, SWP_NOZORDER | SWP_NOACTIVATE);
                 GetWindowRect(hwnd, out var after);
                 LogOnce($"F76 applied: target={target:F0}dip -> asked cy={cy}px y={y}px; " +
-                        $"rect was {before.Bottom - before.Top}px@{before.Top} now {after.Bottom - after.Top}px@{after.Top}; " +
+                        $"rect was {before.Right - before.Left}x{before.Bottom - before.Top}@{before.Left},{before.Top} " +
+                        $"now {after.Right - after.Left}x{after.Bottom - after.Top}@{after.Left},{after.Top}; " +
                         $"wpf H={window.Height:F0} A={window.ActualHeight:F0} W={window.Width:F0}(was {priorWidth:F0}) " +
                         $"scale={toDevice.M22:F2} stc={window.SizeToContent}");
             }));

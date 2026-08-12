@@ -106,6 +106,40 @@ public class WorkAreaClampGeometryTests {
         });
     }
 
+    // ---- ChooseWindowLeft: centre on a new width, otherwise just stay on screen -----------------------------
+
+    [Test]
+    public void Left_CentresWhenTheWidthWasJustChosen() {
+        // The Review step widened correctly and was then clipped by the right edge, because only Top was ever
+        // adjusted and the window grew rightwards from wherever it happened to sit.
+        Assert.That(ClampWindowToWorkArea.ChooseWindowLeft(
+            currentLeft: 300, width: 1000, work: new Rect(0, 0, 1280, 752), recentre: true), Is.EqualTo(140));
+    }
+
+    [Test]
+    public void Left_LeavesADeliberatelyPlacedWindowAloneWhenTheWidthDidNotChange() {
+        // Re-centring on every step would yank a window the user has moved. Only a new width re-centres.
+        Assert.That(ClampWindowToWorkArea.ChooseWindowLeft(
+            currentLeft: 40, width: 800, work: new Rect(0, 0, 1280, 752), recentre: false), Is.EqualTo(40));
+    }
+
+    [Test]
+    public void Left_PullsAnOffScreenWindowBackEvenWithoutRecentring() {
+        Assert.Multiple(() => {
+            // Hanging off the right edge.
+            Assert.That(ClampWindowToWorkArea.ChooseWindowLeft(700, 800, new Rect(0, 0, 1280, 752), false), Is.EqualTo(480));
+            // Hanging off the left edge.
+            Assert.That(ClampWindowToWorkArea.ChooseWindowLeft(-50, 800, new Rect(0, 0, 1280, 752), false), Is.EqualTo(0));
+        });
+    }
+
+    [Test]
+    public void Left_HonoursANonZeroWorkAreaOrigin() {
+        // A taskbar docked left, or a secondary monitor, moves the work area's origin.
+        Assert.That(ClampWindowToWorkArea.ChooseWindowLeft(
+            0, 1000, new Rect(100, 0, 1280, 752), recentre: true), Is.EqualTo(240));
+    }
+
     // ---- ChooseWindowHeightFromExtent: fit the body's extent, capped at the work area, BOTH directions -------
 
     [Test]

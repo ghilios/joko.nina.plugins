@@ -93,6 +93,20 @@ public class ClampWindowToWorkAreaTests {
     }
 
     [Test]
+    public void Suspended_IsOffByDefault_AndRoundTrips() {
+        // Bound to the host's busy flag (the wizard binds ShowProgress). Default OFF matters most: a window that
+        // never sets it must keep fitting normally.
+        var element = new System.Windows.Controls.Grid();
+        Assert.That(ClampWindowToWorkArea.GetSuspended(element), Is.False, "suspension must be opt-in");
+
+        ClampWindowToWorkArea.SetSuspended(element, true);
+        Assert.That(ClampWindowToWorkArea.GetSuspended(element), Is.True);
+        ClampWindowToWorkArea.SetSuspended(element, false);
+        Assert.That(ClampWindowToWorkArea.GetSuspended(element), Is.False,
+            "the release is the interesting transition -- it is what triggers the single catch-up fit");
+    }
+
+    [Test]
     public void FitContent_IsOptIn_AndOffByDefault() {
         // The review windows attach Enabled WITHOUT FitContent: they host an image viewport whose ScrollViewer
         // extent is the IMAGE, so growing to it would size the window to the picture and fight
