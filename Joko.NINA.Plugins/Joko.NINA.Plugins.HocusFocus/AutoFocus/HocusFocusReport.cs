@@ -43,6 +43,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public double HyperbolicLeaveOneOutStdError { get; set; } = double.NaN;
 
         /// <summary>
+        /// Fewest / most accepted stars found at any point the curve was actually fitted on (rejected and
+        /// symmetric-window-excluded points excluded). <c>-1</c> means "not recorded" — an older report, a report
+        /// written by another auto-focuser, or a contrast-detection run that counted no stars at all. It is
+        /// deliberately NOT 0, which would be indistinguishable from a sweep that genuinely found nothing.
+        /// </summary>
+        [JsonProperty]
+        public int AcceptedStarCountMin { get; set; } = -1;
+
+        /// <inheritdoc cref="AcceptedStarCountMin"/>
+        [JsonProperty]
+        public int AcceptedStarCountMax { get; set; } = -1;
+
+        /// <summary>
         /// The concrete hyperbolic model used for this run: the fixed model for a non-Hybrid run, or the model the
         /// Hybrid (Best Fit) option resolved to. Null only for non-hyperbolic runs and on older reports. Distinct
         /// from <see cref="HocusFocusAutoFocusOptions"/>.HyperbolicFitModel, which records the option as configured
@@ -78,7 +91,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             StarDetectionRegion region,
             IStarDetectionOptions hocusFocusStarDetectionOptions,
             IAutoFocusOptions hocusFocusAutoFocusOptions,
-            TimeSpan duration) {
+            TimeSpan duration,
+            int acceptedStarCountMin = -1,
+            int acceptedStarCountMax = -1) {
             var trendlineFitting = fittings.TrendlineFitting;
             var quadraticFitting = fittings.QuadraticFitting;
             var hyperbolicFitting = fittings.HyperbolicFitting;
@@ -107,6 +122,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 HyperbolicReducedChiSquared = alglibHyperbolicFitting?.ReducedChiSquared ?? double.NaN,
                 HyperbolicLeaveOneOutStdError = alglibHyperbolicFitting?.LeaveOneOutStdError ?? double.NaN,
                 HyperbolicFitModelChosen = fittings.SelectedHyperbolicFitModel,
+                AcceptedStarCountMin = acceptedStarCountMin,
+                AcceptedStarCountMax = acceptedStarCountMax,
                 Method = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod.ToString(),
                 Fitting = profileService.ActiveProfile.FocuserSettings.AutoFocusMethod == AFMethodEnum.STARHFR ? profileService.ActiveProfile.FocuserSettings.AutoFocusCurveFitting.ToString() : "GAUSSIAN",
                 MeasurePoints = focusPoints.Select(x => new FocusPoint() { Position = x.X, Value = x.Y, Error = x.ErrorY }),
