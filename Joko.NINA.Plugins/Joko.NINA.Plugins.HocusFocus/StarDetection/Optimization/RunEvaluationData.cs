@@ -634,6 +634,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             return result.Metrics;
         }
 
+        /// <summary>Overload reporting determinate per-frame progress as each frame's detection completes; see
+        /// the <see cref="EvaluateAndFitAsync(StarDetectorParams, IProgress{RunLoadProgress}, CancellationToken)"/>
+        /// remarks. <paramref name="frameProgress"/> may be null.</summary>
+        public async Task<RunEvaluationMetrics> EvaluateAsync(StarDetectorParams p, IProgress<RunLoadProgress> frameProgress, CancellationToken token) {
+            var result = await EvaluateAndFitAsync(p, frameProgress, token).ConfigureAwait(false);
+            return result.Metrics;
+        }
+
         /// <summary>
         /// The full evaluation: detect every frame (deterministic order), pool frames at the same focuser
         /// position into one scatter point, fit the AF curve, and assemble the metrics (+ keep the winning fit
@@ -911,20 +919,53 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// Builds the optimizer's evaluator delegate from N runs: evaluates each run in the given (deterministic)
         /// order and returns one <see cref="RunEvaluationMetrics"/> per run, ready to feed
         /// <see cref="StarDetectionOptimizer.OptimizeAsync"/>.
+        ///
+        /// <para>F79 — <paramref name="frameProgress"/> is OPTIONAL and reports frames done across ALL runs
+        /// (<c>Total</c> = Σ FrameCount), because one evaluation is one candidate scored on every loaded run and a
+        /// counter that restarted per run would move backwards mid-step. It exists for the ONE case the user
+        /// cannot otherwise distinguish from a hang: an early-context rebuild, where a single evaluation can run
+        /// for minutes. Passing null (every headless caller) leaves the evaluation byte-identical.</para>
         /// </summary>
         public static Func<StarDetectorParams, CancellationToken, Task<IReadOnlyList<RunEvaluationMetrics>>> CreateEvaluator(
-            IReadOnlyList<RunEvaluationData> runs) {
+            IReadOnlyList<RunEvaluationData> runs,
+            IProgress<RunLoadProgress> frameProgress = null) {
             if (runs == null) {
                 throw new ArgumentNullException(nameof(runs));
             }
+            var totalFrames = runs.Sum(r => r.FrameCount);
             return async (p, token) => {
                 var results = new List<RunEvaluationMetrics>(runs.Count);
+                var framesDoneBefore = 0;
                 foreach (var run in runs) {
                     token.ThrowIfCancellationRequested();
-                    results.Add(await run.EvaluateAsync(p, token).ConfigureAwait(false));
+                    if (frameProgress == null) {
+                        results.Add(await run.EvaluateAsync(p, token).ConfigureAwait(false));
+                    } else {
+                        var offset = framesDoneBefore;
+                        var shifted = new DelegateProgress<RunLoadProgress>(
+                            rp => frameProgress.Report(new RunLoadProgress(offset + rp.Current, totalFrames)));
+                        results.Add(await run.EvaluateAsync(p, shifted, token).ConfigureAwait(false));
+                        framesDoneBefore += run.FrameCount;
+                    }
                 }
                 return results;
             };
+        }
+
+        /// <summary>
+        /// A synchronous <see cref="IProgress{T}"/> adapter. Deliberately NOT <see cref="Progress{T}"/>, which
+        /// captures the SynchronizationContext of whatever thread happens to construct it — here a thread-pool
+        /// thread inside the evaluator, i.e. none — and would then post callbacks asynchronously for no benefit.
+        /// The reporter this forwards to is the wizard's own <c>Progress&lt;T&gt;</c>, which does the marshalling.
+        /// </summary>
+        private sealed class DelegateProgress<T> : IProgress<T> {
+            private readonly Action<T> onReport;
+
+            public DelegateProgress(Action<T> onReport) {
+                this.onReport = onReport;
+            }
+
+            public void Report(T value) => onReport(value);
         }
 
         /// <summary>

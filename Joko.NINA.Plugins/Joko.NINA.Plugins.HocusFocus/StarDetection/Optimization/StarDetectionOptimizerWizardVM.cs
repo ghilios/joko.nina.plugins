@@ -1472,9 +1472,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (!isOptimizing) {
                     progressElapsed = TimeSpan.Zero;
                     progressSecondsPerEvaluation = double.NaN;
+                    progressSecondsPerCheapEvaluation = double.NaN;
+                    progressSecondsPerExpensiveEvaluation = double.NaN;
+                    progressExpensiveStepsPossible = false;
+                    evaluationFrameCurrent = 0;
+                    evaluationFrameTotal = 0;
+                    ProgressStepIsExpensive = false;
                 }
                 RaisePropertyChanged(nameof(ProgressTimingText));
                 RaisePropertyChanged(nameof(ProgressAbortNote));
+                RaisePropertyChanged(nameof(EvaluationFrameProgressText));
+                RaisePropertyChanged(nameof(HasEvaluationFrameProgress));
             }
         }
 
@@ -1518,6 +1526,57 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         private TimeSpan progressElapsed;
         private double progressSecondsPerEvaluation = double.NaN;
+        private double progressSecondsPerCheapEvaluation = double.NaN;
+        private double progressSecondsPerExpensiveEvaluation = double.NaN;
+        private bool progressExpensiveStepsPossible;
+
+        private bool progressStepIsExpensive;
+
+        /// <summary>
+        /// F79 — true while the search is inside a step that rebuilds every frame's detection context from
+        /// scratch (an EARLY-axis probe) rather than re-scoring the cached one.
+        ///
+        /// <para>This is the single fact the panel was missing. Such a step costs one to two orders of magnitude
+        /// more than a cache-hit step, and the search runs them in blocks, so the counter stops for minutes at a
+        /// time with nothing on screen distinguishing that from a hang. It drives the phase suffix, the frame
+        /// sub-progress line, and which rate the timing line leads with.</para>
+        /// </summary>
+        public bool ProgressStepIsExpensive {
+            get => progressStepIsExpensive;
+            private set {
+                if (progressStepIsExpensive != value) {
+                    progressStepIsExpensive = value;
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(Phase));
+                    RaisePropertyChanged(nameof(HasEvaluationFrameProgress));
+                }
+            }
+        }
+
+        private int evaluationFrameCurrent;
+        private int evaluationFrameTotal;
+
+        /// <summary>F79 — "analyzing frame 6 / 11" while an expensive step is in flight. Empty otherwise: a
+        /// cache-hit step finishes in well under a second and a counter racing through eleven frames several times
+        /// a second is noise, not information.</summary>
+        public string EvaluationFrameProgressText =>
+            HasEvaluationFrameProgress
+                ? $"analyzing frame {evaluationFrameCurrent} / {evaluationFrameTotal}"
+                : string.Empty;
+
+        public bool HasEvaluationFrameProgress =>
+            IsOptimizing && progressStepIsExpensive && evaluationFrameTotal > 0;
+
+        /// <summary>Records one frame's completion inside the current evaluation. Raises only while an expensive
+        /// step is showing, so the cheap steps' reports cost a field write and nothing else.</summary>
+        private void ReportEvaluationFrame(int current, int total) {
+            evaluationFrameCurrent = current;
+            evaluationFrameTotal = total;
+            if (progressStepIsExpensive) {
+                RaisePropertyChanged(nameof(EvaluationFrameProgressText));
+                RaisePropertyChanged(nameof(HasEvaluationFrameProgress));
+            }
+        }
 
         /// <summary>
         /// F52 — what each search step is COSTING, and an upper bound on what is left.
@@ -1528,33 +1587,92 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// a real field session spent <b>two hours</b> on one search with no way, from the UI or the log, to tell
         /// whether it was nearly done or merely expensive.</para>
         ///
-        /// <para><b>The remaining figure is an upper BOUND and says so.</b> The evaluation budget is a cap the
-        /// search usually stops well short of — <see cref="OptimizerSettings.MaxEvaluations"/> records a bank-wide
-        /// convergence study finding it self-terminates before 400 on most runs — so a plain ETA would read as a
-        /// promise and would usually be far too long. "At most N, usually much less" is the honest form of the same
-        /// information, and it is still enough to decide whether to wait.</para>
+        /// <para><b>F79 — no duration is projected while an expensive step can still occur, and that is the
+        /// point.</b> The line used to read "at most N more, usually much less", computed from ONE blended mean
+        /// over both step classes. That is not an upper bound and cannot be made into one by arithmetic: the
+        /// search opens with a seed and a coarse grid that are all cache hits, so the mean is small for as long as
+        /// it takes the first EARLY stage to arrive, at which point the true remaining cost jumps by an order of
+        /// magnitude and the figure labelled "at most" is exceeded. Nor is the mix knowable in advance — how many
+        /// early stages run, and how many sweeps each takes, is decided by whether the landscape keeps improving.
+        /// So the line states what IS known (each class's measured cost, and how many steps are left) and says
+        /// plainly that the rest is not predictable, rather than offering a number that reads as a promise.</para>
+        ///
+        /// <para>A search with NO early axes — reachable through the narrowed feedback path — genuinely has a
+        /// uniform step cost, and there the bounded form is honest and is kept.</para>
         /// </summary>
-        public string ProgressTimingText {
-            get {
-                if (!IsOptimizing || !double.IsFinite(progressSecondsPerEvaluation) || progressSecondsPerEvaluation <= 0.0) {
+        public string ProgressTimingText =>
+            !IsOptimizing
+                ? string.Empty
+                : BuildProgressTimingText(
+                    progressExpensiveStepsPossible,
+                    progressSecondsPerEvaluation,
+                    progressSecondsPerCheapEvaluation,
+                    progressSecondsPerExpensiveEvaluation,
+                    Math.Max(0, ProgressTotal - ProgressCurrent));
+
+        /// <summary>The timing line's copy, as a pure function of what has been measured, so every shape of it is
+        /// testable without a rig. See <see cref="ProgressTimingText"/> for why the projection is withheld.</summary>
+        internal static string BuildProgressTimingText(
+                bool expensiveStepsPossible, double blendedSeconds, double cheapSeconds, double expensiveSeconds, int remaining) {
+            remaining = Math.Max(0, remaining);
+
+            if (!expensiveStepsPossible) {
+                // Uniform cost: the old bounded form, which this case has always been entitled to.
+                if (!double.IsFinite(blendedSeconds) || blendedSeconds <= 0.0) {
                     return string.Empty;
                 }
-                var rate = progressSecondsPerEvaluation >= 1.0
-                    ? $"{progressSecondsPerEvaluation:0.#} s per step"
-                    : $"{progressSecondsPerEvaluation * 1000.0:0} ms per step";
-                var remaining = ProgressTotal - ProgressCurrent;
-                if (remaining <= 0) {
-                    return rate;
-                }
-                var worstCase = TimeSpan.FromSeconds(remaining * progressSecondsPerEvaluation);
-                var worstCaseText = worstCase.TotalHours >= 1.0
-                    ? $"{worstCase.TotalHours:0.#} h"
-                    : worstCase.TotalMinutes >= 1.0
-                        ? $"{Math.Ceiling(worstCase.TotalMinutes):0} min"
-                        : $"{Math.Ceiling(worstCase.TotalSeconds):0} s";
-                return $"{rate} · at most {worstCaseText} more, usually much less";
+                var uniformRate = FormatStepRate(blendedSeconds);
+                return remaining <= 0
+                    ? uniformRate
+                    : $"{uniformRate} · at most {FormatDurationCoarse(TimeSpan.FromSeconds(remaining * blendedSeconds))} more, usually much less";
             }
+
+            var rates = FormatSplitRates(cheapSeconds, expensiveSeconds);
+            if (rates.Length == 0) {
+                return string.Empty;
+            }
+            return remaining <= 0
+                ? rates
+                : $"{rates} · {remaining} step{(remaining == 1 ? "" : "s")} left — remaining time not predictable";
         }
+
+        /// <summary>Both measured costs when both classes have been seen, else whichever one has. Naming them
+        /// ("fast" / "slow") is what makes a single figure interpretable — 38 s per step is alarming until you can
+        /// see that most steps take 3.</summary>
+        private static string FormatSplitRates(double cheapSeconds, double expensiveSeconds) {
+            var haveCheap = double.IsFinite(cheapSeconds) && cheapSeconds > 0.0;
+            var haveExpensive = double.IsFinite(expensiveSeconds) && expensiveSeconds > 0.0;
+            if (haveCheap && haveExpensive) {
+                return $"fast steps {FormatStepCost(cheapSeconds)} · slow steps {FormatStepCost(expensiveSeconds)}";
+            }
+            if (haveExpensive) {
+                return FormatStepRate(expensiveSeconds);
+            }
+            if (haveCheap) {
+                return FormatStepRate(cheapSeconds);
+            }
+            return string.Empty;
+        }
+
+        /// <summary>The phase heading with the slow-step suffix appended when one is in flight. Pure + internal so
+        /// the copy is testable; see <see cref="Phase"/>.</summary>
+        internal static string DecorateExpensivePhase(string phase, bool stepIsExpensive) =>
+            string.IsNullOrEmpty(phase) || !stepIsExpensive
+                ? phase
+                : $"{phase} — slow step (re-analyzing every frame)";
+
+        private static string FormatStepCost(double seconds) =>
+            seconds >= 1.0 ? $"{seconds:0.#} s" : $"{seconds * 1000.0:0} ms";
+
+        private static string FormatStepRate(double seconds) =>
+            seconds >= 1.0 ? $"{seconds:0.#} s per step" : $"{seconds * 1000.0:0} ms per step";
+
+        private static string FormatDurationCoarse(TimeSpan span) =>
+            span.TotalHours >= 1.0
+                ? $"{span.TotalHours:0.#} h"
+                : span.TotalMinutes >= 1.0
+                    ? $"{Math.Ceiling(span.TotalMinutes):0} min"
+                    : $"{Math.Ceiling(span.TotalSeconds):0} s";
 
         // F52's ProgressCostNote ("searching N structure layers deeper costs roughly 2^N x") used to live here;
         // retired when the sparse AtrousWaveletFast swap made per-layer cost nearly flat. The F52(c) abort-and-
@@ -1593,8 +1711,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         private string phase;
 
+        /// <summary>The descriptive heading above the progress bar. While the search is inside a context-rebuilding
+        /// step it carries a suffix naming that, because a frozen counter with no explanation is the thing users
+        /// read as a hang.</summary>
         public string Phase {
-            get => phase;
+            get => DecorateExpensivePhase(phase, progressStepIsExpensive && IsOptimizing);
             private set { phase = value; RaisePropertyChanged(); }
         }
 
@@ -3679,7 +3800,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     : null;
 
             var variables = variablesOverride ?? OptimizerVariable.CreateCuratedSet(seed);
-            var evaluator = RunEvaluationData.CreateEvaluator(runs.Select(r => r.Data).ToList());
+            // F79 — per-frame progress INSIDE an evaluation. The expensive step is one candidate scored against
+            // every frame of every run; without this the whole of it is a single frozen counter tick, which is
+            // exactly what a hang looks like. Only rendered while ProgressStepIsExpensive (see the property).
+            var frameProgress = new Progress<RunLoadProgress>(rp => ReportEvaluationFrame(rp.Current, rp.Total));
+            var evaluator = RunEvaluationData.CreateEvaluator(runs.Select(r => r.Data).ToList(), frameProgress);
 
             ProgressTotal = optimizerSettings.MaxEvaluations;
             var progress = new Progress<OptimizationProgress>(p => {
@@ -3700,6 +3825,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // above, is computed from this report's counts rather than the previous one's.
                 progressElapsed = p.Elapsed;
                 progressSecondsPerEvaluation = p.SecondsPerEvaluation;
+                progressSecondsPerCheapEvaluation = p.SecondsPerCheapEvaluation;
+                progressSecondsPerExpensiveEvaluation = p.SecondsPerExpensiveEvaluation;
+                progressExpensiveStepsPossible = p.ExpensiveStepsPossible;
+                // F79 — set AFTER Phase, because Phase's suffix reads it. Setting it also re-raises Phase, so the
+                // heading picks up the change whichever order the two arrive in.
+                ProgressStepIsExpensive = p.StepIsExpensive;
                 RaisePropertyChanged(nameof(ProgressTimingText));
             });
 
@@ -3820,6 +3951,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // The displayed "before" is the user's CURRENT settings (Baseline), NOT the optimizer's default seed.
             var baseline = runs[0].Baseline;
 
+            // F79 — this stage used to be entirely silent, and it is not cheap: TWO full evaluations per run, and
+            // both are early-context REBUILDS (the search left the cache holding its own winning candidate, and
+            // the baseline and the best generally differ from it and from each other on an early axis). The panel
+            // kept showing "Refining settings" with the counter frozen at its final value for the whole of it,
+            // which is the same "did it hang?" the search itself used to produce. Give it its own heading and a
+            // determinate frame count.
+            var summaryFramesTotal = 2 * runs.Sum(r => r.Data.FrameCount);
+            var summaryFramesDone = 0;
+            SetProgress("Measuring before / after", 0, summaryFramesTotal);
+            IProgress<RunLoadProgress> SummaryFrameProgress() {
+                var offset = summaryFramesDone;
+                return new Progress<RunLoadProgress>(rp =>
+                    SetProgress("Measuring before / after", offset + rp.Current, summaryFramesTotal));
+            }
+
             // Changed-parameters table = current (Baseline) -> optimized (BestParams) over the curated knobs, so it is
             // exactly the diff the user would accept onto their live settings (consistent with the σ/J improvement,
             // which is also measured vs current). This intentionally replaces res.ChangedVariables (default -> best).
@@ -3858,8 +4004,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             SweepDetectability representativeDetectability = null;
             for (var i = 0; i < runs.Count; i++) {
                 token.ThrowIfCancellationRequested();
-                var baselineEval = await runs[i].Data.EvaluateAndFitAsync(baseline, token).ConfigureAwait(true);
-                var bestEval = await runs[i].Data.EvaluateAndFitAsync(res.BestParams, token).ConfigureAwait(true);
+                var baselineEval = await runs[i].Data.EvaluateAndFitAsync(baseline, SummaryFrameProgress(), token).ConfigureAwait(true);
+                summaryFramesDone += runs[i].Data.FrameCount;
+                var bestEval = await runs[i].Data.EvaluateAndFitAsync(res.BestParams, SummaryFrameProgress(), token).ConfigureAwait(true);
+                summaryFramesDone += runs[i].Data.FrameCount;
                 if (double.IsFinite(baselineEval.Metrics.SigmaFocus)) { baselineSigmaSum += baselineEval.Metrics.SigmaFocus; baselineSigmaCount++; }
                 if (double.IsFinite(bestEval.Metrics.SigmaFocus)) { bestSigmaSum += bestEval.Metrics.SigmaFocus; bestSigmaCount++; }
                 if (i == 0) {
