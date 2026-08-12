@@ -266,7 +266,7 @@ namespace TestApp.SynthBank {
 
             IAstapCatalogReader catalogReader = new AstapCatalogReader(spec.Defaults.AstapCatalogPath);
 
-            Prog($"synth-validate: spec={specPath} (sha256={specSha256.Substring(0, 12)}…) " +
+            Prog($"synth-validate: spec={specPath} (sha256={specSha256.Substring(0, 12)}...) " +
                 $"datasets={selectedDatasets.Count}/{spec.Datasets.Count} scenarios=[{string.Join(",", selectedScenarios.Select(s => s.Id))}] " +
                 $"maxRounds={maxRounds} maxEvals={(maxEvals?.ToString(CultureInfo.InvariantCulture) ?? "default")} out={outRoot}");
             // F58(d): VALUES, not a hash — a hash says something moved, these say which one.
@@ -541,7 +541,7 @@ namespace TestApp.SynthBank {
                         stoppedReason = "converged (round applied nothing)";
                     } else {
                         stoppedReason = $"stalled (round applied nothing, but step {state.StepSize} is outside the "
-                            + $"{stepBand:0.###} tolerance band of step_behavioral {stepBehavioral:0.###}) — "
+                            + $"{stepBand:0.###} tolerance band of step_behavioral {stepBehavioral:0.###}) -- "
                             + "a no-op recommendation from a degenerate fit, not convergence";
                     }
                     break;

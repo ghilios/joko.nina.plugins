@@ -624,6 +624,33 @@ recommender still ANSWERS rather than recognising it has no curve, and a degener
 is still a degenerate fit being trusted. **The fit-quality gate, and the "converged means unchanged" half, are
 both still owed.**
 
+> ### THE MIRROR IS NOW MEASURED, AND IT SETTLES WHAT THE OWED GATE MUST DO (2026-08-12, wave 23, RULE V23)
+>
+> This entry's next step reads: *"a fit below some floor should either hold the current step or shrink it, never
+> widen it."* **Wave 23 measures the too-NARROW end, where holding is the harm** — three cells whose degenerate
+> fit made the recommender hold, stopping the loop after one round of four at **3-4.5x below** the correct step
+> (`D01_ultrawide_40mm`/S1 2 vs 9, `D02_rich_135mm`/S1 2 vs 6 at **R² = −0.2741**, `D03_redcat_250mm`/S1 4 vs 16).
+> Full mechanism in [F34](#f34--synth-validate-scored-a-stalled-run-as-converged-at-a-step-4-outside-the-band-its-own-assertion-failed-it-on)
+> and `docs/synthetic-af-bank-followups-wave23-results.md` §4.1.
+>
+> **So "hold" is not a safe default; it is only safe at this entry's end of the range.** The gate that is still
+> owed must be **directional** — widen when the sweep sampled too little curve, shrink when it sampled too much —
+> and the discriminator is already in the report as `stepRecommendation.sampledHfrRange`. A gate written from this
+> entry alone would have hard-coded the wrong half.
+>
+> **And this entry's `Recommend`-has-no-fit-quality-gate claim is confirmed in source at wave 23's binary:**
+> `StepSizeRecommender.Recommend` still routes every unusable fit to `Degenerate(currentStepSize, …)`
+> (`StepSizeRecommender.cs:410-416`) with no quality branch. There is also a **structural asymmetry** worth
+> recording here, since this entry is the one about direction: growth is capped at **1.714x per round**
+> (`MaxHalfWidthSampledHalfSpanMultiple = 1.5`, `:185`, with `PointsPerSide = 3.5`), while **shrinking has no
+> equivalent clamp on the geometric path** — the only floor is `ClampStep`'s `if (step < 1) step = 1`. The code's
+> own comment at `:191-196` says so: *"It had no bound on how far one run may NARROW it, and that asymmetry is
+> what lets a run whose only star-bearing frames are the innermost ones collapse the sweep in a single step."*
+>
+> The *"converged means unchanged"* half of this entry's next step was discharged by
+> [F34](#f34--synth-validate-scored-a-stalled-run-as-converged-at-a-step-4-outside-the-band-its-own-assertion-failed-it-on)
+> in wave 2 and is **not** re-opened; what wave 23 re-opens is the **stop** that fix shipped alongside it.
+
 ### F26 — A stuck binning recommendation starves the step update indefinitely
 **Status:** Open · found 2026-08-03 running scenarios S1/S6 on the synthetic AF bank
 
@@ -691,9 +718,59 @@ fails its own precision gates.
 > on F31's grounds — a precision defect one thirtieth the size of the artifact that hid it does not justify a
 > term — and this clause is now closed rather than unverified. Reproduce: `D:\hf_w5\f26\run.sh`.
 
-**Status revision.** The one-round deferral cost is real and worth the guard below; the "indefinitely" in this
-entry's title is not supported by re-measurement and should be read as "for at least one round, unbounded in
-principle".
+> ### THE LIVELOCK REPRODUCES, AND THE STATUS REVISION BELOW IS REVERTED (2026-08-12, wave 23, RULE V23)
+>
+> **The unbounded form is back, on the same dataset, the same scenario and the same numbers as this entry's own
+> evidence table** — measured on the **thirteenth** binary at the **shipped** `--max-rounds 4`, inside a
+> pre-registered rule with a 17-cell denominator (`docs/synthetic-af-bank-followups-wave23-results.md` §4.2):
+>
+> ```
+> D08_c11_2800mm / S1        expected step 82, bootstrap 21 (= 0.25x)
+> r0: bootstrap 21 -> recommended 36   binning factor 1   vertexHfr 4.455   hfr/3 = 1.485
+> r1: bootstrap 21 -> recommended 36   binning factor 2   vertexHfr 4.661   hfr/3 = 1.554
+> r2: bootstrap 21 -> recommended 36   binning factor 1   vertexHfr 4.149   hfr/3 = 1.383
+> r3: bootstrap 21 -> recommended 36   binning factor 2   vertexHfr 4.750   hfr/3 = 1.583
+> terminal: finalStepSize 21, converged=false, "reached --max-rounds (4)", A3 FAIL
+> ```
+>
+> **Four rounds; the same recommendation computed four times and discarded four times; the bootstrap never leaves
+> 21.** It is not a slow climb that ran out of budget — the growth cap permits 4× in three rounds
+> (`log 4 / log 1.714 = 2.57`) and four were allowed. The control cell `D11`/`S1` in the same arm applies its
+> recommendation normally (`r0` 14 → 24, `r1` bootstrap **24** → 41), so the loop is not broken in general.
+>
+> **The mechanism is confirmed in source and in data simultaneously.** `SynthValidateRunner.cs:829` branches on
+> `binningDiffers`, and its `else` branch (`:836-848`) holds **both** exposure and step under the comment
+> *"Binning first: apply ONLY the binning change this round and defer exposure (and step) by one round."* This
+> dataset's `vertexHfr/3` straddles the **1.5** rounding boundary of `clamp(round(hfr/3), 1, 4)`, so the factor
+> oscillates `1, 2, 1, 2`, `binningDiffers` is true on **every** round, and the deferral never expires. That is
+> this entry's title and [F22](#f22--detection-binning-is-a-hard-threshold-on-a-measurement-that-under-reads-so-boundary-rigs-get-the-wrong-factor)'s
+> population, both verbatim.
+>
+> **Why the 2026-08-03 re-measurement missed it, on its own explanation.** That run recorded *"the landed
+> Sensitivity varied round to round here (16.7 / 15.7 / 10) rather than sitting at the floor, so the binning
+> recommendation settled instead of being persistently wrong."* In wave 23 it does not settle, and round 2 of this
+> cell carries `sensitivityAtFloor = true`. **That link is one round of four and is offered as consistent, not as
+> established** — the oscillation across the 1.5 boundary is measured directly and needs no help from it.
+>
+> **A measurement gap this entry now owns.** `binningRecommendation` in the report carries only
+> `{hasMeasurement, recommendedFactor, vertexHfr}` — there is **no `appliedFactor` and no `currentFactor`** — so
+> the starvation must be *inferred* from the bootstrap never moving rather than *read*. Adding `appliedFactor` to
+> the round record is ~2 lines and makes the mechanism checkable from the report alone.
+>
+> **Priced.** The guard below — bound the deferral at N = 2 consecutive rounds without an applied change — is
+> **~10 lines and one test, ~30 m**, and `D08`/`S1` alone is a complete before/after in ~10 m. The
+> pre-registrable bar: `roundsUsed <= 3` with `finalStepSize` inside `[49.2, 131.2]`. The `RecommendFromHfr`
+> hysteresis that would dissolve the cause is a **separate, larger** change owing a coordinate-system re-baseline
+> and must not be bundled with it.
+> Reproduce: `/mnt/d/hf_w23/v23/D08_c11_2800mm__S1/synth_validate_report.json`; `/mnt/d/hf_w23/v23_score.txt`.
+
+**Status revision, and it is now itself revised.** The one-round deferral cost is real and worth the guard below.
+The 2026-08-03 re-measurement withdrew the word *"indefinitely"* from this entry's title on the grounds that the
+unbounded form did not reproduce; **wave 23 reproduces it, so the title stands as written and that withdrawal is
+retracted.** The honest reading of the two measurements together: the livelock is **conditional, not
+intermittent** — it holds for as long as the binning recommendation keeps oscillating, and whether it oscillates
+is decided by where the rig's vertex HFR sits relative to the 1.5 boundary
+([F22](#f22--detection-binning-is-a-hard-threshold-on-a-measurement-that-under-reads-so-boundary-rigs-get-the-wrong-factor)).
 
 **Next step.** Bound the deferral: if the binning recommendation has not changed the applied value for N
 consecutive rounds, stop deferring and let the step update proceed. Fixing F22 would also dissolve this, but the
@@ -1614,6 +1691,53 @@ artifact of the render, and the affected population is not hypothetical.
    down, which is the bias F35 exists to route around.
 
 ### F21 — `StepSizeRecommender`'s half-width is not stable against noise, even on a perfect fit
+
+> **WAVE 23: THE 45-52 s PRICE IS A PROBE PRICE, NOT AN ARM RATE, AND BUDGETING FROM IT UNDER-RESERVES BY 3.5x.**
+>
+> Wave 23 ran the first real `synth-validate` **arm** — 20 datasets x 2 scenarios = **40 cells** at the shipped
+> `--max-rounds 4` — and priced it from the measurement below. **Estimated ~35 m; measured 2 h 04 m 06 s**
+> (`V23_START 2026-08-12T17:24:28Z -> V23_DONE 19:28:34Z`).
+>
+> | | |
+> |---|---|
+> | pre-registered estimate | ~75-125 s per dataset (both scenarios) ⇒ **21-35 m** for 20 datasets |
+> | **measured** | **7 446 s / 40 scheduled cells = ~186 s per cell, ~372 s per dataset** |
+> | overrun | **x3.5** against the 35 m estimate; per-cell spread **23 s to > 600 s** |
+>
+> **Why the price below could not transfer, in three named denominators.** It was measured on
+> `D11_rc10_585_afbin2` — chosen explicitly *"for price, not physics"*, the bank's **smallest** dataset (38 MB)
+> and a **factor-2** dataset, i.e. detection on a **quarter of the pixels** — at **`--max-rounds 2`**, on **one**
+> cell. Wave 23's arm ran **mixed factor-1** datasets at **`--max-rounds 4`** over **40** cells.
+>
+> **The handoff's budget table warned about this axis in one direction only, and the wave walked into its mirror
+> image with the warning on the page.** The recorded caveat is that *budgeting a **factor-2** arm at the synthetic
+> rate **over**-reserves by ~10x*. **The inverse was never written down: pricing a **factor-1** arm from a
+> **factor-2** measurement **under**-reserves.** The general rule, stated so it does not have to be rediscovered a
+> third time: **a rate measured at one binning factor does not transfer to another in EITHER direction.**
+>
+> **The corrected rows for the charter's budget table:**
+>
+> | instrument | rate | caveat |
+> |---|---|---|
+> | `synth-validate`, factor-2, `--max-rounds 2`, 1 dataset x 1 scenario | **45-52 s** (wave 21, n = 1) | a **probe** price; not an arm rate |
+> | `synth-validate`, mixed factor-1, `--max-rounds 4`, per (dataset, scenario) cell | **~186 s/cell, ~372 s/dataset** (wave 23, n = 40 scheduled / 38 landed) | S0 is one round, S1 is 1-4. **Budget 2 h for a 40-cell arm**, keep `timeout 600` per cell |
+>
+> Two cells hit the 600 s timeout (`D19_cygnus_deep_shed`/S1, `D05_tec140_1000mm`/S1), produced no report, and are
+> **NOT-RUN and named** — 38 of 40 rows, both scenarios still above their pre-registered minimum.
+>
+> **And this entry's own subject got a datum, in a population of 19.** `D16_esprit550_ha3`/S0 — the bank's 3 nm
+> Ha dataset, the lowest-SNR member — was handed the **exactly correct** step of 15, recommended **22** (+47 %),
+> and then held there: `halfWidth` 78.06 then 78.41 on two independent noise realisations. **The answer is
+> reproducible, not jittery**, and it is ~1.49x the half-width truth implies. It was the **only** miss in the
+> do-no-harm direction (`V23-G` on S0: 18 of 19). Meanwhile `terminal.stepBehavioralVsTheoryDeltaFraction` — this
+> recommender's own fixed point on the **noiseless** truth curve — is **exactly 0.0000 on 34 of 36 cells**, so the
+> residual on `D16` is a **measurement bias in `FindHalfWidth` under low SNR**, not an arithmetic error.
+> **n = 1, so no fix is proposed** ([F68](#f68--a-threshold-stated-as-a-count-carries-a-denominator-and-three-consecutive-satisfiability-analyses-have-checked-the-value-a-clause-can-reach-without-checking-the-population-it-is-computed-over)):
+> the arm that would size it is S0 across the bank at several **noise seeds**, and **seed sensitivity is still
+> unmeasured — wave 23 varied no seed either**, so that arm still needs a seed override `synth-validate` does not
+> expose.
+> Reproduce: `/mnt/d/hf_w23/v23_arm_w23.log`, `/mnt/d/hf_w23/v23_score.txt`;
+> `docs/synthetic-af-bank-followups-wave23-results.md` §9.1 and §4.3.
 
 > **WAVE 21, item P: THE INSTRUMENT RAN. The price is 52 seconds, and here is the invocation that works.**
 > Rule-free by pre-registration, `timeout 1200`, pinned like every other arm. `F21_START 2026-08-11T10:09:19Z →
@@ -4410,8 +4534,39 @@ designed, weaker claim than written* — and the distinction is only visible bec
 
 ### Next step
 The honest missing arm is the **code** axis: re-run the same 20 datasets on a binary that differs by a change
-believed inert on the search, and diff all 33 keys. **~53 m**, and it is the arm wave 19 thought it was running.
-Until then, cite this entry for the **noise** floor only.
+believed inert on the search, and diff all 33 keys. It is the arm wave 19 thought it was running. Until then,
+cite this entry for the **noise** floor only.
+
+> **THE ~53 m PRICE IS WRONG, AND THE SHAPE WAS TOO (2026-08-12, wave 23).**
+>
+> **~53 m buys one 20-dataset pass, and it silently assumes wave 19's `/mnt/d/hf_w19/reA0` can serve as the
+> "old" side. It cannot:** `reA0` was built from wave-19-era source (`e5be699`), so the treatment would be
+> *"everything shipped between wave 19 and now"* —
+>
+> ```
+> git diff --name-only e5be699..2623771 -- '*.cs'   ->  13 files  (7 outside the test project)
+> git diff --name-only 2623771..3d370ff -- '*.cs'   ->  14 files  (8 outside the test project)
+> ```
+>
+> — across three waves plus F76's eight rounds, F77 and the replay-report work. **That is a confounded arm, not
+> an inert-change arm.** The honest form needs **two binaries built from one tree and two 20-dataset passes:
+> 2 x 52 m 43 s ≈ 1 h 45 m, plus builds and provenance ≈ 1 h 50 m, plus a ~42 m gate.** Wave 19's own measured
+> arm time (`04:32:00Z → 05:24:43Z` = 52 m 43 s) is the rate.
+>
+> **And the change must be a REAL SHIPPED DELTA, not an authored inert one.** An authored change — an unused
+> method, a `Logger` line off the search path — reproduces this wave's own defect one level up: it is a code
+> difference that **cannot execute**, so the expensive `R-J-ONLY` branch is again reachable only from noise, and
+> R19 measured that noise at exactly **zero**. It would look like it answers this entry and would not. Only a
+> real shipped delta **whose changed code executes inside the search loop** makes the branch reachable by
+> construction.
+>
+> **A free 8-run x 1-field slice of it is already paid.** Wave 23's gate ran on a binary carrying PR #194's
+> `StarDetector.ComputeEarlyCacheKey(p)` **SHA256 computed for every candidate inside the search loop**, and
+> reproduced K8 **bit-identically at all sixteen digits on 8 of 8 runs** — the first measurement of the claim the
+> source states at `RunEvaluationData.cs:919-925`. **That is 8 runs x 1 field; this entry's arm is 20 datasets x
+> 33 fields.** It is a slice and must not be reported as the arm.
+> Reproduce: `docs/synthetic-af-bank-followups-wave23-design.md` §1.2;
+> `docs/synthetic-af-bank-followups-wave23-results.md` §1.2 and §9.3.
 Reproduce: `python3 /mnt/d/hf_w19/score_r19_w19.py --new /mnt/d/hf_w19/reA0 --old /mnt/d/hf_w18/seedA0 --gate /mnt/d/hf_w19/gate --out -`;
 `docs/synthetic-af-bank-followups-wave19-results.md` §2.
 
@@ -7119,6 +7274,124 @@ Reproduce: field report, `Default` profile, 2026-08-06; wizard screenshot in the
 
 ## Harness / tooling
 
+### F79 — A single non-ASCII byte in a redirected log makes `grep` report ZERO matches for strings elsewhere in the file
+**Status:** Open (fix identified and priced; deliberately **not** shipped in wave 23) · found 2026-08-12, wave 23,
+when the gate driver and its scorer disagreed 0-of-8 against 8-of-8 over the same eight files
+
+The register already records that *"a Unicode character in a redirected log arrives as the single byte `0x1A` on
+this machine's console code page."* **That is one of two failure modes, and it is the harmless one.** This is the
+other, and it fails **closed to zero**: it reports *"the feature is absent"* where the honest answer is *"I could
+not look."*
+
+**Evidence.** `gate_w23.sh` and `score_v23_w23.py --gate` ran eight minutes apart over the same 8 gate logs:
+
+| clause | the driver, via `grep` | the scorer, via Python `bytes` |
+|---|---|---|
+| exactly one `PARAMS-DUMP optimize/detected BEGIN` per log | **0 of 8** | **8 of 8** |
+| exactly one `optimize/baseline` | **0 of 8** | **8 of 8** |
+| exactly one `optimize/seed` | **0 of 8** | **8 of 8** |
+
+The scorer is right. `/mnt/d/hf_w23/gate/toml999.log` is 29 041 bytes and contains **exactly one** byte `0xE5`,
+at offset 7975, in the line
+
+```
+  objective: marginalSnr strength=0 floor=6<0xE5> threshold=0.05; searchable Sensitivity lower bound=0
+```
+
+**Mechanism.** `0xE5` is `σ` in **CP437** — `'σ'.encode('cp437') == b'\xe5'`, while CP850 and CP1252 have no `σ`
+at all and would have emitted `?`. So `Console.OutputEncoding` is the OEM console code page 437 (there is **no**
+encoding configuration anywhere in this repo: no `Console.OutputEncoding` assignment, no `Console.SetOut`, no
+`StreamWriter` encoding argument, and the referenced `Serilog.Sinks.Console` package is unused). The emitter is a
+bare `Console.WriteLine` at `Joko.NINA.Plugins/TestApp/OptimizationDiagnosticRunner.cs:866` (`floor={…}σ`), with a
+second `σ` at `:875`. A lone `0xE5` is **invalid UTF-8**, so `grep` classifies the whole file as binary.
+
+**And it does not say so.** `grep -c 'PARAMS-DUMP optimize/baseline BEGIN' toml999.log` prints **nothing** and
+exits **1** — "no lines selected" — for a string that is demonstrably present; `grep -ac` prints `1` and exits 0.
+There is no *"Binary file matches"*, no `0`, and no warning. The driver idiom `grep -c "…" || true | grep -c '^1$'`
+turns that silence into the number **0**, indistinguishable from a genuinely absent block.
+
+Two further properties make it worse than it looks:
+
+- **Position does not protect you.** All three `BEGIN` lines sit at offsets 1813, 3551 and 6179 — *before* the
+  offending byte at 7975 — and are still not found. The file is smaller than one read buffer, so the whole file is
+  classified. **On a larger log, matches in earlier buffers survive**, so the same clause can silently start
+  working again as a log grows. It is size-dependent.
+- **Two bytes, two consequences, one root cause.** A character that CP437 *can* represent (`σ`, `°`, `µ`, `²`,
+  `±`, `≥`) becomes a high byte and breaks `grep` entirely; a character it *cannot* (`—` U+2014, the recorded
+  case) becomes `0x1A`, which is valid ASCII, so the text is corrupted but `grep` keeps working. **The recorded
+  trap is the survivable one.**
+
+**Scope, measured rather than assumed.** The byte is present in **8 of 8 gate logs in every wave root that has
+one — waves 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21 and 23** (twelve roots; wave 22 built no binary). It has
+been latent since **wave 11**. It is **not** a regression from any recent merge, and **no pre-registered clause
+was ever harmed**: in wave 23 the clause passed on its designated instrument, which reads bytes in Python.
+
+**Why one clause survived and its neighbour did not, in the same script.** `G23-P1` extracts its block with
+`awk '/BEGIN/,/END/'` **first** and pipes the result to `grep`; `awk` performs no binary classification and the
+offending byte lies outside the extracted range, so `grep`'s stdin is clean. `G23-P2` greps the raw file.
+*One clause was written awk-first by accident of style and is immune; the other is not.*
+
+> **The trap caught the write-up too.** The first per-wave census written for wave 23's results used
+> `grep -c $'\xe5'` and reported **0 logs containing the byte across all twelve waves** — including the ones it
+> was reading. The number was produced by the instrument, not by the data. Re-run in Python, on bytes, it is 8 of
+> 8 everywhere.
+
+**Next step — the fix is two lines and it is log-only.** The `σ` at `:866` sits inside a bare `Console.WriteLine`;
+the statements that mutate search inputs are above it and the optimizer is constructed after it (`:869`). Nothing
+parses stdout and no test or doc asserts on the string, so **no option below can perturb a measured result.**
+
+| option | change | reach | risk |
+|---|---|---|---|
+| **(i)** ASCII the two literals (`floor=6 sigma`) | `OptimizationDiagnosticRunner.cs:866,875` — **2 lines** | the `optimize` console stream, i.e. every gate log | none |
+| **(ii)** `Console.OutputEncoding = new UTF8Encoding(false)` in `Main` | `TestApp/Program.cs` — **1 line** | all **32** non-ASCII console sites across 9 files, and every future one | the setter throws `IOException` with no valid console handle, so it needs `try`/`catch`; existing CP437 logs stay broken |
+
+**(i) is recommended, and it must land BEFORE a wave's build, not during one** — a binary that differs from the
+one under test is not the one under test ([F53](#f53--wave-8s-arm-x-does-not-reproduce-from-wave-8s-own-exe-because-the-arm-ran-on-an-earlier-build-of-it)(c)).
+**Until it ships: any driver clause that greps a redirected `TestApp` log must pass `-a`, or extract with `awk`
+first, or read bytes.** A `grep` that returns rc=1 on a log is not evidence of absence.
+
+> ### SHIPPED IN WAVE 23 — and BOTH options above were UNDER-SCOPED by the same defect they describe
+>
+> **Status: FIXED (2026-08-12, wave 23).** Option (i) shipped, but **not at the size this entry priced it.**
+>
+> | | this entry said | what shipped |
+> |---|---|---|
+> | option (i) | **2 lines** (`:866,875`) | **120 lines, 158 characters, 20 files, 19 distinct characters** |
+> | option (ii)'s reach | "**32** non-ASCII console sites across **9** files" | the same 120 / 20 |
+>
+> **Why both counts were low, and it is the entry's own subject.** Every one of them came from a *line-keyed*
+> `grep` for `Console.Write`-shaped text. Two classes of violation carry no such text on their own line:
+> **continuation lines** of a multi-line `Console.WriteLine(… + …)`, and **interpolation holes** such as
+> `{"tilt°",8}`, where a quote-parity scan flips polarity at the nested `"` and stops seeing the literal.
+> **`OptimizationDiagnosticRunner.cs:866` — the line this entire entry is about — is a continuation line, and
+> the controller's own scoping grep did not return it.** A line-keyed grep hunting a defect whose signature is
+> *failing closed to zero* failed closed on the defect's own line, twice, in the entry that documents it.
+>
+> **The guard therefore asserts the property, not the shape.** `TestAppOutputAsciiTests` requires that **outside
+> a comment, every character in `TestApp`'s sources is ASCII** — deliberately not "on a line that looks like it
+> prints". A guard against a fails-closed defect must not be able to fail the same way. It carries **four**
+> separate could-not-look failures (directory missing, zero files, fewer than 40 files, four named sentinels
+> absent, under 200 000 non-comment characters scanned), each asserted **before** the violation list is read,
+> and a **second** test that pins the scanner against a synthetic snippet so the property cannot pass vacuously.
+> Shown to FAIL against pre-change source, verified by the controller independently of the agent that wrote it:
+> `Failed: 1, Passed: 1`, naming `OptimizationDiagnosticRunner.cs:866 col 143: 'sigma' (U+03C3)`.
+>
+> **F53(c) was honoured.** The fix landed **after every measurement in wave 23 was complete** — gate, both arms
+> and all fingerprint checks — so the binary under test never contained it, and `D:\hf_w23\exe\TestApp.dll` was
+> re-hashed to `82491ac79ce3d9216b4fa0d3…` afterwards to prove it. Wave 24 is the first wave whose build carries
+> the fix, and is therefore the first whose logs are greppable without `-a`.
+>
+> **One operational fact found on the way, worth more than it looks:** `dotnet test <sln>` **does not build
+> `TestApp`**. A compile break in any runner would not surface in a full-suite run. Build it separately.
+>
+> **`ParamsDump.cs` is a NEAR-MISS, not a self-refuting file** — recorded because the controller first reported
+> it as one. Its class doc's *"every character this class prints is printable ASCII"* was true **as literally
+> worded**: `Lines`/`Write` were already guarded by an `Ascii()` helper with a test. Its single violation is at
+> `:182`, in an `ArgumentException` message, which is **thrown, not printed**. The doc now covers every string
+> literal in the class including that throw.
+Reproduce: `python3 -c "d=open('/mnt/d/hf_w23/gate/toml999.log','rb').read(); print(d.count(b'\xe5'), d.find(b'\xe5'))"`;
+`grep -c` vs `grep -ac` on the same file; `docs/synthetic-af-bank-followups-wave23-results.md` §2.
+
 ### F9 — `bank-verify` cannot pin C0's detector knobs
 **Status:** Open
 
@@ -7186,6 +7459,49 @@ the band its verdict was reached with.
 family — every one by someone happening to look rather than by anything failing. A harness that reports its own
 success is load-bearing for every conclusion drawn from it; see also the `truthViolations` /
 `precisionNull` guards added to `bank-verify` for the same reason ([F31](#f31--synthetic-bank-precision-is-not-exact-the-golden-omits-real-stars-and-they-score-as-false-positives)).
+
+> ### THE REPORTING FIX IS CORRECT. THE STOP POLICY IT SHIPPED IS WRONG AT THE NARROW END (2026-08-12, wave 23)
+>
+> This entry's fix — *"a no-op round still STOPS the loop — the recommender is not going to move on its own"* —
+> is measured with a denominator for the first time, and the reasoning holds only when the no-op means
+> **agreement**. When it means the fit was **unusable**, stopping is exactly the wrong response, and wave 23's
+> RULE V23 caught three cells doing it (`docs/synthetic-af-bank-followups-wave23-results.md` §4.1):
+>
+> | cell | truth | final | ratio | rounds used, of 4 permitted | the fit |
+> |---|---|---|---|---|---|
+> | `D01_ultrawide_40mm`/S1 | 9 | **2** | 0.22x | **1** | `\|vertex-center\| = 8` against a tolerance of 4 |
+> | `D02_rich_135mm`/S1 | 6 | **2** | 0.33x | **1** | **R2 = -0.2741** — worse than a horizontal line |
+> | `D03_redcat_250mm`/S1 | 16 | **4** | 0.25x | **1** | `halfWidth` = `NaN` |
+>
+> All three stop on this entry's own branch, with this entry's own message, **having spent one round of four.**
+>
+> **The chain.** Scenario S1 starts the sweep at 0.25x the correct step; with `DefaultOffsetSteps = 4` the modelled
+> HFR then spans only ~1.28x the minimum across the whole sweep, so the vertex is not identifiable
+> ([F21](#f21--stepsizerecommenders-half-width-is-not-stable-against-noise-even-on-a-perfect-fit)'s wave-10
+> diagnosis: *"R2 measures fit to the SAMPLED points and says nothing about whether the vertex is identifiable
+> from them"*). `StepSizeRecommender.Recommend` therefore returns `Degenerate(currentStepSize, …)`
+> (`StepSizeRecommender.cs:410-416`, reached from `:233`, `:239`, `:252` or the `NaN` at `FindHalfWidth:470`),
+> which **holds the step that produced the unusable fit**. The driver applies a step on a bare integer inequality
+> — `if (stepRec.StepSize != state.StepSize)` (`SynthValidateRunner.cs:843-847`), **no deadband, no hysteresis** —
+> so `AppliedAnything` is false and the loop breaks at `:532-548`. **Holding guarantees the next sweep is exactly
+> as narrow as the one that just failed.** The recommender refuses to widen precisely when widening is the only
+> thing that can help.
+>
+> **This is the mirror of [F25](#f25--from-a-far-too-wide-sweep-the-step-recommender-widens-it-further-instead-of-recovering),
+> and the two together define the fix.** F25 is the too-wide end, where *widening* is the harm and its owed
+> fit-quality gate says a bad fit *"should either hold the current step or shrink it, never widen it."* Wave 23
+> measures the too-narrow end, where **holding is the harm**. So the gate must be **directional**, keyed on
+> whether the sweep sampled too little curve or too much — and `stepRecommendation.sampledHfrRange` is already in
+> the report to key it on. Shipping only one half trades one entry's defect for the other's.
+>
+> **Priced:** ~15-20 lines across `StepSizeRecommender.cs` and the runner's stop branch, plus 2 unit tests,
+> **~1 h**. Re-running the three named cells is **~5 m**; the S1 rate needs the full arm (~1 h, see
+> [F21](#f21--stepsizerecommenders-half-width-is-not-stable-against-noise-even-on-a-perfect-fit)'s corrected
+> price). Pre-registrable bar: `V23-G` on S1 above **13 of 17**, and all three cells reaching `roundsUsed > 1`.
+> **A separate, cheap improvement this measurement argues for:** a no-op from *agreement* and a no-op from
+> *degeneracy* are currently byte-identical to the loop, which is this entry's own recorded observation one level
+> up. Recording which branch `Recommend` took would make the two distinguishable from the report alone.
+> Reproduce: `/mnt/d/hf_w23/v23/D0{1,2,3}_*__S1/synth_validate_report.json`; `/mnt/d/hf_w23/v23_score.txt`.
 
 ---
 

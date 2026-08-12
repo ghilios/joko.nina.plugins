@@ -78,7 +78,7 @@ namespace TestApp {
                 .ToList();
 
             Console.WriteLine($"bank-export-settings: {landings.Count} landing(s) under {runs}  " +
-                $"({(apply ? "APPLY — writing" : "DRY-RUN — listing only")}{(overwrite ? ", overwriting existing" : "")})");
+                $"({(apply ? "APPLY -- writing" : "DRY-RUN -- listing only")}{(overwrite ? ", overwriting existing" : "")})");
 
             int written = 0, skipped = 0, failed = 0;
             var failures = new List<string>();

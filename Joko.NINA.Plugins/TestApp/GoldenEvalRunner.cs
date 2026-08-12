@@ -190,7 +190,7 @@ namespace TestApp {
             var matchRadiusSource = syntheticMatchRadius.HasValue ? "synthetic_meta.json" : "CLI/default";
             if (matchMode == GoldenMatchMode.Centroid && effectiveMatchRadius <= 0.0) {
                 Console.WriteLine($"  WARNING: centroid match mode with matchRadius={effectiveMatchRadius} matches NOTHING " +
-                    "(GoldenGeometry requires radius > 0) — every golden star will be a false negative. Pass --match-radius, " +
+                    "(GoldenGeometry requires radius > 0) -- every golden star will be a false negative. Pass --match-radius, " +
                     "or use a synthetic dataset whose synthetic_meta.json carries matchRadiusPx.");
             }
             Console.WriteLine($"  matchRadius: {Fmt(effectiveMatchRadius)}px ({matchRadiusSource})");
@@ -660,7 +660,7 @@ namespace TestApp {
 
             // Text summary.
             var sb = new StringBuilder();
-            sb.AppendLine($"GOLDEN EVAL — run '{runId}'");
+            sb.AppendLine($"GOLDEN EVAL -- run '{runId}'");
             sb.AppendLine($"params: {paramsLabel}   (source: {sourceLabel})");
             // V-P1/V-P2: record which source won for the two per-run knobs this report was scored with, so a
             // reader comparing two reports can tell whether a delta came from the detector or from a resolved
@@ -692,7 +692,7 @@ namespace TestApp {
             sb.AppendLine();
 
             sb.AppendLine("PER-FRAME (sorted by focuser):");
-            sb.AppendLine("  focuser  Δsteps  golden  acc   TP   FP   FN   prec   recall   f1");
+            sb.AppendLine("  focuser  dsteps  golden  acc   TP   FP   FN   prec   recall   f1");
             foreach (var f in frames.OrderBy(f => f.FocuserPosition)) {
                 var pr = PrecisionRecall.Compute(f.TP, f.FP, f.FN);
                 sb.AppendLine($"  {f.FocuserPosition,7}  {(double.IsNaN(f.DefocusOffset) ? "  -  " : f.DefocusOffset.ToString("F1")),6}  {f.GoldenCount,6}  {f.Accepted,4}  {f.TP,4} {f.FP,4} {f.FN,4}  {Fmt(pr.Precision),6} {Fmt(pr.Recall),7} {Fmt(pr.F1),6}");

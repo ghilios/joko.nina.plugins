@@ -64,7 +64,7 @@ namespace TestApp {
                 return new NcRecommendation {
                     Nc = best.Nc,
                     Rationale = $"no swept NC cleared the precision floor {precisionFloor:F2}; highest-precision NC={best.Nc:F0} " +
-                        $"(precision {best.MedianPrecision:F2}, recall@high {best.MedianRecallHigh:F2}) — precision-limited across the bank",
+                        $"(precision {best.MedianPrecision:F2}, recall@high {best.MedianRecallHigh:F2}) -- precision-limited across the bank",
                     ConsiderAdaptive = true
                 };
             }
@@ -74,7 +74,7 @@ namespace TestApp {
             var atRangeFloor = chosen.Nc <= lowestSwept.Nc + 1e-9;
             var rationale = atRangeFloor
                 ? $"NC={chosen.Nc:F0} (recall@high {chosen.MedianRecallHigh:F2}, precision {chosen.MedianPrecision:F2}) is the lowest swept value and still " +
-                  $"clears the precision floor {precisionFloor:F2} — recall is still rising at the bottom of the range, so a lower / per-frame-adaptive NC may help"
+                  $"clears the precision floor {precisionFloor:F2} -- recall is still rising at the bottom of the range, so a lower / per-frame-adaptive NC may help"
                 : $"NC={chosen.Nc:F0} (recall@high {chosen.MedianRecallHigh:F2}, precision {chosen.MedianPrecision:F2}) is the lowest NC clearing the precision " +
                   $"floor {precisionFloor:F2}; lower NC over-recalled into noise (precision dropped below the floor)";
             return new NcRecommendation { Nc = chosen.Nc, Rationale = rationale, ConsiderAdaptive = atRangeFloor };
@@ -192,7 +192,7 @@ namespace TestApp {
                 : !highFrac
                     ? $"donut/peak frac {s.DonutPeakFracMax:F2}<{FracThreshold:F1} (not donut-dominated)"
                     : $"high frac {s.DonutPeakFracMax:F2} but mild defocus (extreme HFR {s.ExtremeFrameMedianHFR:F1}<{HeavyDefocusHFR:F1}, " +
-                      $"donut bbox {s.ExtremeDonutBBoxMedianPx:F0}<{LargeDonutBBoxPx:F0}px) — cwhite-style over-flag avoided";
+                      $"donut bbox {s.ExtremeDonutBBoxMedianPx:F0}<{LargeDonutBBoxPx:F0}px) -- cwhite-style over-flag avoided";
             return new DonutDecision(donutAware, reason);
         }
     }

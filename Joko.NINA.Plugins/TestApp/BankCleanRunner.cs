@@ -40,7 +40,7 @@ namespace TestApp {
                 Console.WriteLine($"No runs discovered under {runs}.");
                 return;
             }
-            Console.WriteLine($"bank-clean: {discovery.Runs.Count} run(s) under {runs}  ({(apply ? "APPLY — deleting" : "DRY-RUN — listing only")})");
+            Console.WriteLine($"bank-clean: {discovery.Runs.Count} run(s) under {runs}  ({(apply ? "APPLY -- deleting" : "DRY-RUN -- listing only")})");
 
             long totalDelete = 0, totalBytes = 0;
             foreach (var run in discovery.Runs) {

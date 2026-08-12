@@ -411,7 +411,7 @@ namespace TestApp {
             Console.Error.WriteLine("  --defocus-min-factor <0..1> (with --defocus-distortion) override the floor multiplier on MaxDistortion (default 0.25).");
             Console.Error.WriteLine("  --defocus-center-factor <>=1> (with --defocus-centering) override the max multiplier on StarCenterTolerance (default 2.0).");
             Console.Error.WriteLine("  --defocus-structure         (opt-in test switch) flips DefocusAwareStructure ON (EARLY-stage: coarser large-structure removal so donut/defocused stars form candidates).");
-            Console.Error.WriteLine("  --structure-boost <0..6>    (with --defocus-structure) extra wavelet layers for large-structure removal (default 2; 0 ⇒ bit-identical control).");
+            Console.Error.WriteLine("  --structure-boost <0..6>    (with --defocus-structure) extra wavelet layers for large-structure removal (default 2; 0 => bit-identical control).");
             Console.Error.WriteLine("  --structure-layers <n>      (diagnostic) override nominal StructureLayers (e.g. 4 for the factory baseline), independent of the profile.");
         }
 

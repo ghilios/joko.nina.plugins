@@ -184,20 +184,20 @@ namespace TestApp {
             }
             Line();
             Line("Registration messages:");
-            if (messages.Count == 0) Line("  (none — all frames aligned cleanly)");
+            if (messages.Count == 0) Line("  (none -- all frames aligned cleanly)");
             foreach (var m in messages) Line($"  - {m}");
 
             Line();
             Line("================ SENSOR MODEL FIT ================");
             if (sensorFit != null) {
                 Line($"StarsInModel:     {sensorFit.StarsInModel}");
-                Line($"GoodnessOfFit R²: {sensorFit.GoodnessOfFit:F4}");
-                Line($"RMSError (µm):    {sensorFit.RMSErrorMicrons:F3}");
+                Line($"GoodnessOfFit R^2:{sensorFit.GoodnessOfFit:F4}");
+                Line($"RMSError (um):    {sensorFit.RMSErrorMicrons:F3}");
                 Line($"ReducedChiSquared:{sensorFit.ReducedChiSquared:F3}");
-                Line($"Tilt θ (deg):     {sensorFit.Theta * 180.0 / Math.PI:F3}");
+                Line($"Tilt theta (deg):  {sensorFit.Theta * 180.0 / Math.PI:F3}");
                 Line($"Curvature K:      {sensorFit.K:E3}");
             } else {
-                Line("  (no fit — RegisterStarsAndFit did not produce a model)");
+                Line("  (no fit -- RegisterStarsAndFit did not produce a model)");
             }
 
             var outPath = Path.Combine(outDir, "inspect_align.txt");

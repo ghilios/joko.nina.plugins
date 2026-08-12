@@ -365,7 +365,7 @@ namespace TestApp {
                 var cm = await ScoreConfigAsync($"C0@nc{nc:0.#}", nc, false, p, evalData, loaded, goldenByFocuser, truthByFocuser, effectiveMatchRadius,
                     inspectorOptions, alglib, profileService, activeProfile, stepSize, detector, afOptions);
                 rr.configs.Add(cm);
-                Console.WriteLine($"    {cm.config}: recall@high={Fmt(cm.recallHigh)} prec={Fmt(cm.precision)} σ={Fmt(cm.sigmaFocus)} sR²={Fmt(cm.sR2)} aligned={cm.framesAligned}/{loaded.Count}");
+                Console.WriteLine($"    {cm.config}: recall@high={Fmt(cm.recallHigh)} prec={Fmt(cm.precision)} sigma={Fmt(cm.sigmaFocus)} sR^2={Fmt(cm.sR2)} aligned={cm.framesAligned}/{loaded.Count}");
             }
 
             // A — optimized, donut OFF.
@@ -377,7 +377,7 @@ namespace TestApp {
                     inspectorOptions, alglib, profileService, activeProfile, stepSize, detector, afOptions);
                 cm.sensitivity = p.Sensitivity;
                 rr.configs.Add(cm);
-                Console.WriteLine($"    A (opt donutOFF, NC→{Fmt(cm.nc)}): recall@high={Fmt(cm.recallHigh)} prec={Fmt(cm.precision)} σ={Fmt(cm.sigmaFocus)} sR²={Fmt(cm.sR2)}");
+                Console.WriteLine($"    A (opt donutOFF, NC->{Fmt(cm.nc)}): recall@high={Fmt(cm.recallHigh)} prec={Fmt(cm.precision)} sigma={Fmt(cm.sigmaFocus)} sR^2={Fmt(cm.sR2)}");
             }
 
             // B — optimized, donut ON.
@@ -389,7 +389,7 @@ namespace TestApp {
                     inspectorOptions, alglib, profileService, activeProfile, stepSize, detector, afOptions);
                 cm.sensitivity = p.Sensitivity;
                 rr.configs.Add(cm);
-                Console.WriteLine($"    B (opt donutON, NC→{Fmt(cm.nc)}): recall@high={Fmt(cm.recallHigh)} prec={Fmt(cm.precision)} σ={Fmt(cm.sigmaFocus)} sR²={Fmt(cm.sR2)}");
+                Console.WriteLine($"    B (opt donutON, NC->{Fmt(cm.nc)}): recall@high={Fmt(cm.recallHigh)} prec={Fmt(cm.precision)} sigma={Fmt(cm.sigmaFocus)} sR^2={Fmt(cm.sR2)}");
             }
 
             // Nothing to dispose: an IRenderedImage is not IDisposable — dropping the list releases the frames.
@@ -423,7 +423,7 @@ namespace TestApp {
             Prog($"  [{label}] EvaluateAndFitAsync start (NC={nc}, donut={donut})");
             var af = await evalData.EvaluateAndFitAsync(p, CancellationToken.None);
             cm.sigmaFocus = af.Metrics.SigmaFocus; cm.afR2 = af.Metrics.RSquared; cm.afChi = af.Metrics.ReducedChiSquared;
-            Prog($"  [{label}] EvaluateAndFitAsync done σ={cm.sigmaFocus:F3}; detect loop start");
+            Prog($"  [{label}] EvaluateAndFitAsync done sigma={cm.sigmaFocus:F3}; detect loop start");
 
             // Detect each frame once → golden P/R + sensor-model star lists.
             int tp = 0, fp = 0, fn = 0, matchedHigh = 0, totalHigh = 0, matchedAll = 0, totalAll = 0;
@@ -518,7 +518,7 @@ namespace TestApp {
                 // Loud on purpose. This is the exact shape of F31, and four harness-calibration bugs have now
                 // been found by someone happening to look rather than by anything failing.
                 Console.WriteLine($"    !! [{label}] {cm.truthViolations} scored false positive(s) sit on a REAL rendered star "
-                    + "— the precision metric is charging for correct detections again (F31). Precision from this run is not trustworthy.");
+                    + "-- the precision metric is charging for correct detections again (F31). Precision from this run is not trustworthy.");
                 Logger.Warning($"bank-verify {label}: {cm.truthViolations} scored false positives land within the match radius of a truth star (F31 regression)");
             }
             try {
@@ -706,26 +706,26 @@ namespace TestApp {
 
             // Markdown.
             var sb = new StringBuilder();
-            sb.AppendLine($"# AF-bank verification — {ok.Count} run(s)");
+            sb.AppendLine($"# AF-bank verification -- {ok.Count} run(s)");
             sb.AppendLine();
             sb.AppendLine($"generated: {utc}  |  detector commit: {commit}  |  NoiseClip default = {noiseClipDefault.ToString("0.#", CultureInfo.InvariantCulture)}  |  " +
                 $"pixel-scale mode: {pixelScaleMode}  |  NC sweep: {string.Join(", ", ncSweep.Select(x => x.ToString("0.#", CultureInfo.InvariantCulture)))}");
             sb.AppendLine();
-            sb.AppendLine("## NoiseClippingMultiplier sweep (C0 as-default — the honest recall reference)");
+            sb.AppendLine("## NoiseClippingMultiplier sweep (C0 as-default -- the honest recall reference)");
             sb.AppendLine();
-            sb.AppendLine("| NC | median recall@SNR≥12 | median recall@all | median precision | median AF σ_focus | median sensor R² | runs |");
+            sb.AppendLine("| NC | median recall@SNR>=12 | median recall@all | median precision | median AF sigma_focus | median sensor R^2 | runs |");
             sb.AppendLine("|---|---|---|---|---|---|---|");
             foreach (dynamic row in ncRows) {
                 sb.AppendLine($"| {((double)row.nc).ToString("0.#", CultureInfo.InvariantCulture)} | {Fmt((double)row.medianRecallHigh)} | {Fmt((double)row.medianRecallAll)} | {Fmt((double)row.medianPrecision)} | {Fmt((double)row.medianSigmaFocus)} | {Fmt((double)row.medianSensorR2)} | {row.runs} |");
             }
             sb.AppendLine();
-            sb.AppendLine($"**Recommended default NoiseClippingMultiplier: {rec.Nc.ToString("0.#", CultureInfo.InvariantCulture)}** — {rec.Rationale}");
+            sb.AppendLine($"**Recommended default NoiseClippingMultiplier: {rec.Nc.ToString("0.#", CultureInfo.InvariantCulture)}** -- {rec.Rationale}");
             if (rec.ConsiderAdaptive) {
                 sb.AppendLine();
                 sb.AppendLine("> Recall is still rising at the bottom of the swept range with acceptable precision, so a **per-frame adaptive** NoiseClippingMultiplier (derived from each frame's measured noise floor during optimization) may beat any single global default. See the per-run precision spread below.");
             }
             sb.AppendLine();
-            sb.AppendLine($"Donut effect (A vs B over {abRuns} run(s) with both optimized configs): donut-aware tightened AF σ in **{donutHelpedAF}** and loosened the sensor fit in **{donutHurtSensor}**.");
+            sb.AppendLine($"Donut effect (A vs B over {abRuns} run(s) with both optimized configs): donut-aware tightened AF sigma in **{donutHelpedAF}** and loosened the sensor fit in **{donutHurtSensor}**.");
             sb.AppendLine();
             sb.AppendLine("## Per-run pixel scale & match radius (V-P1 / V-P2)");
             sb.AppendLine();
@@ -738,19 +738,19 @@ namespace TestApp {
             sb.AppendLine();
             sb.AppendLine("## Per-run (config rows)");
             sb.AppendLine();
-            sb.AppendLine("| run | camera | golden (≥12) | donutAware | config | NC | recall@≥12 | recall@all | precision | null | scored | viol | AF σ | AF R² | sensor R² | RMS µm | sChi | tilt° | stars | aligned |");
+            sb.AppendLine("| run | camera | golden (>=12) | donutAware | config | NC | recall@>=12 | recall@all | precision | null | scored | viol | AF sigma | AF R^2 | sensor R^2 | RMS um | sChi | tilt deg | stars | aligned |");
             sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|");
             foreach (var r in runs) {
-                if (r.error != null) { sb.AppendLine($"| {r.runId} | — | — | — | ERROR | | | | | | | | | | | | | | | {r.error} |"); continue; }
+                if (r.error != null) { sb.AppendLine($"| {r.runId} | -- | -- | -- | ERROR | | | | | | | | | | | | | | | {r.error} |"); continue; }
                 foreach (var c in r.configs) {
                     sb.AppendLine($"| {r.runId} | {r.camera} | {r.goldenStars} ({r.goldenSNRge12}) | {r.donutAware} | {c.config} | {Fmt(c.nc)} | {Fmt(c.recallHigh)} | {Fmt(c.recallAll)} | {Fmt(c.precision)} | {Fmt(c.precisionNull)} | {Fmt(c.scoredFraction)} | {c.truthViolations} | {Fmt(c.sigmaFocus)} | {Fmt(c.afR2)} | {Fmt(c.sR2)} | {Fmt(c.sRMS)} | {Fmt(c.sChi)} | {Fmt(c.sTheta)} | {c.sStars} | {c.framesAligned}/{r.framesTotal} |");
                 }
             }
             sb.AppendLine();
-            sb.AppendLine("**null** is the precision the same detections earn after being translated with wraparound — chance alone. "
+            sb.AppendLine("**null** is the precision the same detections earn after being translated with wraparound -- chance alone. "
                 + "It is the floor this metric can read; a precision of 1.000 means the detector found no false positives only when null is near 0. "
                 + "**scored** is the fraction of detections that entered the precision ratio at all (the rest sit on reference objects that cannot be judged). "
-                + "**viol** counts scored false positives sitting on a real rendered star and MUST be 0 — see F31.");
+                + "**viol** counts scored false positives sitting on a real rendered star and MUST be 0 -- see F31.");
             File.WriteAllText(Path.Combine(outDir, $"verification_{utc}.md"), sb.ToString());
         }
 

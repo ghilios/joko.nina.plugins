@@ -292,24 +292,24 @@ namespace TestApp.SynthBank {
             foreach (var d in report.Datasets) {
                 sb.AppendLine($"### {d.DatasetId}");
                 foreach (var s in d.Scenarios) {
-                    sb.AppendLine($"#### {s.ScenarioId} — {s.Description}");
+                    sb.AppendLine($"#### {s.ScenarioId} -- {s.Description}");
                     if (!s.Applicable) {
                         sb.AppendLine($"Not applicable: {s.SkipReason}");
                         sb.AppendLine();
                         continue;
                     }
                     var t = s.Terminal;
-                    sb.AppendLine($"Verdict **{t.OverallVerdict}** — converged={t.Converged}, roundsUsed={t.RoundsUsed}" +
+                    sb.AppendLine($"Verdict **{t.OverallVerdict}** -- converged={t.Converged}, roundsUsed={t.RoundsUsed}" +
                         (string.IsNullOrEmpty(t.StoppedReason) ? "" : $" ({t.StoppedReason})"));
                     if (double.IsFinite(t.StepBehavioral)) {
                         sb.AppendLine($"step_theory={t.StepTheory:0.##} step_behavioral={t.StepBehavioral:0.##} " +
                             $"(delta {t.StepBehavioralVsTheoryDeltaFraction:P1})");
                     }
                     if (t.DegradationSignaturePresent.HasValue) {
-                        sb.AppendLine($"Degradation signature present: {t.DegradationSignaturePresent.Value} — {t.DegradationDetail}");
+                        sb.AppendLine($"Degradation signature present: {t.DegradationSignaturePresent.Value} -- {t.DegradationDetail}");
                     }
                     sb.AppendLine();
-                    sb.AppendLine("| round | center | step | exposure | detBin | donut | R² | σ_focus | vertex | step rec | exposure rec | binning rec | applied |");
+                    sb.AppendLine("| round | center | step | exposure | detBin | donut | R^2 | sigma_focus | vertex | step rec | exposure rec | binning rec | applied |");
                     sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
                     foreach (var r in s.Rounds) {
                         var stepRecTxt = r.StepRecommendation == null ? "-" :

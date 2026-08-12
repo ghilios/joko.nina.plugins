@@ -189,7 +189,7 @@ namespace TestApp {
                 var result = await img.DetectAsync(detector, baseParams, CancellationToken.None);
                 var hfrs = result.DetectedStars.Select(s => s.HFR).ToList();
                 if (hfrs.Count <= 1) {
-                    Console.WriteLine($"  pos {frame.FocuserPosition}: {hfrs.Count} stars (skipped — Y would be 0)");
+                    Console.WriteLine($"  pos {frame.FocuserPosition}: {hfrs.Count} stars (skipped -- Y would be 0)");
                     continue;
                 }
                 var (median, mad) = hfrs.MedianMAD();
@@ -312,7 +312,7 @@ namespace TestApp {
             Emit($"Pre-gate variance ranking (consensus-cleaned, by sigma(focus) only) = {(fairWinner?.ToString() ?? "n/a")} (sigma(focus)={F(bestErr)})");
             Emit("  -> This is the variance-only ranking BEFORE the F-test gate. The production winner (top table)");
             Emit("     additionally applies the nested F-test vs Symmetric, which unlocks the asymmetric models when");
-            Emit("     they significantly improve the fit — so a genuine tilt is reported instead of lower-variance Symmetric.");
+            Emit("     they significantly improve the fit -- so a genuine tilt is reported instead of lower-variance Symmetric.");
             Emit("");
 
             // ---- Detailed Grubbs breakdown: iteratively reject against the chosen model's own fit. ----

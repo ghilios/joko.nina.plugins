@@ -493,7 +493,7 @@ namespace TestApp {
             };
             Console.WriteLine(applyRunDetectionBinning
                 ? "detection binning (F39b): each per-run dataset is DETECTED at its own derived binning factor (default; --no-run-detection-binning opts out)"
-                : "--no-run-detection-binning: F39(b) DISABLED — every run detects at factor 1 (the pre-wave-8 status quo)");
+                : "--no-run-detection-binning: F39(b) DISABLED -- every run detects at factor 1 (the pre-wave-8 status quo)");
             // F69(c) — say so when the OPT-IN flag is passed. It is still ACCEPTED, and since wave 8 it has been a
             // no-op: F39(b) is the default and --no-run-detection-binning is the opt-out. Wave 7's scripts pass it
             // and are right to keep working; what they must not do is read their own command line as evidence that
@@ -501,9 +501,10 @@ namespace TestApp {
             // this file asserted it, was believed for three waves, and cost RULE P16 a wrong verdict.
             //
             // ASCII ONLY, and this is measured rather than stylistic: a Unicode character here arrives in a
-            // REDIRECTED log as the single byte 0x1A on this machine's console code page. (The em dash on the line
-            // just above is in the --no-run-detection-binning branch, which no wave-20 clause reads; it is left
-            // alone deliberately rather than fixed as a drive-by.)
+            // REDIRECTED log as the single byte 0x1A on this machine's console code page -- and a single non-ASCII
+            // byte anywhere in the file makes GNU grep call the WHOLE log binary, so it reports zero matches for
+            // ASCII strings elsewhere in it. (Wave 23 swept every emitted string in TestApp to ASCII, including the
+            // em dash the --no-run-detection-binning branch above used to carry; TestAppOutputAsciiTests holds it.)
             if (DiagnosticUtil.HasFlag(args, "--apply-run-detection-binning")) {
                 Console.WriteLine("--apply-run-detection-binning: ACCEPTED NO-OP. F39(b) was adopted as the DEFAULT "
                     + "in wave 8; the opt-OUT is --no-run-detection-binning. This flag is retained so wave 7's "
@@ -516,7 +517,7 @@ namespace TestApp {
                 Console.WriteLine($"--keep-floor: candidates keeping < {F(kfv)} of the seed's accepted stars (min over runs) are rejected as infeasible; J is unmodified");
             }
             if (inspection) {
-                Console.WriteLine("--inspection: aberration-inspection objective (favor more stars, fit bounded vs current σ)");
+                Console.WriteLine("--inspection: aberration-inspection objective (favor more stars, fit bounded vs current sigma)");
             }
             if (continueRounds > 0) {
                 Console.WriteLine($"--continue-rounds: {continueRounds} extra pass(es) after the first ({continueRounds + 1} total)");
@@ -863,7 +864,7 @@ namespace TestApp {
                 objectiveConstants.MarginalSnrFloor = ctx.MarginalSnrFloor.Value;
             }
             Console.WriteLine(
-                $"  objective: marginalSnr strength={F(objectiveConstants.MarginalSnrStrength)} floor={F(objectiveConstants.MarginalSnrFloor)}σ " +
+                $"  objective: marginalSnr strength={F(objectiveConstants.MarginalSnrStrength)} floor={F(objectiveConstants.MarginalSnrFloor)} sigma " +
                 $"threshold={F(objectiveConstants.MarginalSnrThreshold)}; searchable Sensitivity lower bound=" +
                 $"{F(ctx.SensitivityFloor ?? OptimizerVariable.DefaultSensitivityLower)}");
             var optimizer = new StarDetectionOptimizer(objectiveConstants);
@@ -872,7 +873,7 @@ namespace TestApp {
                 perRunBaseline.Select(pr => OptimizationObjective.JRun(pr.Metrics, objectiveConstants)).ToList(), objectiveConstants);
             Console.WriteLine($"Current settings J: {F(baselineJ)}");
             if (ctx.Inspection) {
-                Console.WriteLine($"  inspection objective: reference σ = {F(currentSigma)} (current settings), margin = {F(objectiveConstants.FitGuardMarginFraction)}");
+                Console.WriteLine($"  inspection objective: reference sigma = {F(currentSigma)} (current settings), margin = {F(objectiveConstants.FitGuardMarginFraction)}");
             }
 
             // Trajectory capture (eval-budget analysis): the optimizer reports on the seed + every accepted move, so
@@ -1381,10 +1382,10 @@ namespace TestApp {
         /// </summary>
         private static void WriteAggregateSummary(string path, string runsDir, RunDetectionContext ctx, List<AggregateRow> rows) {
             var sb = new StringBuilder();
-            sb.AppendLine("=== Star Detection Optimizer — per-run aggregate ===");
+            sb.AppendLine("=== Star Detection Optimizer -- per-run aggregate ===");
             sb.AppendLine($"Runs root: {runsDir}");
             sb.AppendLine($"Mode: --per-run (each run optimized independently)");
-            sb.AppendLine($"Labels: {(string.IsNullOrWhiteSpace(ctx.LabelsDir) ? "(none — unlabeled)" : ctx.LabelsDir)}");
+            sb.AppendLine($"Labels: {(string.IsNullOrWhiteSpace(ctx.LabelsDir) ? "(none -- unlabeled)" : ctx.LabelsDir)}");
             sb.AppendLine($"MaxEvaluations: {(ctx.MaxEvals?.ToString(CultureInfo.InvariantCulture) ?? "default")}");
             sb.AppendLine($"Runs: {rows.Count} ({rows.Count(r => r.LoadOk)} optimized, {rows.Count(r => !r.LoadOk)} failed)");
             sb.AppendLine();
@@ -1471,7 +1472,7 @@ namespace TestApp {
             Console.Error.WriteLine("  --max-evals  (optional) override the optimizer's MaxEvaluations budget.");
             Console.Error.WriteLine("  --annotate   (default extremes) annotate only min/max-focuser frames, or 'all' frames.");
             Console.Error.WriteLine("  --labels     (optional) folder of label JSON files; activates the recall/precision objective term.");
-            Console.Error.WriteLine("  --inspection (optional) use the aberration-inspection objective (favor more stars; fit bounded relative to current σ).");
+            Console.Error.WriteLine("  --inspection (optional) use the aberration-inspection objective (favor more stars; fit bounded relative to current sigma).");
             Console.Error.WriteLine("  --donut      (optional) force the DefocusAwareDonutDetection MASTER on so the optimizer explores the donut/spike recovery axes.");
             Console.Error.WriteLine("  --start-from-current (optional) seed the optimizer from the current settings instead of the defaults (never regresses below current J).");
             Console.Error.WriteLine("  --legacy-objective (optional) disable the HFR-outlier penalty + region-coverage reward + saturated-HFR exclusion (the pre-change 'before' for an A/B).");
@@ -1680,10 +1681,10 @@ namespace TestApp {
             ObjectiveConstants c, int? focuserMaxStep, string labelsDir, OptimizerSettings settings,
             bool passed, int worstFrameCount, string worstRunId) {
             var sb = new StringBuilder();
-            sb.AppendLine("=== Star Detection Optimizer — headless harness ===");
+            sb.AppendLine("=== Star Detection Optimizer -- headless harness ===");
             sb.AppendLine($"Runs root: {runsDir}");
             sb.AppendLine($"Runs: {runs.Count} ({string.Join(", ", runs.Select(r => r.Discovered.RunId))})");
-            sb.AppendLine($"Labels: {(string.IsNullOrWhiteSpace(labelsDir) ? "(none — unlabeled)" : labelsDir)}");
+            sb.AppendLine($"Labels: {(string.IsNullOrWhiteSpace(labelsDir) ? "(none -- unlabeled)" : labelsDir)}");
             sb.AppendLine($"MaxEvaluations: {settings.MaxEvaluations}; evaluator calls: {result.Evaluations}");
             sb.AppendLine("Optimizer seed: fully-default params; improvement is measured vs the user's CURRENT settings (matches the wizard).");
             sb.AppendLine();
@@ -1693,16 +1694,16 @@ namespace TestApp {
             sb.AppendLine($"Best J    : {F(result.BestJ)}  ({(result.BestJ > baselineJ ? "improved over current" : "no improvement over current")})");
             sb.AppendLine();
 
-            sb.AppendLine("--- Per-run σ_focus (current -> optimized) and recommended step size ---");
+            sb.AppendLine("--- Per-run sigma_focus (current -> optimized) and recommended step size ---");
             for (int i = 0; i < runs.Count; i++) {
                 var run = runs[i];
                 var baselineM = perRunBaseline[i].Metrics;
                 var bestM = perRunBest[i].Metrics;
                 var rec = StepSizeRecommender.Recommend(perRunBest[i].BestFit, run.StepSize, focuserMaxStep);
                 sb.AppendLine($"  {run.Discovered.RunId}:");
-                sb.AppendLine($"    σ_focus       : {F(baselineM.SigmaFocus)} -> {F(bestM.SigmaFocus)}");
-                sb.AppendLine($"    R²            : {F(baselineM.RSquared)} -> {F(bestM.RSquared)}");
-                sb.AppendLine($"    reducedχ²     : {F(baselineM.ReducedChiSquared)} -> {F(bestM.ReducedChiSquared)}");
+                sb.AppendLine($"    sigma_focus   : {F(baselineM.SigmaFocus)} -> {F(bestM.SigmaFocus)}");
+                sb.AppendLine($"    R^2           : {F(baselineM.RSquared)} -> {F(bestM.RSquared)}");
+                sb.AppendLine($"    reducedChi^2  : {F(baselineM.ReducedChiSquared)} -> {F(bestM.ReducedChiSquared)}");
                 sb.AppendLine($"    current step  : {run.StepSize}");
                 sb.AppendLine($"    recommended   : step {rec.StepSize}, offset {rec.OffsetSteps} per side (half-width {F(rec.HalfWidth)})");
                 if (bestM.Recall.HasValue || bestM.Precision.HasValue) {

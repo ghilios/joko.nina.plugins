@@ -191,10 +191,10 @@ namespace TestApp {
             public List<ScatterErrorPoint> Points;
             public string Timestamp = "";
             public string Filter = "";
-            public string Region = "—";
+            public string Region = "--";
             public string SavedMethod = "";
             public string SavedFitting = "";
-            public string SavedModel = "—";
+            public string SavedModel = "--";
             public double StoredRSquared = double.NaN;
             public double StoredMinStdErr = double.NaN;
             public double StoredReducedChiSquared = double.NaN;
@@ -453,7 +453,7 @@ namespace TestApp {
 
         private static string ReadModelName(JToken tok) {
             if (tok == null || tok.Type == JTokenType.Null) {
-                return "—";
+                return "--";
             }
             if (tok.Type == JTokenType.Integer) {
                 var iv = (int)tok;

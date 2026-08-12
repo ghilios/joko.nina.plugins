@@ -193,7 +193,7 @@ namespace TestApp.SynthBank {
 
             IAstapCatalogReader catalogReader = new AstapCatalogReader(spec.Defaults.AstapCatalogPath);
 
-            Prog($"synth-bank: spec={specPath} (sha256={specSha256.Substring(0, 12)}…) " +
+            Prog($"synth-bank: spec={specPath} (sha256={specSha256.Substring(0, 12)}...) " +
                 $"{selected.Count}/{spec.Datasets.Count} dataset(s) out={outRoot} " +
                 $"dryRun={dryRun} overwrite={overwrite} verify={verify}");
 
