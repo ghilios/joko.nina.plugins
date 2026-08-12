@@ -418,7 +418,9 @@ namespace TestApp {
 
         /// <summary>
         /// F39(b) — the detection-binning FACTOR a run should actually be DETECTED at, and where that answer came
-        /// from. Used by <c>optimize --apply-run-detection-binning</c>; the factor itself is applied through
+        /// from. Used by <c>optimize</c> on EVERY run since wave 8 adopted F39(b) as the default — the opt-OUT is
+        /// <c>--no-run-detection-binning</c>, and <c>--apply-run-detection-binning</c> is an accepted no-op that is
+        /// not read (F69(a)/(c)). The factor itself is applied through
         /// <c>DetectionBinningResolver.ApplyFactor</c> so <c>PixelScale</c> stays consistent with it.
         ///
         /// <para><b>Precedence, and why.</b> The dataset's own <c>synthetic_meta.json</c>

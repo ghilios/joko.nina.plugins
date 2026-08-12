@@ -331,10 +331,17 @@ public class StarDetectionOptimizerWizardVMTests {
         Func<string, FilterInfo> resolveFilterByName = null,
         Func<string, IStarDetectionOptions> getFilterDetectionOptions = null,
         Action<string, OptimizedStarDetectionSettings> applyOptimizedToFilter = null,
-        Action<string, bool> setFilterDonutDetection = null) {
+        Action<string, bool> setFilterDonutDetection = null,
+        // The product default is SourceMode.Live (owner's decision, 2026-08-11). Nearly every test in this file
+        // predates that and drives StartAsync expecting the REPLAY path -- under Live, StartAsync goes to
+        // RunLiveAttemptAsync, which waits on a camera and an auto-focus the doubles never satisfy, and the
+        // fixture HANGS rather than failing. So the helper pins Replay, and a test that cares about the product
+        // default passes null to observe it. Setting it here rather than in dozens of call sites keeps every
+        // existing test's intent unchanged and visible in one place.
+        SourceMode? sourceMode = SourceMode.Replay) {
         options ??= Substitute.For<IStarDetectionOptions>();
         profileService ??= Substitute.For<IProfileService>();
-        return new StarDetectionOptimizerWizardVM(
+        var vm = new StarDetectionOptimizerWizardVM(
             profileService,
             options,
             loader,
@@ -358,6 +365,10 @@ public class StarDetectionOptimizerWizardVMTests {
             getFilterDetectionOptions: getFilterDetectionOptions,
             applyOptimizedToFilter: applyOptimizedToFilter,
             setFilterDonutDetection: setFilterDonutDetection);
+        if (sourceMode.HasValue) {
+            vm.SourceMode = sourceMode.Value;
+        }
+        return vm;
     }
 
     // An HONEST fake review builder: it maps EACH supplied descriptor to one FrameReview (so the ReviewVM's queue
@@ -404,11 +415,14 @@ public class StarDetectionOptimizerWizardVMTests {
 
     [Test]
     public void InitialState_IsSelectSource() {
-        var vm = NewVM(LoaderReturning(GoodRun()));
+        // sourceMode: null opts out of the helper's Replay pin so this observes the PRODUCT default.
+        var vm = NewVM(LoaderReturning(GoodRun()), sourceMode: null);
         Assert.Multiple(() => {
             Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.SelectSource));
             Assert.That(vm.RunCount, Is.EqualTo(1), "default to a single run");
-            Assert.That(vm.SourceMode, Is.EqualTo(SourceMode.Replay));
+            // Owner's decision 2026-08-11: Live is the default, so the wizard is usable without first going away
+            // to produce a saved run.
+            Assert.That(vm.SourceMode, Is.EqualTo(SourceMode.Live), "the wizard defaults to Live Auto-Focus");
         });
     }
 
@@ -1620,18 +1634,20 @@ public class StarDetectionOptimizerWizardVMTests {
 
     [Test]
     public void IsReplay_TracksSourceMode() {
-        var vm = NewVM(LoaderReturning(GoodRun()));
-        Assert.That(vm.IsReplay, Is.True, "default source is Saved Auto-Focus (Replay)");
+        var vm = NewVM(LoaderReturning(GoodRun()), sourceMode: null);   // observe the product default
+        Assert.That(vm.IsReplay, Is.False, "default source is Live Auto-Focus");
+        vm.SourceMode = SourceMode.Replay;
+        Assert.That(vm.IsReplay, Is.True, "Replay shows the runs/browse inputs");
         vm.SourceMode = SourceMode.Live;
         Assert.That(vm.IsReplay, Is.False, "Live mode hides the runs/browse inputs");
-        vm.SourceMode = SourceMode.Replay;
-        Assert.That(vm.IsReplay, Is.True);
     }
 
     [Test]
     public void IsLive_TracksSourceMode() {
-        var vm = NewVM(LoaderReturning(GoodRun()));
-        Assert.That(vm.IsLive, Is.False, "default source is Saved Auto-Focus (Replay)");
+        var vm = NewVM(LoaderReturning(GoodRun()), sourceMode: null);   // observe the product default
+        Assert.That(vm.IsLive, Is.True, "default source is Live Auto-Focus");
+        vm.SourceMode = SourceMode.Replay;
+        Assert.That(vm.IsLive, Is.False, "Replay hides the confirmation panel");
         vm.SourceMode = SourceMode.Live;
         Assert.That(vm.IsLive, Is.True, "Live mode shows the confirmation panel");
     }

@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -14,7 +14,10 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
@@ -47,9 +50,80 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         public static void SetEnabled(DependencyObject obj, bool value) => obj.SetValue(EnabledProperty, value);
 
+        /// <summary>
+        /// Opt in to GROWING the window so the body's ScrollViewer shows everything, up to the work area — the
+        /// wizard's behaviour (F76). OFF by default, and deliberately so: <see cref="EnabledProperty"/> alone gives
+        /// the work-area clamp, which is what a window wants when it must never open or be dragged off-screen.
+        ///
+        /// The review windows must NOT set this. They host an image viewport whose ScrollViewer extent is the
+        /// IMAGE, so growing to it would size the window to the picture rather than to a sensible dialog, and would
+        /// fight <c>ReviewViewportHostBase</c>'s own fit-to-viewport logic.
+        /// </summary>
+        public static readonly DependencyProperty FitContentProperty =
+            DependencyProperty.RegisterAttached(
+                "FitContent",
+                typeof(bool),
+                typeof(ClampWindowToWorkArea),
+                new PropertyMetadata(false));
+
+        public static bool GetFitContent(DependencyObject obj) => (bool)obj.GetValue(FitContentProperty);
+
+        public static void SetFitContent(DependencyObject obj, bool value) => obj.SetValue(FitContentProperty, value);
+
+        /// <summary>
+        /// While true, do not re-fit. Bind it to whatever means "busy" for the host — the wizard binds
+        /// <c>ShowProgress</c>.
+        ///
+        /// Needed because the fit is driven by <c>ScrollChanged</c>, and a running job rewrites its status text
+        /// constantly: every line changed the extent, so the window resized continuously throughout the run. That is
+        /// correct by the letter of "fit the content" and horrible to watch. Resizing belongs at the boundaries —
+        /// when a step's content settles — not on every repaint inside one.
+        ///
+        /// On the true → false transition it fits ONCE, so the window is right the moment the work finishes.
+        /// </summary>
+        public static readonly DependencyProperty SuspendedProperty =
+            DependencyProperty.RegisterAttached(
+                "Suspended",
+                typeof(bool),
+                typeof(ClampWindowToWorkArea),
+                new PropertyMetadata(false, OnSuspendedChanged));
+
+        public static bool GetSuspended(DependencyObject obj) => (bool)obj.GetValue(SuspendedProperty);
+
+        public static void SetSuspended(DependencyObject obj, bool value) => obj.SetValue(SuspendedProperty, value);
+
+        private static void OnSuspendedChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
+            // Only the release matters: fit once, now that the content has stopped moving.
+            if (d is not FrameworkElement fe || (bool)e.NewValue || !(bool)e.OldValue) {
+                return;
+            }
+            var window = Window.GetWindow(fe);
+            if (window is null) {
+                return;
+            }
+            window.Dispatcher.BeginInvoke(DispatcherPriority.Background,
+                new Action(() => ApplyWorkAreaLimit(window, SystemParameters.WorkArea)));
+        }
+
         // One hook per window; the modal dialog and its HwndSource are short-lived, so the hook dies with the window.
         // The table only guards against a repeated Loaded re-adding the hook, and lets the window be collected.
         private static readonly ConditionalWeakTable<Window, object> hookedWindows = new();
+
+        // The element the attached property lives on (the wizard DataTemplate's root Grid) IS the content to
+        // measure. Window.Content is not usable here: on NINA's custom-chrome CustomWindow it is not the template
+        // root, so `window.Content is FrameworkElement` failed and TryFitToContent declined on every call -- while
+        // logging nothing, so the rule looked like it had no effect when in truth it never ran.
+        private static readonly ConditionalWeakTable<Window, FrameworkElement> contentRoots = new();
+
+        // One queued resize per window. SizeChanged fires repeatedly during a resize and each would otherwise
+        // queue its own dispatcher callback.
+        private static readonly ConditionalWeakTable<Window, Window> pendingFits = new();
+
+        // Windows that opted in to growing to their content. Clamp-only is the default.
+        private static readonly ConditionalWeakTable<Window, Window> fitContentWindows = new();
+
+        // ScrollViewers already wired to OnScrollChanged, mapped to the window they belong to.
+        private static readonly ConditionalWeakTable<ScrollViewer, Window> scrollHooked = new();
 
         private static void OnEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
             if (d is not FrameworkElement fe) {
@@ -62,6 +136,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 }
             } else {
                 fe.Loaded -= OnLoaded;
+                if (Window.GetWindow(fe) is Window w) {
+                    w.SizeChanged -= OnWindowSizeChanged;
+                }
             }
         }
 
@@ -89,9 +166,351 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 HwndSourceHook hook = (IntPtr h, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) =>
                     WndProc(window, h, msg, lParam, ref handled);
                 source.AddHook(hook);
+                // F76. The Win32 hook alone is NOT enough. It edits pos.cy inside individual messages while
+                // SizeToContent stays ACTIVE, so WPF recomputes the content height on the next layout pass and
+                // re-asserts it — and WPF wins. On a screen small enough that the wizard's summary greatly
+                // exceeds the work area the window therefore ends up taller than the screen, and the footer
+                // (Back / Review frames / Continue optimizing / Accept / Close) is off the bottom. Dragging it
+                // only snaps it to work.Top via the y-clamp below, with the bottom still off-screen; the reason a
+                // manual resize "fixes" it is that WPF sets SizeToContent = Manual automatically when the USER
+                // resizes. So do that ourselves, in WPF, the way Review/ReviewViewportHostBase already does.
+                window.SizeChanged += OnWindowSizeChanged;
+                contentRoots.Remove(window);
+                contentRoots.Add(window, fe);
+                if (GetFitContent(fe)) {
+                    fitContentWindows.Remove(window);
+                    fitContentWindows.Add(window, window);
+                }
             }
             // The first shown step is small, but clamp the current bounds defensively in case it already overshoots.
+            ApplyWorkAreaLimit(window, SystemParameters.WorkArea);
             ClampNow(hwnd);
+        }
+
+        private static void OnScrollChanged(object sender, ScrollChangedEventArgs e) {
+            // Only an EXTENT change means the content itself changed size (a step change). Scrolling the same
+            // content changes the offset and must not re-fit the window under the user.
+            if (Math.Abs(e.ExtentHeightChange) < 0.5 && Math.Abs(e.ExtentWidthChange) < 0.5) {
+                return;
+            }
+            if (sender is ScrollViewer sv && scrollHooked.TryGetValue(sv, out var w) && w != null) {
+                ApplyWorkAreaLimit(w, SystemParameters.WorkArea);
+            }
+        }
+
+        private static void OnWindowSizeChanged(object sender, SizeChangedEventArgs e) {
+            if (sender is Window w) {
+                ApplyWorkAreaLimit(w, SystemParameters.WorkArea);
+            }
+        }
+
+        /// <summary>
+        /// Stops WPF re-growing the window past the work area, in device-independent pixels.
+        ///
+        /// Engages ONLY once the window would exceed the work area, so ordinary per-step SizeToContent growth is
+        /// untouched on a screen with room for it. Once it engages it turns SizeToContent OFF — that is the whole
+        /// point (F76): leaving it on is what lets WPF overwrite the Win32 clamp on the next layout pass.
+        ///
+        /// Re-entrant by construction: setting Height raises SizeChanged again, and the second pass sees
+        /// height == work.Height and returns false.
+        /// </summary>
+        /// <returns>true if the window was clamped.</returns>
+        internal static bool ApplyWorkAreaLimit(Window window, Rect work) {
+            if (window is null || work.Height <= 0.0) {
+                return false;
+            }
+            if (fitContentWindows.TryGetValue(window, out _) && TryFitToContent(window, work)) {
+                return true;
+            }
+            var height = EffectiveHeight(window.ActualHeight, window.Height);
+            var clamping = TryComputeWorkAreaClamp(height, window.Top, work, out var newHeight, out var newTop);
+            // F76 has been misdiagnosed three times from reasoning without instrumentation, and a fix shipped that
+            // did not work. Make the behaviour self-reporting: one line per DISTINCT state, so the log says whether
+            // the clamp engaged and on what numbers, instead of the next person inferring it.
+            if (!clamping) {
+                return false;
+            }
+            if (newHeight < height) {
+                // Stop WPF re-asserting the content HEIGHT over the clamp -- but only the height. Setting
+                // SizeToContent.Manual froze the WIDTH too, at whatever an earlier and narrower wizard step needed,
+                // and the summary footer (Back / Review frames / Continue optimizing / Accept / Close) then no longer
+                // fit horizontally: Accept and Close were clipped INSIDE the window. That was a regression this fix
+                // introduced, reported from the field. Drop only the Height flag and leave width auto-sizing on.
+                window.SizeToContent = window.SizeToContent == SizeToContent.WidthAndHeight
+                    ? SizeToContent.Width
+                    : SizeToContent.Manual;
+                window.Height = newHeight;
+            }
+            window.Top = newTop;
+            return true;
+        }
+
+        /// <summary>
+        /// The height the window SHOULD have: everything the content wants to render, capped at the work area.
+        ///
+        /// Asked for directly by the owner — with the footer finally on screen, the window was settling ~400 px
+        /// SHORTER than the screen while still showing a scrollbar, so content was being scrolled that there was
+        /// room to display. The cause is that a <c>ScrollViewer</c> has no natural desired height: it reports
+        /// whatever height it is offered, so <c>SizeToContent</c> converges on an arbitrary smaller window instead
+        /// of on the content's real height. Measuring the content against an INFINITE height is what recovers the
+        /// number WPF cannot supply here.
+        /// </summary>
+        internal static double ChooseWindowHeight(double contentDesiredHeight, double chromeHeight, double workAreaHeight) {
+            if (workAreaHeight <= 0.0) {
+                return double.NaN;
+            }
+            if (double.IsNaN(contentDesiredHeight) || contentDesiredHeight <= 0.0) {
+                return double.NaN;
+            }
+            var chrome = double.IsNaN(chromeHeight) || chromeHeight < 0.0 ? 0.0 : chromeHeight;
+            return Math.Min(contentDesiredHeight + chrome, workAreaHeight);
+        }
+
+        /// <summary>
+        /// The height the window should have, derived from how much the body is ACTUALLY scrolling.
+        ///
+        /// Measuring the content was the wrong instrument twice over. SizeToContent asks a ScrollViewer for a
+        /// desired height and it reports whatever it is offered; and measuring the template root against an
+        /// infinite height does not help either, because the ScrollViewer sits in a <c>Height="*"</c> grid row,
+        /// which collapses to its desired size rather than its content's. Measured in the field: it answered
+        /// <c>content=548</c> for a body that genuinely overflowed a 752 work area.
+        ///
+        /// The ScrollViewer already knows the number. <c>ExtentHeight - ViewportHeight</c> is exactly how much
+        /// content is off-screen, so growing the window by that much shows it — capped at the work area. Naturally
+        /// idempotent: once nothing is clipped the shortfall is 0 and the target equals the current height.
+        /// </summary>
+        internal static double ChooseWindowHeightFromExtent(double currentHeight, double extentHeight, double viewportHeight, double workAreaHeight) {
+            if (workAreaHeight <= 0.0 || currentHeight <= 0.0) {
+                return double.NaN;
+            }
+            if (double.IsNaN(extentHeight) || double.IsNaN(viewportHeight) || viewportHeight <= 0.0) {
+                return double.NaN;
+            }
+            // Everything that is NOT the scrollable body: chrome, header, footer. Whatever the body's viewport is
+            // not using, the rest of the window is.
+            var nonScroll = currentHeight - viewportHeight;
+            if (nonScroll < 0.0) {
+                return double.NaN;
+            }
+            // Fit the body's full extent, capped at the work area. This GROWS and SHRINKS -- the previous version
+            // computed min(current + shortfall, work), which could only ever grow, so once the summary pushed the
+            // window to the full work area it stayed there for every later step. Measured: the Review step reported
+            // extent=520 viewport=640, i.e. the content wanted LESS than it had, and the window stayed at 752.
+            return Math.Min(nonScroll + extentHeight, workAreaHeight);
+        }
+
+        /// <summary>
+        /// Where the window should sit horizontally. When the width has just been chosen for a new step, CENTRE it:
+        /// the width is picked per step, and a window that grows only rightwards from wherever it happened to be
+        /// runs off the monitor — measured in the field, the Review step widened correctly and was then clipped by
+        /// the right edge. When the width is unchanged, leave the position alone but keep it fully inside the work
+        /// area, so a window the user has deliberately moved is not yanked back to centre on every step.
+        /// </summary>
+        internal static double ChooseWindowLeft(double currentLeft, double width, Rect work, bool recentre) {
+            if (work.Width <= 0.0 || width <= 0.0) {
+                return currentLeft;
+            }
+            if (recentre) {
+                return work.Left + ((work.Width - width) / 2.0);
+            }
+            var left = currentLeft;
+            if (left + width > work.Right) {
+                left = work.Right - width;
+            }
+            if (left < work.Left) {
+                left = work.Left;
+            }
+            return left;
+        }
+
+        /// <summary>Depth-first search for the first ScrollViewer under <paramref name="root"/>.</summary>
+        private static ScrollViewer FindScrollViewer(DependencyObject root) {
+            if (root is null) {
+                return null;
+            }
+            var count = VisualTreeHelper.GetChildrenCount(root);
+            for (var i = 0; i < count; i++) {
+                var child = VisualTreeHelper.GetChild(root, i);
+                if (child is ScrollViewer sv) {
+                    return sv;
+                }
+                var found = FindScrollViewer(child);
+                if (found != null) {
+                    return found;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Measures what the window's content wants vertically, given unlimited height, and fits the window to
+        /// <see cref="ChooseWindowHeight"/>. Returns false when the content cannot be measured, so the caller falls
+        /// back to the plain overflow clamp rather than guessing.
+        /// </summary>
+        private static bool TryFitToContent(Window window, Rect work) {
+            if (contentRoots.TryGetValue(window, out var suspendRoot) && suspendRoot != null && GetSuspended(suspendRoot)) {
+                return true;   // handled: deliberately doing nothing, not falling through to the clamp
+            }
+            if (!contentRoots.TryGetValue(window, out var root) || root is null) {
+                return false;
+            }
+            if (root.ActualWidth <= 0.0) {
+                return false;
+            }
+            var current = EffectiveHeight(window.ActualHeight, window.Height);
+            var scroller = FindScrollViewer(root);
+            if (scroller is null) {
+                return false;
+            }
+            // LISTEN TO THE CONTENT, NOT ONLY TO THE WINDOW. Locking the window to Manual is what makes the height
+            // stick -- and it also means a wizard STEP CHANGE no longer resizes the window, so SizeChanged never
+            // fires and this method is never called again. Measured: the Review step produced no F76 line at all
+            // and kept the summary's width, W=843(was 843). ScrollChanged fires when the extent changes, which is
+            // exactly what a step change does, so it is the signal that survives locking the size.
+            if (!scrollHooked.TryGetValue(scroller, out _)) {
+                scrollHooked.Add(scroller, window);
+                scroller.ScrollChanged += OnScrollChanged;
+            }
+            var target = ChooseWindowHeightFromExtent(current, scroller.ExtentHeight, scroller.ViewportHeight, work.Height);
+            if (double.IsNaN(target)) {
+                return false;
+            }
+            var top = window.Top;
+            if (top + target > work.Bottom) {
+                top = work.Bottom - target;
+            }
+            if (top < work.Top) {
+                top = work.Top;
+            }
+            if (window.SizeToContent == SizeToContent.WidthAndHeight) {
+                window.SizeToContent = SizeToContent.Width;   // keep width auto (F76: Manual clipped Accept/Close)
+            } else if (window.SizeToContent == SizeToContent.Height) {
+                window.SizeToContent = SizeToContent.Manual;
+            }
+            // APPLY OUTSIDE THE LAYOUT PASS. This runs from SizeChanged, and a window's size assigned from inside
+            // its own SizeChanged is made during layout and is discarded. Proven in the field rather than assumed:
+            // the read-back showed `target=752 -> Height=492 ... (was H=492)` with max=Infinity, i.e. nothing was
+            // capping it -- the write simply did not stick. Posting to the dispatcher runs it after layout settles.
+            if (pendingFits.TryGetValue(window, out _)) {
+                return true;   // one queued application is enough; SizeChanged fires many times per resize
+            }
+            pendingFits.Add(window, window);
+            window.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => {
+                pendingFits.Remove(window);
+                // GO FULLY MANUAL FIRST, KEEPING THE WIDTH AUTO-SIZING ALREADY PRODUCED.
+                //
+                // Measured: SetWindowPos honoured the MOVE and ignored the RESIZE in the same call --
+                //   "asked cy=1128px y=0px; rect was 738px@119 now 738px@0; wpf H=492 A=492 stc=Width"
+                // and 738px / 1.5 = 492 DIPs, exactly WPF's own Height. With SizeToContent still set (to Width),
+                // WPF re-applies its size on every layout pass and overwrites both the property assignment and the
+                // native resize. Clearing it is what lets a height stick.
+                //
+                // The width is explicitly carried over rather than left to Manual's default. Freezing the width at
+                // whatever an earlier, narrower step used is what clipped Accept and Close before; by the summary
+                // step SizeToContent.Width has already produced the correct width, so pinning THAT keeps the footer
+                // intact while handing us the height.
+                // RE-AUTO-SIZE THE WIDTH FOR THIS STEP, THEN LOCK IT.
+                //
+                // Going Manual is what makes the height stick, but it also freezes the WIDTH -- and the wizard's
+                // steps do not all want the same width. Measured: the summary settled at W=843, then the Review
+                // step, whose header carries a full save path, was clipped because it could not widen. Carrying the
+                // previous ActualWidth over (the first attempt) fixes the summary and breaks the step after it.
+                //
+                // So hand the width back to WPF for exactly one layout pass, take the width it chooses for THIS
+                // step's content, and lock that. UpdateLayout is safe here: this runs from a dispatcher callback,
+                // outside the layout pass that discarded the earlier assignments.
+                window.SizeToContent = SizeToContent.Width;
+                window.UpdateLayout();
+                var naturalWidth = window.ActualWidth;
+                window.SizeToContent = SizeToContent.Manual;
+                var targetWidth = naturalWidth > 0.0 ? Math.Min(naturalWidth, work.Width) : window.Width;
+
+                // The no-op test lives HERE, after the width has been measured -- not before the callback. It used
+                // to sit at the top of the fit path and compare only height and top, so a step whose height was
+                // already correct skipped the entire apply and never re-auto-sized its width. That is why the
+                // Review step kept the summary's W=843: not measured and rejected, never measured at all.
+                var widthChanged = Math.Abs(window.ActualWidth - targetWidth) >= 1.0;
+                var left = ChooseWindowLeft(window.Left, targetWidth, work, recentre: widthChanged);
+
+                if (Math.Abs(window.ActualHeight - target) < 1.0
+                    && Math.Abs(window.Top - top) < 1.0
+                    && !widthChanged
+                    && Math.Abs(window.Left - left) < 1.0) {
+                    return;
+                }
+                if (naturalWidth > 0.0) {
+                    window.Width = targetWidth;
+                }
+                window.Left = left;
+                window.Height = target;
+                window.Top = top;
+
+                // SET IT THROUGH WIN32 TOO, as a belt-and-braces follow-up. Measured twice in the field: assigning
+                // window.Height = 752 reads back as the OLD value immediately, both inside SizeChanged and from a
+                // dispatcher callback, with MaxHeight = Infinity so nothing was capping it. WPF is refusing the
+                // write. SetWindowPos is not refused -- ClampNow in this same file already repositions this very
+                // window that way, which is how it lands at top=0.
+                var helper = new WindowInteropHelper(window);
+                var hwnd = helper.Handle;
+                if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var before)) {
+                    return;
+                }
+                // The work area and SetWindowPos are in PHYSICAL pixels; target/top are DIPs. Convert with the
+                // window's own composition target rather than assuming a scale factor.
+                var toDevice = PresentationSource.FromVisual(window)?.CompositionTarget?.TransformToDevice
+                               ?? Matrix.Identity;
+                var cy = (int)Math.Round(target * toDevice.M22);
+                var y = (int)Math.Round(top * toDevice.M22);
+                var cx = (int)Math.Round((naturalWidth > 0.0 ? targetWidth : window.ActualWidth) * toDevice.M11);
+                var x = (int)Math.Round(left * toDevice.M11);
+                SetWindowPos(hwnd, IntPtr.Zero, x, y, cx, cy, SWP_NOZORDER | SWP_NOACTIVATE);
+                GetWindowRect(hwnd, out var after);
+            }));
+            return true;
+        }
+
+        /// <summary>
+        /// Which height decides whether the window overflows. MEASURED, not assumed: on the failing window the log
+        /// recorded <c>h=492 actual=817 top=123 work=752</c> — <see cref="FrameworkElement.ActualHeight"/> is the
+        /// RENDERED height and had already overflowed, while <see cref="FrameworkElement.Height"/> is the REQUESTED
+        /// value and lagged at 492. Reading Height alone is why the shipped clamp declined on every call and the
+        /// footer stayed off-screen. Take whichever is larger: the rendered height is what puts Accept off the
+        /// bottom, and a larger pending request would do so next layout pass.
+        /// </summary>
+        internal static double EffectiveHeight(double actualHeight, double heightProperty) {
+            var requested = double.IsNaN(heightProperty) ? 0.0 : heightProperty;
+            return Math.Max(actualHeight, requested);
+        }
+
+        /// <summary>
+        /// The geometry decision, split out so it is testable WITHOUT constructing a WPF <see cref="Window"/> —
+        /// a Window-constructing STA fixture hangs the CI testhost (see WorkAreaClampGeometryTests).
+        /// </summary>
+        internal static bool TryComputeWorkAreaClamp(double height, double top, Rect work, out double newHeight, out double newTop) {
+            newHeight = height;
+            newTop = top;
+            if (work.Height <= 0.0) {
+                return false;
+            }
+            // The question is "does the window FIT INSIDE the work area", not "is it too tall". The first version
+            // asked only the second, and that is why the shipped fix did nothing: the Win32 hook caps the height
+            // FIRST, so by the time this runs height already equals work.Height and the too-tall test declines --
+            // leaving the top exactly where it was. The measured failing rect was T=444 B=1836 h=1392 against a
+            // work area of 0..1392: the height was already correct and the POSITION was the whole defect.
+            var h = Math.Min(height, work.Height);
+            var t = top;
+            if (t + h > work.Bottom) {
+                t = work.Bottom - h;
+            }
+            if (t < work.Top) {
+                t = work.Top;
+            }
+            if (h == height && t == top) {
+                return false;
+            }
+            newHeight = h;
+            newTop = t;
+            return true;
         }
 
         private static IntPtr WndProc(Window window, IntPtr hwnd, int msg, IntPtr lParam, ref bool handled) {
@@ -144,7 +563,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             return IntPtr.Zero;
         }
 
-        /// <summary>One-time clamp of the window's current bounds into the work area (height only; keeps it on-screen).</summary>
+        /// <summary>One-time clamp of the window's current bounds into the work area, in PHYSICAL pixels: height,
+        /// and the top so the bottom stays inside. Complements <see cref="ApplyWorkAreaLimit"/>, which is the WPF-level
+        /// half and is the one that stops SizeToContent re-growing the window (F76).</summary>
         private static void ClampNow(IntPtr hwnd) {
             if (!TryGetWorkArea(hwnd, out var work, out _) || !GetWindowRect(hwnd, out var r)) {
                 return;

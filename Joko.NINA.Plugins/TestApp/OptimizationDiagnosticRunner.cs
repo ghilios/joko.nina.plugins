@@ -223,6 +223,21 @@ namespace TestApp {
             // across incompatible cameras/scopes is meaningless.
             bool perRun = args.Any(a => string.Equals(a, "--per-run", StringComparison.OrdinalIgnoreCase));
 
+            // --update-run-folder is F15's opt-in, and the DEFAULT is now "do not touch the bank".
+            //
+            // For thirteen waves `optimize` wrote its landing back into every run's own source folder as well as
+            // into --out, with no way to suppress it. That destroyed `bobp_m101`'s historical settings
+            // mid-investigation (F15), silently re-baselined BOTH banks in wave 3, and is the last thing forcing
+            // whole passes to be serialized against one another: two passes over the same bank collide IN THE
+            // BANK, however carefully their --out directories are kept apart.
+            //
+            // THE INTERACTION THAT MAKES IT SHARPER THAN IT LOOKS, and it is why the capability is kept rather
+            // than deleted: `bank-verify --opt-a/--opt-b` and `golden eval --params optimized` read the RUN
+            // FOLDER copy by default, and `review --runs <same>` auto-discovers it. A prepass and a later
+            // scoring run that were meant to be independent can therefore silently share an arm. Making the
+            // write opt-in does not remove that hazard; it makes it something a command line SAYS.
+            bool updateRunFolder = LandingWriteback.ShouldUpdateRunFolder(args);
+
             // --verbose is a valueless flag that restores TRACE logging for offline inspection. By default the
             // optimize harness runs at INFO so the detector's thousands of per-detection Logger.Trace stage-timing
             // lines (LoadImage/SrcImagePreparation/WaveletCalculation/...) short-circuit instead of serializing to
@@ -377,6 +392,33 @@ namespace TestApp {
             Console.WriteLine($"Current (baseline) params: Sensitivity={F(baseline.Sensitivity)}, StarClippingMultiplier={F(baseline.StarClippingMultiplier)}, " +
                 $"NoiseClippingMultiplier={F(baseline.NoiseClippingMultiplier)}, StructureLayers={baseline.StructureLayers}, " +
                 $"MeasurementAverage={starDetectionOptions.MeasurementAverage}");
+            // RULE P16 (F67): the five fields above are a summary, not a diff — they are five of ~45, and the
+            // question is whether `af-fit` and `optimize` build DIFFERENT detectors from one settings file. Both
+            // bundles go out through the SAME formatter af-fit uses, reflectively, so the two printouts cannot
+            // drift and a field added in a later wave is covered on both sides without anyone remembering to.
+            //
+            // Two dumps because there are genuinely two bundles: `baseline` is the user's current settings (the
+            // same BuildStarDetectorParams(options) call af-fit falls back to — this is the apples-to-apples
+            // side, and the only one score_params_w16.py reads) and `seed` is what the search starts from, which
+            // is the fully-default bundle unless --start-from-current makes it the baseline's twin.
+            //
+            // Printed HERE, where the bundles are constructed. Two fields are re-derived per run afterwards and
+            // are logged where that happens: PixelScale (per-run, from the frame headers — inert by proof,
+            // consumed only inside the ModelPSF block, which is false on both paths) and DetectionBinning +
+            // PixelScale together via ApplyRunDetectionBinningIfRequested.
+            //
+            // F69(a) — THIS PARAGRAPH USED TO SAY THE OPPOSITE, AND WAS BELIEVED. It read "only under
+            // --apply-run-detection-binning … Neither the gate nor the P16 probe passes that flag". Every clause
+            // of that was backwards: F39(b) was ADOPTED AS THE DEFAULT in wave 8 (see :205-216), so
+            // ApplyRunDetectionBinningIfRequested runs unless the OPT-OUT --no-run-detection-binning is passed;
+            // --apply-run-detection-binning survives only as an accepted no-op; and the gate and the P16 probe
+            // therefore both ran the mutation. It matters because the mutation happens AFTER the two dumps below,
+            // so DetectionBinning and PixelScale as printed here are the pre-mutation values. Wave 16's RULE P16
+            // compared `optimize`'s params as CONSTRUCTED against `af-fit`'s as DETECTED, excluded
+            // DetectionBinning as a candidate on the strength of this comment, and reached a wrong verdict; wave
+            // 17's RULE C17 found the cause to be exactly that field.
+            ParamsDump.Write(Console.WriteLine, ParamsDump.OptimizeBaseline, baseline);
+            ParamsDump.Write(Console.WriteLine, ParamsDump.OptimizeSeed, seed);
 
             // The fixed AF-detection sigma rejections the wizard's RunEvaluationLoader uses (the
             // HocusFocusDetectionParams class defaults, NOT the live AF path): high = 4.0, low = 3.0. These feed
@@ -446,11 +488,27 @@ namespace TestApp {
                 ContinueRounds = continueRounds,
                 KeepFloor = keepFloor,
                 NoMinHfrSeed = noMinHfrSeed,
-                ApplyRunDetectionBinning = applyRunDetectionBinning
+                ApplyRunDetectionBinning = applyRunDetectionBinning,
+                UpdateRunFolder = updateRunFolder
             };
             Console.WriteLine(applyRunDetectionBinning
                 ? "detection binning (F39b): each per-run dataset is DETECTED at its own derived binning factor (default; --no-run-detection-binning opts out)"
                 : "--no-run-detection-binning: F39(b) DISABLED — every run detects at factor 1 (the pre-wave-8 status quo)");
+            // F69(c) — say so when the OPT-IN flag is passed. It is still ACCEPTED, and since wave 8 it has been a
+            // no-op: F39(b) is the default and --no-run-detection-binning is the opt-out. Wave 7's scripts pass it
+            // and are right to keep working; what they must not do is read their own command line as evidence that
+            // the mutation happened only because they asked for it. That inference is exactly F69(a) — a comment in
+            // this file asserted it, was believed for three waves, and cost RULE P16 a wrong verdict.
+            //
+            // ASCII ONLY, and this is measured rather than stylistic: a Unicode character here arrives in a
+            // REDIRECTED log as the single byte 0x1A on this machine's console code page. (The em dash on the line
+            // just above is in the --no-run-detection-binning branch, which no wave-20 clause reads; it is left
+            // alone deliberately rather than fixed as a drive-by.)
+            if (DiagnosticUtil.HasFlag(args, "--apply-run-detection-binning")) {
+                Console.WriteLine("--apply-run-detection-binning: ACCEPTED NO-OP. F39(b) was adopted as the DEFAULT "
+                    + "in wave 8; the opt-OUT is --no-run-detection-binning. This flag is retained so wave 7's "
+                    + "scripts keep running, and it is not read (F69(c)).");
+            }
             if (noMinHfrSeed) {
                 Console.WriteLine("--no-min-hfr-seed: F35 MinHFR seeding DISABLED (pre-F35 control arm)");
             }
@@ -504,7 +562,10 @@ namespace TestApp {
             public int ContinueRounds;  // --continue-rounds: extra chained passes after the first (0-2)
             public double? KeepFloor;   // --keep-floor: F32 detection-keep feasibility floor (null = unconstrained)
             public bool NoMinHfrSeed;   // --no-min-hfr-seed: F35 seeding off, so this binary can produce its own control
-            public bool ApplyRunDetectionBinning; // --apply-run-detection-binning: F39(b); false => bit-identical
+            // F39(b), the DEFAULT since wave 8: --no-run-detection-binning is the opt-OUT that makes this false
+            // (=> bit-identical to a pre-F39(b) run); --apply-run-detection-binning is an accepted no-op (F69(c)).
+            public bool ApplyRunDetectionBinning;
+            public bool UpdateRunFolder; // --update-run-folder: F15; write the landing back INTO each run's source folder
 
             // F30: which invocation is producing these landings. Stamped onto every optimized_settings.json this
             // run writes, so a bank folder full of prepasses from different arms stops being ambiguous.
@@ -531,8 +592,10 @@ namespace TestApp {
 
         /// <summary>
         /// F39(b) — DETECT this run at its own detection-binning factor, instead of writing the factor to disk and
-        /// running at the default of 1. No-op unless <c>--apply-run-detection-binning</c> was passed, so the flag's
-        /// absence leaves the run bit-identical to before it existed (F41's one-binary-is-both-arms rule).
+        /// running at the default of 1. Runs by DEFAULT (adopted in wave 8, see the flag comment in RunImpl); the
+        /// opt-OUT is <c>--no-run-detection-binning</c>, and passing it leaves the run bit-identical to before
+        /// F39(b) existed (F41's one-binary-is-both-arms rule). <c>--apply-run-detection-binning</c> is still
+        /// ACCEPTED and is NOT read: a no-op retained so wave 7's scripts keep working (F69(c)).
         ///
         /// <para>Applied through <see cref="DetectionBinningResolver.ApplyFactor"/> rather than by writing
         /// <c>DetectionBinning</c> directly, because <c>StarDetectorParams.PixelScale</c> carries the factor too
@@ -614,6 +677,19 @@ namespace TestApp {
                         runFolder, ctx.HarnessSettings, loaded.FirstFrameMeta,
                         HarnessSettingsStore.ReadInFocusHfr(runFolder));
                     ApplyRunDetectionBinningIfRequested(ctx, runFolder, resolvedForRun);
+                    // F69(b) — the bundle AS DETECTED, printed HERE because this is the first point at which it IS
+                    // the detecting bundle. The two dumps where the bundles are CONSTRUCTED are already past: the
+                    // per-run PixelScale assignment above and ApplyRunDetectionBinningIfRequested (F39(b), ON BY
+                    // DEFAULT) have both rewritten this object since. Wave 16's RULE P16 read the construction-site
+                    // copy, believed a comment that said the mutation only happened under an opt-in flag, and
+                    // excluded the one field that turned out to be the cause. Same shared reflective formatter as
+                    // the other two blocks, same sink (the console, never a summary file — clause W1), so the three
+                    // are field-for-field diffable and a field added by a later wave appears in all three.
+                    //
+                    // BASELINE and not seed, deliberately: optimize/baseline is the apples-to-apples side and the
+                    // only one the wave-16 scorer reads. ApplyFactor mutates BOTH bundles identically, so a later
+                    // wave that wants the seed's post-mutation copy loses nothing by it not being here today.
+                    ParamsDump.Write(Console.WriteLine, ParamsDump.OptimizeDetected, ctx.Baseline);
                     Directory.CreateDirectory(subDir);
                     var outcome = await OptimizeRunSetAsync(ctx, runsDir, subDir, loadedRuns).ConfigureAwait(false);
                     if (!outcome.HardFloorPassed) {
@@ -923,14 +999,15 @@ namespace TestApp {
                 loadedRuns, perRunBaseline, perRunBest, objectiveConstants, focuserMaxStep, ctx.LabelsDir, settings, passed, worstFrameCount, worstRunId);
             WriteCsv(Path.Combine(targetDir, "optimize_result.csv"), loadedRuns, perRunBaseline, perRunBest);
 
-            // Optimized-settings handoff: write the winning snapshot as optimized_settings.json into each focus run's
-            // own source folder (so `review --runs <same>` auto-discovers it) plus a single copy in the --out dir.
-            // Uses the SAME params->DTO mapping the wizard's Apply() uses (OptimizedStarDetectionSettings.FromParams)
-            // so the headless and in-app handoffs can never drift. The source-folder copies each carry that run's OWN
-            // recommended step (StepSizeRecommender, exactly as BuildAggregateRow computes it); the single --out copy
-            // uses the representative (first) run's step in joint mode (see WriteOptimizedSettings).
+            // Optimized-settings handoff: a single copy in the --out dir ALWAYS, plus — only with
+            // --update-run-folder (F15) — the winning snapshot written back into each focus run's own source
+            // folder, so `review --runs <same>` auto-discovers it. Uses the SAME params->DTO mapping the wizard's
+            // Apply() uses (OptimizedStarDetectionSettings.FromParams) so the headless and in-app handoffs can
+            // never drift. The source-folder copies each carry that run's OWN recommended step (StepSizeRecommender,
+            // exactly as BuildAggregateRow computes it); the single --out copy uses the representative (first)
+            // run's step in joint mode (see WriteOptimizedSettings).
             WriteOptimizedSettings(targetDir, loadedRuns, perRunBest, result, baselineJ, focuserMaxStep, ctx.Provenance,
-                ctx.StarDetectionOptions, ctx.KeepFloor);
+                ctx.StarDetectionOptions, ctx.KeepFloor, ctx.UpdateRunFolder);
 
             await WriteAnnotatedFrames(targetDir, loadedRuns, result.BestParams, ctx.Detector,
                 ctx.MeasurementAverage, ctx.HighSigmaOutlierRejection, ctx.LowSigmaOutlierRejection, ctx.AnnotateAll).ConfigureAwait(false);
@@ -1000,12 +1077,25 @@ namespace TestApp {
         /// record).</summary>
         internal const string SettingsHandoffFileName = "hocusfocus_star_detection.json";
 
+        /// <summary>F15's policy — the opt-in flag and the displaced-landing backup — lives in
+        /// <see cref="LandingWriteback"/>, outside this WPF-bound file, so it can be unit-tested against a real
+        /// filesystem instead of asserted about.</summary>
+
         private static void WriteOptimizedSettings(
             string targetDir, List<LoadedHarnessRun> loadedRuns, List<RunEvaluationResult> perRunBest,
             OptimizationResult result, double baselineJ, int? focuserMaxStep, OptimizerProvenance provenance = null,
-            StarDetectionOptions baseOptions = null, double? keepFloor = null) {
+            StarDetectionOptions baseOptions = null, double? keepFloor = null, bool updateRunFolder = false) {
             // Per-run source-folder copies: each run's frame directory gets the winner snapshot with its OWN step.
-            for (int i = 0; i < loadedRuns.Count; i++) {
+            // F15: OPT-IN ONLY. The default leaves the bank exactly as it found it, and SAYS SO — an absent write
+            // has to be visible, because the whole defect was that it was not.
+            if (!updateRunFolder) {
+                Console.WriteLine(
+                    $"  --update-run-folder not given: left {loadedRuns.Count} run folder(s) untouched (F15). " +
+                    "The landing is in the --out dir only. Note that `bank-verify --opt-a/--opt-b`, " +
+                    "`golden eval --params optimized` and `review --runs <same>` read the RUN FOLDER copy, so " +
+                    "they will see whatever was there before this pass.");
+            }
+            for (int i = 0; updateRunFolder && i < loadedRuns.Count; i++) {
                 var run = loadedRuns[i];
                 try {
                     var rec = StepSizeRecommender.Recommend(perRunBest[i].BestFit, run.StepSize, focuserMaxStep);
@@ -1019,8 +1109,11 @@ namespace TestApp {
                     var runFolder = string.IsNullOrEmpty(firstFramePath) ? null : Path.GetDirectoryName(firstFramePath);
                     if (!string.IsNullOrEmpty(runFolder)) {
                         var runPath = Path.Combine(runFolder, "optimized_settings.json");
+                        var backup = LandingWriteback.SnapshotExistingLanding(runPath);
                         File.WriteAllText(runPath, json);
-                        Console.WriteLine($"  wrote optimized_settings.json to {runPath}");
+                        Console.WriteLine(backup == null
+                            ? $"  wrote optimized_settings.json to {runPath}"
+                            : $"  wrote optimized_settings.json to {runPath} (previous file preserved as {Path.GetFileName(backup)})");
                         WriteSettingsHandoff(runFolder, dto, baseOptions, run.Discovered.RunId);
                     } else {
                         Console.Error.WriteLine($"  WARNING: could not resolve source folder for run '{run.Discovered.RunId}'; skipped the in-folder optimized_settings.json");

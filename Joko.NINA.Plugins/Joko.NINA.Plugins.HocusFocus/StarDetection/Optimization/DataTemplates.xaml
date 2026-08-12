@@ -15,7 +15,7 @@
     </ResourceDictionary.MergedDictionaries>
 
     <!--  Tooltips  -->
-    <TextBlock x:Key="SDOpt_SourceMode_Tooltip" Text="Replay optimizes against a saved auto-focus run (recommended). Live triggers a fresh auto-focus that saves its frames, then optimizes against those." />
+    <TextBlock x:Key="SDOpt_SourceMode_Tooltip" Text="Live (the default) triggers a fresh auto-focus that saves its frames, then optimizes against those. Replay optimizes against an auto-focus run you have already saved." />
     <TextBlock x:Key="SDOpt_OptimizeMode_Tooltip" Text="Optimize runs the parameter search and recommends improved settings. Use current settings skips the search entirely and jumps straight to a summary built from your current settings, so you can review (and label) today's detection without an optimization pass. Either way, after reviewing you can still run Optimize with feedback to recover the stars you labeled." />
     <TextBlock x:Key="SDOpt_StartFromCurrent_Tooltip" Text="When checked, the optimizer SEEDS from your current settings instead of the fully-default settings, so it refines your existing setup rather than re-deriving from scratch. Useful when you've already hand-tuned detection and want incremental improvement. The search still only accepts changes that improve on your current settings, and improvement is reported against them. Leave unchecked to explore from the defaults (recommended for a first run). Only applies in Optimize mode." />
     <TextBlock x:Key="SDOpt_FeedbackBreakdown_Tooltip" Text="How your labels map to the detector's gates: each row is the gate that rejected the stars you marked, and the setting change that would recover them — bounded so it doesn't admit too many unlabeled candidates (precision). Optimize with feedback starts the optimizer from these recommendations." />
@@ -252,7 +252,11 @@
               lives on the scrollable body below, NOT here: keeping a MinHeight floor on the root grid prevented it
               from shrinking to a smaller window, so the bottom row (footer buttons) overflowed and clipped. With the
               floor gone the grid shrinks to the window, the body scrolls, and the footer stays pinned.  -->
-        <Grid Margin="10" local:ClampWindowToWorkArea.Enabled="True">
+        <Grid
+            Margin="10"
+            local:ClampWindowToWorkArea.Enabled="True"
+            local:ClampWindowToWorkArea.FitContent="True"
+            local:ClampWindowToWorkArea.Suspended="{Binding ShowProgress}">
             <Grid.Style>
                 <Style TargetType="Grid">
                     <Setter Property="Width" Value="640" />

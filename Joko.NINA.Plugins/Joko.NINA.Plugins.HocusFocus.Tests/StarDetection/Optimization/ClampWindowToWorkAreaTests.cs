@@ -1,0 +1,176 @@
+﻿#region "copyright"
+
+/*
+    Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
+
+    This Source Code Form is subject to the terms of the Mozilla Public
+    License, v. 2.0. If a copy of the MPL was not distributed with this
+    file, You can obtain one at http://mozilla.org/MPL/2.0/.
+*/
+
+#endregion "copyright"
+
+using System.Threading;
+using System.Windows;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NUnit.Framework;
+
+namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection.Optimization;
+
+/// <summary>
+/// F76. The optimizer wizard opened taller than the screen, putting its footer — Back / Review frames /
+/// Continue optimizing / <b>Accept</b> / Close — off the bottom, with no way to apply a completed run except
+/// the title-bar X, which discards it.
+///
+/// The cause was NOT a missing ScrollViewer and NOT a missing y-clamp; both were already shipped. It was that
+/// <see cref="ClampWindowToWorkArea"/> clamped only at the Win32 level while <c>SizeToContent</c> stayed
+/// ACTIVE, so WPF recomputed the content height on the next layout pass and overwrote the clamp. The tell was
+/// that resizing the window by hand fixed it — WPF sets <c>SizeToContent = Manual</c> automatically when the
+/// USER resizes.
+///
+/// These tests assert the PLACED RECTANGLE and the SizeToContent state against a simulated work area. No
+/// ViewModel test can reach this: all 180 StarDetectionOptimizerWizardVMTests passed while the defect shipped,
+/// correctly, because the ViewModel and the XAML were both fine.
+/// </summary>
+/// <remarks>
+/// These RUN IN CI, and the reason that sentence is here is a misattribution worth not repeating. One run failed
+/// with "vstest.console process failed to connect to testhost process after 90 seconds", and this fixture — new,
+/// STA, WPF-Window-constructing — was the obvious suspect, so it was marked [Explicit]. It was not the cause: the
+/// very next commit carried the identical fixture and passed, running 3895 tests in 26m56s against a normal ~15m.
+/// The failure message names its own cause ("may occur due to machine slowness") and the duration corroborates it.
+/// Marking it Explicit had removed the ONLY test that catches the actual defect — the SizeToContent assertion —
+/// from CI, so the marking was reverted. A single red run that names infrastructure is not evidence your new test
+/// is at fault; check whether a later commit with the same test passed before you weaken the suite.
+/// </remarks>
+[TestFixture]
+[Apartment(ApartmentState.STA)]
+public class ClampWindowToWorkAreaTests {
+
+    // A screen small enough that the wizard's summary greatly exceeds it — the owner's repro condition. The
+    // controller's 3440x1440 monitor masked the bug because the window happened to land at exactly the work
+    // area height there.
+    private static readonly Rect SmallWorkArea = new Rect(0, 0, 1920, 1000);
+
+    [Test]
+    public void TallerThanWorkArea_TurnsSizeToContentOff_AndPinsHeightAndTop() {
+        var window = new Window {
+            SizeToContent = SizeToContent.WidthAndHeight,
+            Top = 444,
+            Height = 2000,
+        };
+
+        var clamped = ClampWindowToWorkArea.ApplyWorkAreaLimit(window, SmallWorkArea);
+
+        Assert.Multiple(() => {
+            Assert.That(clamped, Is.True, "a window taller than the work area must be clamped");
+            // The heart of F76: leaving SizeToContent on is what let WPF re-grow the window over the Win32 clamp.
+            // Only the HEIGHT flag may be dropped. Clearing width auto-sizing too froze the window at an earlier,
+            // narrower step's width and clipped Accept and Close out of the footer -- a regression this fix caused,
+            // found in the field.
+            Assert.That(window.SizeToContent, Is.EqualTo(SizeToContent.Width),
+                "height auto-sizing must be turned off, but WIDTH auto-sizing must survive or the footer is clipped");
+            Assert.That(window.Height, Is.EqualTo(SmallWorkArea.Height),
+                "the window must not be taller than the work area");
+            Assert.That(window.Top, Is.EqualTo(SmallWorkArea.Top),
+                "the window must be moved back inside the work area, not merely resized");
+            // The property that actually matters to a user: the footer is on screen.
+            Assert.That(window.Top + window.Height, Is.LessThanOrEqualTo(SmallWorkArea.Bottom),
+                "the bottom of the window -- where the Accept button lives -- must be inside the work area");
+        });
+    }
+
+    [Test]
+    public void ClampingAHeightOnlyAutoSizedWindow_TurnsSizeToContentFullyOff() {
+        // If width was never auto-sized there is nothing to preserve, so Manual is correct here.
+        var window = new Window {
+            SizeToContent = SizeToContent.Height,
+            Top = 444,
+            Height = 2000,
+        };
+
+        Assert.That(ClampWindowToWorkArea.ApplyWorkAreaLimit(window, SmallWorkArea), Is.True);
+        Assert.That(window.SizeToContent, Is.EqualTo(SizeToContent.Manual));
+    }
+
+    [Test]
+    public void Suspended_IsOffByDefault_AndRoundTrips() {
+        // Bound to the host's busy flag (the wizard binds ShowProgress). Default OFF matters most: a window that
+        // never sets it must keep fitting normally.
+        var element = new System.Windows.Controls.Grid();
+        Assert.That(ClampWindowToWorkArea.GetSuspended(element), Is.False, "suspension must be opt-in");
+
+        ClampWindowToWorkArea.SetSuspended(element, true);
+        Assert.That(ClampWindowToWorkArea.GetSuspended(element), Is.True);
+        ClampWindowToWorkArea.SetSuspended(element, false);
+        Assert.That(ClampWindowToWorkArea.GetSuspended(element), Is.False,
+            "the release is the interesting transition -- it is what triggers the single catch-up fit");
+    }
+
+    [Test]
+    public void FitContent_IsOptIn_AndOffByDefault() {
+        // The review windows attach Enabled WITHOUT FitContent: they host an image viewport whose ScrollViewer
+        // extent is the IMAGE, so growing to it would size the window to the picture and fight
+        // ReviewViewportHostBase's own fit logic. Only the wizard opts in. Guarding the DEFAULT matters more than
+        // guarding the wizard's opt-in, because the default is what every future window inherits.
+        var element = new System.Windows.Controls.Grid();
+        Assert.Multiple(() => {
+            Assert.That(ClampWindowToWorkArea.GetFitContent(element), Is.False, "growing must be opt-in");
+            Assert.That(ClampWindowToWorkArea.GetEnabled(element), Is.False, "the behaviour itself is opt-in too");
+        });
+
+        ClampWindowToWorkArea.SetFitContent(element, true);
+        Assert.That(ClampWindowToWorkArea.GetFitContent(element), Is.True);
+    }
+
+    [Test]
+    public void ShorterThanWorkArea_LeavesTheWindowAlone() {
+        var window = new Window {
+            SizeToContent = SizeToContent.WidthAndHeight,
+            Top = 100,
+            Height = 500,
+        };
+
+        var clamped = ClampWindowToWorkArea.ApplyWorkAreaLimit(window, SmallWorkArea);
+
+        Assert.Multiple(() => {
+            Assert.That(clamped, Is.False, "a window that fits must not be touched");
+            // Ordinary per-step growth must keep working on a screen with room for it.
+            Assert.That(window.SizeToContent, Is.EqualTo(SizeToContent.WidthAndHeight),
+                "SizeToContent must survive when the window fits, or the wizard stops sizing itself to each step");
+            Assert.That(window.Height, Is.EqualTo(500));
+            Assert.That(window.Top, Is.EqualTo(100));
+        });
+    }
+
+    [Test]
+    public void ClampingIsIdempotent_SoTheSizeChangedHandlerCannotLoop() {
+        var window = new Window {
+            SizeToContent = SizeToContent.WidthAndHeight,
+            Top = 444,
+            Height = 2000,
+        };
+
+        Assert.That(ClampWindowToWorkArea.ApplyWorkAreaLimit(window, SmallWorkArea), Is.True, "first pass clamps");
+        // ApplyWorkAreaLimit runs from SizeChanged, and setting Height raises SizeChanged again. The second pass
+        // must be a no-op or the handler recurses.
+        Assert.That(ClampWindowToWorkArea.ApplyWorkAreaLimit(window, SmallWorkArea), Is.False,
+            "second pass must be a no-op, otherwise the SizeChanged handler recurses");
+    }
+
+    [Test]
+    public void AWorkAreaTallerThanTheWindow_IsNotTreatedAsAClamp() {
+        // Guards the comparison direction: an easy sign error here would clamp every window on a large monitor
+        // and permanently disable SizeToContent for users who never had the problem.
+        var window = new Window {
+            SizeToContent = SizeToContent.WidthAndHeight,
+            Top = 0,
+            Height = 1392,
+        };
+
+        var large = new Rect(0, 0, 3440, 1392);
+
+        Assert.That(ClampWindowToWorkArea.ApplyWorkAreaLimit(window, large), Is.False,
+            "a window exactly the height of the work area fits and must not be clamped");
+        Assert.That(window.SizeToContent, Is.EqualTo(SizeToContent.WidthAndHeight));
+    }
+}

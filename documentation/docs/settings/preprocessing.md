@@ -20,7 +20,7 @@ A key idea runs through all of these: Hocus Focus keeps **two images**. A *struc
 | Setting | Default | Range | Effect |
 |---|---|---|---|
 | Noise Reduced Star Measurement (`StarMeasurementNoiseReductionEnabled`) | Off | On / Off | Also blur the *measurement* image, not just the structure-detection image |
-| Noise Reduction Radius (`NoiseReductionRadius`) | 3 | ≥ 0 (UI requires > 0) | Half-size of the Gaussian blur applied for noise reduction |
+| Noise Reduction Radius (`NoiseReductionRadius`) | 4 | ≥ 0 (UI requires > 0) | Half-size of the Gaussian blur applied for noise reduction |
 | Noise Clipping Multiplier (`NoiseClippingMultiplier`) | 4.0 | ≥ 0 (UI requires > 0) | σ multiplier for the structure-map binarization floor (candidate finding) |
 | Locally Adaptive Binarization (`LocallyAdaptiveBinarization`) | On | On / Off | Make the binarization floor a per-region surface instead of one global value |
 | Adaptive Noise Block Size (`AdaptiveNoiseBlockSize`) | 128 px | 64–256 (UI) | Block size for the adaptive floor's local statistics |
@@ -38,7 +38,9 @@ A key idea runs through all of these: Hocus Focus keeps **two images**. A *struc
 
 > Blurs the image with a NxN gaussian convolution and a sigma automatically chosen to match this radius. Larger values blur the image further. If this is enabled, hotpixel filtering is automatically performed before to prevent the hotpixels from bleeding into the surrounding pixels
 
-**Default:** `3` &nbsp;•&nbsp; **Range:** must be non-negative; `0` disables noise reduction. The Advanced UI field requires a value greater than zero.
+**Default:** `4` &nbsp;•&nbsp; **Range:** must be non-negative; `0` disables noise reduction. The Advanced UI field requires a value greater than zero.
+
+The default is **derived, not a literal**: the Simple-mode preset sets a base radius of `3` and adds `1` when hot-pixel filtering is on, which it is by default. So every settings object you can actually construct starts at `4`. A `3` appears in the code as the pre-compensation base and is not what the detector receives.
 
 The radius is a *half-size*: the convolution kernel spans roughly twice the radius, with the Gaussian σ chosen automatically to match. A larger radius merges more neighboring pixels, which smooths away noise but also softens faint, closely-spaced, or small stars. Because a blur would smear hot pixels into their neighbors, enabling noise reduction implies hot-pixel filtering runs first (see [Hot Pixels & Saturation](hotpixel-saturation.md)).
 
