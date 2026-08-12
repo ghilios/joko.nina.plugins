@@ -265,15 +265,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// content is off-screen, so growing the window by that much shows it — capped at the work area. Naturally
         /// idempotent: once nothing is clipped the shortfall is 0 and the target equals the current height.
         /// </summary>
-        internal static double ChooseWindowHeightFromOverflow(double currentHeight, double extentHeight, double viewportHeight, double workAreaHeight) {
+        internal static double ChooseWindowHeightFromExtent(double currentHeight, double extentHeight, double viewportHeight, double workAreaHeight) {
             if (workAreaHeight <= 0.0 || currentHeight <= 0.0) {
                 return double.NaN;
             }
             if (double.IsNaN(extentHeight) || double.IsNaN(viewportHeight) || viewportHeight <= 0.0) {
                 return double.NaN;
             }
-            var shortfall = Math.Max(0.0, extentHeight - viewportHeight);
-            return Math.Min(currentHeight + shortfall, workAreaHeight);
+            // Everything that is NOT the scrollable body: chrome, header, footer. Whatever the body's viewport is
+            // not using, the rest of the window is.
+            var nonScroll = currentHeight - viewportHeight;
+            if (nonScroll < 0.0) {
+                return double.NaN;
+            }
+            // Fit the body's full extent, capped at the work area. This GROWS and SHRINKS -- the previous version
+            // computed min(current + shortfall, work), which could only ever grow, so once the summary pushed the
+            // window to the full work area it stayed there for every later step. Measured: the Review step reported
+            // extent=520 viewport=640, i.e. the content wanted LESS than it had, and the window stayed at 752.
+            return Math.Min(nonScroll + extentHeight, workAreaHeight);
         }
 
         /// <summary>Depth-first search for the first ScrollViewer under <paramref name="root"/>.</summary>
@@ -324,7 +333,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 scrollHooked.Add(scroller, window);
                 scroller.ScrollChanged += OnScrollChanged;
             }
-            var target = ChooseWindowHeightFromOverflow(current, scroller.ExtentHeight, scroller.ViewportHeight, work.Height);
+            var target = ChooseWindowHeightFromExtent(current, scroller.ExtentHeight, scroller.ViewportHeight, work.Height);
             if (double.IsNaN(target)) {
                 LogOnce($"F76 fit: DECLINED -- unusable scroll metrics (extent={scroller.ExtentHeight:F0} " +
                         $"viewport={scroller.ViewportHeight:F0} current={current:F0} work={work.Height:F0})");
@@ -340,9 +349,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             LogOnce($"F76 fit: extent={scroller.ExtentHeight:F0} viewport={scroller.ViewportHeight:F0} " +
                     $"short={Math.Max(0.0, scroller.ExtentHeight - scroller.ViewportHeight):F0} work={work.Height:F0} " +
                     $"current={current:F0}@{window.Top:F0} => h={target:F0} top={top:F0}");
-            if (Math.Abs(current - target) < 1.0 && Math.Abs(window.Top - top) < 1.0) {
-                return true;   // already right; do not churn layout
-            }
             if (window.SizeToContent == SizeToContent.WidthAndHeight) {
                 window.SizeToContent = SizeToContent.Width;   // keep width auto (F76: Manual clipped Accept/Close)
             } else if (window.SizeToContent == SizeToContent.Height) {
@@ -385,9 +391,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 window.UpdateLayout();
                 var naturalWidth = window.ActualWidth;
                 window.SizeToContent = SizeToContent.Manual;
+                var targetWidth = naturalWidth > 0.0 ? Math.Min(naturalWidth, work.Width) : window.Width;
+
+                // The no-op test lives HERE, after the width has been measured -- not before the callback. It used
+                // to sit at the top of the fit path and compare only height and top, so a step whose height was
+                // already correct skipped the entire apply and never re-auto-sized its width. That is why the
+                // Review step kept the summary's W=843: not measured and rejected, never measured at all.
+                if (Math.Abs(window.ActualHeight - target) < 1.0
+                    && Math.Abs(window.Top - top) < 1.0
+                    && Math.Abs(window.ActualWidth - targetWidth) < 1.0) {
+                    return;
+                }
                 if (naturalWidth > 0.0) {
-                    // Never exceed the work area horizontally either -- the same rule the height obeys.
-                    window.Width = Math.Min(naturalWidth, work.Width);
+                    window.Width = targetWidth;
                 }
                 window.Height = target;
                 window.Top = top;

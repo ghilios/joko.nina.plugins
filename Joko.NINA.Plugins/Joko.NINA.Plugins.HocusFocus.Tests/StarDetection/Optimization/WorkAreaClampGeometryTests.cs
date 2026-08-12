@@ -106,50 +106,51 @@ public class WorkAreaClampGeometryTests {
         });
     }
 
-    // ---- ChooseWindowHeightFromOverflow: grow by what is actually clipped, capped at the work area ---------
+    // ---- ChooseWindowHeightFromExtent: fit the body's extent, capped at the work area, BOTH directions -------
 
     [Test]
-    public void FromOverflow_GrowsByExactlyWhatIsClipped() {
-        // 200 DIPs of content are off-screen, and there is room, so the window grows by exactly 200.
-        Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromOverflow(
-            currentHeight: 500, extentHeight: 700, viewportHeight: 500, workAreaHeight: 752), Is.EqualTo(700));
+    public void FromExtent_GrowsWhenTheBodyIsClipped() {
+        // 200 clipped, room to show it: non-scroll = 500-300 = 200, so 200 + 700 = 900... capped by nothing here.
+        Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromExtent(
+            currentHeight: 500, extentHeight: 500, viewportHeight: 300, workAreaHeight: 900), Is.EqualTo(700));
     }
 
     [Test]
-    public void FromOverflow_CapsAtTheWorkArea() {
-        // More is clipped than the screen can show: fill the work area and let the body scroll the rest.
-        Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromOverflow(
-            currentHeight: 594, extentHeight: 2000, viewportHeight: 500, workAreaHeight: 752), Is.EqualTo(752));
+    public void FromExtent_SHRINKSWhenTheBodyNeedsLessThanItHas() {
+        // THE progress-screen defect, from the field: extent=520 viewport=640 current=752. The body wanted LESS
+        // than its viewport, and the previous formula -- min(current + shortfall, work) -- could only ever grow, so
+        // once the summary pushed the window to the full work area every later step stayed full height.
+        Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromExtent(
+            currentHeight: 752, extentHeight: 520, viewportHeight: 640, workAreaHeight: 752), Is.EqualTo(632),
+            "a step needing less must give the screen back");
     }
 
     [Test]
-    public void FromOverflow_IsIdempotent_WhenNothingIsClipped() {
-        // Extent == viewport means everything is visible: the window must not creep upward on each SizeChanged.
-        Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromOverflow(
-            currentHeight: 614, extentHeight: 548, viewportHeight: 548, workAreaHeight: 752), Is.EqualTo(614));
+    public void FromExtent_CapsAtTheWorkArea() {
+        // The other field line from the same run: extent=863 viewport=640 current=752 -> wants 975, gets 752.
+        Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromExtent(
+            currentHeight: 752, extentHeight: 863, viewportHeight: 640, workAreaHeight: 752), Is.EqualTo(752));
     }
 
     [Test]
-    public void FromOverflow_TheFieldCase_ReachesTheWorkAreaWhereMeasuringTheContentDidNot() {
-        // Measured in the field, the content-measuring version answered content=548 for a body that genuinely
-        // overflowed -- because the ScrollViewer sits in a Height="*" grid row, which collapses when measured
-        // against infinity. The ScrollViewer's own extent does not have that problem.
-        var byMeasuring = ClampWindowToWorkArea.ChooseWindowHeight(contentDesiredHeight: 548, chromeHeight: 66, workAreaHeight: 752);
-        var byOverflow = ClampWindowToWorkArea.ChooseWindowHeightFromOverflow(
-            currentHeight: 594, extentHeight: 1200, viewportHeight: 480, workAreaHeight: 752);
+    public void FromExtent_IsIdempotent_WhenTheBodyExactlyFits() {
+        // extent == viewport: the window is already right and must not drift on repeated events.
+        var once = ClampWindowToWorkArea.ChooseWindowHeightFromExtent(594, 469, 469, 752);
+        Assert.That(once, Is.EqualTo(594));
+        Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromExtent(once, 469, 469, 752), Is.EqualTo(594),
+            "a second pass must not move it");
+    }
+
+    [Test]
+    public void FromExtent_DeclinesOnDegenerateInput() {
         Assert.Multiple(() => {
-            Assert.That(byMeasuring, Is.EqualTo(614), "what the wrong instrument produced in the field");
-            Assert.That(byOverflow, Is.EqualTo(752), "the scroll extent fills the available height instead");
-        });
-    }
-
-    [Test]
-    public void FromOverflow_DeclinesOnDegenerateInput() {
-        Assert.Multiple(() => {
-            Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromOverflow(500, 700, 0, 752), Is.NaN, "no viewport yet");
-            Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromOverflow(0, 700, 500, 752), Is.NaN, "no window yet");
-            Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromOverflow(500, 700, 500, 0), Is.NaN, "degenerate work area");
-            Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromOverflow(500, double.NaN, 500, 752), Is.NaN, "unmeasured extent");
+            Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromExtent(500, 700, 0, 752), Is.NaN, "no viewport yet");
+            Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromExtent(0, 700, 500, 752), Is.NaN, "no window yet");
+            Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromExtent(500, 700, 500, 0), Is.NaN, "degenerate work area");
+            Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromExtent(500, double.NaN, 500, 752), Is.NaN, "unmeasured extent");
+            // A viewport larger than the whole window would make the non-scroll part negative -- decline rather
+            // than compute a nonsense height from it.
+            Assert.That(ClampWindowToWorkArea.ChooseWindowHeightFromExtent(400, 500, 600, 752), Is.NaN, "viewport exceeds the window");
         });
     }
 
