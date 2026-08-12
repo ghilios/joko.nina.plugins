@@ -291,6 +291,37 @@ size the window to the picture rather than to a sensible dialog, and would fight
 **default** rather than the wizard's opt-in, because the default is what every future window
 inherits.
 
+### F78 — `SystemParameters.WorkArea` reports the PRIMARY monitor, so the WPF half of the clamp uses the wrong rect on a secondary display
+**Status:** **open — BLOCKED on hardware, not on understanding** · raised 2026-08-12 (wave 22) · **cost to fix: ~25 m; cost to VERIFY: a second display this machine does not have**
+
+`ClampWindowToWorkArea` resolves the work area **twice, by two different instruments**, and only one of them is
+per-monitor. The Win32 half already does the right thing via `MonitorFromWindow`. The WPF half reads
+`SystemParameters.WorkArea`, which is documented to return the **primary** monitor's work area regardless of
+where the window actually is. Four call sites pass it straight into `ApplyWorkAreaLimit`:
+
+```
+StarDetection/Optimization/ClampWindowToWorkArea.cs:105, :186, :197, :203
+StarDetection/Optimization/Review/ReviewViewportHostBase.cs:83
+```
+
+A wizard opened on a secondary display is therefore clamped to the *primary* display's rect — the exact class of
+bug F76 was, with the same symptom (a footer off-screen) and a different cause. The shape of the fix is small and
+known: a `WorkAreaFor(Window)` helper resolving via `MonitorFromWindow` + `GetMonitorInfo` (the P/Invoke is
+already in this file), converted to DIPs, replacing all five reads.
+
+**Why it is NOT shipped.** This machine has exactly one display —
+`\\.\DISPLAY1 primary=True bounds=3440x1440 work={0,0,3440,1392}`. On one monitor `MonitorFromWindow` returns
+the primary, so the change is **provably inert here and cannot be exercised in either direction**. Shipping it
+would mean adding a fix that cannot report whether it engaged — the precise failure this register has paid for in
+[F76](#f76) (five wrong diagnoses from reading source) and [F77](#f77) (a green field test against code that was
+never loaded). **A gate never shown to PASS is not a gate.**
+
+### Next step
+Either attach a second display and measure both branches — window on secondary clamps to the secondary's rect,
+window on primary unchanged — or factor only the *selection* (given a window rect and a set of monitor rects,
+which work area applies) into a pure function and unit-test that, accepting that the `MonitorFromWindow` plumbing
+stays unexercised. Do not ship the plumbing on the strength of reading the documentation.
+
 ### Still owed
 Nothing on the fix itself. **Previously owed and now discharged:** *neither of the owner's first two runs tested
 the fix* — the first ran the original

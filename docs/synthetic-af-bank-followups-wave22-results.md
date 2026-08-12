@@ -74,8 +74,22 @@ Full suite by **COUNT** out of the log: **3933 passed, 0 failed, 0 skipped** —
 plus the **11** new replay-report tests on the sibling branch. The csproj change cannot move the count and did
 not. Verified by count, never by the tick ([F37](followups.md)).
 
-## 5. What remains open
+## 5. What remains open, and why no second item was started
 
-Unchanged from the prompt's §7 except that **F77 is now closed**: `SystemParameters.WorkArea` reporting the
-primary monitor only; F72/A5/A7/A8; F70(a) as an owner's call; F73's code axis (~53 m); F45(b) (~3–4 h, behind
-the S16 fence). **F70(b′) is rejected by the owner — do not re-propose.**
+**F77 is closed.** The `SystemParameters.WorkArea` item is now registered as **[F78](followups.md)** —
+**blocked on hardware, not on understanding.** The fix is ~25 m and its shape is known (a `WorkAreaFor(Window)`
+helper via `MonitorFromWindow`, replacing five reads), but this machine has **exactly one display**
+(`\\.\DISPLAY1`, `3440x1440`, work `{0,0,3440,1392}`). On one monitor the change is **provably inert and cannot
+be exercised in either direction**. Shipping it would add a fix that cannot report whether it engaged — the exact
+failure F76 and F77 each cost a run to learn. It is recorded with both a verification plan and a fallback
+(unit-test the *selection* only) rather than shipped blind.
+
+Still open otherwise: F72/A5/A7/A8 (need NINA UI sessions); F70(a), an owner's call not decidable by measurement;
+F73's code axis (~53 m); F45(b) (~3–4 h, behind the S16 fence). **F70(b′) is rejected by the owner — do not
+re-propose.**
+
+**No second wave was started.** The window opened at `12:58Z` against a `15:00Z` stop, and §0.3 prices a wave at
+~6 h. None of the remaining items is a disciplined wave in ~1.5 h: F73's code axis needs the full
+pre-registration → gate → arms order, the UI items need NINA sessions, and F78 is hardware-blocked. Per §1 this
+is said plainly rather than padded: **wave 22 is a scoped one-item wave that produced a real finding, and there
+is no second item worth starting inside this window.**
