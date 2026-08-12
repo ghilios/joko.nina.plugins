@@ -37,6 +37,14 @@
     <Compile Include="..\TestApp\SynthBank\TruthProtection.cs" Link="Golden\TruthProtection.cs" />
     <Compile Include="..\TestApp\SynthBank\ConvergenceBand.cs" Link="Bank\ConvergenceBand.cs" />
     <Compile Include="..\TestApp\SynthBank\ExposureClamp.cs" Link="Bank\ExposureClamp.cs" />
+    <!-- W24 P3: the synth-validate report SCHEMA (pure POCOs + Newtonsoft attributes, no NINA/OpenCV coupling), so
+         SynthValidationReportSchemaTests can assert the JSON names every scorer reads by. -->
+    <Compile Include="..\TestApp\SynthValidationReport.cs" Link="Bank\SynthValidationReport.cs" />
+    <!-- W24 P2: the binning-revisit deferral bound. SynthValidateRunner itself renders frames and runs the
+         optimizer and cannot be linked, so P2's whole decision lives in this one pure file. REVERTING P2 =
+         restore SynthValidateRunner.cs from its post-P1/P3 snapshot, delete BinningRevisitPolicy.cs and this
+         line, delete SynthValidateRunnerBinningDeferralTests.cs. None of that touches P1 or P3. -->
+    <Compile Include="..\TestApp\SynthBank\BinningRevisitPolicy.cs" Link="Bank\BinningRevisitPolicy.cs" />
   </ItemGroup>
 
   <ItemGroup>

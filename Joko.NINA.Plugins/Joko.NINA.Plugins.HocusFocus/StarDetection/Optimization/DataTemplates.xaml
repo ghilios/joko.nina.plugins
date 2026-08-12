@@ -907,9 +907,15 @@
                         <!--  Auto-focus block: the recommended step size / offset steps PLUS the toggle that applies
                               them on Accept, grouped so the toggle's purpose is obvious.  -->
                         <TextBlock Margin="0,8,0,2" FontWeight="Bold" Text="Auto-focus settings" />
+                        <!--  StepSizeText carries the "NOT measured: ... [reason]" wording when the recommender
+                              could not use the fit, so a HELD step reads as a non-measurement instead of as a
+                              recommendation that happened to agree. It wraps because that sentence is long.  -->
                         <StackPanel Orientation="Horizontal" Margin="0,2">
                             <TextBlock Width="200" Text="Recommended step size" />
-                            <TextBlock Text="{Binding Summary.StepSizeText, Mode=OneWay}" />
+                            <TextBlock
+                                MaxWidth="560"
+                                Text="{Binding Summary.StepSizeText, Mode=OneWay}"
+                                TextWrapping="Wrap" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,2">
                             <TextBlock Width="200" Text="Recommended offset steps" />

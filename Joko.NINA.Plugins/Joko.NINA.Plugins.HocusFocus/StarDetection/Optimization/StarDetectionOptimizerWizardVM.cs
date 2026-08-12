@@ -301,6 +301,42 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <see cref="StepSizeRecommendation.CappedGrowthRatio"/>.</summary>
         public double StepSizeCappedGrowthRatio { get; set; } = double.NaN;
 
+        /// <summary>
+        /// Why the step size is a HELD value rather than a measured one, or null when it was measured — see
+        /// <see cref="StepSizeRecommendation.DegenerateReason"/>.
+        ///
+        /// <para><b>Why this is on the summary and on the page.</b> When the recommender cannot use the fit it
+        /// hands back the CURRENT step size, and that number was previously written into
+        /// <see cref="RecommendedStepSize"/> and shown as "Recommended step size: 21" — a number meaning "I held
+        /// what you already had", in the same field and with the same authority as a measurement. Carrying the
+        /// reason through to <see cref="StepSizeText"/> is what makes a non-measurement visible as one.</para>
+        /// </summary>
+        public string StepSizeDegenerateReason { get; set; }
+
+        /// <summary>True when the recommended step size is a held value rather than a measurement.</summary>
+        public bool StepSizeIsDegenerate => !string.IsNullOrEmpty(StepSizeDegenerateReason);
+
+        /// <summary>Plain-language rendering of <see cref="StepSizeDegenerateReason"/>; the raw token is kept in
+        /// parentheses so a log or a support thread can be matched to the exit that produced it.</summary>
+        private string StepSizeDegenerateExplanation {
+            get {
+                switch (StepSizeDegenerateReason) {
+                    case StepSizeRecommender.DegenerateReasonNoFit:
+                        return "no focus curve could be fitted to this run";
+
+                    case StepSizeRecommender.DegenerateReasonNonFiniteVertex:
+                        return "the fitted curve has no usable best-focus point";
+
+                    case StepSizeRecommender.DegenerateReasonHalfWidthUnresolved:
+                        return $"the fitted curve never reaches {StepSizeRecommender.HfrThresholdMultiple:F0}x its " +
+                               "minimum HFR, which is the band the step is sized from";
+
+                    default:
+                        return "this run could not be measured";
+                }
+            }
+        }
+
         /// <summary>Plain-language step-size readout: "{current} → {recommended}" when changed, else
         /// "{recommended} (unchanged)", with a capped note when the sweep could not support the full move.
         ///
@@ -320,6 +356,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// which is the one quantity the cap exists to distrust.</para></summary>
         public string StepSizeText {
             get {
+                // A HELD value is not a recommendation, and it says so BEFORE the capped/measured wording is
+                // reached: the degenerate path never sets WasCapped, so without this branch the page would show a
+                // bare "{n} (unchanged)" that is indistinguishable from a measurement which agreed with the
+                // profile. StepSizeDegenerateReason exists precisely so could-not-look is a separate state.
+                if (StepSizeIsDegenerate) {
+                    return $"{RecommendedStepSize} (NOT measured: {StepSizeDegenerateExplanation}, so your current " +
+                           $"step size was kept [{StepSizeDegenerateReason}])";
+                }
                 var baseText = FormatRecommendation(CurrentStepSize, RecommendedStepSize);
                 if (!StepSizeWasCapped) {
                     return baseText;
@@ -4074,6 +4118,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 StepSizeWasCapped = recommendation.WasCapped,
                 StepSizeSampledHfrRange = recommendation.SampledHfrRange,
                 StepSizeCappedGrowthRatio = recommendation.CappedGrowthRatio,
+                StepSizeDegenerateReason = recommendation.DegenerateReason,
                 CurrentStepSize = currentStepSize,
                 CurrentOffsetSteps = currentOffsetSteps,
                 ImprovedOverSeed = res.ImprovedOverSeed,

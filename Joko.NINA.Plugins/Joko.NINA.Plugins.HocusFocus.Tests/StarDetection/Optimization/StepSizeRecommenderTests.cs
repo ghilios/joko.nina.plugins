@@ -17,6 +17,7 @@ using System.Linq;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.Utility;
+using OxyPlot;
 using OxyPlot.Series;
 using NUnit.Framework;
 
@@ -691,6 +692,127 @@ public class StepSizeRecommenderTests {
             Assert.That(double.IsNaN(rec.SampledHfrRange), Is.True);
             Assert.That(double.IsNaN(rec.CappedGrowthRatio), Is.True);
             Assert.That(rec.ReachedHfrBand, Is.False, "an unmeasurable range is not a reached band");
+        });
+    }
+
+    // ---- W24 P1: a degenerate recommendation says so, and measures what it still can -----------------------------
+
+    /// <summary>
+    /// A fit assembled by hand rather than solved, so each degenerate exit can be reached deterministically. The
+    /// alternative — feeding the real solver a pathological sweep and hoping it lands on the intended branch — is
+    /// how a test ends up pinning whichever exit the optimizer happened to take that day.
+    /// </summary>
+    private sealed class HandBuiltFit : AlglibHyperbolicFitting {
+
+        public HandBuiltFit(Func<double, double> model, DataPoint minimum, double[] outputs, double[] positions) {
+            Fitting = model;
+            Minimum = minimum;
+            Outputs = outputs;
+            Inputs = positions?.Select(x => new[] { x }).ToArray();
+        }
+
+        protected override int ParameterCount => 1;
+
+        protected override bool TryComputeInitialState(out double[] initialGuess, out double[] lowerBounds,
+                                                       out double[] upperBounds, out double[] scale) {
+            initialGuess = null;
+            lowerBounds = null;
+            upperBounds = null;
+            scale = null;
+            return false; // never solved: this fit is set by hand, not fitted
+        }
+
+        protected override double ModelValue(double[] parameters, double x) => Fitting(x);
+
+        protected override DataPoint ComputeMinimum(double[] parameters) => Minimum;
+
+        protected override string FormatExpression(double[] parameters) => "hand-built";
+    }
+
+    /// <summary>
+    /// <b>The recommendation must be able to say "I could not measure this".</b> All three degenerate exits return
+    /// the CURRENT step size — a number that means "I held what you already had" — and until now they returned it
+    /// with every other field at its initializer, so nothing on the object distinguished a held value from a
+    /// measurement that happened to agree with the profile. That is the fails-closed shape the whole series is
+    /// built to avoid: it reports an answer rather than reporting that it could not look.
+    ///
+    /// <para><b>And it must measure what is still measurable.</b> <c>SampledHfrRange</c> — the HFR dynamic range
+    /// the sweep ACTUALLY took, from the fit's own outputs — was assigned only on the non-degenerate path, so it
+    /// was NaN precisely on the branch a later gate would need it on. Two of the three exits (and one of the two
+    /// ways of reaching the first) have a fit object in hand, and on those it is now computed. It stays NaN only
+    /// where there is no object to read outputs from, which is a could-not-look and not a zero.</para>
+    /// </summary>
+    [Test]
+    public void Degenerate_ReportsItsReason_AndMeasuresSampledHfrRange() {
+        var outputs = new[] { 4.0, 4.1, 4.2 };
+        var positions = new[] { 9800.0, 10000.0, 10200.0 };
+        const double expectedRange = 4.2 / 4.0;
+
+        // Exit 1, reached with NO fit object: nothing at all is measurable.
+        var nullFit = StepSizeRecommender.Recommend(null, currentStepSize: 42);
+
+        // Exit 1, reached with a fit object that never solved a model (Fitting == null). Same reason, but the
+        // sweep's own HFRs are present, so the range IS measurable and is measured.
+        var unsolved = StepSizeRecommender.Recommend(
+            new HandBuiltFit(null, new DataPoint(10000.0, 4.0), outputs, positions), currentStepSize: 42);
+
+        // Exit 2: a usable model, but the vertex is not finite, so the band has no origin to be measured from.
+        var nonFiniteVertex = StepSizeRecommender.Recommend(
+            new HandBuiltFit(x => 4.0, new DataPoint(double.NaN, 4.0), outputs, positions), currentStepSize: 42);
+
+        // Exit 3: a usable model AND a finite vertex, but a flat curve never reaches 3x its minimum on either
+        // side within the bounded outward search. This is the exit where everything is present except the answer.
+        var halfWidthUnresolved = StepSizeRecommender.Recommend(
+            new HandBuiltFit(x => 4.0, new DataPoint(10000.0, 4.0), outputs, positions), currentStepSize: 42);
+
+        var all = new[] { nullFit, unsolved, nonFiniteVertex, halfWidthUnresolved };
+
+        Assert.Multiple(() => {
+            Assert.That(nullFit.DegenerateReason, Is.EqualTo("no-fit"));
+            Assert.That(nullFit.SampledHfrRange, Is.NaN, "no fit object: there is nothing to read outputs from");
+
+            Assert.That(unsolved.DegenerateReason, Is.EqualTo("no-fit"));
+            Assert.That(unsolved.SampledHfrRange, Is.EqualTo(expectedRange).Within(1e-12),
+                "a fit that never solved still carries the sweep's HFRs, and they are measurable");
+
+            Assert.That(nonFiniteVertex.DegenerateReason, Is.EqualTo("non-finite-vertex"));
+            Assert.That(nonFiniteVertex.SampledHfrRange, Is.EqualTo(expectedRange).Within(1e-12));
+
+            Assert.That(halfWidthUnresolved.DegenerateReason, Is.EqualTo("half-width-unresolved"));
+            Assert.That(halfWidthUnresolved.SampledHfrRange, Is.EqualTo(expectedRange).Within(1e-12),
+                "the exit a later directional gate would fire on: its decision variable must exist here");
+
+            // The three exits are told apart, not merely flagged.
+            Assert.That(new[] { nullFit.DegenerateReason, nonFiniteVertex.DegenerateReason, halfWidthUnresolved.DegenerateReason },
+                Is.Unique);
+
+            foreach (var rec in all) {
+                Assert.That(rec.IsDegenerate, Is.True);
+                Assert.That(rec.StepSize, Is.EqualTo(42), "the current step size is HELD, exactly as before");
+                Assert.That(rec.OffsetSteps, Is.EqualTo(4));
+                Assert.That(rec.HalfWidth, Is.NaN, "halfWidth is NaN if and only if a reason is set");
+                Assert.That(rec.WasCapped, Is.False);
+                Assert.That(rec.CappedGrowthRatio, Is.NaN);
+            }
+        });
+    }
+
+    /// <summary>
+    /// P1's inertness on the ordinary path: a fit the recommender COULD use carries no reason, so a consumer that
+    /// keys on the field cannot be tripped by a healthy run.
+    ///
+    /// <para><b>Companion test — it PASSES against the pre-change behaviour too</b> (the property is simply always
+    /// null there), and is labelled as such. It is here to pin the half that must not move, not to demonstrate the
+    /// change.</para>
+    /// </summary>
+    [Test]
+    public void NonDegenerateRecommendation_HasNoDegenerateReason() {
+        var rec = StepSizeRecommender.Recommend(FitCleanHyperbola(), currentStepSize: 100);
+        Assert.Multiple(() => {
+            Assert.That(rec.DegenerateReason, Is.Null);
+            Assert.That(rec.IsDegenerate, Is.False);
+            Assert.That(rec.HalfWidth, Is.Not.NaN, "the premise: this fit resolved a half-width");
+            Assert.That(rec.SampledHfrRange, Is.Not.NaN);
         });
     }
 }

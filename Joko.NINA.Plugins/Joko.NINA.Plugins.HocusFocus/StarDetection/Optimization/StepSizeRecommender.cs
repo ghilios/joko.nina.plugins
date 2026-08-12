@@ -102,6 +102,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// 214 × 2.143 = 458.6.</para>
         /// </summary>
         public double CappedGrowthRatio { get; set; } = double.NaN;
+
+        /// <summary>
+        /// Why this recommendation is NOT a measurement, or <c>null</c> when it is one. Exactly one of
+        /// <see cref="StepSizeRecommender.DegenerateReasonNoFit"/>,
+        /// <see cref="StepSizeRecommender.DegenerateReasonNonFiniteVertex"/> or
+        /// <see cref="StepSizeRecommender.DegenerateReasonHalfWidthUnresolved"/>.
+        ///
+        /// <para><b>Why a recommendation needs to be able to say "I could not look".</b> On a fit it cannot use,
+        /// the recommender returns the CURRENT step size — <see cref="StepSize"/> is
+        /// <c>ClampStep(currentStepSize, focuserMaxStep)</c> and <see cref="HalfWidth"/> is NaN. That value then
+        /// travels into a summary and onto the page in the same field, with the same authority, as a measured
+        /// recommendation, and a consumer reading only <see cref="StepSize"/> cannot tell "I measured this and it
+        /// happens to equal what you had" from "I held what you had because I measured nothing". This field is
+        /// the difference, and it is why <see cref="SampledHfrRange"/> is now populated on the degenerate path
+        /// too: a later gate wanting to act on a degenerate fit needs the quantity to exist on the branch it is
+        /// meant to decide.</para>
+        /// </summary>
+        public string DegenerateReason { get; set; }
+
+        /// <summary>True when <see cref="DegenerateReason"/> is set — i.e. this is a HELD value, not a measurement.</summary>
+        public bool IsDegenerate => !string.IsNullOrEmpty(DegenerateReason);
     }
 
     /// <summary>
@@ -208,6 +229,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public const int MinFramesForDetectHalfWidth = 3;
 
         /// <summary>
+        /// <see cref="StepSizeRecommendation.DegenerateReason"/> for the first degenerate exit: there is no fit at
+        /// all (null fit, or a fit that never solved a model). Nothing about the curve is measurable, so
+        /// <see cref="StepSizeRecommendation.SampledHfrRange"/> is measurable only when a fit object exists to read
+        /// outputs from.
+        /// </summary>
+        public const string DegenerateReasonNoFit = "no-fit";
+
+        /// <summary>
+        /// <see cref="StepSizeRecommendation.DegenerateReason"/> for the second degenerate exit: a fit exists but
+        /// its minimum is not a usable vertex — a non-finite best-focus position, or a minimum HFR that is not
+        /// strictly positive. The band the step is sized from has no origin to be measured from.
+        /// </summary>
+        public const string DegenerateReasonNonFiniteVertex = "non-finite-vertex";
+
+        /// <summary>
+        /// <see cref="StepSizeRecommendation.DegenerateReason"/> for the third degenerate exit: the fit is usable
+        /// and the vertex is finite, but the modeled HFR never reaches <see cref="HfrThresholdMultiple"/>x its
+        /// minimum on EITHER side within the bounded outward search (a near-flat model, or a non-finite model
+        /// value along the way). This is the exit where the sweep's own HFRs ARE present and measurable, which is
+        /// why <see cref="StepSizeRecommendation.SampledHfrRange"/> is populated here rather than left NaN.
+        /// </summary>
+        public const string DegenerateReasonHalfWidthUnresolved = "half-width-unresolved";
+
+        /// <summary>
         /// Recommends a step size (and offset steps) from <paramref name="bestFit"/>. Returns the
         /// <paramref name="currentStepSize"/> unchanged (with <see cref="StepSizeRecommendation.HalfWidth"/> NaN)
         /// for a degenerate fit (null fit, non-finite minimum, or non-positive minimum HFR). When supplied,
@@ -231,13 +276,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public static StepSizeRecommendation Recommend(AlglibHyperbolicFitting bestFit, int currentStepSize, int? focuserMaxStep = null,
                                                        SweepDetectability detectability = null, bool sizeForExecutedSweep = false) {
             if (bestFit == null || bestFit.Fitting == null) {
-                return Degenerate(currentStepSize, focuserMaxStep);
+                return Degenerate(bestFit, DegenerateReasonNoFit, currentStepSize, focuserMaxStep);
             }
 
             var x0 = bestFit.Minimum.X;
             var minHfr = bestFit.Minimum.Y;
             if (double.IsNaN(x0) || double.IsInfinity(x0) || !(minHfr > 0.0) || double.IsNaN(minHfr) || double.IsInfinity(minHfr)) {
-                return Degenerate(currentStepSize, focuserMaxStep);
+                return Degenerate(bestFit, DegenerateReasonNonFiniteVertex, currentStepSize, focuserMaxStep);
             }
 
             var fitting = bestFit.Fitting;
@@ -250,7 +295,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             double halfWidth;
             if (double.IsNaN(rightW) && double.IsNaN(leftW)) {
-                return Degenerate(currentStepSize, focuserMaxStep);
+                return Degenerate(bestFit, DegenerateReasonHalfWidthUnresolved, currentStepSize, focuserMaxStep);
             } else if (double.IsNaN(rightW)) {
                 halfWidth = leftW;
             } else if (double.IsNaN(leftW)) {
@@ -407,11 +452,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             return (DefaultOffsetSteps + recoverySteps) * PointsPerSide / DefaultOffsetSteps;
         }
 
-        private static StepSizeRecommendation Degenerate(int currentStepSize, int? focuserMaxStep) {
+        /// <summary>
+        /// The "I could not measure this" recommendation: the current step size, HELD, and said so.
+        ///
+        /// <para><b>It reports the reason, and it measures what it still can.</b> Before, every degenerate exit
+        /// returned an object whose <see cref="StepSizeRecommendation.StepSize"/> was the caller's own current
+        /// value and whose every other field took its initializer, so a consumer had nothing at all to
+        /// distinguish it from a measurement that agreed with the status quo. Two of the three exits reach here
+        /// with a fit object in hand, and on those <see cref="StepSizeRecommendation.SampledHfrRange"/> — the HFR
+        /// dynamic range the sweep ACTUALLY MEASURED — is computable and is now computed. It is left NaN only on
+        /// the <see cref="DegenerateReasonNoFit"/> exit reached with <paramref name="bestFit"/> null, where there
+        /// is no object to read outputs from; <see cref="MeasureSampledHfrRange"/> already returns NaN for an
+        /// absent/empty/non-finite <c>Outputs</c>, so the guard here is only against the null reference.</para>
+        /// </summary>
+        private static StepSizeRecommendation Degenerate(AlglibHyperbolicFitting bestFit, string reason, int currentStepSize, int? focuserMaxStep) {
             return new StepSizeRecommendation {
                 StepSize = ClampStep(currentStepSize, focuserMaxStep),
                 OffsetSteps = DefaultOffsetSteps,
-                HalfWidth = double.NaN
+                HalfWidth = double.NaN,
+                DegenerateReason = reason,
+                SampledHfrRange = bestFit != null ? MeasureSampledHfrRange(bestFit) : double.NaN
             };
         }
 
