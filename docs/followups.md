@@ -764,6 +764,38 @@ fails its own precision gates.
 > and must not be bundled with it.
 > Reproduce: `/mnt/d/hf_w23/v23/D08_c11_2800mm__S1/synth_validate_report.json`; `/mnt/d/hf_w23/v23_score.txt`.
 
+> ### SCOPE CORRECTION (2026-08-12, wave 24 pre-registration) — THE LIVELOCK IS IN THE HARNESS, NOT THE PRODUCT
+>
+> **This entry has said "The wizard applies binning first" since it was written, and that is FALSE.** It has been
+> quoted forward across waves, and wave 23's controller repeated it — reporting the reproduction above as a
+> *"live product defect restored to full severity"*, in the wave-23 results document and in PR #195. **Corrected
+> here rather than quietly amended.**
+>
+> The deferral loop is **`TestApp/SynthValidateRunner.cs:828-834`** — `binningDiffers` and the
+> `"deferring exposure/step this round"` reason. `grep` over the whole solution returns those identifiers in
+> **that file only**, and the shipped plugin does not reference `SynthValidateRunner` at all. **NINA never loads
+> it.**
+>
+> The product's recommendation path has **no round loop to livelock**:
+> `StarDetectionOptimizerWizardVM.cs:4060-4085` builds **one** `OptimizationSummary` carrying
+> `RecommendedStepSize` **and** `RunDetectionBinning`/`PersistedDetectionBinning` **together**, in one shot. The
+> file contains **zero** occurrences of `deferring`, `binningDiffers`, `maxRounds` or `roundsUsed`.
+>
+> **What survives, and what does not:**
+>
+> - **Survives:** the reproduction is real, the retraction of the 2026-08-03 withdrawal stands, and the guard is
+>   still worth shipping — because the harness is the instrument every step-size measurement in this series is
+>   made on. `V23-G`'s S1 **13 of 17** was measured on a loop that **starves the recommender**, so the number is
+>   partly a property of the instrument.
+> - **Does NOT survive:** any claim that a user's autofocus run is affected by *this* mechanism. `D08`/`S1`'s
+>   miss is a **harness artifact**. It must not be cited as evidence of a field defect.
+> - **Unaffected:** the degenerate-fit finding (`D02_rich_135mm/S1`, `R^2 = -0.2741`) **is** product-relevant —
+>   `StepSizeRecommender` is shipped plugin code, called at `:4062`.
+>
+> **The lesson, which is this register's own recurring one:** the entry named a component (*"the wizard"*) it had
+> never opened. The check that settles it is two greps and costs a minute. **Name the file and the line, or do
+> not name the component.**
+
 **Status revision, and it is now itself revised.** The one-round deferral cost is real and worth the guard below.
 The 2026-08-03 re-measurement withdrew the word *"indefinitely"* from this entry's title on the grounds that the
 unbounded form did not reproduce; **wave 23 reproduces it, so the title stands as written and that withdrawal is

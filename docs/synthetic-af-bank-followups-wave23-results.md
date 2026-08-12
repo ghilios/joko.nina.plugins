@@ -917,3 +917,37 @@ guarded by an `Ascii()` helper with a test covering it, so the sentence was true
 single violation in that file is at line 182, in an `ArgumentException` message, which is **thrown, not
 printed**. A near-miss, not a self-refuting file. The doc comment has since been widened to cover every string
 literal in the class including that throw, which makes it unambiguous rather than merely lucky.
+
+---
+
+## §13 — CORRECTION, entered 2026-08-12 after wave 24's pre-registration: F26's livelock is in the HARNESS
+
+This document, its §10 register entry and PR #195 all describe `D08_c11_2800mm/S1`'s livelock as a **live
+product defect**. **That is wrong, and it is corrected here rather than quietly amended.**
+
+The deferral loop is **`TestApp/SynthValidateRunner.cs:828-834`** (`binningDiffers`, and the reason string
+`"binning N -> M (deferring exposure/step this round)"`). Those identifiers appear in **that file only** across
+the whole solution, and the shipped plugin does not reference `SynthValidateRunner`. **NINA never loads it.**
+
+The product has **no round loop to livelock**: `StarDetectionOptimizerWizardVM.cs:4060-4085` builds **one**
+`OptimizationSummary` carrying `RecommendedStepSize` **and** `RunDetectionBinning`/`PersistedDetectionBinning`
+**together**, and contains **zero** occurrences of `deferring`, `binningDiffers`, `maxRounds` or `roundsUsed`.
+
+| claim in this document | status |
+|---|---|
+| the livelock **reproduces**, unbounded, on `D08`/`S1` | **STANDS** — the measurement is unaffected |
+| F26's 2026-08-03 withdrawal of *"indefinitely"* is **retracted** | **STANDS** |
+| it is a **live product defect** a user's autofocus run can hit | **WITHDRAWN.** `D08`/`S1`'s miss is a **harness artifact** |
+| the degenerate fit (`D02`/`S1`, `R^2 = -0.2741`) is product-relevant | **STANDS** — `StepSizeRecommender` is shipped plugin code, called at `:4062` |
+| `V23-G` S1 = **13 of 17** | **stands as a number, but re-read it**: it was measured on a loop that **starves the recommender**, so it is partly a property of the instrument, not only of the product |
+
+**F26's own text — *"The wizard applies binning first"* — is false and had been quoted forward across waves,
+including by this wave's controller.** The check that settles it is two greps and costs a minute. **Name the
+file and the line, or do not name the component.** That is the same failure this wave recorded twice already:
+in §12.2, where a line-keyed grep missed the very line it was hunting, and in F79 itself, where an instrument
+that could not look reported absence instead.
+
+**Consequence for wave 24, fixed before its data:** its P2 (the binning-revisit bound) is a **harness behaviour**
+change, not a product change, and its ship rule is written accordingly. The wave's only **product** change is
+P1 (`DegenerateReason` + a measured `SampledHfrRange`, surfaced in the wizard) — which matters because on an
+unusable fit the user is currently shown a bare *"recommended step: 21"* with nothing marking it unusable.
