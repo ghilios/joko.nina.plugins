@@ -42,20 +42,39 @@ whether it has a finding worth an entry, and "no" is an acceptable answer.
 | **F74** | New (wave 20): a driver and a scorer rebuilt the same artifact path from a template and cost RULE D20 its verdict. **Fixed BY CONSTRUCTION in wave 21** — see the discipline in §4 |
 | **RULE D20** | **`D-UNEVALUATED`, permanently.** Do not convert the diagnostic to a verdict — see §3b |
 | **F72 / item C** | **A1, A2, A4, A6 CONFIRMED as rendered pixels (wave 21)**, A1/A2 checked against the report JSON on disk. NINA loaded cleanly a **second** independent time. A3/A9 upgraded from the placeholder to a real recommendation. **A5 and A7 are BLOCKED on [F76](followups.md); A8 was not exercised** (this run's step was `55 → 53`, not capped). The wizard's entry point is **Plugins → Hocus Focus → Star Detector → "Optimize Star Detection"**, NOT the Imaging dock |
-| **F76** | **NEW, product defect (wave 21) — and its first write-up was WRONG; read the corrected entry.** The wizard opens with its footer (`Back / Review frames / Continue optimizing / Accept / Close`) **below the bottom of the screen**, so `Accept` is unreachable until the window is moved. The cause is **placement, not layout**: measured before anything was perturbed, `T=444 B=1836 height=1392` against a work area of `0..1392` — the height clamp is CORRECT, the position puts the bottom 444 px past it. **The ScrollViewer exists (`Optimization/DataTemplates.xaml:292`), the footer is already pinned outside it (`:1240+`), and `ClampWindowToWorkArea.cs` is deliberate plugin code whose docstring describes this very failure.** **LOCATED:** both paths already clamp `y`, but never together — `ClampNow` (`:147`) clamps `cy` *and* `y` yet runs **once, on `Loaded`**, before the wizard grows; `WM_WINDOWPOSCHANGING` (`:115`) runs on every resize but its `y` clamp sits inside `if ((pos.flags & SWP_NOMOVE) == 0)` (`:127`), so a resize carrying `SWP_NOMOVE` clamps the height and leaves the top — reproducing `T=444, cy=1392, B=1836` exactly. **Do not "add a ScrollViewer" and do not "add a y clamp" — BOTH are shipped.** Confirm with one line logging `pos.flags`, then fix in that branch (or call `ClampNow` once the size settles). The regression test must assert the **placed rectangle**, not the layout |
+| **F76** | **FIXED and CONFIRMED IN THE FIELD (2026-08-11/12).** The optimizer wizard now fits `min(content, work area)` in BOTH directions, re-fits per step, centres horizontally on a new width, and holds still during a run. Took **eight rounds and five distinct causes**; every one was named by a log line and none by reading source. **Instrumentation has been removed** — if it regresses, re-add `Logger.Info` tracing FIRST rather than reasoning. See [F76](followups.md) |
 | **F21** | **PRICED at last (wave 21, item P): 45–52 s.** `exit=0` by name, `roundsUsed=2`, and a second round **did** occur. The working invocation is in §2. An unregistered rule-free follow-on at `--max-rounds 5` stopped at `roundsUsed=2` again with an **identical** trajectory, so the convergence is a **real stop, not `maxRounds` running out**. **Seed sensitivity is UNMEASURED** — the per-round seeds are *derived* from spec+scenario (identical in both runs: `[-25215000, 1539450862]`), so the repeat is ordinary determinism and says nothing about seeds |
 | **RULE B21** | **`B-DEMONSTRATED`** (wave 21), **6 of 6** on V1/V2/V3/A/B/D over the six factor-2 datasets `D20` never touched (`D10, D17, D09, D08, D15, D14`). `optimize/detected` **is** the post-mutation bundle: binning 1 → 2, `PixelScale` `NaN` → finite and equal to the console at its own precision, difference set from `optimize/baseline` **exactly** `{DetectionBinning, PixelScale}` over 55 fields. `B-REFUTED` was reachable and did not occur. **This is how D20's question was answered WITHOUT harvesting D20** — a new population, not a re-score |
 | **F75** | New (wave 21): the wave held **two standards for its two interlocks**. `B21_ARM_READY` is driver-written, last, only on `>= 4` rows, under an explicit *"never hand-write the marker"*; `G21_PASSED` — the one the arm blocks on — was a controller `printf` named only in the plan. **An interlock whose writer is a human is a note, not an interlock.** One-line repair named in the entry |
 | **F45(b)** | **REJECTED ON TIME by wave 21** (~3–4 h against a 3 h 25 m wave). Remains behind the RULE S16 fence, §3a |
 | **F59** | **REJECTED ON THE MERITS** (wave 20's measurement, wave 21 concurring). §2 carries the corrected costing — do not re-cost it at "~1 h" |
 | **F15** | 42 of 42 bank landings byte-identical for **eight consecutive waves**. Wave 21's other three controls also passed: **59 of 59** aux files, **48 of 48** prior-wave arm landings across three roots, **10 of 10** wave-20 logs — all byte-identical, **0 could-not-look** |
-| **the suite** | **3891** (3839 + 49 + 3, the F70(b′) partition probe), verified **by COUNT** (`Failed: 0, Passed: 3891, Skipped: 0`). **"3781", "3831", "3838" and "3839" are ALL stale.** Verify by count, never the tick ([F37](followups.md)) |
+| **the suite** | **3922**, verified by COUNT. **Everything below 3922 in older docs is stale.** Verify by count, never the tick ([F37](followups.md)) |
 
 **Artifacts:** `D:\hf_w17\` … `D:\hf_w21\`. Reusable: `score_w12.py` (the gate), `prov_w<N>.py` (free controls,
 self-testing), `convert_landing_w15.py` (landing → harness settings, via the production Accept path),
 `bank_fingerprint_w15.py`, `aux_fingerprint_w17.py`, `arm_fingerprint_w19.py`, `log_fingerprint_w20.py`,
 `score_r19_w19.py` (the 33-key landing differ), `score_d20_w20.py` (the `optimize/detected` reader),
 `layout_w21.sh` (the shared path layout) and `b21_manifest.tsv` (the driver→scorer handoff, §4).
+
+---
+
+## 1b. WHAT CHANGED AFTER WAVE 21 (product work, not a wave)
+
+Between wave 21 and now, the owner directed a run of UI fixes. These shipped on the same branch and are **not**
+wave output — no pre-registration, no rules, just requested product changes with tests:
+
+| commit | change |
+|---|---|
+| `e605c89` | the optimizer wizard defaults to **Live Auto-Focus** (was Saved). Flipping it broke 13 tests **and hung the fixture**, because dozens of tests call `StartAsync` without naming a source and Live waits on a camera. Fixed at the shared `NewVM` helper, which now pins `Replay`; three tests pass `sourceMode: null` to observe the product default |
+| `4be89de` … `4d762af` | **F76**, eight rounds — see the register |
+| `11e9633` | `ClampWindowToWorkArea` attached to the two standalone review windows, **clamp only**. Growing is the opt-in `FitContent`, OFF by default: those windows host an image viewport whose ScrollViewer extent is the IMAGE |
+| `bdb61c8` | `Suspended` attached property (wizard binds `ShowProgress`) so the window does not resize on every status line during a run, and fits **once** on release |
+
+**F70(b′) was REJECTED by the owner** and is closed — do not re-propose deleting the 20 preset-owned literals.
+The Simple-mode preset system owns the whole detector configuration; the "20 owned / 33 live" split is a
+snapshot of what currently *varies*, not a design boundary. The tests that pin it were renamed
+`DerivationAssignedProperties_*` for exactly that reason.
 
 ---
 
@@ -73,8 +92,8 @@ a control it does not have. Name the check that *does* reach them instead.
 | the **joint-path** behaviour of the `optimize/detected` dump | **NO** — every arm in this series is `--per-run`. Settled in source: `ApplyRunDetectionBinningIfRequested` has exactly one call site (`OptimizationDiagnosticRunner.cs:675`, pinned by a test) | **~5 m**, and **nothing in the register depends on it** |
 | the **out-of-sample pass over wave 18's 40 arm landings** | **NO** — it is `af-fit` over landings already paid for. The population is **provably unspent** (48 of 48 byte-identical, three waves running) | **~8 m** |
 | **F67's residual thread** (not F67, which is closed) | partly — needs `af-fit` at **both** binning factors. The seven factor-2 datasets' published landings were produced at factor 2 while thirteen waves of `af-fit` evidence about them was produced at factor 1. **No `BestJ` may be quoted across the two factors** ([F62](followups.md)) | **~30 m** of `af-fit` + a rule |
-| **[F76](followups.md)** — the wizard's clipped action row | **NO.** A XAML layout fix (ScrollViewer + pinned action row). The suite does **not** reach it — 180 VM tests pass today. The reaching check must assert the **rendered** layout: measure the result page at a constrained height and assert the action row's bounds fall inside the window | **~30 m** + a rendered-layout test |
-| **F72 / item C** — A5, A7, A8 as rendered pixels | **NO.** A5/A7 are **blocked on F76** — fix it first or they cannot be reached at all. A8 needs a saved run whose recommended step is actually **capped**; reaching the summary is not enough | **~20 m** after F76 |
+| **[F76](followups.md)** | **DONE — remove from the backlog.** Fixed and field-confirmed | — |
+| **F72 / item C** — A5, A7, A8 as rendered pixels | **NO.** A5/A7 are **UNBLOCKED** now that F76 is fixed: `Continue optimizing`, `Accept` and `Close` all render. A8 still needs a saved run whose recommended step is actually **capped**; reaching the summary is not enough | **~20 m** |
 | **F73's honest missing arm — the CODE axis** | it *is* the arm: same 20 datasets, a binary differing by a change **believed inert on the search**, all **33** keys diffed. Wave 19's `git diff --name-only <old> <new> -- '*.cs'` line is now mandatory provenance for any two-binary rule | **~53 m** |
 | **F59** | **NO, and the cost is not "~1 h".** `DerivePresetSettings()` assigns four of the five (`MaxDistortion`, `StarCenterTolerance`, `HotpixelThreshold`, `Sensitivity`), so under the pinned file's `UseAdvanced=False` they are **overwritten on load** and repairing the exporter changes the detector by exactly nothing for them. The fifth, `SaturationThreshold`, is **not** preset-owned and **would** bind — making this a **coordinate-system move owing a fresh 42 m baseline**, and that is the whole price | **42 m baseline** + re-derivation |
 | **F45(b)** production plumbing | **NO.** Fenced, §3a. `N*` is not reachable in `AutoFocusEngine` (`:901` drops the count into `MeasureAndError`, a NuGet struct of two doubles) | **~3–4 h** + tests |
