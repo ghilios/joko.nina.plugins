@@ -642,6 +642,15 @@
                         HorizontalAlignment="Center"
                         Text="{Binding CaptureContextText}"
                         Visibility="{Binding IsCapturing, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                    <!--  F79 — frames done INSIDE the current evaluation. Shown only while the search is in a
+                          context-rebuilding step, which is the only step long enough for the evaluation counter to
+                          look stuck. This is what distinguishes "working" from "hung".  -->
+                    <TextBlock
+                        Margin="0,0,0,6"
+                        HorizontalAlignment="Center"
+                        Opacity="0.75"
+                        Text="{Binding EvaluationFrameProgressText, Mode=OneWay}"
+                        Visibility="{Binding HasEvaluationFrameProgress, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                     <ProgressBar
                         Height="18"
                         IsIndeterminate="{Binding IsProgressIndeterminate}"

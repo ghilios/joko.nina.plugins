@@ -38,6 +38,7 @@ using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -393,7 +394,138 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        // ---- Stars per accepted curve point --------------------------------------------------------------
+        //
+        // How many stars the curve was actually built from is the difference between a result to trust and one
+        // that happened to land: an eleven-point sweep whose best point found 40 stars is a different object from
+        // one whose worst found 400, and nothing else on the panel says which you have.
+        //
+        // Sourced from SubMeasurementPointCompleted, which already carries each frame's StarDetectionResult, so
+        // no engine or event change is needed. That event is raised ONLY by FocusPointMeasurementAction, so the
+        // initial-HFR and final-validation frames — which are not curve points — never enter the map.
+        // The handler fires concurrently across focuser positions, hence the lock.
+        private readonly object starCountLock = new object();
+
+        private readonly Dictionary<int, List<int>> starCountsByFocuserPosition = new Dictionary<int, List<int>>();
+
+        private int acceptedStarCountMin = -1;
+        private int acceptedStarCountMax = -1;
+
+        /// <summary>Fewest accepted stars found at any point the curve was fitted on; -1 when not known.</summary>
+        public int AcceptedStarCountMin {
+            get => acceptedStarCountMin;
+            private set {
+                if (acceptedStarCountMin != value) {
+                    acceptedStarCountMin = value;
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(AcceptedStarCountRangeText));
+                    RaisePropertyChanged(nameof(HasAcceptedStarCountRange));
+                }
+            }
+        }
+
+        /// <summary>Most accepted stars found at any point the curve was fitted on; -1 when not known.</summary>
+        public int AcceptedStarCountMax {
+            get => acceptedStarCountMax;
+            private set {
+                if (acceptedStarCountMax != value) {
+                    acceptedStarCountMax = value;
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(AcceptedStarCountRangeText));
+                    RaisePropertyChanged(nameof(HasAcceptedStarCountRange));
+                }
+            }
+        }
+
+        /// <summary>False collapses the row, which is what a run (or a loaded report) that never recorded star
+        /// counts must do — showing 0 would read as "found no stars".</summary>
+        public bool HasAcceptedStarCountRange => acceptedStarCountMin >= 0 && acceptedStarCountMax >= acceptedStarCountMin;
+
+        /// <summary>"412 – 1,067" over the accepted points, or the single value when the range is degenerate.</summary>
+        public string AcceptedStarCountRangeText =>
+            !HasAcceptedStarCountRange
+                ? string.Empty
+                : acceptedStarCountMin == acceptedStarCountMax
+                    ? acceptedStarCountMin.ToString("N0", CultureInfo.CurrentCulture)
+                    : $"{acceptedStarCountMin.ToString("N0", CultureInfo.CurrentCulture)} – {acceptedStarCountMax.ToString("N0", CultureInfo.CurrentCulture)}";
+
+        /// <summary>Records one frame's accepted-star count against its focuser position. Silently ignores a
+        /// measurement with no star detection behind it (contrast-detection AF), which correctly leaves the row
+        /// collapsed rather than reporting a range of zeros.
+        /// internal so tests can feed per-frame counts without driving a full engine run.</summary>
+        internal void RecordFrameStarCount(int focuserPosition, StarDetectionResult result) {
+            if (result == null) {
+                return;
+            }
+            lock (starCountLock) {
+                if (!starCountsByFocuserPosition.TryGetValue(focuserPosition, out var counts)) {
+                    counts = new List<int>();
+                    starCountsByFocuserPosition[focuserPosition] = counts;
+                }
+                counts.Add(result.DetectedStars);
+            }
+        }
+
+        /// <summary>
+        /// Recomputes the min/max over the points the curve is ACTUALLY fitted on: every measured position minus
+        /// the Grubbs-rejected ones and minus the symmetric-window exclusions. Both sets are re-synced to their
+        /// final values at completion, so this is called from the live per-point handler AND from completion.
+        ///
+        /// <para>A position measured with FramesPerPoint &gt; 1 is pooled by MEAN across its frames, matching how
+        /// <see cref="AutoFocusEngine.TryCompleteFocuserPoint"/> pools that position's HFR into the one point the
+        /// fit sees.</para>
+        ///
+        /// internal so the accepted-vs-rejected partition is testable without driving a full engine run.
+        /// </summary>
+        internal void UpdateAcceptedStarCountRange(
+                IReadOnlyList<AutoFocusRegionPoint> rejectedPoints,
+                IReadOnlyList<AutoFocusRegionPoint> windowExcludedPoints) {
+            var excluded = new HashSet<int>();
+            if (rejectedPoints != null) {
+                foreach (var p in rejectedPoints) {
+                    excluded.Add(p.FocuserPosition);
+                }
+            }
+            if (windowExcludedPoints != null) {
+                foreach (var p in windowExcludedPoints) {
+                    excluded.Add(p.FocuserPosition);
+                }
+            }
+
+            var min = int.MaxValue;
+            var max = int.MinValue;
+            lock (starCountLock) {
+                foreach (var entry in starCountsByFocuserPosition) {
+                    if (entry.Value.Count == 0 || excluded.Contains(entry.Key)) {
+                        continue;
+                    }
+                    var pooled = (int)Math.Round(entry.Value.Average(), MidpointRounding.AwayFromZero);
+                    if (pooled < min) { min = pooled; }
+                    if (pooled > max) { max = pooled; }
+                }
+            }
+
+            if (min > max) {
+                AcceptedStarCountMin = -1;
+                AcceptedStarCountMax = -1;
+            } else {
+                AcceptedStarCountMin = min;
+                AcceptedStarCountMax = max;
+            }
+        }
+
+        /// <summary>Drops the accumulated per-frame counts (a new run, or a failed iteration whose points the
+        /// engine has just discarded, supersedes them) and collapses the row.</summary>
+        private void ClearAcceptedStarCounts() {
+            lock (starCountLock) {
+                starCountsByFocuserPosition.Clear();
+            }
+            AcceptedStarCountMin = -1;
+            AcceptedStarCountMax = -1;
+        }
+
         private void ClearCharts() {
+            ClearAcceptedStarCounts();
             InitialHFR = 0.0d;
             FinalHFR = 0.0d;
             InitialFocuserPosition = -1;
@@ -458,7 +590,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 region: region,
                 starDetectionOptions: this.starDetectionOptions,
                 autoFocusOptions: this.autoFocusOptions,
-                duration: duration);
+                duration: duration,
+                acceptedStarCountMin: AcceptedStarCountMin,
+                acceptedStarCountMax: AcceptedStarCountMax);
             if (report != null) {
                 MarkReportGenerated(report.Timestamp);
             }
@@ -478,6 +612,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             liveInitialFocuserPosition = InitialFocuserPosition;
             liveInitialHFR = InitialHFR;
             liveFinalHFR = FinalHFR;
+            liveAcceptedStarCountMin = AcceptedStarCountMin;
+            liveAcceptedStarCountMax = AcceptedStarCountMax;
         }
 
         // Timestamp of the last report generated BY this VM (null until a run completes here). See MarkReportGenerated.
@@ -487,6 +623,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private int liveInitialFocuserPosition = -1;
         private double liveInitialHFR;
         private double liveFinalHFR;
+        private int liveAcceptedStarCountMin = -1;
+        private int liveAcceptedStarCountMax = -1;
 
         /// <summary>
         /// How <see cref="SetCurveFittings"/> recovers a FOREIGN chart's own initial position / Start HFR / HFR
@@ -512,7 +650,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             DataPoint finalFocusPoint,
             ReportAutoFocusPoint lastAutoFocusPoint,
             StarDetectionRegion region,
-            TimeSpan duration) {
+            TimeSpan duration,
+            int acceptedStarCountMin = -1,
+            int acceptedStarCountMax = -1) {
             try {
                 var report = HocusFocusReport.GenerateReport(
                     profileService,
@@ -529,7 +669,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     region,
                     starDetectionOptions,
                     autoFocusOptions,
-                    duration
+                    duration,
+                    acceptedStarCountMin,
+                    acceptedStarCountMax
                 );
 
                 var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
@@ -655,11 +797,29 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 InitialFocuserPosition = liveInitialFocuserPosition;
                 InitialHFR = liveInitialHFR;
                 FinalHFR = liveFinalHFR;
+                AcceptedStarCountMin = liveAcceptedStarCountMin;
+                AcceptedStarCountMax = liveAcceptedStarCountMax;
                 return;
             }
             InitialFocuserPosition = ResolveReportInitialFocuserPosition(report);
             InitialHFR = ResolveReportHfr(report?.InitialFocusPoint?.Value);
             FinalHFR = ResolveReportHfr(report?.FinalHFR);
+            // The loaded run's own star range, or the collapsed sentinel. Core's LoadChart rebuilds FocusPoints
+            // but carries no per-point star counts, so this row can only ever come from the report.
+            var (starMin, starMax) = ResolveReportStarCountRange(report);
+            AcceptedStarCountMin = starMin;
+            AcceptedStarCountMax = starMax;
+        }
+
+        /// <summary>
+        /// The loaded report's accepted-star range, or <c>(-1, -1)</c> — the collapsed row — for anything that is
+        /// not a coherent recorded pair. A report from core or another auto-focuser has no such field at all and
+        /// lands here, which is correct: it genuinely does not know.
+        /// </summary>
+        private static (int Min, int Max) ResolveReportStarCountRange(HocusFocusReport report) {
+            var min = report?.AcceptedStarCountMin ?? -1;
+            var max = report?.AcceptedStarCountMax ?? -1;
+            return min >= 0 && max >= min ? (min, max) : (-1, -1);
         }
 
         /// <summary>
@@ -963,7 +1123,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     region: firstRegion.Region,
                     hocusFocusStarDetectionOptions: this.starDetectionOptions,
                     hocusFocusAutoFocusOptions: this.autoFocusOptions,
-                    duration: e.Duration);
+                    duration: e.Duration,
+                    acceptedStarCountMin: AcceptedStarCountMin,
+                    acceptedStarCountMax: AcceptedStarCountMax);
 
                 SaveRegionReport(e.SaveFolder, e.Iteration, report);
             }
@@ -975,6 +1137,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             PlotCoreFocusPoints.Clear();
             PlotWindowExcludedFocusPoints.Clear();
             RaisePropertyChanged(nameof(HasWindowExcludedFocusPoints));
+            // The next attempt re-measures from scratch, so this attempt's per-frame counts must not survive into
+            // its range — exactly as its focus points do not survive into its curve.
+            ClearAcceptedStarCounts();
         }
 
         private void AutoFocusEngine_CompletedNoReport(object sender, AutoFocusFinishedEventArgsBase e) {
@@ -1021,6 +1186,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // arrives here (empty on the live per-point events). Move them into the hollow-ring overlay and out of the
             // filled/line display series (see ApplyWindowExclusionToDisplay); FocusPoints is left intact.
             ApplyWindowExclusionToDisplay(firstRegion.WindowExcludedPoints);
+
+            // Re-sync the star-count range to the FINAL accepted set, for the same reason the two overlays above
+            // are re-synced: the live per-point events see only the intermediate Grubbs flags and never see the
+            // window exclusions at all.
+            UpdateAcceptedStarCountRange(firstRegion.RejectedPoints, firstRegion.WindowExcludedPoints);
 
             RefreshFinalFocusPointError();
             AutoFocusDuration = e.Duration;
@@ -1081,6 +1251,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
             RaisePropertyChanged(nameof(HasWindowExcludedFocusPoints));
 
+            UpdateAcceptedStarCountRange(e.RejectedPoints, e.WindowExcludedPoints);
+
             this.TrendlineFitting = e.Fittings.TrendlineFitting;
             this.GaussianFitting = e.Fittings.GaussianFitting;
             this.HyperbolicFitting = e.Fittings.HyperbolicFitting;
@@ -1126,9 +1298,18 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public bool ReviewFramesAvailable => reviewSnapshot?.Frames.Count > 0;
 
         private void AutoFocusEngine_SubMeasurementPointCompleted(object sender, AutoFocusSubMeasurementPointCompletedEventArgs e) {
-            // Standard (non-inspector) AF uses a single region 0; the image is only present when PreserveExposures was
-            // forced on (i.e. frameReviewRequestedForRun). Accumulate one tuple per fired frame.
-            if (!frameReviewRequestedForRun || e.RegionIndex != 0) {
+            // Standard (non-inspector) AF uses a single region 0.
+            if (e.RegionIndex != 0) {
+                return;
+            }
+
+            // Accepted-star count for this frame, accumulated for EVERY run (not just review runs) — it is one int
+            // and it is the only place the panel can learn how many stars the curve was built from.
+            RecordFrameStarCount(e.FocuserPosition, e.StarDetectionResult);
+
+            // The image is only present when PreserveExposures was forced on (i.e. frameReviewRequestedForRun).
+            // Accumulate one tuple per fired frame.
+            if (!frameReviewRequestedForRun) {
                 return;
             }
             if (e.StarDetectionResult is not HocusFocusStarDetectionResult hf || e.Image == null) {

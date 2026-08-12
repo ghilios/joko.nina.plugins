@@ -77,12 +77,14 @@ public class HocusFocusVMChartReloadTests {
     /// report's own <c>DateTime.Now</c> and the file name's land on opposite sides of a second boundary.
     /// </summary>
     private void WriteReport(DateTime timestamp, double initialPosition, double initialHfr, double finalHfr,
-                             DateTime? fileNameStamp = null) {
+                             DateTime? fileNameStamp = null, int starCountMin = -1, int starCountMax = -1) {
         var report = new HocusFocusReport {
             Timestamp = timestamp,
             InitialFocusPoint = new FocusPoint { Position = initialPosition, Value = initialHfr },
             CalculatedFocusPoint = new FocusPoint { Position = 5000, Value = 2.0 },
             FinalHFR = finalHfr,
+            AcceptedStarCountMin = starCountMin,
+            AcceptedStarCountMax = starCountMax,
             Method = AFMethodEnum.STARHFR.ToString(),
             Fitting = AFCurveFittingEnum.TRENDHYPERBOLIC.ToString(),
             MeasurePoints = Array.Empty<FocusPoint>()
@@ -185,6 +187,48 @@ public class HocusFocusVMChartReloadTests {
             Assert.That(vm.PlotWindowExcludedFocusPoints, Is.Empty,
                 "the previous run's hollow overlay must not survive a chart load");
             Assert.That(vm.HasWindowExcludedFocusPoints, Is.False);
+        });
+    }
+
+    // DISCRIMINATING: the star-count row can ONLY come from the report — core's LoadChart rebuilds FocusPoints from
+    // the report's measure points, which carry no per-point star counts at all.
+    [Test]
+    public void CoreLoadChart_ForeignRun_RendersTheLoadedRunsOwnStarCountRange() {
+        var vm = BuildVM();
+        SeedLiveRunState(vm, new[] { 900, 950, 1000, 1050, 1100 });
+        vm.MarkReportGenerated(new DateTime(2026, 7, 28, 23, 0, 0));
+
+        var loadedTimestamp = new DateTime(2026, 8, 5, 21, 47, 43, 829);
+        WriteReport(loadedTimestamp, initialPosition: 25000.0, initialHfr: 0.70, finalHfr: 0.71,
+                    starCountMin: 412, starCountMax: 1067);
+
+        SimulateCoreLoadChart(vm, WellCenteredSweep(), new DataPoint(5000, 2.0), loadedTimestamp);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.AcceptedStarCountMin, Is.EqualTo(412));
+            Assert.That(vm.AcceptedStarCountMax, Is.EqualTo(1067));
+            Assert.That(vm.HasAcceptedStarCountRange, Is.True);
+        });
+    }
+
+    // GUARD: a report written before the range existed (or by another auto-focuser) records nothing, and the row
+    // must collapse rather than keep whatever the previous run left on screen.
+    [Test]
+    public void CoreLoadChart_ForeignRunWithoutARecordedRange_CollapsesTheStarCountRow() {
+        var vm = BuildVM();
+        SeedLiveRunState(vm, new[] { 900, 950, 1000, 1050, 1100 });
+        vm.RecordFrameStarCount(1000, new NINA.Image.ImageAnalysis.StarDetectionResult { DetectedStars = 900 });
+        vm.UpdateAcceptedStarCountRange(null, null);
+        Assume.That(vm.HasAcceptedStarCountRange, Is.True, "the previous run's range must be on screen first");
+
+        var loadedTimestamp = new DateTime(2026, 8, 5, 21, 47, 43, 829);
+        WriteReport(loadedTimestamp, initialPosition: 25000.0, initialHfr: 0.70, finalHfr: 0.71);
+
+        SimulateCoreLoadChart(vm, WellCenteredSweep(), new DataPoint(5000, 2.0), loadedTimestamp);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.HasAcceptedStarCountRange, Is.False);
+            Assert.That(vm.AcceptedStarCountMin, Is.EqualTo(-1));
         });
     }
 

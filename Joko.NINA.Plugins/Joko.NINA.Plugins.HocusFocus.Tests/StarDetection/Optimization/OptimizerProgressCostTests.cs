@@ -79,6 +79,128 @@ public class OptimizerProgressCostTests {
             $"a {evaluations}-evaluation search must report at least {expectedFloor} times, not once per phase");
     }
 
+    // ── F79: which steps are expensive, and saying so before the wait rather than after ──────────────────────
+    //
+    // An EARLY-axis move rebuilds AND evicts every frame's DetectionContext; a LATE move re-scores the cached
+    // one. The two differ by one to two orders of magnitude, the search runs them in blocks, and the panel
+    // previously could not tell them apart -- so a block of early probes froze the counter for minutes with
+    // nothing on screen to distinguish it from a hang, and the blended per-step mean made the "at most N more"
+    // bound an underestimate exactly when it mattered.
+
+    [Test]
+    public async Task Progress_ReportsOnEveryCompletedEvaluation_NotOnlyEveryTenth() {
+        // DISCRIMINATING: the reason the counter freezes. At one report per ten evaluations a block of 38 s
+        // early probes is six minutes of a motionless bar. Restore the every-tenth gate on the UI report and the
+        // report count drops to ~1/10 of the evaluation count.
+        var progress = await RunSearch();
+        var evaluations = progress.Reports.Max(r => r.Evaluations);
+
+        Assert.That(progress.Reports.Count, Is.GreaterThanOrEqualTo(evaluations),
+            "every completed evaluation must refresh the readout; the once-per-ten cadence is for the LOG");
+    }
+
+    [Test]
+    public async Task ExpensiveStep_IsAnnouncedBEFOREItRuns_NotOnlyAfterItFinishes() {
+        // The announcement has to precede the wait or it is worthless: the whole complaint is the silence WHILE
+        // the step runs. A pre-report is identifiable as one carrying StepIsExpensive with the SAME evaluation
+        // count as the previous report (nothing has completed yet).
+        // DISCRIMINATING: delete the ReportInFlight call and no such pair exists.
+        var progress = await RunSearch();
+
+        var announcedEarly = false;
+        for (var i = 1; i < progress.Reports.Count; i++) {
+            if (progress.Reports[i].StepIsExpensive &&
+                progress.Reports[i].Evaluations == progress.Reports[i - 1].Evaluations) {
+                announcedEarly = true;
+                break;
+            }
+        }
+        Assert.That(announcedEarly, Is.True,
+            "an expensive step must be announced at the START of the wait, not after it");
+    }
+
+    [Test]
+    public async Task StructureLayerProbes_AreClassifiedExpensive_AndSensitivityProbesAreNot() {
+        // The classification is measured at its cause -- the early cache key -- so it must hold across phases.
+        // Phase A grids Sensitivity x StarClippingMultiplier, both LATE, so nothing there can be expensive;
+        // Phase B's early stage moves StructureLayers, which is EARLY, so something must be.
+        var progress = await RunSearch();
+
+        Assert.Multiple(() => {
+            Assert.That(progress.Reports.Any(r => r.StepIsExpensive), Is.True,
+                "a search that walks the structure-layer axis must report expensive steps");
+            Assert.That(progress.Reports.Any(r => !r.StepIsExpensive), Is.True,
+                "the coarse grid moves only LATE axes and must stay cheap");
+            Assert.That(progress.Reports.All(r => r.ExpensiveStepsPossible), Is.True,
+                "the curated set contains early axes, so no projection may be offered for this search");
+        });
+    }
+
+    [Test]
+    public async Task CheapAndExpensiveRates_AreTrackedSeparately_NotAsOneBlendedMean() {
+        // DISCRIMINATING: one blended mean is the reason the old bound was not a bound. Both split rates must be
+        // real finite numbers by the end of a search that ran both kinds of step.
+        var progress = await RunSearch();
+        var last = progress.Reports.Last();
+
+        Assert.Multiple(() => {
+            Assert.That(double.IsFinite(last.SecondsPerCheapEvaluation), Is.True,
+                "the cache-hit rate is what tells the user most steps are fast");
+            Assert.That(double.IsFinite(last.SecondsPerExpensiveEvaluation), Is.True,
+                "the rebuild rate is what tells the user why it has stopped moving");
+            Assert.That(last.SecondsPerCheapEvaluation, Is.GreaterThanOrEqualTo(0.0));
+            Assert.That(last.SecondsPerExpensiveEvaluation, Is.GreaterThanOrEqualTo(0.0));
+        });
+    }
+
+    [Test]
+    public async Task ASearchWithNoEarlyAxes_ReportsThatNoExpensiveStepIsPossible() {
+        // The narrowed feedback path can hand the search a purely LATE variable set. That search genuinely has a
+        // uniform step cost, and the wizard is entitled to keep projecting a duration for it -- so the flag has
+        // to distinguish the two rather than being hardcoded on.
+        // DISCRIMINATING against reporting ExpensiveStepsPossible unconditionally.
+        var progress = new SyncProgress();
+        var lateOnly = OptimizerVariable.CreateCuratedSet()
+            .Where(v => !StarDetector.IsEarlyCacheKeyParameter(v.Name))
+            .ToList();
+        Assume.That(lateOnly, Is.Not.Empty);
+
+        await new StarDetectionOptimizer().OptimizeAsync(
+            new StarDetectorParams { Sensitivity = 2.0, StarClippingMultiplier = 2.0, StructureLayers = 4 },
+            lateOnly, Evaluator(),
+            new OptimizerSettings { MaxEvaluations = 120, CoarseGridLevels = 4, StepFloorFraction = 0.125 },
+            progress, CancellationToken.None);
+
+        Assert.Multiple(() => {
+            Assert.That(progress.Reports.Any(), Is.True);
+            Assert.That(progress.Reports.All(r => !r.ExpensiveStepsPossible), Is.True);
+            Assert.That(progress.Reports.All(r => !r.StepIsExpensive), Is.True,
+                "with no early axis to move, no candidate can force a context rebuild");
+        });
+    }
+
+    [Test]
+    public async Task TheSeedEvaluation_ContributesToNeitherRate() {
+        // The seed's cost depends entirely on the CALLER: the wizard pre-warms every frame's context before the
+        // search starts, TestApp does not. Folding it into either class would mis-scale that class by exactly
+        // the amount the caller's warm-up did or did not do.
+        // DISCRIMINATING: count the seed as expensive and a search with ZERO early moves still reports a finite
+        // expensive rate.
+        var progress = new SyncProgress();
+        var lateOnly = OptimizerVariable.CreateCuratedSet()
+            .Where(v => !StarDetector.IsEarlyCacheKeyParameter(v.Name))
+            .ToList();
+
+        await new StarDetectionOptimizer().OptimizeAsync(
+            new StarDetectorParams { Sensitivity = 2.0, StarClippingMultiplier = 2.0, StructureLayers = 4 },
+            lateOnly, Evaluator(),
+            new OptimizerSettings { MaxEvaluations = 120, CoarseGridLevels = 4, StepFloorFraction = 0.125 },
+            progress, CancellationToken.None);
+
+        Assert.That(double.IsNaN(progress.Reports.Last().SecondsPerExpensiveEvaluation), Is.True,
+            "no expensive step ran, so there is no expensive rate to report");
+    }
+
     [Test]
     public async Task Progress_CarriesElapsedAndPerEvaluationCost() {
         var progress = await RunSearch();
@@ -209,6 +331,94 @@ public class OptimizerProgressCostTests {
             Assert.That(StarDetectionOptimizerWizardVM.BuildSearchExposureAdvice(
                 new[] { SeedMetrics(600, 200) }, HocusFocusStarDetection.BuildDefaultStarDetectorParams(), 0.0),
                 Is.Empty, "an unknown exposure has nothing to say about exposure");
+        });
+    }
+
+    // ── F79: the copy the user reads ────────────────────────────────────────────────────────────────────────
+
+    [Test]
+    public void TimingText_WithExpensiveStepsPossible_OffersNoProjectedDuration() {
+        // THE DECISION. The old line read "at most N more" off ONE blended mean, which is not a bound: the search
+        // opens with a seed and a coarse grid that are all cache hits, so the mean is small right up to the moment
+        // the first early stage multiplies the real remaining cost tenfold. The mix is also not knowable in
+        // advance. So no duration is offered at all.
+        // DISCRIMINATING: reinstate any projection and "at most"/"h"/"min more" reappears.
+        var text = StarDetectionOptimizerWizardVM.BuildProgressTimingText(
+            expensiveStepsPossible: true, blendedSeconds: 3.4, cheapSeconds: 3.1, expensiveSeconds: 38.0, remaining: 188);
+
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("188 steps left"));
+            Assert.That(text, Does.Contain("fast steps"));
+            Assert.That(text, Does.Contain("slow steps"));
+            Assert.That(text, Does.Not.Contain("at most"), "the figure that was never a bound must not return");
+            Assert.That(text, Does.Not.Contain("usually much less"));
+            // The line ENDS at the step count. Asserting the ending rather than the absence of particular words
+            // is what keeps this discriminating against a projection returning under any new wording.
+            Assert.That(text, Does.EndWith("188 steps left"));
+        });
+    }
+
+    [Test]
+    public void TimingText_WithNoEarlyAxes_KeepsTheBoundedForm() {
+        // A purely LATE variable set (the narrowed feedback path) genuinely has a uniform step cost, so a
+        // projection there is honest and is the more useful line. DISCRIMINATING against withholding it always.
+        var text = StarDetectionOptimizerWizardVM.BuildProgressTimingText(
+            expensiveStepsPossible: false, blendedSeconds: 2.0, cheapSeconds: 2.0, expensiveSeconds: double.NaN, remaining: 90);
+
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("at most"));
+            Assert.That(text, Does.Contain("3 min more"));
+            Assert.That(text, Does.Contain("usually much less"));
+        });
+    }
+
+    [Test]
+    public void TimingText_BeforeEitherClassHasBeenMeasured_SaysNothing() {
+        // GUARD: the first moments of a search have measured nothing, and inventing a rate there is worse than an
+        // empty row.
+        Assert.That(StarDetectionOptimizerWizardVM.BuildProgressTimingText(
+            expensiveStepsPossible: true, blendedSeconds: double.NaN,
+            cheapSeconds: double.NaN, expensiveSeconds: double.NaN, remaining: 250), Is.Empty);
+    }
+
+    [Test]
+    public void TimingText_WithOnlyOneClassMeasured_ReportsThatOneRatePlainly() {
+        // Before the first early stage arrives only the cache-hit rate exists. Labelling it "fast steps" with no
+        // "slow steps" to contrast against would be meaningless, so it degrades to the plain form.
+        var text = StarDetectionOptimizerWizardVM.BuildProgressTimingText(
+            expensiveStepsPossible: true, blendedSeconds: 0.4, cheapSeconds: 0.4, expensiveSeconds: double.NaN, remaining: 200);
+
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("400 ms per step"));
+            Assert.That(text, Does.Contain("200 steps left"));
+            Assert.That(text, Does.Not.Contain("fast steps"));
+        });
+    }
+
+    [Test]
+    public void TimingText_AtTheBudgetCap_DropsTheStepsLeftClause() {
+        // GUARD: "0 steps left" is nonsense.
+        var text = StarDetectionOptimizerWizardVM.BuildProgressTimingText(
+            expensiveStepsPossible: true, blendedSeconds: 3.4, cheapSeconds: 3.1, expensiveSeconds: 38.0, remaining: 0);
+
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Not.Contain("steps left"));
+            Assert.That(text, Does.Contain("slow steps"));
+        });
+    }
+
+    [Test]
+    public void PhaseHeading_NamesTheSlowStepWhileOneIsRunning_AndIsUntouchedOtherwise() {
+        // The heading is the first thing read when the bar stops moving; if it still says "Refining settings"
+        // there is nothing on screen that distinguishes working from hung.
+        Assert.Multiple(() => {
+            Assert.That(StarDetectionOptimizerWizardVM.DecorateExpensivePhase("Refining settings", stepIsExpensive: true),
+                Is.EqualTo("Refining settings — slow step (re-analyzing every frame)"));
+            Assert.That(StarDetectionOptimizerWizardVM.DecorateExpensivePhase("Refining settings", stepIsExpensive: false),
+                Is.EqualTo("Refining settings"));
+            // GUARD: no bare suffix floating above the bar between phases.
+            Assert.That(StarDetectionOptimizerWizardVM.DecorateExpensivePhase(null, stepIsExpensive: true), Is.Null);
+            Assert.That(StarDetectionOptimizerWizardVM.DecorateExpensivePhase("", stepIsExpensive: true), Is.Empty);
         });
     }
 

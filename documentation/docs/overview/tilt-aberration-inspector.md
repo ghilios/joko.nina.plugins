@@ -164,8 +164,6 @@ star-matching, outlier-rejection, and save-images settings (plus **Astigmatic fi
 | **Simple Analysis exposure** (the unlabeled seconds box beside **Take Exposure**) | -1 (auto) | -1 or &gt;0 | "How long of an exposure to take for analysis. Defaults to the Auto Focus exposure duration if not set." Sets the exposure for the single-frame Simple Analysis. |
 | **AutoFocus Exposure** | -1 (auto) | -1 or &gt;0 | Per-frame exposure for a Detailed Analysis sweep; defaults to the AutoFocus exposure duration when blank. The **Simple Analysis exposure** box sets the single-frame exposure instead. |
 | **Looping** | off | on/off | "If enabled, repeatedly take and analyze exposures." |
-| **Save annotated images when rerunning a saved autofocus** | off | on/off | Save registered/alignment images when reanalyzing saved runs. |
-| **Save alignment images** | off | on/off | Also save the pre-alignment star-detection images. |
 
 !!! tip "Sensor ROI protects the tilt fit"
     Restricting analysis to the well-corrected center (**Sensor ROI**) keeps a corner your

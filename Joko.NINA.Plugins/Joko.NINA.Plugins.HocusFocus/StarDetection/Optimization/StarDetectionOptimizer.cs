@@ -156,6 +156,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// </summary>
         public double SecondsPerEvaluation { get; set; } = double.NaN;
 
+        /// <summary>
+        /// F79 — true when the step this report describes rebuilds every frame's early
+        /// <c>DetectionContext</c> from scratch instead of re-scoring the cached one.
+        ///
+        /// <para>An EARLY-axis move (StructureLayers, NoiseClippingMultiplier, DetectionBinning, …) both rebuilds
+        /// AND evicts the per-frame context, so it costs a full detection per frame per run — one to two orders of
+        /// magnitude more than a LATE gate-only move, which is a pure cache hit. The search alternates blocks of
+        /// each, so the UI freezes for minutes at a time with no explanation unless it is told which kind of step
+        /// it is waiting on.</para>
+        ///
+        /// <para>Reported BEFORE an expensive evaluation starts as well as after it completes, so the panel can
+        /// say what it is doing at the start of the wait rather than after it.</para>
+        /// </summary>
+        public bool StepIsExpensive { get; set; }
+
+        /// <summary>F79 — whether this search's variable set contains any EARLY axis at all. Constant for a
+        /// search. False (only reachable through the narrowed feedback path) means every step costs the same, and
+        /// there a projected duration is honest; true means the remaining mix is unknowable and no projection may
+        /// be shown.</summary>
+        public bool ExpensiveStepsPossible { get; set; }
+
+        /// <summary>F79 — mean seconds per cache-hit (LATE) evaluation; NaN until one completes.</summary>
+        public double SecondsPerCheapEvaluation { get; set; } = double.NaN;
+
+        /// <summary>F79 — mean seconds per context-rebuilding (EARLY) evaluation; NaN until one completes.</summary>
+        public double SecondsPerExpensiveEvaluation { get; set; } = double.NaN;
+
         // F52's "which knob made it expensive" CostNote used to live here. It was keyed to the structure-layer
         // depth, whose legacy dense-SepFilter2D residual cost ~2× per layer; the sparse AtrousWaveletFast
         // implementation made per-layer cost nearly flat (whole-detect 648/670/738 ms at layers 4/6/8, 26 MP),
@@ -361,6 +388,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             private readonly Stopwatch searchClock = Stopwatch.StartNew();
             private double evaluatorSeconds;
 
+            // F79 — the same clock, SPLIT by what the evaluation actually cost. One blended mean is the reason the
+            // old "at most N more" bound was not a bound: the search opens with the seed and a coarse grid that
+            // are all cache hits, so the mean is tiny right up to the moment the first EARLY stage multiplies the
+            // true remaining cost by ~10.
+            private double cheapEvaluatorSeconds, expensiveEvaluatorSeconds;
+
+            private int cheapEvaluations, expensiveEvaluations;
+
+            // The early cache key of the last evaluation that actually invoked the evaluator. A candidate whose
+            // early key differs from it forces every frame's context to be rebuilt (and the previous one evicted),
+            // which IS the definition of an expensive step — so this, rather than a second copy of the staging
+            // logic, is what classifies a step. Memo hits run no detection and therefore do not move it.
+            private string lastEvaluatedEarlyKey;
+
+            /// <summary>F79 — whether the step currently in flight (or the last one completed) rebuilds contexts.</summary>
+            private bool stepIsExpensive;
+
             // The last (phase, J, σ) a caller Reported. A periodic in-search report reuses it so the readout can
             // refresh TIME every few evaluations without pretending J moved: J and σ genuinely only change at the
             // points the search compares candidates, and inventing fresher-looking values would be worse than
@@ -368,6 +412,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             private string lastPhase;
             private double lastBestJ, lastSeedJ, lastBestSigma = double.NaN;
             private int lastLoggedEvaluations;
+
+            // Whether a real Report has established an incumbent yet. Until it has there is no J or σ to describe,
+            // and a refresh carrying NaN σ would briefly blank the wizard's live focus-precision readout.
+            private bool hasReportedIncumbent;
 
             /// <summary>How often (in completed evaluations) a long search emits an INFO line and refreshes the
             /// live time readout. Small enough that a two-hour run is traceable minute-by-minute, large enough that
@@ -377,6 +425,18 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             /// <summary>F52 — mean seconds per COMPLETED evaluation; NaN before the first one finishes. Cache hits
             /// are excluded (they cost nothing and would flatter the figure).</summary>
             public double SecondsPerEvaluation => Evaluations > 0 ? evaluatorSeconds / Evaluations : double.NaN;
+
+            /// <summary>F79 — mean seconds per cache-hit evaluation; NaN until one completes.</summary>
+            public double SecondsPerCheapEvaluation =>
+                cheapEvaluations > 0 ? cheapEvaluatorSeconds / cheapEvaluations : double.NaN;
+
+            /// <summary>F79 — mean seconds per context-rebuilding evaluation; NaN until one completes.</summary>
+            public double SecondsPerExpensiveEvaluation =>
+                expensiveEvaluations > 0 ? expensiveEvaluatorSeconds / expensiveEvaluations : double.NaN;
+
+            /// <summary>F79 — true when this search has at least one EARLY axis to move, i.e. when an expensive
+            /// step can still occur. Constant for the search.</summary>
+            public bool ExpensiveStepsPossible => earlyIndices.Length > 0;
 
             public TimeSpan Elapsed => searchClock.Elapsed;
 
@@ -440,13 +500,47 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     return Judge(cached, memoKeep.TryGetValue(key, out var k) ? k : double.NaN, isSeed);
                 }
 
+                // F79 — classify BEFORE running it. A candidate whose early cache key differs from the last
+                // evaluated one rebuilds (and evicts) every frame's DetectionContext; one that matches re-scores
+                // the cached context. That is the whole cheap/expensive distinction, measured at its actual cause.
+                var earlyKey = StarDetector.ComputeEarlyCacheKey(p);
+                // The SEED is never classified. Whether it rebuilds or hits a warm cache depends entirely on what
+                // the caller did before calling — the wizard pre-warms it through AnalyzeWithProgressAsync (and
+                // shows its own "Analyzing frames" phase for that), TestApp does not — so it is a sample of
+                // neither class, and announcing it as a slow step would be wrong on the path users actually see.
+                // It does establish the key every later candidate is compared against.
+                var expensive = !isSeed && !string.Equals(earlyKey, lastEvaluatedEarlyKey, StringComparison.Ordinal);
+                lastEvaluatedEarlyKey = earlyKey;
+                stepIsExpensive = expensive;
+
+                // F79 — announce an expensive step at the START of the wait. The evaluation that follows can take
+                // minutes, and until it completes nothing else reports, so without this the panel goes silent
+                // with no explanation and reads as a hang.
+                if (expensive) {
+                    ReportInFlight();
+                }
+
                 // F52 — time the evaluator itself, not the surrounding bookkeeping, so SecondsPerEvaluation is the
                 // number a user can multiply by the remaining budget.
                 var evalStart = searchClock.Elapsed;
                 var runMetrics = await evaluator(p, token).ConfigureAwait(false);
-                evaluatorSeconds += (searchClock.Elapsed - evalStart).TotalSeconds;
+                var evalSeconds = (searchClock.Elapsed - evalStart).TotalSeconds;
+                evaluatorSeconds += evalSeconds;
                 Evaluations++;
-                MaybeReportProgress(theta);
+                // F79 — the SEED contributes to neither split rate. Whether it rebuilds contexts or hits a warm
+                // cache depends entirely on what the caller did before calling (the wizard pre-warms through
+                // AnalyzeWithProgressAsync; TestApp does not), so it is a sample of neither class and would
+                // mis-scale whichever one it landed in.
+                if (!isSeed) {
+                    if (expensive) {
+                        expensiveEvaluatorSeconds += evalSeconds;
+                        expensiveEvaluations++;
+                    } else {
+                        cheapEvaluatorSeconds += evalSeconds;
+                        cheapEvaluations++;
+                    }
+                }
+                ReportEvaluationCompleted();
 
                 double j;
                 if (runMetrics == null || runMetrics.Count == 0) {
@@ -587,34 +681,66 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 lastBestJ = bestJ;
                 lastSeedJ = seedJ;
                 lastBestSigma = SigmaFor(bestTheta);
+                hasReportedIncumbent = true;
+                Emit(phase, bestJ, seedJ, lastBestSigma);
+            }
+
+            /// <summary>The one place an <see cref="OptimizationProgress"/> is built, so every report — phase
+            /// boundary, in-flight announcement, per-evaluation refresh — carries the same timing fields.</summary>
+            private void Emit(string phase, double bestJ, double seedJ, double bestSigma) {
                 progress?.Report(new OptimizationProgress {
                     Evaluations = Evaluations,
                     MaxEvaluations = settings.MaxEvaluations,
                     BestJ = bestJ,
                     SeedJ = seedJ,
-                    BestSigmaFocus = lastBestSigma,
+                    BestSigmaFocus = bestSigma,
                     Phase = phase,
                     Elapsed = Elapsed,
-                    SecondsPerEvaluation = SecondsPerEvaluation
+                    SecondsPerEvaluation = SecondsPerEvaluation,
+                    StepIsExpensive = stepIsExpensive,
+                    ExpensiveStepsPossible = ExpensiveStepsPossible,
+                    SecondsPerCheapEvaluation = SecondsPerCheapEvaluation,
+                    SecondsPerExpensiveEvaluation = SecondsPerExpensiveEvaluation
                 });
             }
 
+            /// <summary>F79 — emitted just before a long evaluation begins, carrying the counts and J of the last
+            /// real report plus <see cref="OptimizationProgress.StepIsExpensive"/>. Nothing about the search has
+            /// changed yet; what has changed is that the user is now waiting, and is entitled to know on what.</summary>
+            private void ReportInFlight() {
+                if (hasReportedIncumbent) {
+                    Emit(lastPhase, lastBestJ, lastSeedJ, lastBestSigma);
+                }
+            }
+
             /// <summary>
-            /// F52 — every <see cref="ProgressEvaluationInterval"/> completed evaluations, emit ONE INFO log line
-            /// and refresh the live readout.
+            /// F52/F79 — called after EVERY completed evaluation. Refreshes the live readout each time; emits an
+            /// INFO log line only once per <see cref="ProgressEvaluationInterval"/>.
             ///
-            /// <para><b>Why this exists at all.</b> The search reports only at PHASE boundaries, and a phase can
-            /// run for over an hour. A real field session spent two hours here and the NINA log recorded a single
-            /// line for the whole duration, so "where did the time go?" was not answerable afterwards by anyone,
-            /// with any tool. One line per ten evaluations makes it answerable in seconds.</para>
+            /// <para><b>Why the readout refreshes every time (F79).</b> The two cadences answer different
+            /// questions. The log is read afterwards, where one line per ten evaluations is enough to reconstruct
+            /// where the time went. The panel is read WHILE waiting, and at ten evaluations per report a block of
+            /// expensive steps freezes the counter for minutes — which is indistinguishable from a hang. A report
+            /// is a <c>Progress&lt;T&gt;</c> post; doing it per evaluation costs nothing worth measuring.</para>
+            ///
+            /// <para><b>Why this exists at all (F52).</b> The search used to report only at PHASE boundaries, and a
+            /// phase can run for over an hour. A real field session spent two hours here and the NINA log recorded
+            /// a single line for the whole duration, so "where did the time go?" was not answerable afterwards by
+            /// anyone, with any tool.</para>
             ///
             /// <para>J and σ are carried over from the last real <see cref="Report"/> rather than recomputed: they
             /// only change where the search compares candidates, and showing a fresher-looking number than the
             /// search has actually produced would be worse than showing the last true one. What IS fresh — the
-            /// evaluation count, the elapsed time, the per-evaluation cost and the cost note — is exactly what was
-            /// missing.</para>
+            /// evaluation count, the elapsed time, and the per-evaluation costs — is exactly what was missing.</para>
             /// </summary>
-            private void MaybeReportProgress(double[] theta) {
+            private void ReportEvaluationCompleted() {
+                // Not before the first real Report: the seed evaluation completes with no incumbent recorded yet,
+                // and a refresh carrying NaN J/σ there would blank the live focus-precision readout for an instant.
+                // Report("Seed", …) follows it immediately, so nothing is lost by waiting for it.
+                if (hasReportedIncumbent) {
+                    Emit(lastPhase, lastBestJ, lastSeedJ, lastBestSigma);
+                }
+
                 if (Evaluations - lastLoggedEvaluations < ProgressEvaluationInterval) {
                     return;
                 }
@@ -624,18 +750,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     : string.Empty;
                 Logger.Info(
                     $"Optimizer progress: phase '{lastPhase ?? "search"}', evaluation {Evaluations}{budget}, "
-                    + $"elapsed {Elapsed:hh\\:mm\\:ss}, {SecondsPerEvaluation:0.0}s/evaluation, "
+                    + $"elapsed {Elapsed:hh\\:mm\\:ss}, {SecondsPerEvaluation:0.0}s/evaluation "
+                    + $"(cache-hit {SecondsPerCheapEvaluation:0.0}s x{cheapEvaluations}, "
+                    + $"rebuild {SecondsPerExpensiveEvaluation:0.0}s x{expensiveEvaluations}), "
                     + $"best J {lastBestJ:0.######}");
-                progress?.Report(new OptimizationProgress {
-                    Evaluations = Evaluations,
-                    MaxEvaluations = settings.MaxEvaluations,
-                    BestJ = lastBestJ,
-                    SeedJ = lastSeedJ,
-                    BestSigmaFocus = lastBestSigma,
-                    Phase = lastPhase,
-                    Elapsed = Elapsed,
-                    SecondsPerEvaluation = SecondsPerEvaluation
-                });
             }
 
             /// <summary>
