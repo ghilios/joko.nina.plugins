@@ -100,6 +100,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // Windows that opted in to growing to their content. Clamp-only is the default.
         private static readonly ConditionalWeakTable<Window, Window> fitContentWindows = new();
 
+        // ScrollViewers already wired to OnScrollChanged, mapped to the window they belong to.
+        private static readonly ConditionalWeakTable<ScrollViewer, Window> scrollHooked = new();
+
         private static void OnEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
             if (d is not FrameworkElement fe) {
                 return;
@@ -161,6 +164,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // The first shown step is small, but clamp the current bounds defensively in case it already overshoots.
             ApplyWorkAreaLimit(window, SystemParameters.WorkArea);
             ClampNow(hwnd);
+        }
+
+        private static void OnScrollChanged(object sender, ScrollChangedEventArgs e) {
+            // Only an EXTENT change means the content itself changed size (a step change). Scrolling the same
+            // content changes the offset and must not re-fit the window under the user.
+            if (Math.Abs(e.ExtentHeightChange) < 0.5 && Math.Abs(e.ExtentWidthChange) < 0.5) {
+                return;
+            }
+            if (sender is ScrollViewer sv && scrollHooked.TryGetValue(sv, out var w) && w != null) {
+                ApplyWorkAreaLimit(w, SystemParameters.WorkArea);
+            }
         }
 
         private static void OnWindowSizeChanged(object sender, SizeChangedEventArgs e) {
@@ -300,6 +314,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (scroller is null) {
                 LogOnce("F76 fit: DECLINED -- no ScrollViewer under the content root");
                 return false;
+            }
+            // LISTEN TO THE CONTENT, NOT ONLY TO THE WINDOW. Locking the window to Manual is what makes the height
+            // stick -- and it also means a wizard STEP CHANGE no longer resizes the window, so SizeChanged never
+            // fires and this method is never called again. Measured: the Review step produced no F76 line at all
+            // and kept the summary's width, W=843(was 843). ScrollChanged fires when the extent changes, which is
+            // exactly what a step change does, so it is the signal that survives locking the size.
+            if (!scrollHooked.TryGetValue(scroller, out _)) {
+                scrollHooked.Add(scroller, window);
+                scroller.ScrollChanged += OnScrollChanged;
             }
             var target = ChooseWindowHeightFromOverflow(current, scroller.ExtentHeight, scroller.ViewportHeight, work.Height);
             if (double.IsNaN(target)) {
