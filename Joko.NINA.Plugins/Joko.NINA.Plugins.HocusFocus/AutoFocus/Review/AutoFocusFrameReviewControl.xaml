@@ -1,10 +1,12 @@
-<review:ReviewViewportHostBase
+﻿<review:ReviewViewportHostBase
     x:Class="NINA.Joko.Plugins.HocusFocus.AutoFocus.Review.AutoFocusFrameReviewControl"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:clamp="clr-namespace:NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization"
     xmlns:hfconverters="clr-namespace:NINA.Joko.Plugins.HocusFocus.Converters"
     xmlns:review="clr-namespace:NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review"
-    Background="#FF1E2125">
+    Background="#FF1E2125"
+    clamp:ClampWindowToWorkArea.Enabled="True">
     <review:ReviewViewportHostBase.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
         <hfconverters:EnumStaticDescriptionValueConverter x:Key="HF_EnumStaticDescriptionValueConverter" />

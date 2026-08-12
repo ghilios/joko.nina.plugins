@@ -51,6 +51,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         public static void SetEnabled(DependencyObject obj, bool value) => obj.SetValue(EnabledProperty, value);
 
+        /// <summary>
+        /// Opt in to GROWING the window so the body's ScrollViewer shows everything, up to the work area — the
+        /// wizard's behaviour (F76). OFF by default, and deliberately so: <see cref="EnabledProperty"/> alone gives
+        /// the work-area clamp, which is what a window wants when it must never open or be dragged off-screen.
+        ///
+        /// The review windows must NOT set this. They host an image viewport whose ScrollViewer extent is the
+        /// IMAGE, so growing to it would size the window to the picture rather than to a sensible dialog, and would
+        /// fight <c>ReviewViewportHostBase</c>'s own fit-to-viewport logic.
+        /// </summary>
+        public static readonly DependencyProperty FitContentProperty =
+            DependencyProperty.RegisterAttached(
+                "FitContent",
+                typeof(bool),
+                typeof(ClampWindowToWorkArea),
+                new PropertyMetadata(false));
+
+        public static bool GetFitContent(DependencyObject obj) => (bool)obj.GetValue(FitContentProperty);
+
+        public static void SetFitContent(DependencyObject obj, bool value) => obj.SetValue(FitContentProperty, value);
+
         // Dedupe the F76 diagnostic: SizeChanged fires often and only distinct states are informative.
         private static string lastLoggedNote;
 
@@ -76,6 +96,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // One queued resize per window. SizeChanged fires repeatedly during a resize and each would otherwise
         // queue its own dispatcher callback.
         private static readonly ConditionalWeakTable<Window, Window> pendingFits = new();
+
+        // Windows that opted in to growing to their content. Clamp-only is the default.
+        private static readonly ConditionalWeakTable<Window, Window> fitContentWindows = new();
 
         private static void OnEnabledChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) {
             if (d is not FrameworkElement fe) {
@@ -129,6 +152,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 window.SizeChanged += OnWindowSizeChanged;
                 contentRoots.Remove(window);
                 contentRoots.Add(window, fe);
+                if (GetFitContent(fe)) {
+                    fitContentWindows.Remove(window);
+                    fitContentWindows.Add(window, window);
+                }
                 Logger.Info($"F76 clamp: attached to '{window.GetType().Name}' hwnd={hwnd}; workArea={SystemParameters.WorkArea}");
             }
             // The first shown step is small, but clamp the current bounds defensively in case it already overshoots.
@@ -157,7 +184,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (window is null || work.Height <= 0.0) {
                 return false;
             }
-            if (TryFitToContent(window, work)) {
+            if (fitContentWindows.TryGetValue(window, out _) && TryFitToContent(window, work)) {
                 return true;
             }
             var height = EffectiveHeight(window.ActualHeight, window.Height);

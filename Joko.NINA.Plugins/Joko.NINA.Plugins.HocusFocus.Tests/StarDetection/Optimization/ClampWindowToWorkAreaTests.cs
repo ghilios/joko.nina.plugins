@@ -93,6 +93,22 @@ public class ClampWindowToWorkAreaTests {
     }
 
     [Test]
+    public void FitContent_IsOptIn_AndOffByDefault() {
+        // The review windows attach Enabled WITHOUT FitContent: they host an image viewport whose ScrollViewer
+        // extent is the IMAGE, so growing to it would size the window to the picture and fight
+        // ReviewViewportHostBase's own fit logic. Only the wizard opts in. Guarding the DEFAULT matters more than
+        // guarding the wizard's opt-in, because the default is what every future window inherits.
+        var element = new System.Windows.Controls.Grid();
+        Assert.Multiple(() => {
+            Assert.That(ClampWindowToWorkArea.GetFitContent(element), Is.False, "growing must be opt-in");
+            Assert.That(ClampWindowToWorkArea.GetEnabled(element), Is.False, "the behaviour itself is opt-in too");
+        });
+
+        ClampWindowToWorkArea.SetFitContent(element, true);
+        Assert.That(ClampWindowToWorkArea.GetFitContent(element), Is.True);
+    }
+
+    [Test]
     public void ShorterThanWorkArea_LeavesTheWindowAlone() {
         var window = new Window {
             SizeToContent = SizeToContent.WidthAndHeight,

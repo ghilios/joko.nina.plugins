@@ -14,7 +14,7 @@ Status: **Open** · **In progress** · **Done** · **Won't fix**
 ## Detector / optimizer behaviour
 
 ### F76 — The optimizer wizard opens with its footer below the bottom of the screen, so `Accept` is unreachable until the window is moved
-**Status:** **FIXED (`2489a78`) and CONFIRMED IN THE FIELD 2026-08-11 12:44 local.** The clamp read `Window.Height` (requested) instead of `ActualHeight` (rendered) and declined on every call · four wrong diagnoses before the first measurement · found 2026-08-11 (wave 21) by the A1–A9 *rendered pixels* check, on the first run of the wizard that check has ever completed · **SUBSTANTIALLY CORRECTED the same day — see "what the first write-up got wrong"**
+**Status:** **FIXED and CONFIRMED IN THE FIELD 2026-08-11.** Took SIX attempts and three distinct root causes: the wrong height was read, then the write was overwritten by `SizeToContent`, then the width froze and clipped `Accept`/`Close`. **Every one was settled by a log line, none by reading the source** · found 2026-08-11 (wave 21) by the A1–A9 *rendered pixels* check, on the first run of the wizard that check has ever completed · **SUBSTANTIALLY CORRECTED the same day — see "what the first write-up got wrong"**
 
 Running the Optimization Wizard to completion (Plugins → Hocus Focus → Star Detector → **Optimize Star
 Detection**) produces a long summary. **The footer — `Back | Review frames | Continue optimizing | Accept |
@@ -222,6 +222,43 @@ screen. `stc=Manual` confirms `SizeToContent` was disabled *because* the window 
 **The instrumentation is kept deliberately.** It is a handful of `Logger.Info` lines per wizard run, one per
 distinct state, and it is the only reason this entry has an answer instead of a fifth guess. An entry with four
 wrong diagnoses has earned the right to keep reporting itself.
+
+### The last cause, and why it hid behind two others
+
+`SetWindowPos` is what separated the two operations that had always been issued together:
+
+```
+asked cy=1128px y=0px;  rect was 738px@119  now 738px@0;  wpf H=492 A=492 stc=Width
+```
+
+**One call: the MOVE took, the RESIZE did not.** So nothing was rejecting the write — something
+*re-imposed* the height afterwards, and `738px / 1.5 = 492 DIPs` is exactly WPF's own `Height`.
+With `SizeToContent` still set (to `Width`), **WPF re-applies its size on every layout pass** and
+overwrites the property assignment and the native resize alike.
+
+That door was held open by an earlier fix in this same entry: `SizeToContent` was kept at `Width`
+so the footer would not be clipped. Correct for the width, and the precise reason the height never
+stuck. *Three rounds of "the write is being discarded" were one cause wearing three disguises —
+"refused" and "overwritten" look identical from outside, and I treated them as the same thing.*
+
+Resolved by going fully `Manual` **with the width explicitly carried over from `ActualWidth`**.
+Freezing the width at `Manual`'s default is what clipped `Accept`/`Close`; by the summary step
+auto-sizing has already produced the right width, so pinning *that* keeps the footer while handing
+us the height.
+
+### Applied to the review windows — CLAMP ONLY, and the distinction is load-bearing
+
+`ClampWindowToWorkArea.Enabled` now attaches to `FrameReviewControl` and
+`AutoFocusFrameReviewControl`, giving them the ongoing work-area clamp, the maximize cap and the
+on-load correction. `ReviewViewportHostBase` already sets `SizeToContent = Manual` and sizes to
+`work - 40`, but **only once, behind a `windowSized` latch**, so nothing maintained it afterwards.
+
+**Growing to content is now opt-in (`FitContent`), OFF by default, and the review windows must not
+set it.** They host an image viewport whose ScrollViewer extent is the *image*: growing to it would
+size the window to the picture rather than to a sensible dialog, and would fight
+`ReviewViewportHostBase`'s own fit logic. The wizard opts in; nothing else does. A test guards the
+**default** rather than the wizard's opt-in, because the default is what every future window
+inherits.
 
 ### Still owed
 Nothing on the fix itself. **Previously owed and now discharged:** *neither of the owner's first two runs tested
