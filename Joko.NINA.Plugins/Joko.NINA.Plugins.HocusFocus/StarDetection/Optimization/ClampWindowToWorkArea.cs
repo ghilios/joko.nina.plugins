@@ -347,12 +347,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // whatever an earlier, narrower step used is what clipped Accept and Close before; by the summary
                 // step SizeToContent.Width has already produced the correct width, so pinning THAT keeps the footer
                 // intact while handing us the height.
-                if (window.SizeToContent != SizeToContent.Manual) {
-                    var keepWidth = window.ActualWidth;
-                    window.SizeToContent = SizeToContent.Manual;
-                    if (keepWidth > 0.0) {
-                        window.Width = keepWidth;
-                    }
+                // RE-AUTO-SIZE THE WIDTH FOR THIS STEP, THEN LOCK IT.
+                //
+                // Going Manual is what makes the height stick, but it also freezes the WIDTH -- and the wizard's
+                // steps do not all want the same width. Measured: the summary settled at W=843, then the Review
+                // step, whose header carries a full save path, was clipped because it could not widen. Carrying the
+                // previous ActualWidth over (the first attempt) fixes the summary and breaks the step after it.
+                //
+                // So hand the width back to WPF for exactly one layout pass, take the width it chooses for THIS
+                // step's content, and lock that. UpdateLayout is safe here: this runs from a dispatcher callback,
+                // outside the layout pass that discarded the earlier assignments.
+                var priorWidth = window.ActualWidth;
+                window.SizeToContent = SizeToContent.Width;
+                window.UpdateLayout();
+                var naturalWidth = window.ActualWidth;
+                window.SizeToContent = SizeToContent.Manual;
+                if (naturalWidth > 0.0) {
+                    // Never exceed the work area horizontally either -- the same rule the height obeys.
+                    window.Width = Math.Min(naturalWidth, work.Width);
                 }
                 window.Height = target;
                 window.Top = top;
@@ -379,7 +391,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 GetWindowRect(hwnd, out var after);
                 LogOnce($"F76 applied: target={target:F0}dip -> asked cy={cy}px y={y}px; " +
                         $"rect was {before.Bottom - before.Top}px@{before.Top} now {after.Bottom - after.Top}px@{after.Top}; " +
-                        $"wpf H={window.Height:F0} A={window.ActualHeight:F0} W={window.Width:F0} " +
+                        $"wpf H={window.Height:F0} A={window.ActualHeight:F0} W={window.Width:F0}(was {priorWidth:F0}) " +
                         $"scale={toDevice.M22:F2} stc={window.SizeToContent}");
             }));
             return true;
