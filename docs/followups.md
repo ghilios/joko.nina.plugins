@@ -161,7 +161,8 @@ test that catches the defect from CI — reverted after noticing the next commit
 > finished** — attempt 3 shipped, changed nothing, and looked identical from the outside to a fix that worked.
 
 ### F77 — The plugin deploy fails SILENTLY while NINA is running, so two field tests ran against a stale binary
-**Status:** **open** · found 2026-08-11 (F76's confirmation) · **cost: two ~20-minute owner runs that tested the wrong code**
+**Status:** **CLOSED — fixed and verified in both directions, wave 22 (2026-08-12)** · found 2026-08-11 (F76's
+confirmation) · **cost: two ~20-minute owner runs that tested the wrong code**
 
 The csproj's PostBuild step xcopies the plugin into NINA's plugin folder on every build. **NINA holds that DLL
 open while it runs, the copy fails, and nothing surfaces it** — the build reports success and the developer
@@ -188,9 +189,39 @@ and compare its mtime against the process start time (the NINA log filename enco
 `<yyyyMMdd>-<HHmmss>-<version>.<pid>-*.log`). *This is the same family as [F66](#f66) — an instrument that cannot
 report its own failure — applied to the deploy step rather than to a test.*
 
-### Next step
-Make the PostBuild copy **fail loudly** when the target is locked, or skip with an explicit warning naming the
-running process. A silent `xcopy` failure inside a successful build is the whole defect.
+### CLOSED — the mechanism, measured, and a warning proven in both directions (wave 22, 2026-08-12)
+
+**Root cause, measured rather than read.** The PostBuild `Exec` is a **ten-command batch**. The plugin DLL
+`xcopy` is the **first**; the last is `Microsoft.CodeAnalysis*.dll`. A batch's exit code is its *last* command's,
+so an early failure is swallowed whole. Probed directly with a throwaway batch — a failing `xcopy` sets
+`errorlevel=4`, a later `echo` runs, and the batch still exits **0**. MSBuild never had anything to report.
+
+**Fix.** An `if errorlevel 1 echo <proj> : warning HF0001: …` immediately after the DLL copy, and `HF0002` after
+the pdb. The canonical MSBuild diagnostic format makes these **real warnings** (they appear in the `Warning(s)`
+count), while the build still *succeeds* — so `dotnet test` is not broken by an open NINA, which is the common
+case. The checks sit immediately after their own `xcopy` because `echo` resets `errorlevel`.
+
+**Both branches measured on real artifacts, in one sitting:**
+
+| branch | condition | HF0001 | deployed DLL |
+|---|---|---|---|
+| FAIL | NINA pid 86368 holding the DLL | **fires**, `3 Warning(s)`, build still succeeded | SRC `c18987a…` ≠ DST `7dae5fb…`, DST frozen at `12:53:10Z` |
+| PASS | NINA closed | silent, `0` HF warnings | hashes **match** `c18987a…`, DST `13:03:27Z` |
+
+The lock was proven, not assumed: `Get-Process 86368 | Modules` listed the deployed DLL, and
+`[IO.File]::Open(dst,'Open','Write','None')` threw *"being used by another process"*.
+
+**The instrument discriminates per file, not per "is NINA running".** In the FAIL build `HF0002` stayed
+**silent** and the pdb hashes matched — NINA locks the DLL but not the pdb. A blanket "NINA is running" warning
+would have fired on both and taught nothing.
+
+**Refinement to the §4 check — the lock is acquired at plugin LOAD, not at NINA start.** At `12:53:10Z` the copy
+**succeeded** even though NINA had been running since `08:58:23Z`, because the plugin had not been loaded yet; it
+locked the file later. So "NINA is running" is neither necessary nor sufficient for the deploy to fail — and,
+worse, **the mtime/hash check can PASS while a long-lived session still runs the older code in memory**. Comparing
+the DLL's mtime against the NINA log's start time (`<yyyyMMdd>-<HHmmss>-<version>.<pid>-*.log`) remains the only
+way to prove *which* binary a session actually loaded. HF0001 closes the on-disk hole; the in-memory hole is
+closed only by restarting NINA after a deploy.
 
 ### CONFIRMED IN THE FIELD — the same log line, on the same window, now clamps
 
