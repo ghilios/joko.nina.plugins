@@ -1594,8 +1594,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// it takes the first EARLY stage to arrive, at which point the true remaining cost jumps by an order of
         /// magnitude and the figure labelled "at most" is exceeded. Nor is the mix knowable in advance — how many
         /// early stages run, and how many sweeps each takes, is decided by whether the landscape keeps improving.
-        /// So the line states what IS known (each class's measured cost, and how many steps are left) and says
-        /// plainly that the rest is not predictable, rather than offering a number that reads as a promise.</para>
+        /// So the line states what IS known — each class's measured cost, and how many steps are left — and stops
+        /// there. It does not spell out that the rest is unpredictable: showing a rate and a count while offering
+        /// no duration already says that, and the sentence saying it aloud read as an apology.</para>
         ///
         /// <para>A search with NO early axes — reachable through the narrowed feedback path — genuinely has a
         /// uniform step cost, and there the bounded form is honest and is kept.</para>
@@ -1633,7 +1634,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
             return remaining <= 0
                 ? rates
-                : $"{rates} · {remaining} step{(remaining == 1 ? "" : "s")} left — remaining time not predictable";
+                : $"{rates} · {remaining} step{(remaining == 1 ? "" : "s")} left";
         }
 
         /// <summary>Both measured costs when both classes have been seen, else whichever one has. Naming them

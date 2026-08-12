@@ -348,11 +348,13 @@ public class OptimizerProgressCostTests {
 
         Assert.Multiple(() => {
             Assert.That(text, Does.Contain("188 steps left"));
-            Assert.That(text, Does.Contain("not predictable"));
             Assert.That(text, Does.Contain("fast steps"));
             Assert.That(text, Does.Contain("slow steps"));
             Assert.That(text, Does.Not.Contain("at most"), "the figure that was never a bound must not return");
             Assert.That(text, Does.Not.Contain("usually much less"));
+            // The line ENDS at the step count. Asserting the ending rather than the absence of particular words
+            // is what keeps this discriminating against a projection returning under any new wording.
+            Assert.That(text, Does.EndWith("188 steps left"));
         });
     }
 
@@ -395,13 +397,12 @@ public class OptimizerProgressCostTests {
 
     [Test]
     public void TimingText_AtTheBudgetCap_DropsTheStepsLeftClause() {
-        // GUARD: "0 steps left — remaining time not predictable" is nonsense.
+        // GUARD: "0 steps left" is nonsense.
         var text = StarDetectionOptimizerWizardVM.BuildProgressTimingText(
             expensiveStepsPossible: true, blendedSeconds: 3.4, cheapSeconds: 3.1, expensiveSeconds: 38.0, remaining: 0);
 
         Assert.Multiple(() => {
             Assert.That(text, Does.Not.Contain("steps left"));
-            Assert.That(text, Does.Not.Contain("not predictable"));
             Assert.That(text, Does.Contain("slow steps"));
         });
     }

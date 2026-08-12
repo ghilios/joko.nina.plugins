@@ -45,9 +45,11 @@ true remaining cost jumps ~10×, and the figure that was labelled an upper bound
 ### Decision
 
 **Do not project a duration while expensive steps are still possible.** Show the observed rate and how many
-steps remain, and say plainly that the remaining time is not predictable. A search whose variable set contains
-no early axes at all (reachable via the narrowed feedback path) *is* uniform, and there the existing bound is
-honest, so it is kept for that case only.
+steps remain, and stop there. A search whose variable set contains no early axes at all (reachable via the
+narrowed feedback path) *is* uniform, and there the existing bound is honest, so it is kept for that case only.
+
+The line deliberately does not spell out that the remainder is unpredictable. Showing a rate and a count while
+offering no duration already carries that; saying it aloud read as an apology for the missing number.
 
 ### Design
 
@@ -99,7 +101,7 @@ visible.
 Refining settings — slow step (re-analyzing every frame)
   analyzing frame 6 / 11
 312 / 500  (14:22)
-fast steps 3.1 s · slow steps 38 s · 188 steps left — remaining time not predictable
+fast steps 3.1 s · slow steps 38 s · 188 steps left
 ```
 
 With only one class observed so far the rate collapses to `3.1 s per step`. With

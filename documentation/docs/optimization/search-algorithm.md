@@ -165,9 +165,9 @@ search that has not moved its evaluation counter for several minutes is still vi
 
 The panel does **not** project a finishing time while the search still has early axes to move. The remaining
 cost depends on how many more early stages run, which is decided by whether the landscape keeps improving, so
-no honest bound exists. Instead the line reports the measured cost of each kind of step and how many steps
-remain in the budget. A search over a purely late variable set does have a uniform step cost, and there the
-panel still shows an upper bound on the time left.
+no honest bound exists. The line reports the measured cost of each kind of step and how many steps remain in
+the budget, and leaves it there. A search over a purely late variable set does have a uniform step cost, and
+there the panel still shows an upper bound on the time left.
 
 !!! example "Reading the result"
     `OptimizeAsync` returns the best parameters, \(J_{\text{seed}}\) and \(J_{\text{best}}\), the
