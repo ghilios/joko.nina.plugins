@@ -18,7 +18,6 @@ using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
-using NINA.Core.Utility;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
@@ -106,18 +105,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 new Action(() => ApplyWorkAreaLimit(window, SystemParameters.WorkArea)));
         }
 
-        // Dedupe the F76 diagnostic: SizeChanged fires often and only distinct states are informative.
-        private static string lastLoggedNote;
-
-        /// <summary>Logs a line at most once per distinct message. Every EXIT from the fit path goes through this:
-        /// a check that declines without saying why is what made this defect look like "no change" (F66).</summary>
-        private static void LogOnce(string note) {
-            if (note != lastLoggedNote) {
-                lastLoggedNote = note;
-                Logger.Info(note);
-            }
-        }
-
         // One hook per window; the modal dialog and its HwndSource are short-lived, so the hook dies with the window.
         // The table only guards against a repeated Loaded re-adding the hook, and lets the window be collected.
         private static readonly ConditionalWeakTable<Window, object> hookedWindows = new();
@@ -125,7 +112,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // The element the attached property lives on (the wizard DataTemplate's root Grid) IS the content to
         // measure. Window.Content is not usable here: on NINA's custom-chrome CustomWindow it is not the template
         // root, so `window.Content is FrameworkElement` failed and TryFitToContent declined on every call -- while
-        // logging nothing, so the log showed no `F76 fit:` line at all and the rule looked like it had no effect.
+        // logging nothing, so the rule looked like it had no effect when in truth it never ran.
         private static readonly ConditionalWeakTable<Window, FrameworkElement> contentRoots = new();
 
         // One queued resize per window. SizeChanged fires repeatedly during a resize and each would otherwise
@@ -194,7 +181,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     fitContentWindows.Remove(window);
                     fitContentWindows.Add(window, window);
                 }
-                Logger.Info($"F76 clamp: attached to '{window.GetType().Name}' hwnd={hwnd}; workArea={SystemParameters.WorkArea}");
             }
             // The first shown step is small, but clamp the current bounds defensively in case it already overshoots.
             ApplyWorkAreaLimit(window, SystemParameters.WorkArea);
@@ -241,13 +227,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // F76 has been misdiagnosed three times from reasoning without instrumentation, and a fix shipped that
             // did not work. Make the behaviour self-reporting: one line per DISTINCT state, so the log says whether
             // the clamp engaged and on what numbers, instead of the next person inferring it.
-            var note = $"F76 clamp: h={height:F0} actual={window.ActualHeight:F0} top={window.Top:F0} " +
-                       $"stc={window.SizeToContent} work={work.Height:F0}@{work.Top:F0} => " +
-                       (clamping ? $"CLAMP h={newHeight:F0} top={newTop:F0}" : "declined");
-            if (note != lastLoggedNote) {
-                lastLoggedNote = note;
-                Logger.Info(note);
-            }
             if (!clamping) {
                 return false;
             }
@@ -370,21 +349,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// </summary>
         private static bool TryFitToContent(Window window, Rect work) {
             if (contentRoots.TryGetValue(window, out var suspendRoot) && suspendRoot != null && GetSuspended(suspendRoot)) {
-                LogOnce("F76 fit: suspended -- host is busy, deferring the fit until it finishes");
                 return true;   // handled: deliberately doing nothing, not falling through to the clamp
             }
             if (!contentRoots.TryGetValue(window, out var root) || root is null) {
-                LogOnce("F76 fit: DECLINED -- no content root recorded for this window");
                 return false;
             }
             if (root.ActualWidth <= 0.0) {
-                LogOnce($"F76 fit: DECLINED -- content root not laid out yet (ActualWidth={root.ActualWidth:F0})");
                 return false;
             }
             var current = EffectiveHeight(window.ActualHeight, window.Height);
             var scroller = FindScrollViewer(root);
             if (scroller is null) {
-                LogOnce("F76 fit: DECLINED -- no ScrollViewer under the content root");
                 return false;
             }
             // LISTEN TO THE CONTENT, NOT ONLY TO THE WINDOW. Locking the window to Manual is what makes the height
@@ -398,8 +373,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
             var target = ChooseWindowHeightFromExtent(current, scroller.ExtentHeight, scroller.ViewportHeight, work.Height);
             if (double.IsNaN(target)) {
-                LogOnce($"F76 fit: DECLINED -- unusable scroll metrics (extent={scroller.ExtentHeight:F0} " +
-                        $"viewport={scroller.ViewportHeight:F0} current={current:F0} work={work.Height:F0})");
                 return false;
             }
             var top = window.Top;
@@ -409,9 +382,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (top < work.Top) {
                 top = work.Top;
             }
-            LogOnce($"F76 fit: extent={scroller.ExtentHeight:F0} viewport={scroller.ViewportHeight:F0} " +
-                    $"short={Math.Max(0.0, scroller.ExtentHeight - scroller.ViewportHeight):F0} work={work.Height:F0} " +
-                    $"current={current:F0}@{window.Top:F0} => h={target:F0} top={top:F0}");
             if (window.SizeToContent == SizeToContent.WidthAndHeight) {
                 window.SizeToContent = SizeToContent.Width;   // keep width auto (F76: Manual clipped Accept/Close)
             } else if (window.SizeToContent == SizeToContent.Height) {
@@ -449,7 +419,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 // So hand the width back to WPF for exactly one layout pass, take the width it chooses for THIS
                 // step's content, and lock that. UpdateLayout is safe here: this runs from a dispatcher callback,
                 // outside the layout pass that discarded the earlier assignments.
-                var priorWidth = window.ActualWidth;
                 window.SizeToContent = SizeToContent.Width;
                 window.UpdateLayout();
                 var naturalWidth = window.ActualWidth;
@@ -484,7 +453,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 var helper = new WindowInteropHelper(window);
                 var hwnd = helper.Handle;
                 if (hwnd == IntPtr.Zero || !GetWindowRect(hwnd, out var before)) {
-                    LogOnce("F76 applied: DECLINED -- no hwnd to resize");
                     return;
                 }
                 // The work area and SetWindowPos are in PHYSICAL pixels; target/top are DIPs. Convert with the
@@ -497,11 +465,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 var x = (int)Math.Round(left * toDevice.M11);
                 SetWindowPos(hwnd, IntPtr.Zero, x, y, cx, cy, SWP_NOZORDER | SWP_NOACTIVATE);
                 GetWindowRect(hwnd, out var after);
-                LogOnce($"F76 applied: target={target:F0}dip -> asked cy={cy}px y={y}px; " +
-                        $"rect was {before.Right - before.Left}x{before.Bottom - before.Top}@{before.Left},{before.Top} " +
-                        $"now {after.Right - after.Left}x{after.Bottom - after.Top}@{after.Left},{after.Top}; " +
-                        $"wpf H={window.Height:F0} A={window.ActualHeight:F0} W={window.Width:F0}(was {priorWidth:F0}) " +
-                        $"scale={toDevice.M22:F2} stc={window.SizeToContent}");
             }));
             return true;
         }
