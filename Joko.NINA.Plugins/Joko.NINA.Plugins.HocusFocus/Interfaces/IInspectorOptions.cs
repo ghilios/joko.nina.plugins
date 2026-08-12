@@ -145,8 +145,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         bool RejectBadlyFittingMatches { get; set; }
         double PreviousRunBrightnessDiff { get; set; }
         double StartingBrightnessDiff { get; set; }
-        bool SaveImagesOnReruns { get; set; }
-        bool SaveAlignmentImages { get; set; }
         bool FrameReviewEnabled { get; set; }
         int MaxStarsPerRegion { get; set; }
         double AcceptableRSquaredMin { get; set; }

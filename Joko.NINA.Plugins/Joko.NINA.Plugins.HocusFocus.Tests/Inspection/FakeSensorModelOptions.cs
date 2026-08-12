@@ -41,8 +41,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Inspection {
         public bool RejectBadlyFittingMatches { get; set; }
         public double PreviousRunBrightnessDiff { get; set; } = 0.1;
         public double StartingBrightnessDiff { get; set; } = -1;
-        public bool SaveImagesOnReruns { get; set; }
-        public bool SaveAlignmentImages { get; set; }
         public bool FrameReviewEnabled { get; set; }
         public int MaxStarsPerRegion { get; set; } = -1;
         public double AcceptableRSquaredMin { get; set; } = 0.05;

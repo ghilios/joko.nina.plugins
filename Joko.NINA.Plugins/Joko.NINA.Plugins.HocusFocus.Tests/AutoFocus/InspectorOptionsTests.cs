@@ -51,8 +51,6 @@ public class InspectorOptionsTests {
             Assert.That(options.RejectBadBrightnessMatches, Is.False);
             Assert.That(options.RejectBadlyFittingMatches, Is.True);
             Assert.That(options.UseRANSAC, Is.True);
-            Assert.That(options.SaveImagesOnReruns, Is.False);
-            Assert.That(options.SaveAlignmentImages, Is.False);
             Assert.That(options.FrameReviewEnabled, Is.False);
             Assert.That(options.MaxStarsPerRegion, Is.EqualTo(-1));
             Assert.That(options.InterpolationEnabled, Is.False);
@@ -87,8 +85,6 @@ public class InspectorOptionsTests {
         options.RejectBadBrightnessMatches = true;
         options.RejectBadlyFittingMatches = false;
         options.UseRANSAC = false;
-        options.SaveImagesOnReruns = true;
-        options.SaveAlignmentImages = true;
         options.FrameReviewEnabled = true;
         options.MaxStarsPerRegion = 50;
 
@@ -118,8 +114,6 @@ public class InspectorOptionsTests {
             Assert.That(store.Snapshot[nameof(InspectorOptions.RejectBadBrightnessMatches)], Is.True);
             Assert.That(store.Snapshot[nameof(InspectorOptions.RejectBadlyFittingMatches)], Is.False);
             Assert.That(store.Snapshot[nameof(InspectorOptions.UseRANSAC)], Is.False);
-            Assert.That(store.Snapshot[nameof(InspectorOptions.SaveImagesOnReruns)], Is.True);
-            Assert.That(store.Snapshot[nameof(InspectorOptions.SaveAlignmentImages)], Is.True);
             Assert.That(store.Snapshot[nameof(InspectorOptions.FrameReviewEnabled)], Is.True);
             Assert.That(store.Snapshot[nameof(InspectorOptions.MaxStarsPerRegion)], Is.EqualTo(50));
         });

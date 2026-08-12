@@ -91,8 +91,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             useRANSAC = optionsAccessor.GetValueBoolean(nameof(UseRANSAC), true);
             useAffineAlignment = optionsAccessor.GetValueBoolean(nameof(UseAffineAlignment), false);
             astigmaticCurvatureEnabled = optionsAccessor.GetValueBoolean(nameof(AstigmaticCurvatureEnabled), false);
-            saveImagesOnReruns = optionsAccessor.GetValueBoolean(nameof(SaveImagesOnReruns), false);
-            saveAlignmentImages = optionsAccessor.GetValueBoolean(nameof(SaveAlignmentImages), false);
             frameReviewEnabled = optionsAccessor.GetValueBoolean(nameof(FrameReviewEnabled), false);
             maxStarsPerRegion = optionsAccessor.GetValueInt32(nameof(MaxStarsPerRegion), -1);
             acceptableRSquaredMin = optionsAccessor.GetValueDouble(nameof(AcceptableRSquaredMin), SensorAberrationCalculator.DefaultAcceptableRSquaredMin);
@@ -600,32 +598,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public string BrightnessToleranceHint { get { return $"(auto: {PreviousRunBrightnessDiff:0.##})"; } }
-
-        private bool saveImagesOnReruns = false;
-
-        public bool SaveImagesOnReruns {
-            get => saveImagesOnReruns;
-            set {
-                if (saveImagesOnReruns != value) {
-                    saveImagesOnReruns = value;
-                    optionsAccessor.SetValueBoolean(nameof(SaveImagesOnReruns), saveImagesOnReruns);
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private bool saveAlignmentImages = false;
-
-        public bool SaveAlignmentImages {
-            get => saveAlignmentImages;
-            set {
-                if (saveAlignmentImages != value) {
-                    saveAlignmentImages = value;
-                    optionsAccessor.SetValueBoolean(nameof(SaveAlignmentImages), saveAlignmentImages);
-                    RaisePropertyChanged();
-                }
-            }
-        }
 
         private bool frameReviewEnabled = false;
 
