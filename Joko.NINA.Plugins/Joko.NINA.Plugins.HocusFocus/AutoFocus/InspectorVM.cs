@@ -394,7 +394,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;
-                autoFocusEngine.Completed += AutoFocusEngine_CompletedNoReport;
+                autoFocusEngine.Completed += AutoFocusEngine_CompletedReplay;
                 autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
                 autoFocusEngine.SubMeasurementPointCompleted += AutoFocusEngine_SubMeasurementPointCompleted;
 
@@ -1376,7 +1376,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
                 autoFocusEngine.Started += AutoFocusEngine_Started;
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;
-                autoFocusEngine.Completed += AutoFocusEngine_CompletedNoReport;
+                autoFocusEngine.Completed += AutoFocusEngine_CompletedReplay;
                 autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
                 autoFocusEngine.SubMeasurementPointCompleted += AutoFocusEngine_SubMeasurementPointCompleted;
 
@@ -1529,7 +1529,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
-        private void GenerateReport(AutoFocusCompletedEventArgs e) {
+        /// <summary>
+        /// Builds one <see cref="HocusFocusReport"/> per Inspector region from a completed run. Indexes
+        /// <see cref="AutoFocusFinishedEventArgsBase.RegionHFRs"/> up to <see cref="RegionFocusPoints"/>'s length, so
+        /// callers must first confirm the run carries the Inspector grid (see <see cref="HasInspectorRegionLayout"/>).
+        /// </summary>
+        private HocusFocusReport[] BuildRegionReports(AutoFocusCompletedEventArgs e) {
             var regionReports = new HocusFocusReport[RegionFocusPoints.Length];
             for (int regionIndex = 0; regionIndex < RegionFocusPoints.Length; ++regionIndex) {
                 var region = e.RegionHFRs[regionIndex];
@@ -1540,7 +1545,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     Timestamp = DateTime.Now,
                     Filter = e.Filter
                 };
-                var report = HocusFocusReport.GenerateReport(
+                regionReports[regionIndex] = HocusFocusReport.GenerateReport(
                     profileService: this.profileService,
                     starDetector: starDetectionSelector.GetBehavior(),
                     focusPoints: RegionFocusPoints[regionIndex],
@@ -1556,16 +1561,29 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     hocusFocusStarDetectionOptions: this.starDetectionOptions,
                     hocusFocusAutoFocusOptions: this.autoFocusOptions,
                     duration: e.Duration);
-                regionReports[regionIndex] = report;
             }
+            return regionReports;
+        }
 
+        /// <summary>
+        /// Writes <c>attemptNN/autofocus_report_Region{index}.json</c> for every supplied region report under
+        /// <paramref name="saveFolder"/>. Creates the attempt folder rather than assuming the engine already made it:
+        /// the engine only creates it while saving frames, which a rerun over already-saved frames never does.
+        /// </summary>
+        internal static void SaveRegionReports(string saveFolder, int iteration, IReadOnlyList<HocusFocusReport> regionReports) {
+            var attemptFolder = Path.Combine(saveFolder, $"attempt{iteration:00}");
+            Directory.CreateDirectory(attemptFolder);
+            for (int regionIndex = 0; regionIndex < regionReports.Count; ++regionIndex) {
+                var regionReportText = JsonConvert.SerializeObject(regionReports[regionIndex], Formatting.Indented);
+                var targetFilePath = Path.Combine(attemptFolder, $"autofocus_report_Region{regionIndex}.json");
+                File.WriteAllText(targetFilePath, regionReportText);
+            }
+        }
+
+        private void GenerateReport(AutoFocusCompletedEventArgs e) {
+            var regionReports = BuildRegionReports(e);
             if (!string.IsNullOrEmpty(e.SaveFolder)) {
-                for (int regionIndex = 0; regionIndex < RegionFocusPoints.Length; ++regionIndex) {
-                    var regionReport = regionReports[regionIndex];
-                    var regionReportText = JsonConvert.SerializeObject(regionReport, Formatting.Indented);
-                    var targetFilePath = Path.Combine(e.SaveFolder, $"attempt{e.Iteration:00}", $"autofocus_report_Region{regionIndex}.json");
-                    File.WriteAllText(targetFilePath, regionReportText);
-                }
+                SaveRegionReports(e.SaveFolder, e.Iteration, regionReports);
             }
 
             var reportText = JsonConvert.SerializeObject(regionReports[0], Formatting.Indented);
@@ -1584,38 +1602,39 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             GenerateReport(e);
         }
 
-        private void MaybeSaveFailedAutoFocusReports(AutoFocusFailedEventArgs e) {
-            if (!string.IsNullOrEmpty(e.SaveFolder)) {
-                for (int regionIndex = 0; regionIndex < RegionFocusPoints.Length; ++regionIndex) {
-                    var region = e.RegionHFRs[regionIndex];
-                    var finalFocusPoint = new DataPoint(-1.0d, 0.0d);
-                    var lastAutoFocusPoint = new ReportAutoFocusPoint {
-                        Focuspoint = finalFocusPoint,
-                        Temperature = e.Temperature,
-                        Timestamp = DateTime.Now,
-                        Filter = e.Filter
-                    };
-                    var report = HocusFocusReport.GenerateReport(
-                        profileService: this.profileService,
-                        starDetector: starDetectionSelector.GetBehavior(),
-                        focusPoints: RegionFocusPoints[regionIndex],
-                        fittings: region.Fittings,
-                        initialFocusPosition: e.InitialFocusPosition,
-                        initialHFR: region.InitialHFR ?? 0.0d,
-                        finalHFR: region.FinalHFR ?? region.EstimatedFinalHFR,
-                        filter: e.Filter,
-                        temperature: e.Temperature,
-                        focusPoint: finalFocusPoint,
-                        lastFocusPoint: lastAutoFocusPoint,
-                        region: region.Region,
-                        hocusFocusStarDetectionOptions: this.starDetectionOptions,
-                        hocusFocusAutoFocusOptions: this.autoFocusOptions,
-                        duration: e.Duration);
-                    var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
-                    var targetFilePath = Path.Combine(e.SaveFolder, $"attempt{e.Iteration:00}", $"autofocus_report_Region{regionIndex}.json");
-                    File.WriteAllText(targetFilePath, reportText);
-                }
+        /// <summary>
+        /// Completion handler for the replay paths (re-analyzing an already-saved run). A replay must NOT broadcast a
+        /// successful-AF run to the focuser mediator or drop a report into NINA's watched report directory the way
+        /// <see cref="GenerateReport"/> does — both would announce a focus event that never happened. It does still
+        /// write the per-region reports when the engine created a save folder (AF Options -> Save), so a re-analysis
+        /// is as inspectable as the live run that produced the frames. Best-effort: the analysis has already
+        /// succeeded by the time this runs, so a write failure is logged rather than surfaced through the engine.
+        /// </summary>
+        private void AutoFocusEngine_CompletedReplay(object sender, AutoFocusCompletedEventArgs e) {
+            AutoFocusEngine_CompletedNoReport(sender, e);
+            if (string.IsNullOrEmpty(e.SaveFolder)) {
+                return;
             }
+            // Same grid requirement as CompletedNoReport, which has already logged the mismatch by this point.
+            if (e.RegionHFRs == null || !HasInspectorRegionLayout(e.RegionHFRs.Count)) {
+                return;
+            }
+            try {
+                SaveRegionReports(e.SaveFolder, e.Iteration, BuildRegionReports(e));
+            } catch (Exception ex) {
+                Logger.Error(ex, $"Failed to save per-region AutoFocus reports to {e.SaveFolder}");
+            }
+        }
+
+        private void MaybeSaveFailedAutoFocusReports(AutoFocusFailedEventArgs e) {
+            if (string.IsNullOrEmpty(e.SaveFolder)) {
+                return;
+            }
+            var regionReports = new HocusFocusReport[RegionFocusPoints.Length];
+            for (int regionIndex = 0; regionIndex < RegionFocusPoints.Length; ++regionIndex) {
+                regionReports[regionIndex] = GenerateReportForRegion(e, regionIndex);
+            }
+            SaveRegionReports(e.SaveFolder, e.Iteration, regionReports);
         }
 
         private void AutoFocusEngine_IterationFailed(object sender, AutoFocusFailedEventArgs e) {
