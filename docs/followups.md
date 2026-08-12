@@ -161,7 +161,8 @@ test that catches the defect from CI — reverted after noticing the next commit
 > finished** — attempt 3 shipped, changed nothing, and looked identical from the outside to a fix that worked.
 
 ### F77 — The plugin deploy fails SILENTLY while NINA is running, so two field tests ran against a stale binary
-**Status:** **open** · found 2026-08-11 (F76's confirmation) · **cost: two ~20-minute owner runs that tested the wrong code**
+**Status:** **CLOSED — fixed and verified in both directions, wave 22 (2026-08-12)** · found 2026-08-11 (F76's
+confirmation) · **cost: two ~20-minute owner runs that tested the wrong code**
 
 The csproj's PostBuild step xcopies the plugin into NINA's plugin folder on every build. **NINA holds that DLL
 open while it runs, the copy fails, and nothing surfaces it** — the build reports success and the developer
@@ -188,9 +189,39 @@ and compare its mtime against the process start time (the NINA log filename enco
 `<yyyyMMdd>-<HHmmss>-<version>.<pid>-*.log`). *This is the same family as [F66](#f66) — an instrument that cannot
 report its own failure — applied to the deploy step rather than to a test.*
 
-### Next step
-Make the PostBuild copy **fail loudly** when the target is locked, or skip with an explicit warning naming the
-running process. A silent `xcopy` failure inside a successful build is the whole defect.
+### CLOSED — the mechanism, measured, and a warning proven in both directions (wave 22, 2026-08-12)
+
+**Root cause, measured rather than read.** The PostBuild `Exec` is a **ten-command batch**. The plugin DLL
+`xcopy` is the **first**; the last is `Microsoft.CodeAnalysis*.dll`. A batch's exit code is its *last* command's,
+so an early failure is swallowed whole. Probed directly with a throwaway batch — a failing `xcopy` sets
+`errorlevel=4`, a later `echo` runs, and the batch still exits **0**. MSBuild never had anything to report.
+
+**Fix.** An `if errorlevel 1 echo <proj> : warning HF0001: …` immediately after the DLL copy, and `HF0002` after
+the pdb. The canonical MSBuild diagnostic format makes these **real warnings** (they appear in the `Warning(s)`
+count), while the build still *succeeds* — so `dotnet test` is not broken by an open NINA, which is the common
+case. The checks sit immediately after their own `xcopy` because `echo` resets `errorlevel`.
+
+**Both branches measured on real artifacts, in one sitting:**
+
+| branch | condition | HF0001 | deployed DLL |
+|---|---|---|---|
+| FAIL | NINA pid 86368 holding the DLL | **fires**, `3 Warning(s)`, build still succeeded | SRC `c18987a…` ≠ DST `7dae5fb…`, DST frozen at `12:53:10Z` |
+| PASS | NINA closed | silent, `0` HF warnings | hashes **match** `c18987a…`, DST `13:03:27Z` |
+
+The lock was proven, not assumed: `Get-Process 86368 | Modules` listed the deployed DLL, and
+`[IO.File]::Open(dst,'Open','Write','None')` threw *"being used by another process"*.
+
+**The instrument discriminates per file, not per "is NINA running".** In the FAIL build `HF0002` stayed
+**silent** and the pdb hashes matched — NINA locks the DLL but not the pdb. A blanket "NINA is running" warning
+would have fired on both and taught nothing.
+
+**Refinement to the §4 check — the lock is acquired at plugin LOAD, not at NINA start.** At `12:53:10Z` the copy
+**succeeded** even though NINA had been running since `08:58:23Z`, because the plugin had not been loaded yet; it
+locked the file later. So "NINA is running" is neither necessary nor sufficient for the deploy to fail — and,
+worse, **the mtime/hash check can PASS while a long-lived session still runs the older code in memory**. Comparing
+the DLL's mtime against the NINA log's start time (`<yyyyMMdd>-<HHmmss>-<version>.<pid>-*.log`) remains the only
+way to prove *which* binary a session actually loaded. HF0001 closes the on-disk hole; the in-memory hole is
+closed only by restarting NINA after a deploy.
 
 ### CONFIRMED IN THE FIELD — the same log line, on the same window, now clamps
 
@@ -259,6 +290,37 @@ size the window to the picture rather than to a sensible dialog, and would fight
 `ReviewViewportHostBase`'s own fit logic. The wizard opts in; nothing else does. A test guards the
 **default** rather than the wizard's opt-in, because the default is what every future window
 inherits.
+
+### F78 — `SystemParameters.WorkArea` reports the PRIMARY monitor, so the WPF half of the clamp uses the wrong rect on a secondary display
+**Status:** **open — BLOCKED on hardware, not on understanding** · raised 2026-08-12 (wave 22) · **cost to fix: ~25 m; cost to VERIFY: a second display this machine does not have**
+
+`ClampWindowToWorkArea` resolves the work area **twice, by two different instruments**, and only one of them is
+per-monitor. The Win32 half already does the right thing via `MonitorFromWindow`. The WPF half reads
+`SystemParameters.WorkArea`, which is documented to return the **primary** monitor's work area regardless of
+where the window actually is. Four call sites pass it straight into `ApplyWorkAreaLimit`:
+
+```
+StarDetection/Optimization/ClampWindowToWorkArea.cs:105, :186, :197, :203
+StarDetection/Optimization/Review/ReviewViewportHostBase.cs:83
+```
+
+A wizard opened on a secondary display is therefore clamped to the *primary* display's rect — the exact class of
+bug F76 was, with the same symptom (a footer off-screen) and a different cause. The shape of the fix is small and
+known: a `WorkAreaFor(Window)` helper resolving via `MonitorFromWindow` + `GetMonitorInfo` (the P/Invoke is
+already in this file), converted to DIPs, replacing all five reads.
+
+**Why it is NOT shipped.** This machine has exactly one display —
+`\\.\DISPLAY1 primary=True bounds=3440x1440 work={0,0,3440,1392}`. On one monitor `MonitorFromWindow` returns
+the primary, so the change is **provably inert here and cannot be exercised in either direction**. Shipping it
+would mean adding a fix that cannot report whether it engaged — the precise failure this register has paid for in
+[F76](#f76) (five wrong diagnoses from reading source) and [F77](#f77) (a green field test against code that was
+never loaded). **A gate never shown to PASS is not a gate.**
+
+### Next step
+Either attach a second display and measure both branches — window on secondary clamps to the secondary's rect,
+window on primary unchanged — or factor only the *selection* (given a window rect and a set of monitor rects,
+which work area applies) into a pure function and unit-test that, accepting that the `MonitorFromWindow` plumbing
+stays unexercised. Do not ship the plumbing on the strength of reading the documentation.
 
 ### Still owed
 Nothing on the fix itself. **Previously owed and now discharged:** *neither of the owner's first two runs tested

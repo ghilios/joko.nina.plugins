@@ -848,12 +848,23 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public AutoFocusReport LastReport { get; private set; }
 
-        private String GetAttemptSaveFolder(string saveFolder, int iteration) {
+        private static String GetAttemptSaveFolder(string saveFolder, int iteration) {
             var parentFolder = Path.Combine(saveFolder, $"attempt{iteration:00}");
             if (!Directory.Exists(parentFolder)) {
                 Directory.CreateDirectory(parentFolder);
             }
             return parentFolder;
+        }
+
+        /// <summary>
+        /// Writes the single-region AutoFocus report as <c>attemptNN/autofocus_report_Region0.json</c> under
+        /// <paramref name="saveFolder"/>. The plain AutoFocus pane always analyzes one region, so region 0 is the
+        /// whole report set here (the Inspector's multi-region equivalent is InspectorVM.SaveRegionReports).
+        /// </summary>
+        private static void SaveRegionReport(string saveFolder, int iteration, AutoFocusReport report) {
+            var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
+            var targetFilePath = Path.Combine(GetAttemptSaveFolder(saveFolder, iteration), "autofocus_report_Region0.json");
+            File.WriteAllText(targetFilePath, reportText);
         }
 
         private void AutoFocusEngine_Completed(object sender, AutoFocusCompletedEventArgs e) {
@@ -870,10 +881,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 region: firstRegion.Region,
                 duration: e.Duration);
             if (!string.IsNullOrEmpty(e.SaveFolder)) {
-                var regionIndex = 0;
-                var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
-                var targetFilePath = Path.Combine(GetAttemptSaveFolder(e.SaveFolder, e.Iteration), $"autofocus_report_Region{regionIndex}.json");
-                File.WriteAllText(targetFilePath, reportText);
+                SaveRegionReport(e.SaveFolder, e.Iteration, report);
             }
 
             var autoFocusInfo = new AutoFocusInfo(report.Temperature, report.CalculatedFocusPoint.Position, report.Filter, report.Timestamp);
@@ -881,6 +889,37 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             LastReport = report;
             BuildFrameReviewSnapshotIfRequested();
+        }
+
+        /// <summary>
+        /// Completion handler for the reprocess (replay) path. Mirrors <see cref="AutoFocusEngine_Completed"/> minus
+        /// everything that would announce a focus event that never happened: no BroadcastSuccessfulAutoFocusRun, and
+        /// no report written into NINA's watched report directory. <see cref="LastReport"/> is left alone too, so the
+        /// pane keeps showing the report of the run that actually moved the focuser. It does write the per-region
+        /// report when the engine created a save folder (AF Options -> Save), so a re-analysis is as inspectable as
+        /// the live run that produced the frames. Best-effort: the replay has already succeeded by the time this
+        /// runs, so a write failure is logged rather than surfaced through the engine.
+        /// </summary>
+        private void AutoFocusEngine_CompletedReplay(object sender, AutoFocusCompletedEventArgs e) {
+            AutoFocusEngine_CompletedNoReport(sender, e);
+            if (string.IsNullOrEmpty(e.SaveFolder)) {
+                return;
+            }
+            try {
+                var firstRegion = e.RegionHFRs[0];
+                var report = GenerateReport(
+                    initialFocusPosition: e.InitialFocusPosition,
+                    initialHFR: firstRegion.InitialHFR ?? 0.0d,
+                    finalHFR: firstRegion.FinalHFR ?? firstRegion.EstimatedFinalHFR,
+                    filter: e.Filter,
+                    finalFocusPoint: FinalFocusPoint,
+                    lastAutoFocusPoint: LastAutoFocusPoint,
+                    region: firstRegion.Region,
+                    duration: e.Duration);
+                SaveRegionReport(e.SaveFolder, e.Iteration, report);
+            } catch (Exception ex) {
+                Logger.Error(ex, $"Failed to save the reprocessed AutoFocus report to {e.SaveFolder}");
+            }
         }
 
         private void AutoFocusEngine_Failed(object sender, AutoFocusFailedEventArgs e) {
@@ -897,10 +936,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 duration: e.Duration);
 
             if (!string.IsNullOrEmpty(e.SaveFolder)) {
-                var regionIndex = 0;
-                var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
-                var targetFilePath = Path.Combine(GetAttemptSaveFolder(e.SaveFolder, e.Iteration), $"autofocus_report_Region{regionIndex}.json");
-                File.WriteAllText(targetFilePath, reportText);
+                SaveRegionReport(e.SaveFolder, e.Iteration, report);
             }
             LastReport = report;
             // Build the review snapshot even for a failed sweep — seeing why detection struggled is often the most
@@ -910,8 +946,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         private void AutoFocusEngine_IterationFailed(object sender, AutoFocusFailedEventArgs e) {
             if (!string.IsNullOrEmpty(e.SaveFolder)) {
-                var regionIndex = 0;
-                var firstRegion = e.RegionHFRs[regionIndex];
+                var firstRegion = e.RegionHFRs[0];
                 AutoFocusEngine_CompletedNoReport(sender, e);
                 var report = HocusFocusReport.GenerateReport(
                     profileService: this.profileService,
@@ -930,9 +965,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     hocusFocusAutoFocusOptions: this.autoFocusOptions,
                     duration: e.Duration);
 
-                var reportText = JsonConvert.SerializeObject(report, Formatting.Indented);
-                var targetFilePath = Path.Combine(GetAttemptSaveFolder(e.SaveFolder, e.Iteration), $"autofocus_report_Region{regionIndex}.json");
-                File.WriteAllText(targetFilePath, reportText);
+                SaveRegionReport(e.SaveFolder, e.Iteration, report);
             }
 
             FocusPoints.Clear();
@@ -1227,7 +1260,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 autoFocusEngine.IterationFailed += AutoFocusEngine_IterationFailed;
                 autoFocusEngine.MeasurementPointCompleted += AutoFocusEngine_MeasurementPointCompleted;
                 autoFocusEngine.SubMeasurementPointCompleted += AutoFocusEngine_SubMeasurementPointCompleted;
-                autoFocusEngine.Completed += AutoFocusEngine_CompletedNoReport;
+                autoFocusEngine.Completed += AutoFocusEngine_CompletedReplay;
 
                 var filterInfo = filterWheelMediator.GetInfo();
                 FilterInfo imagingFilter = null;
@@ -1260,7 +1293,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     ? await autoFocusEngine.RerunWithRegions(options, savedAttempt, imagingFilter, resolution.CaptureTimeRegions, loadSavedAutoFocusRunCts.Token, this.progress)
                     : await autoFocusEngine.Rerun(options, savedAttempt, imagingFilter, loadSavedAutoFocusRunCts.Token, this.progress);
                 if (result != null) {
-                    // The reprocess path wires Completed -> CompletedNoReport (no report handler), so build the review
+                    // The reprocess path wires Completed -> CompletedReplay (which never sets LastReport), so build the review
                     // snapshot here once the replay has finished and every reloaded frame has been collected.
                     BuildFrameReviewSnapshotIfRequested();
                     InitialFocuserPosition = result.InitialFocuserPosition;
@@ -1276,14 +1309,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return false;
             } finally {
                 // Detach the per-run engine handlers symmetrically (F28). This path wires Completed ->
-                // AutoFocusEngine_CompletedNoReport and does not subscribe Failed, so the -= list mirrors that exactly.
+                // AutoFocusEngine_CompletedReplay and does not subscribe Failed, so the -= list mirrors that exactly.
                 if (autoFocusEngine != null) {
                     autoFocusEngine.Started -= AutoFocusEngine_AutoFocusStarted;
                     autoFocusEngine.InitialHFRCalculated -= AutoFocusEngine_InitialHFRCalculated;
                     autoFocusEngine.IterationFailed -= AutoFocusEngine_IterationFailed;
                     autoFocusEngine.MeasurementPointCompleted -= AutoFocusEngine_MeasurementPointCompleted;
                     autoFocusEngine.SubMeasurementPointCompleted -= AutoFocusEngine_SubMeasurementPointCompleted;
-                    autoFocusEngine.Completed -= AutoFocusEngine_CompletedNoReport;
+                    autoFocusEngine.Completed -= AutoFocusEngine_CompletedReplay;
                 }
                 ReleaseUnsnapshottedReviewFrames();
                 AutoFocusInProgress = false;
