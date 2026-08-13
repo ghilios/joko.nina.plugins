@@ -31,8 +31,28 @@ namespace TestApp.SynthBank {
         /// required-find and false-positive sets — see <see cref="GoldenFrame.Unresolved"/>.</summary>
         public const string Unresolved = "unresolved";
 
-        /// <summary>The star was dropped entirely: it produces no box anywhere in <see cref="GoldenFrame"/>,
-        /// so a detector reporting something at its location should be scored as a false positive.</summary>
+        /// <summary>
+        /// The star was dropped entirely: it produces no box anywhere in <see cref="GoldenFrame"/>. It is
+        /// nevertheless a REAL rendered star, so a detector reporting something at its location must NOT be
+        /// scored as a false positive — see <see cref="TruthProtection"/>, which recovers these from the truth
+        /// sidecar and excludes detections of them from false-positive scoring (F31).
+        ///
+        /// <para><b>This comment previously said the opposite</b> ("a detection here should count as a false
+        /// positive"), contradicting <see cref="GoldenTierThresholds.UnresolvedSnr"/> one screen away, whose
+        /// reasoning is the correct one: below ~3.5 sigma the reference's own peak-pixel test cannot certify
+        /// visibility either way, and charging a detector for finding something the reference cannot judge is
+        /// punishment, not measurement. The implementation followed the harsher sentence, so the LESS certifiable
+        /// a star was, the HARSHER the detector was judged for finding it; measured on the F23 wave-1 arms, 96%
+        /// of the bank's reported false positives were real rendered stars.</para>
+        ///
+        /// <para><b>The stale sentence is still on disk.</b> The <c>Reason</c> string generated for an omitted
+        /// component (see <c>GoldenFromTruth</c>'s bucketing) carries the pre-repair wording, and it is written
+        /// into all 180 <c>*.golden.json</c> sidecars in the bank. It is deliberately NOT regenerated: nothing
+        /// reads <c>Reason</c> programmatically, whereas regenerating the sidecars would invalidate every
+        /// precision/recall number this series has published. Read a sidecar's <c>Reason</c> as a record of the
+        /// policy at generation time, not as the scoring rule — the scoring rule is this comment and
+        /// <see cref="TruthProtection"/>.</para>
+        /// </summary>
         public const string Omitted = "omitted";
 
         /// <summary>The star is a non-representative member of a merged component; its own light was folded
@@ -80,6 +100,13 @@ namespace TestApp.SynthBank {
         /// filter and no local background estimate, so below ~3.5σ its own peak-pixel test cannot vouch for
         /// visibility with any confidence; scoring a detection there as a false positive would be punishing a
         /// detector for something the reference itself cannot certify either way.
+        ///
+        /// <para><b>Both sides of this floor are therefore protected from false-positive scoring, and by the same
+        /// argument.</b> <see cref="SyntheticTier.Unresolved"/> gets a box the scorer excludes;
+        /// <see cref="SyntheticTier.Omitted"/> gets no box at all and is instead recovered from the truth sidecar
+        /// by <see cref="TruthProtection"/>. The mechanisms differ because the golden schema differs, not because
+        /// the policy does — an omitted star is not "more false" than an unresolved one, it is less certifiable,
+        /// and this comment's reasoning is the one both tiers follow (F31).</para>
         /// </summary>
         public double UnresolvedSnr { get; init; } = 3.5;
 
