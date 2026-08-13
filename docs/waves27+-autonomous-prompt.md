@@ -153,12 +153,23 @@ exposures, `lumos` exits rc=3, `Panos`'s σ-fit claim belongs to `af-fit` and no
 
 **Start there.** Its item **1** is the one to open on:
 
-> **Re-measure precision against `*.truth.json`, not `*.golden.json`.** ~1–2 h, **no product code, no binary, no
-> gate.** The renderer's complete star list ships beside every frame — **126** stars where the golden lists **9**
-> at extreme defocus. Measured on `D08`: **91.3 %** of golden-false detections are **real rendered stars**, 0.30
-> expected by chance. **[F23](followups.md) is `won't fix as written` because its evidence base was this same
-> artifact**, so until a truth-based pass exists, **F23 and [F83](followups.md) are both undecidable** and the
-> owner's results table's precision column is a lower bound.
+> ~~**Re-measure precision against `*.truth.json`, not `*.golden.json`.** ~1–2 h, no product code, no binary, no
+> gate … until a truth-based pass exists, **F23 and [F83](followups.md) are both undecidable** and the owner's
+> results table's precision column is a lower bound.~~
+>
+> **STRUCK by wave 27, 2026-08-13 — IT WAS ALREADY DONE.** `TruthProtection` shipped **2026-08-03** in `aaf26e8`
+> and is wired into **both** `GoldenEvalRunner.cs:301-307` and `BankVerifyRunner.cs:464-466`;
+> [F31](followups.md) records it as `Done` **1,600 lines above** the [F84](followups.md) entry that asked for it.
+> Wave 26's `91.3 %` re-derived false positives from the golden's `stars` list **alone**, consulting neither the
+> golden's `unresolved` boxes nor `TruthProtection`: of its 150, **139 were already excluded** by the run that
+> produced the owner's table (50 + 89) and `golden eval` reported **`FP = 11`**. **The precision column is not a
+> lower bound; it is truth-corrected, and `1.000` is a ceiling.** F23 was re-measured at `afbank-verify/5` and is
+> voided on that re-measurement, not undecidable.
+>
+> **What was actually open, and is what wave 27 ran:** `golden eval` emits **none** of `bank-verify`'s four
+> truth disclosures (`scoringMode`/`protectedStars`, `precisionNull`, `truthViolations`, `scoredFraction`), so no
+> reader of a `golden_eval.txt` can tell whether protection was applied or what chance alone would score — the
+> mechanism that produced the misreading. See `docs/synthetic-af-bank-followups-wave27-design.md`.
 
 Then, in order: the **F83 decision** (an owner's call, not an arm) · **`lumos`** (~10 m **+ a diagnosis of the
 missing `af_fit_points.csv`**) · the **`A4` truth-model gap** (~20 m) · **[F82](followups.md)** (fix choice

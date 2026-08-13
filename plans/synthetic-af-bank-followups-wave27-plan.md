@@ -6,8 +6,13 @@ step-by-step. Where the two disagree, the design wins and the disagreement is a 
 **Vessel:** PR #195 MERGED → `git checkout develop && git pull && git checkout -b ghilios/synthetic-af-bank-followups-wave27`
 off `develop @ e19a779`.
 
-**Hard stop: 2026-08-14T00:45:17Z.** Budget ~5 h 20 m against a ~6 h ceiling. **Cut order if it overruns:
-(D) → (A)'s build half. (B) and (C) are never cut.**
+**Hard stop: 2026-08-14T00:45:17Z.** Budget **~5 h against ~11.5 h remaining** — **time is NOT the binding
+constraint, so do not cut scope for it.** Cut only what the evidence does not support. If it overruns anyway the
+order is fixed: (D) → (A)'s build half; **(B) and (C) are never cut.**
+
+**Measured rates, and they are new to this series** — the charter's §5 budget table has no `golden eval` row at
+all: the **full 20-dataset arm is 349 s (~6 m)**; a cell ranges **6 s (`D06`) to 46 s (`D01`)**, mean ~17 s.
+**Price a 7-cell arm from the RANGE, not the mean** — `D01` is 7.7× `D06`.
 
 **Record ACTUAL against ESTIMATE in every step's row of `/mnt/d/hf_w27/TIMING.tsv`** (`step`, `est_min`,
 `actual_min`, `note`), written by the controller as each step closes. The estimate/actual pair is itself a

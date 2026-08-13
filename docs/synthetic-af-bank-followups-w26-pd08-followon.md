@@ -1,5 +1,23 @@
 # P-D08 from n = 1 to n = 3 — the prediction, fixed BEFORE the data
 
+> ## ANNOTATION, wave 27, 2026-08-13 — read this first; the document below is left as written
+>
+> **This document's `91.3 % reference omission` conclusion measures a PRE-REPAIR quantity.** Its re-score
+> derived false positives from each golden's `stars` list **alone**, consulting neither the golden's own
+> `unresolved` boxes nor `TruthProtection` — which had shipped on **2026-08-03** (`aaf26e8`) and was live in the
+> very binary being used. Of the 150 it counted, **139 had already been excluded** by the run that produced the
+> owner's table (**50** by `unresolved`, **89** truth-protected), and `golden eval` reported **`FP = 11`**.
+> Its `137` is a third quantity again — "within 12 px of ANY truth star". **Three different populations, all
+> called "false positives"** ([F68](followups.md) part 1).
+>
+> **The document's own per-frame table is correct and remains valuable** — it is what later showed the wing-frame
+> false positives to be **0 real**, discharging [F83](followups.md)'s caveat 3 in the entry's favour. What is
+> wrong is only the reading placed on the totals, and the conclusion drawn from it that a truth re-score was
+> still owed. It was not; it had shipped ten days earlier.
+>
+> Full account: `docs/wave27-register-correction-survey.md` and
+> `docs/synthetic-af-bank-followups-wave27-design.md` §0.
+
 **Written and committed before the two cells are scored.** This is a follow-on to wave 26, not a wave: no
 binary is built, no gate is run, and it costs two `golden eval` cells.
 

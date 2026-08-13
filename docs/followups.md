@@ -434,6 +434,35 @@ shape for this space.
 **Status:** **OPEN — a decision, not a defect** (2026-08-13, answering the owner's question after wave 26) ·
 depends on [F83](#f83), reframed by [F31](#f31) and [F23](#f23)
 
+> #### CORRECTION, wave 27, 2026-08-13 — this entry's `91.3 %` describes a PRE-REPAIR quantity
+>
+> **Every passage below that says "91.3 % reference omission", and item (2), was written as though
+> [F31](#f31)'s repair did not exist. It shipped 2026-08-03** (`aaf26e8`, refined `5c382a1`) as
+> `TestApp/SynthBank/TruthProtection.cs`, wired into **both** `GoldenEvalRunner.cs:301-307` and
+> `BankVerifyRunner.cs:464-466` — **and F31 is recorded `Done` in this same file, ~1 600 lines above.**
+>
+> Wave 26's re-score (`/mnt/d/hf_w26/pd08/F31_truth_rescore.txt`) re-derived false positives from the golden's
+> `stars` list **alone**, consulting neither the golden's own `unresolved` boxes nor `TruthProtection`. Its 150
+> decompose as **50 excluded by `unresolved` + 89 truth-protected + 11 surviving**; its `137` is a *third*
+> quantity ("within 12 px of ANY truth star"). **`golden eval`'s FP field on those same detections is 11**, and
+> the owner's table's `0.966` is `308/(308+11)` — truth-corrected as printed. Two different fields, both called
+> "false positive" ([F68](#f68) part 1).
+>
+> In place, below:
+> * **Item (2) — "Re-measure precision against `truth.json`" — is DISCHARGED, not owed.** It shipped in wave 2.
+> * *"without it, F23 and F83 are both undecidable"* is **false**. F23 was re-measured at `afbank-verify/5`, and
+>   that re-measurement is what voided it.
+> * Point 4's *"`D08`'s apparent cost is 91.3 % reference omission"* should read: **`D08`'s scored cost is 11
+>   genuine junk detections**, all on the two extreme wing frames, zero on the seven interior frames. The
+>   correction **strengthens** this entry's conclusion — see [F83](#f83) caveat 3.
+> * Item (4)'s **"13 junk detections" is 11**: two of the 13 sit inside a golden `unresolved` box.
+>
+> **What was actually open:** `golden eval` emits **none** of `bank-verify`'s four truth disclosures
+> (`scoringMode`/`protectedStars`, `precisionNull`, `truthViolations`, `scoredFraction`), so no reader of a
+> published `golden_eval.txt` can tell whether protection was applied. That silence is the mechanism that
+> produced this misreading, and wave 27 ships the fix. See
+> `docs/synthetic-af-bank-followups-wave27-design.md` and `docs/wave27-register-correction-survey.md`.
+
 **The eight at-floor landings** (`BrightnessSensitivity = 0.0`), resolved from source predicates by wave 26's
 prep, with their combined effective gates:
 
@@ -658,7 +687,16 @@ lowers `recall@all` on all four, and raises `REJECTED:LowSensitivity`. **All fou
    mechanism on **this dataset by name**: *"`D08` holds 81 golden stars at focus and 9 at the extreme frame,
    against 123–126 truth stars per frame throughout."* The base cell accepts 10 and 15 on frames whose golden
    holds 9. **So the +0.034 may be real faint stars the golden omits rather than junk**, and separating the two
-   needs a re-score against each frame's own `*.truth.json` — F31's own method, **not run**.
+   needs a re-score against each frame's own `*.truth.json` — F31's own method, ~~**not run**~~.
+
+   > **CAVEAT 3 IS DISCHARGED, wave 27, 2026-08-13 — and it resolves IN THIS ENTRY'S FAVOUR.** The separating
+   > measurement had already been run, twice over. (i) The scoring is truth-protected at source since
+   > 2026-08-03 ([F31](#f31)), so these 11 survived `ExcludeProtected` — by construction **none of them has an
+   > `omitted`/`merged-into` truth star within the 12 px radius**. (ii) Wave 26's own per-frame table
+   > (`/mnt/d/hf_w26/pd08/F31_truth_rescore.txt`) reports **0 real** of the wing-frame false positives on both
+   > `13672` and `14328`, against "ALL REAL" on the seven interior frames. **So the 11 are genuine junk and the
+   > `+0.034` is real, not a reference artifact.** Caveat 2 (saturation) is untouched by this and is precisely
+   > what `RULE T27` measures.
 
 **What survives all three**, because it does not read the golden at all: the FN attribution. `REJECTED:LowSensitivity`
 is the *detector's* count of what the sensitivity gate rejected, and it goes None → 55 / 28 / 16 / 37.
@@ -2848,7 +2886,7 @@ would alias one instance.
 The underlying overwrite ([F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings)) is unchanged — a
 bank folder still accumulates whichever prepass went last. What changes is that the survivor now says so.
 
-### F31 — Synthetic-bank precision is NOT exact: the golden omits real stars, and they score as false positives
+### F31 — ~~Synthetic-bank precision is NOT exact: the golden omits real stars, and they score as false positives~~ — FIXED 2026-08-03; the title is the DEFECT, not the current state
 **Status:** **Done** (2026-08-03, wave 2 — repaired, validated against a null control, and everything re-baselined at `afbank-verify/5`) · found 2026-08-03 verifying the F23 wave-1 result · **INVALIDATED F23's evidence base**
 
 `docs/synthetic-af-bank-baseline-results.md` headlines the synthetic bank with "Golden precision (D06,
