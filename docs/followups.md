@@ -791,8 +791,32 @@ attributable to the one edited field.
 
 ### F94 — Verdict trees keep shipping with uncovered regions, and the standing rule against it did not stop the second one
 
-**Status:** **Open — a class, now on its second consecutive wave** (2026-08-13, wave 28) · generalises wave 27
-§8.1 · belongs beside [F68](#f68) part 5
+**Status:** **Open — a class, now on its THIRD consecutive wave, and wave 29 found the reason the fix does not
+work** (2026-08-13, waves 27–29) · generalises wave 27 §8.1 · belongs beside [F68](#f68) part 5
+
+> #### APPEND, wave 29 — the coverage PROOF is the thing that is wrong, not just the tree
+>
+> Wave 29 answered F94 by **enumerating every tree and printing `uncovered: 0`** on all five instruments. It
+> was not enough, and the failure is instructive.
+>
+> `RULE W29-L` printed `regions enumerated: 8   uncovered: 0` and then ran to the clause state
+> **`(L-0=True, L-1=None, L-2=None)`** — a triple its own enumeration **never visits**, because the
+> enumeration ranges over `{True, False}` and the clauses are three-valued: `L-1` and `L-2` are `None` when
+> `joint` is not positive, which is a could-not-look and not a `False`.
+>
+> **A tree proved total over `{True, False}` is not total over `{True, False, None}`**, and every rule in this
+> series that has a could-not-look state has three-valued clauses. So the remedy waves 28 and 29 adopted —
+> enumerate and assert `uncovered: 0` — **proves the wrong totality** and will keep printing a clean coverage
+> line beside an uncovered state.
+>
+> **The corrected remedy: enumerate over the clause's ACTUAL value domain, `None` included, and assert that
+> the verdict function is total over THAT product.** A cheap check that would have caught it: assert the run's
+> own observed clause tuple is a member of the enumerated set, which costs one line and cannot be satisfied by
+> a proof of the wrong thing.
+>
+> Wave 29's `w29l_score.txt` also shipped a **false explanatory sentence** on the same run — *"the control did
+> not hold"* when `L-0` **held** (8 fields, 0 disagreeing). The verdict `L-UNEVALUATED` is correct on the
+> numbers; only the prose was wrong. It is annotated in place on the artifact rather than edited out.
 
 Wave 27's `RULE T27` tree left `3 ≤ union ≤ 9` with neither set at 5 uncovered, and the scorer printed
 `T-TREE-GAP` rather than papering over it. Wave 28's design §12 turned that into a standing rule — *"every
