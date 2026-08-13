@@ -429,6 +429,167 @@ shape for this space.
 > three where the search **also** drove `StarClippingMultiplier` down, twice to the axis's own 0.25 floor.
 > Reproduce: `/mnt/d/hf_w26/q26_score.txt`; `docs/synthetic-af-bank-followups-wave26-results.md` §4.3, §7.
 
+### F92 — The post-wavelet blur is WELDED to `StructureLayers`, so one knob sets two opposing scale cutoffs
+
+**Status:** **Open — source-derived, zero compute, and it re-opens [F43](#f43)** (2026-08-13, wave 28,
+`RULE W28-S` = `S-WELDED`, 3 of 3)
+
+`StarDetector.cs:631-632` blurs the structure map immediately after the à trous residual is subtracted:
+
+```csharp
+// Step 5: Excluding large structures can cut off the outsides of large stars, or leave holes when far out
+//         of focus. Blurring smooths this out well for structure detection
+CvImageUtility.ConvolveGaussian(structureMap, structureMap, p.StructureLayers * 2 + 1);
+```
+
+with `sigma = 0.159758 * kernelSize` when unset (`CvImageUtility.cs:80-82`). At the shipped
+`StructureLayers = 4` the kernel is 9×9 and **σ ≈ 1.44 px**, so a 1-px source loses roughly `1/(2πσ²) ≈ ×0.077`
+of its peak amplitude **before** it is compared against
+`binarizeThreshold = median + NoiseClippingMultiplier · sigma` (`:653`).
+
+**The blur's stated purpose is to help LARGE and defocused stars, and its entire cost falls on small ones.**
+Its width is keyed to `StructureLayers`, which is the knob for the *upper* scale cutoff — the shipped tooltip
+says so: *"At the default of 4 (2⁴=16), structures larger than 16 pixels in size are excluded"*
+(`OptionsDataTemplates.xaml:444`). **Lowering `StructureLayers` therefore narrows the blur (helps a 1-px star)
+and makes the residual less smoothed (hurts it), in one move.**
+
+**Measured as a rule, both hashes recorded** (`/mnt/d/hf_w28/w28s_score.txt`, `StarDetector.cs`
+`1e202777…`, `IStarDetector.cs` `5304ed5f…`): the width argument is literally `p.StructureLayers * 2 + 1`
+(raw, **not** `EffectiveStructureLayers`); **no** member of `StarDetectorParams` — 55 properties — controls the
+blur width independently; and `EffectiveStructureLayers(p)` reaches the residual at `:619`/`:622` and appears
+**0 times** in the blur's argument list. The defocus/donut boost (`:1567-1578`) already decouples them in one
+direction, so **there is precedent for decoupling the other.**
+
+**Consequence for the register:** [F43](#f43)'s *"`StructureLayers` 4 → 2 makes it strictly worse"* moved both
+cutoffs at once and is **confounded in source**. The experiment that separates them has never been run.
+
+**Price to run it:** ~45 m code (a dedicated blur-width field defaulting to today's expression, so the default
+is bit-identical) + ~10 m arm; **plus a fresh 42 m `optimize` baseline and a re-derivation if it is ever to
+ship**, because the change reaches the detector. Design §11 defers it; `RULE W28-N` (see [F93](#f93-ready-to-paste))
+is the evidence that the amplitude account it rests on is correct.
+
+### F93 — `NoiseClippingMultiplier` is the binding gate below the calibrated band on the bank too — with one dataset where it is not enough
+
+**Status:** **Open — measured, and explicitly NOT a licence to change a default** (2026-08-13, wave 28,
+`RULE W28-N` = `N-RECOVERS`, 3 of 3) · corroborates [F43](#f43) on synthetic frames · bounded by [F22](#f22)
+
+[F43](#f43) found that on a reporter's **real** 61 MP 19.4″/px rig the binding gate was `NoiseClippingMultiplier`,
+not `Sensitivity`. Wave 28 ran it on the bank: 3 floored datasets × `NC ∈ {landed, 2.0, 1.0}`, no build, one
+edited field per cell, 432 s.
+
+| dataset | `NC` landed | high-tier `NO CANDIDATE` landed → `NC 1.0` | `recall@high` landed → `NC 1.0` | `recall@all` | precision at 1.0 |
+|---|---|---|---|---|---|
+| `D01_ultrawide_40mm` | 3.8125 | 42 991 → **8 931** (−79.2 %) | 0.183 → **0.195** | 0.123 → 0.183 | 1.000 |
+| `D02_rich_135mm` | 3.9375 | 3 732 → **1 071** (−71.3 %) | 0.446 → **0.687** | 0.377 → 0.598 | 1.000 |
+| `D03_redcat_250mm` | 3.625 | 197 → **7** (−96.4 %) | 0.365 → **0.549** | 0.238 → 0.364 | 1.000 |
+
+**The mechanism is confirmed and the payoff is not uniform.** `D02` and `D03` recover a quarter and a fifth of
+`recall@high`. **`D01` does not:** 34 060 high-tier candidates now form, **97.8 % of them are re-rejected by a
+later gate** (`TooDistorted` +13 866, `LowSensitivity` +12 826, `TooSmall` +6 515), and `recall@high` moves
++0.012. Its attribution profile inverts — `NO CANDIDATE` 84.3 % → 17.8 %, gates 12.1 % → 79.3 % — so **at
+`NC = 1.0` `D01` looks like `D02`/`D03` did at their landed settings.** The gates fire in sequence
+(`TooSmall` → `OnBorder` → `TooDistorted` → `Degenerate` → `LowSensitivity`), so those counts are
+first-rejection-wins and **which gate binds on `D01` is NOT established.**
+
+**Three things this entry does not say.** (1) It is **not a ship**: no wave-28 rule pre-registered a change on
+this axis, and the optimizer *chose* the landed values under an objective that charges nothing for a missed
+detection ([F83](#f83)). A default or search-bound change owes its own wave with a fresh baseline. (2) The
+`precision = 1.000` is **1.000 at baseline too**, so `N-3` shows no detected cost rather than a measured cost of
+zero. (3) [F22](#f22) still binds: below ~1.1 px measured HFR over-reads by up to +234 %, so **stars recovered
+below the band carry an HFR that cannot resolve the vertex** — and `D01` already reaches `BestJ` 0.994825.
+
+**Artifacts:** `/mnt/d/hf_w28/nc/<dataset>_nc<v>/attempt01/golden_eval.txt`, `w28n_score.txt`,
+`w28n_manifest.tsv`. The three landed cells reproduce the published `table18` rows exactly, so every delta is
+attributable to the one edited field.
+
+### F94 — Verdict trees keep shipping with uncovered regions, and the standing rule against it did not stop the second one
+
+**Status:** **Open — a class, now on its second consecutive wave** (2026-08-13, wave 28) · generalises wave 27
+§8.1 · belongs beside [F68](#f68) part 5
+
+Wave 27's `RULE T27` tree left `3 ≤ union ≤ 9` with neither set at 5 uncovered, and the scorer printed
+`T-TREE-GAP` rather than papering over it. Wave 28's design §12 turned that into a standing rule — *"every
+verdict tree in this wave is checked for total coverage of its outcome space at pre-registration"* — and then
+**`RULE W28-N`'s tree shipped with 4 of 135 regions uncovered, every one of them a region where `N-1` is
+false.** `N-1` is the clause that checks the edit took effect; a run where it silently did not would have scored
+`N-RECOVERS` on the tree as written.
+
+**The pattern is specific and predictable: the uncovered region is always the VALIDITY clause.** `N-2` and `N-3`
+are substantive and appear in every branch; `N-1` is the gate that says the measurement happened at all, it is
+expected to hold, and it fell out of the tree. `W28-S` (27 regions) and `W28-B` (432 regions) both enumerate
+clean — and neither has a validity clause outside its own conjunction.
+
+**Remedy, and it is mechanical rather than a reminder:** a design must **enumerate its own outcome space at
+pre-registration** — the scorers already do this in code, and printing `regions enumerated: N   uncovered: 0`
+costs nothing — and **every clause, including the ones expected to hold, must appear in the tree.** A scorer
+that finds a gap prints `<RULE>-TREE-GAP`, enumerates the uncovered regions, prints what the design's literal
+tree would have said, and **does not repair and re-score** (`/mnt/d/hf_w28/w28n_score.txt`, self-test [5]).
+
+### F95 — A blocking pre-flight that runs before the instruments exist certifies an empty population
+
+**Status:** **Open — remedy known, not applied this wave** (2026-08-13, wave 28) · [F80](#f80)/[F87](#f87)'s
+family, third distinct shape
+
+`verify_derivation_w28.py` ran at `11:06:36` over `/mnt/d/hf_w28/`, which then contained exactly one file —
+itself. `vdrift_w28.txt` reads `files checked: 1` and `>>> V-UNEVALUATED: no sibling target was referenced by
+any driver in this root`. The wave's six instruments (`fp_w28.sh`, `score_w28s.py`, `score_w28b.py`,
+`score_w28n.py`, `w28b_manifest.sh`, `w28n_arm_w28.sh`) were all written afterwards and **were never checked**.
+The plan's gate required `V-CLEAN`; the design says `UNEVALUATED` is never a pass; the wave proceeded.
+
+**The self-test and both pinned FAIL fixtures are healthy** — `SELF-TEST PASS`, 262 `V28-B` findings on
+`/mnt/d/hf_w27`, 2 `V28-C` findings on `/mnt/d/hf_w24`, and `/mnt/d/hf_w26` demonstrating expiry with 0. **The
+instrument works; it was pointed at nothing.**
+
+**The class, stated so it survives this wave:** F80's first three gaps were a *pattern* too narrow; F87's was a
+*population containing the instrument*; this is a *population that was empty at the only moment the check was
+taken*. **A blocking pre-flight must be re-run at the wave's close over the finished root, and the closing run
+is the one whose verdict is quoted.** The pre-flight run proves the checker works; the closing run proves the
+wave is clean. They are two runs and this series has been conflating them. Price: **~2 m per wave.**
+
+### 9.5 Amendments owed to existing entries
+
+* **[F43](#f43) — AMEND IN PLACE, and it is the amendment this wave owes most.** The entry's *"`StructureLayers`
+  4 → 2 makes it strictly worse (0 at both central positions)"* is **confounded in source**, proved by
+  `RULE W28-S` = `S-WELDED` at zero compute. Lowering `StructureLayers` moves **two** cutoffs in opposite
+  directions: it narrows the post-wavelet Gaussian at `StarDetector.cs:632` (whose width is literally
+  `p.StructureLayers * 2 + 1`, so 4 → 2 takes the kernel 9×9 → 5×5 and σ 1.44 → 0.80 px, which **helps** a 1-px
+  star clear the binarization threshold) **and** shrinks the à trous residual's low-pass from ≈2⁴ to ≈2² px, so
+  `src − residual` retains less of the star (which **hurts** it, and by more). The measurement stands; the
+  **inference that the axis is useless does not**, because the two effects were never separated and no member of
+  `StarDetectorParams` can separate them. **F43's "`MinHFR` is the ONLY axis that rescues it" must now be read as
+  "the only axis that rescues it among those tested, on an axis set that contained a confounded knob."** See
+  [F92](#f92-ready-to-paste); and note [F93](#f93-ready-to-paste) finds a **second** axis that rescues `D01`'s
+  candidate formation (`NoiseClippingMultiplier` 3.8125 → 1.0 cuts its structure gap 79.2 %) — though not its
+  `recall@high`.
+* **[F62](#f62)** — append that wave 28 tested the "one band-pass phenomenon" claim out of sample and **it did
+  not survive below the band**. `RULE D27`'s upper-edge result is untouched and the prediction holds on **9 of 10**
+  blind datasets above the band; the lower-edge prediction fails on **0 of 4** LOW datasets, with `Δacc > 0` on
+  all 17. `RULE D27` and item 8 may still be two views of one mechanism, but the *evidence* for the unification is
+  one-sided and must be quoted that way.
+* **[F31](#f31)** — append a second, independent demonstration of the reference's wing evaporation: on wave 28's
+  blind population the golden-denominated and detector-only routes disagree on **5 of 17** datasets and **all
+  five disagree in the same direction** (`Δrecall < 0 < Δacc`). A per-frame recall statistic is biased against
+  the focus frame wherever the golden's denominator peaks there.
+* **[F21](#f21)** — extend the measured `golden eval` rate. Wave 27 recorded 6–46 s per 9-frame cell (full
+  20-dataset arm 349 s). **Wave 28's `D01` at `NC = 1.0` took 179 s** — 3.9× the previous maximum — because
+  lowering the threshold multiplies the candidate count. **Price a cell from the RANGE and from the knob
+  setting, not from the dataset alone.** Wave 28's 10 cells totalled 381 s of `TestApp` time inside a 432 s wall.
+* **[F35](#f35)** — its finding that *"the W class's recall is lost in candidate FORMATION — the structure map
+  never proposes 49 % of them"* now has a lever: `NoiseClippingMultiplier` converts most of that loss into
+  formed candidates ([F93](#f93-ready-to-paste)). On `D02`/`D03` they become detections; on `D01` 97.8 % of them
+  are re-rejected downstream, which is also where F35's *"`MinimumStarBoundingBoxSize` rejects another 17 % as
+  `TooSmall`"* now points.
+* **[F84](#f84)** — unchanged and re-affirmed: **wave 28 proposed and measured nothing on the `Sensitivity`
+  axis.** `D01`'s `LowSensitivity` count rising from 786 to 13 612 at `NC = 1.0` is a **downstream consequence**
+  of more candidates existing, not evidence for or against a sensitivity floor.
+* **`docs/synthetic-af-bank-results-table.md`** — add the **in-focus kernel HFR `K` (px)** column from
+  `truthModel` (`max(hfrMin, hfrMinEffective)`), and the note that `D01`/`D02`/`D03` are the **only three floored
+  by the generator** (`hfrMin < hfrMinEffective`), all at `K = 0.700` despite 19.4 / 5.7 / 3.1 ″/px. It reorders
+  the recall column into a monotone story and costs nothing. **Do not annotate it with a 2–4 px band claim
+  below the band** — `W28-B` is `B-SPLIT` and the lower edge is not established.
+
+---
+
 ### F85 — A closed, shipped correction was re-measured as an open defect, because two fields share a name
 
 **Status:** **Done** (2026-08-13, wave 27) — the disclosure gap is fixed; the register contradiction is
@@ -3918,7 +4079,9 @@ agrees-with-the-presets case.
 ### F43 — The optimizer wizard refuses to start unless the DEFAULT settings already produce a usable curve
 **Status:** **Done (wave 5)** for the Live path; **replay DECIDED (wave 6) — extend, but not before the
 `BaselineJ = 0` presentation question is answered**, so the implementation is still open · found 2026-08-05 from a
-user report on a 40 mm rig
+user report on a 40 mm rig · **AMENDED wave 28: this entry's "`StructureLayers` 4 → 2 makes it strictly worse"
+is CONFOUNDED IN SOURCE — one knob moves two opposing cutoffs (`RULE W28-S` = `S-WELDED`). See the amendment
+below and F92**
 
 `SeedFitIsUsableAsync` (`StarDetectionOptimizerWizardVM.cs:2869`, called at `:2541`) evaluates the **default seed
 params** once and refuses to optimize unless some run yields a finite σ(focus) over ≥ 3 positions. On a Live
@@ -3960,6 +4123,35 @@ removes precisely the frames the vertex is fitted from.
 **And `MinHFR` is the ONLY axis that rescues it.** `MinimumStarBoundingBoxSize` 5 → 3 changes nothing (still 0 at
 focus); `StructureLayers` 4 → 2 makes it strictly worse (0 at *both* central positions). So the single knob that
 un-blocks this rig class is the one the guard's refusal prevents the search from ever touching.
+
+> #### AMENDMENT, wave 28, 2026-08-13 — the `StructureLayers` result above is CONFOUNDED IN SOURCE
+>
+> **The measurement stands. The inference that the axis is useless does not.** `RULE W28-S` = `S-WELDED`, 3 of 3
+> clauses, decided from source at zero compute (`/mnt/d/hf_w28/w28s_score.txt`; `StarDetector.cs` sha256
+> `1e202777…`, `IStarDetector.cs` `5304ed5f…`): **`StructureLayers` sets two opposing scale cutoffs at once.**
+>
+> * It sets the **upper** cutoff, via the à trous residual's ≈`2^StructureLayers` px low-pass, which is
+>   *subtracted* — the knob's documented purpose.
+> * It **also** sets the width of the post-wavelet Gaussian blur, which is the **lower** cutoff:
+>   `CvImageUtility.ConvolveGaussian(structureMap, structureMap, p.StructureLayers * 2 + 1)`
+>   (`StarDetector.cs:631-632`), with `sigma = 0.159758 * kernelSize` (`CvImageUtility.cs:80-82`). The width
+>   argument is **raw** `p.StructureLayers`, not `EffectiveStructureLayers(p)`; **no** member of
+>   `StarDetectorParams` (55 properties) controls it independently; and `EffectiveStructureLayers(p)` reaches the
+>   residual at `:619`/`:622` and appears **0 times** inside the blur call's argument list.
+>
+> So **4 → 2 takes the kernel 9×9 → 5×5 and σ 1.44 → 0.80 px, which HELPS a ~1 px star clear the binarization
+> threshold at `:653`, while simultaneously shrinking the residual's low-pass from ≈2⁴ to ≈2² px, so
+> `src − residual` retains less of the star — which HURTS it, and by more.** The two effects were never
+> separated, and with the shipped parameter set they **cannot** be: there is no knob for the blur width alone.
+> The experiment this entry's sentence assumes was run has never been run.
+>
+> **Read the claim as: "`MinHFR` is the only axis that rescued it among those tested, on an axis set that
+> contained a confounded knob."** See **F92** for the decoupling build (~45 m + ~10 m arm, +42 m `optimize`
+> baseline if it is ever to ship). And note **F93**: `NoiseClippingMultiplier` 3.8125 → 1.0 on this same `D01`
+> cuts its high-tier `NO CANDIDATE (structure gap)` count **42 991 → 8 931 (−79.2 %)** at precision 1.000 — a
+> **second** axis that rescues candidate *formation* on this rig class, though on `D01` 97.8 % of the recovered
+> candidates are then re-rejected by a later gate and `recall@high` moves only +0.012. Full working:
+> `docs/synthetic-af-bank-followups-wave28-results.md` §1, §2, §9.
 
 **Why [F35](#f35--minhfr-should-be-seeded-from-the-sweep-wings-and-neither-available-hfr-statistic-can-size-it)
 does not already cover this.** F35's `MinHfrSeed` is applied inside `OptimizeAsync` (`:3076`) — **after** this
