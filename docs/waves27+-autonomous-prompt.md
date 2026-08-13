@@ -1,5 +1,38 @@
 # Waves 27+ — autonomous run
 
+> # THIS RUN IS COMPLETE, AND THE WAVE SERIES IS RECOMMENDED TO STOP. READ THIS BOX BEFORE ANYTHING BELOW.
+>
+> **Executed 2026-08-13: waves 27, 28, 29 and 30.** All four are on **ONE** branch,
+> `ghilios/synthetic-af-bank-followups-wave27`, and **ONE** PR, **#196** — the owner instructed one PR, and
+> earlier stacked PRs (#197, #199) were consolidated and closed. Results per wave are in
+> `docs/synthetic-af-bank-followups-wave2<7,8,9>-results.md` and `…wave30-results.md`.
+>
+> **The recommendation to stop is a JUDGEMENT, not the charter's trigger.** §3's formal condition — two
+> consecutive waves with no register-worthy finding — is **not met**; waves 29 and 30 both produced product
+> findings. The judgement rests on wave 30 §12: **the synthetic bank has no unanswered product question that
+> another arm can address**, which wave 30's own design predicted in advance and its measurement confirmed.
+> Everything left is a **ship or a five-minute rescore**, and neither has a verdict to take.
+>
+> **§7 below is STALE and its opening item was FALSE.** It directed the run at *"re-measure precision against
+> `*.truth.json`"*, which had **already shipped on 2026-08-13** (`aaf26e8`); the register contradicted itself
+> and the owner's results table carried a **false banner**, now withdrawn. That correction is wave 27's
+> headline. **Do not open on §7.**
+>
+> **What is actually left, none of it a wave** — full ledger in wave 30 results §10, with a search command per
+> row so it can be checked rather than believed:
+>
+> | item | price | goal |
+> |---|---|---|
+> | Implement **F82's decided fix, candidate (3′)** — `docs/f82-fix-choice-decision.md` | 2 h 25 m – 3 h 10 m incl. a **42 m gate that is certainly owed** | 2 |
+> | **First run its validity gate `V-0`** ([F110](followups.md)) — F82's evidence was taken with the detectability bound OFF | ~10 m, and it can **void** the decision | 2 |
+> | Bound the **`MaxDistortion`** axis at ~π/4 and rename it — it is a **minimum** fill ratio ([F98](followups.md)) | ~20 m + 42 m gate | 3 |
+> | Render new datasets at **1.4–19.4 ″/px** | ≥ 1 h | 1, 3 |
+>
+> **The last is the only route to a new blind population, and it has been open twelve waves.** Without it the
+> honest position is that this bank is measured out.
+>
+> **Suite baseline is 3997**, verified by COUNT in CI. Everything below 3997 in this file is stale.
+
 **Read this file, then `docs/waves22+-handoff-prompt.md`, then `docs/followups.md`. Those three are the
 authority; this file only sets the run's boundaries.** Everything you need is on disk. Nothing depends on a
 prior conversation — this prompt is written to survive a `/clear`.
