@@ -429,6 +429,293 @@ shape for this space.
 > three where the search **also** drove `StarClippingMultiplier` down, twice to the axis's own 0.25 floor.
 > Reproduce: `/mnt/d/hf_w26/q26_score.txt`; `docs/synthetic-af-bank-followups-wave26-results.md` §4.3, §7.
 
+### F96 — The harness's `stepBehavioral` "truth" is a fixed point of the recommender it scores, so every goal-2 conclusion is denominated in a bar the code under test produces
+
+**Status:** Open (diagnosed to a line; no fix priced) · found 2026-08-13, wave 29, `RULE W29-S` clause `S-a`
+= HOLDS · `/mnt/d/hf_w29/w29s_score.txt`
+
+`SynthValidateRunner.ComputeStepBehavioral` (`:1213–1270`) builds an analytic curve, fits it, calls
+`StepSizeRecommender.Recommend` at **`:1262`**, and loops until `rec.StepSize == step`. `RULE W29-S` asserts
+from source, at `HEAD`, by sha256, that the method is **declared once**, contains **exactly one** `Recommend(`
+call site inside its body (whole-file count 2, at `:792` and `:1262`, printed so the scoping is visibly doing
+work), and is the **only writer** over 70 harness files of the value serialized as `terminal.stepBehavioral`.
+
+**Consequence.** A change to `Recommend` moves the bar **and** the measurement together. This is the mechanism
+behind [F82](#f82)'s observation that `stepBehavioral` moved 8.0 → 9.0 across wave 25's two arms while it was
+identical on the other 17 cells: wave 25 changed `Recommend`. **Assertion `A3`, and every goal-2 statement in
+waves 20–29 that quotes `stepBehavioral` as truth, is a self-consistency check and not an accuracy measurement.**
+
+**What it does NOT say.** It does not say the recommender is wrong; a fixed point can be correct. It says the
+harness cannot tell. **The remedy is a spec-derived truth model** — backlog item 4's `A4` gap, priced at 20 m
+of code **+ 42 m of gate** because it rebuilds `TestApp`.
+
+**Note on scope.** Design §14 pre-registered F96 as a two-part entry — the truth-model coupling **and** "F82's
+fix has no product carrier" — to be **withdrawn in place** on `S-CARRIER-EXISTS`. The verdict was
+`S-CARRIER-EXISTS`, so **the carrier half is withdrawn and is not registered.** The coupling half is `S-a`,
+which held, and stands.
+
+---
+
+### F97 — F82's shrink-while-widening transition occurs on exactly ONE cell in the bank, and on ZERO of the fifteen that were blind
+
+**Status:** Open (measured; F82's fix choice unchanged) · found 2026-08-13, wave 29, `RULE W29-R` =
+**`R-STANDS`** · `/mnt/d/hf_w29/w29r_score.txt`
+
+Wave 26 pre-registered a reversal condition on its choice between F82's two fixes — *"if a later wave measures
+that `SearchSpan` … shrinks on more than a single cell while the requested sweep widens, then … (2) becomes
+correct."* **Three waves quoted it; none ran it.** Wave 29 ran it at zero compute over the 18 addressable
+paired S1 cells under `/mnt/d/hf_w25/after`, via the exact inversion
+`impliedSearchSpan = stepRecommendation.halfWidth / (1.5 × 0.5)`, with the multiple asserted `= 1.5` at **both**
+the B15 tree `29665a62e4f8` and `HEAD`, and with all 37 rounds confirmed capped-or-floored and none
+detect-bounded before any statistic was taken.
+
+```
+k = 18   c = 1   c_blind = 0   qualifying cells: ['D01_ultrawide_40mm']
+```
+
+**`c = 1`, and the one cell is `D01`, which was already burned.** `D05_tec140_1000mm` and
+`D19_cygnus_deep_shed` produced no report and **left the denominator** as named `CNL-NOREPORT`, never as zeros.
+
+**What this changes.** F82 is real and (per [F98's sibling finding in `RULE W29-S`](#f96)) reaches a real
+product path — but it is **rare, not general**: one cell in eighteen, zero in fifteen blind. On all 17 other
+cells the implied and requested spans move together on every transition. **Anyone pricing a fix should price it
+against 1 of 18, not against the 37-of-37 capped-or-floored population.** Wave 26's choice of fix (1) stands on
+wave 26's own grounds; the reversal condition is now **evaluated** rather than merely unexamined.
+
+**Blindness spent.** Producing this verdict required publishing the per-cell table for all 18 cells, so the 15
+formerly-blind cells' `halfWidth`/`bootstrap`/implied-span values are now read. See F100.
+
+---
+
+### F98 — `MaxDistortion` is a MINIMUM fill-ratio despite its name, and 0.9 is above the ~0.79 ceiling of a perfect disk, so a whole arm cell was dead before it ran
+
+**Status:** Open — **candidate goal-3 product finding** · found 2026-08-13, wave 29, `RULE W29-L` =
+**`L-UNEVALUATED`** · `/mnt/d/hf_w29/w29l_score.txt`, `/mnt/d/hf_w29/l/out/L{0,2,4}.log`
+
+`StarDetector.cs:1804` rejects a candidate as `TooDistorted` when `fillRatio < effectiveMaxDistortion`. The
+parameter is a **lower bound on bounding-box fill ratio**; **raising it tightens the gate.** The file's own
+comment at `:1786` states the ceiling: *"a perfect disk fills ~PI/4 ≈ 0.79."* With `DefocusAwareGates: false`
+in `D01`'s landed tree, `ComputeEffectiveMaxDistortion` returns `p.MaxDistortion` verbatim.
+
+Wave 29's design §6 pre-registered `MaxDistortion` **0.5 → 0.9** under the heading *"one knob relaxed per
+cell"*. Measured result on `D01`, 9 frames: **`TP=0 FP=0 FN=110384`, `recall@high = 0.000 (0/62 411)`** on
+both `L2` and `L4` — total detection collapse. Corroborated by wall clock: `L2` (152 s) and `L4` (145 s) were
+the two **fastest** cells in a five-cell arm, because nothing survived the gate to do downstream work.
+
+**Two findings, and they are separable.**
+
+1. **The instrument finding.** A pre-registration can specify a knob edit whose *direction* no clause reads.
+   The arm's self-test proved the edit was **surgical** (`33 of 33`, *"exactly 1 file changed"*, *"an unnamed
+   field is UNCHANGED"*) — surgical is not correctly signed. `RULE W29-L`'s verdict is
+   **`L-UNEVALUATED`** and it stands; the cell was not re-run at a corrected value and scored.
+2. **The product finding.** `OptimizerVariable.cs:176` declares the searchable axis
+   `Continuous(nameof(StarDetectorParams.MaxDistortion), 0.1, 1.0, 0.1)`. **The upper ~21 % of that axis
+   (> π/4 ≈ 0.785) is provably detection-killing for round stars** — any value above the perfect-disk fill
+   ratio rejects every candidate. A searchable range whose top fifth returns zero detections is a parameter
+   space that wastes optimizer evaluations, and the name `MaxDistortion` reads as the opposite of what it
+   gates. **Worth ~20 m to bound the axis at π/4 and rename or document the field; owes the 42 m gate because
+   it touches plugin code.**
+
+---
+
+### F99 — Relaxing the bounding-box floor on `D01` releases 9 537 candidates and three survive: the binding gates are downstream, and the pre-registered statistic could not see it
+
+**Status:** Open — the hypothesis wave 30 should pre-register · found 2026-08-13, wave 29 ·
+`/mnt/d/hf_w29/l/out/L{0,1}/attempt01/golden_eval.txt`
+
+`RULE W29-L`'s pre-registered statistic is the difference in `FN_total`. On `D01`, lowering
+`MinStarBoundingBoxSize` 6 → 3 gives `FN_total` 50 249 → 50 246, i.e. **−3**, which reads as "this gate does
+almost nothing". The per-gate blocks in the same artifact say otherwise:
+
+| gate | `L0` | `L1` (MinBox 6→3) | Δ |
+|---|---|---|---|
+| `REJECTED:TooSmall` | 11 372 | 1 835 | **−9 537** |
+| `REJECTED:TooDistorted` | 14 876 | 20 573 | **+5 697** |
+| `REJECTED:LowSensitivity` | 13 612 | 17 426 | **+3 814** |
+| others | | | +23 |
+
+**9 537 high-tier candidates were released from the bounding-box floor and 99.97 % of them were immediately
+re-caught by `TooDistorted` and `LowSensitivity`. Three reached acceptance.** The gate is not inert; its entire
+yield is absorbed one and two gates downstream.
+
+**The lesson is about the statistic, not the detector.** A first-rejection-wins attribution differenced only at
+the *total* cannot distinguish a gate that never fires from a gate whose output is fully captured downstream.
+**Wave 30's rule over sequential gates must read the per-gate flow, not the net.** And the substantive
+hypothesis this generates, stated so it can be wrong: **`D01`'s binding constraint is `TooDistorted`, jointly
+with `LowSensitivity`, and no single-knob change recovers it** — which is `L-JOINTLY-BOUND`'s claim arrived at
+by a different route than the rule that could not evaluate it.
+
+---
+
+### F100 — A blindness ledger that promises a quantity will stay unread, beside an instrument that must read it, burns the population at pre-registration time
+
+**Status:** Recorded (the burn is spent; the structural fix is cheap) · found 2026-08-13, wave 29 ·
+design §7 vs `/mnt/d/hf_w29/w29r_score.txt`
+
+Wave 29's design §7 wrote: *"the requested-vs-implied comparison has **never** been computed on any other
+cell"*, and named the 15 non-burned cells as **BLIND, and carrying `W29-R`'s verdict**. The same document's
+§5.3 pre-registered a scorer that computes exactly that comparison over all 18 addressable cells and prints
+`c` and `c_blind`. **`w29r_score.txt` publishes the full 18-row table.** The ledger's claim is now false, and
+the instrument that falsified it was commissioned by the document that made the claim.
+
+**The rule was not tuned** — `W29-R` is implemented exactly as §5.3 writes it, and its verdict was taken on the
+first computation of the statistic, which is what blindness protects. **But it is the last verdict on this
+population that can claim blindness.** Any future rule over `SearchSpan` persistence on `/mnt/d/hf_w25/after`
+has no blind cells left.
+
+**Fix, ~5 m per wave:** the design's blindness ledger must be checked against the design's own instrument
+specifications before the pre-registration commit — every quantity the ledger promises stays unread must not
+appear in any clause's per-member output. Nothing does this today.
+
+---
+
+### F101 — The derivation checker's `historical_ranges` has now failed THREE generations, each time with a passing self-test
+
+**Status:** Repaired in wave 29's checker; the pattern is the entry · found 2026-08-13, wave 29 ·
+`/mnt/d/hf_w28/verify_derivation_w28.py:579`, `/mnt/d/hf_w29/verify_derivation_w29.py:224–238`
+
+[F87](followups.md) recorded this function eating its own file; wave 27 repaired it; wave 28's design required
+the repair be carried forward and demonstrated, and wave 28's self-test clause `[6]` did demonstrate both ends
+it knew about. **It was still broken.** Wave 28 counted brackets on the **raw** line, so an unbalanced `[` or
+`{` inside a **string literal** opened a phantom block that ran to EOF. Measured on wave 28's own 599-line
+file:
+
+```
+ranges computed by WAVE 28's own function: [(93, 120), (557, 565), (579, 598)]
+  range 579 -> 598   opener: defonly = ['HISTORICAL_BLOCKS = ("PRIOR_BUILD_IDS", "ALLOW = [")',  ...
+   *** RUNS TO EOF ***
+```
+
+**29 of 599 lines of wave 28's own checker, including its tail, were exempt from `V28-B` and `V28-C` for the
+whole of wave 28.** It concealed nothing — every token in the exempt span is wave 28's own wave id — and that
+is luck, not design. Wave 29 blanks string literals length-preservingly before counting and asserts all four
+ends in clause `[6]`, including *"a token INSIDE the declared historical literal is NOT reported"*.
+
+**The durable finding is the pattern:** three generations, three passing self-tests, because each generation's
+self-test tested the ends the previous generation broke. **A self-test that only covers the last bug found is a
+regression test, not a specification.**
+
+---
+
+### F102 — `V28-C` returned zero because its population was almost empty: 124 of 126 printing lines in wave 28's scorers were never scanned
+
+**Status:** Repaired in wave 29's checker; the vacuity class is the entry · found 2026-08-13, wave 29 ·
+`/mnt/d/hf_w28/verify_derivation_w28.py:170`, `/mnt/d/hf_w29/verify_derivation_w29.py:160`
+
+`V*-C` forbids typed ordinals and counts in an instrument's printed output. Wave 28's line-selector was
+`\b(print|log|echo|printf|Prog|tee)\b`; wave 28's three scorers emit through `out.write(`, which matches none
+of it. Measured over `score_w28b.py` (36), `score_w28n.py` (52), `score_w28s.py` (38):
+
+```
+out.write( lines total : 126
+matched by w28 PRINTS  : 2      (incidentally -- the string being WRITTEN contained a keyword)
+matched by w29 PRINTS  : 126
+```
+
+**Wave 28's `V28-C: 0` was vacuous.** Wave 29 widened the selector to
+`\b(?:\w*[._])?(?:printf|print|echo|log|write|emit|say|tee|Prog)\b` and **demonstrated** the widening rather
+than asserting it — self-test `[3]` carries *"V29-C via `out.write` fired on its own mutant"* and *"V29-C via
+an underscored helper fired on its own mutant"*.
+
+**The class, which is the same as F101's and should be read with it:** a clause can pass for three waves
+because it has no candidates, and **no verdict tree in this series distinguishes "zero findings" from "zero
+candidates".** [F94](followups.md) made trees total over their *outcomes*; nothing makes a clause report its
+*population*. **~10 m to make every clause print `candidates: N   findings: M` and refuse on `N = 0` where a
+population is expected.**
+
+---
+
+### F103 — A pinned per-clause fixture goes silent exactly one wave later, as predicted in an instrument's own header and confirmed by measurement
+
+**Status:** Closed as a mechanism; standing obligation to re-measure each wave · found 2026-08-13, wave 29 ·
+`/mnt/d/hf_w29/vdrift_selftest_w29.txt` `[5b]`, `vdrift_probe_hf_w2{4,6,7,8}.txt`
+
+Wave 28 pinned `/mnt/d/hf_w27` as its live `V28-B` fixture and wrote into its own instrument's header that such
+a pin expires one wave later, because `PREV` advances and last wave's tokens stop being "previous-wave". Wave
+29 measured all four candidate roots before pinning anything:
+
+| root | `-A` resolving | `-B` findings | `-C` findings | role |
+|---|---|---|---|---|
+| `hf_w24` | 1 of 1 | 0 | **2** | durable `-C` fixture, third wave running |
+| `hf_w26` | 2 of 6 | **0** | 1 | expired at wave 28; kept and **asserted silent** |
+| `hf_w27` | 1 of 5 | **0** | 1 | **EXPIRED as predicted** — wave 28's live `-B` |
+| `hf_w28` | 0 of 5 | **100** | 1 | the new live `-B` |
+
+**This is the strongest evidence class this series has produced**, and the reason is structural: it is a
+**falsifiable forward claim about the instruments, written before the measurement, with a stated mechanism, and
+checked one wave later.** Everything else in the series is a rule scored against artifacts that already
+existed. **`hf_w28` is next to expire; wave 30 must re-measure and must treat a clause with no live fixture as
+a FAIL, not a pass.**
+
+---
+
+### AMENDMENTS TO EXISTING ENTRIES
+
+**[F82](followups.md) — AMEND IN PLACE. Its fix choice stands; its scope, its generality and its truth
+model are now measured.** Append:
+
+> **Amended 2026-08-13, wave 29.** Three things about this entry were unmeasured when it was written.
+>
+> 1. **The "truth of 9" is a PRODUCT-DERIVED FIXED POINT, not a spec-derived truth.** `terminal.stepBehavioral`
+>    is `StepSizeRecommender.Recommend` iterated to a fixed point by
+>    `SynthValidateRunner.ComputeStepBehavioral:1262` — see **F96**. `D01`'s stall is measured against a bar the
+>    recommender itself produces, and wave 25 moved both together.
+> 2. **"Confined to the recommender's caller state" names a caller, and it is
+>    `StarDetectionOptimizerWizardVM.CaptureNewSweepAsync` (`:5012`).** `RULE W29-S` clause `S-b` returned
+>    **FALSE**: of `BuildSummaryAsync`'s five callers, `CaptureNewSweepAsync` takes a **fresh sweep**
+>    (`RunLiveAttemptAsync`, `:5071`), calls `BuildSummaryAsync` at `:5098`, and carries the previous round's
+>    recommended geometry forward through the instance field `recaptureStepSize` (`:2608`, assigned `:5037`,
+>    consumed `:3236`). **F82 is a real product defect on a real product path**, and the wave-29
+>    pre-registration's claim that it "reaches no user" and "scores goal 2 zero" is **withdrawn**.
+> 3. **Its generality is one cell in eighteen.** `RULE W29-R` = `R-STANDS`: `k = 18`, `c = 1`, `c_blind = 0`.
+>    The only qualifying cell is `D01` itself. See **F97**. Wave 26's choice of fix (1) stands, on wave 26's
+>    own grounds, with the escape clause now **evaluated** rather than unexamined.
+> 4. **A third candidate fix is registered and deliberately NOT chosen** (wave 29 design §4.4): bound
+>    `maxHalfWidth` below by the span the sweep actually **requested**, guarded by
+>    `BandDemonstrablyUnsampled(sampledHfrRange)`. `RULE W29-S` clause `S-c` **HOLDS** — the requested positions
+>    are in `SweepDetectability.FrameFocuserPositions`, reachable inside `Recommend` via
+>    `MeasureMaxUsefulHalfSpan`. It needs **no cross-round state and no `A3` re-derivation**, which makes it the
+>    cheapest of the three (~45 m + a 3-cell re-run + the 42 m gate) and is precisely why the wave that thought
+>    of it did not select it. **The next wave pre-registers the choice among three.**
+
+**[F81](followups.md)** — append: the floor F81 shipped **is** reached in the product on a re-swept round, not
+only at round 0 of a session. `CaptureNewSweepAsync` (`:5012`) re-captures and carries `recaptureStepSize`
+forward, so the wizard's `Capture new sweep` path has genuine cross-round sweep state. The `Continue` and
+`Re-optimize` paths do not — they call `LoadRunStampedAsync` and re-optimize already-captured frames — so on
+those two the floor is inert after round 0, and that half of the original claim stands.
+
+**[F94](followups.md)** — append: wave 29's design §10 is the first in the series to publish its own outcome
+space as a table, and **every scorer re-derived it in code and agreed with the published counts**: `W29-S`
+**8 / 0 uncovered**, `W29-R` **4 / 0**, `W29-L` **8 / 0** — matching design §10's three tables exactly — and
+`V29`, which §10 declared as inheriting wave 28's tree without a count, re-derived **12 / 0** including the
+`A=None` empty-population region. The two logically-unreachable regions (`R-INCOHERENT`, `L-INCOHERENT`) are
+present, asserted empty, and checked against the measured numbers (`c = 1 ≤ k = 18 is True`; `L-1 ∧ L-2 =
+False`). **The remedy works for outcome coverage.** It does **not** cover two adjacent failures found this wave: a clause whose *population* is
+empty (**F102**) and a clause whose realized value is **neither `True` nor `False`** — `W29-L` ended at
+`L-0 = True, L-1 = None, L-2 = None`, a state outside the enumerated boolean cube, yet the scorer still printed
+`uncovered: 0` and appended a canned `READING:` line saying *"the control did not hold"* **when `L-0` in fact
+HELD**. The tree was total over booleans and the run was not a boolean. **Trees must enumerate `None` as a
+clause value, and a verdict's explanatory text must be derived from the clause values rather than templated per
+verdict name.**
+
+**[F95](followups.md)** — append: **the remedy's first half works and was proved this wave.** Wave 29's plan
+ordered instruments (Step 1) before the blocking pre-flight (Step 2); the last instrument was written at
+`17:01:28Z`, the pre-flight ran at `17:35:55Z` over a **populated root of 7 files**, and returned `V-CLEAN`
+with `SELFTEST V29 27 of 27`. Wave 28's equivalent certified **one file**. **The second half did not run** —
+the closing `V29` (`vdrift_w29_FINAL.txt`) has no artifact, against design §11's *"NOT cut, at any budget."*
+Both halves are needed and the series has now demonstrated one of them.
+
+**[F21](followups.md)** — append wave 29's per-step estimate vs actual (§10). Steps 1, 2, 4, 5 and 6 all landed
+**under**; the only two that overran were the two priced from instinct rather than from a measured rate
+(fingerprint sweeps, §10). Measured constant for future waves: **the six declared read-only roots are ~41.8 GB
+/ 2 452 files and hash at ~61 MB/s, i.e. ~12 m per sweep, ~24 m for a two-sided fingerprint.**
+
+**`docs/synthetic-af-bank-results-table.md`** — still owed from wave 28: the `K` column from `truthModel`
+(`max(hfrMin, hfrMinEffective)`), the note that `D01`/`D02`/`D03` are the only three floored by the generator,
+and **no 2–4 px band claim below the band** (`W28-B` = `B-SPLIT`). **Not paid this wave.** ~10 m.
+
+---
+
 ### F92 — The post-wavelet blur is WELDED to `StructureLayers`, so one knob sets two opposing scale cutoffs
 
 **Status:** **Open — source-derived, zero compute, and it re-opens [F43](#f43)** (2026-08-13, wave 28,
@@ -1479,7 +1766,38 @@ Reproduce: `StepSizeRecommender.cs` (the `BandDemonstrablyUnsampled` guard, the 
 
 ### F82 — The half-width floor is not sticky across rounds, and the cap recomputed from a shrunken fit pulls it back down
 **Status:** Open (diagnosed to a line, two candidate fixes, priced) · found 2026-08-13, wave 25, on the one
-labelled control that missed its pre-registered bar
+labelled control that missed its pre-registered bar · **SCOPE AND GENERALITY MEASURED, wave 29 — see below**
+
+> #### AMENDMENT, wave 29, 2026-08-13 — the fix choice stands; the scope and the generality are now measured
+>
+> **1. It IS a product defect, on a real product path.** Wave 29's own pre-registration argued the opposite —
+> that no caller had anywhere to put a cross-round half-width, so the fix would reach no user — and **its own
+> rule refuted it**: `RULE W29-S` = **`S-CARRIER-EXISTS`**. The design's caller table named two of
+> `BuildSummaryAsync`'s **five** callers; **`CaptureNewSweepAsync`** (`StarDetectionOptimizerWizardVM.cs:5012`)
+> takes a **fresh sweep** via `RunLiveAttemptAsync`, calls `BuildSummaryAsync` at `:5098`, and carries the
+> previous round's recommended geometry forward in `recaptureStepSize`. So `SearchSpan` **can** change between
+> wizard rounds and the defect **can** occur there.
+>
+> **2. But it is far rarer than this entry implies.** `RULE W29-R` ran wave 26's own reversal condition, which
+> three waves had quoted and none had executed: over **18 addressable paired S1 cells**, the
+> shrink-while-widening transition occurs on **`c = 1`** — and that one cell is `D01`, which is burned.
+> **`c_blind = 0` over the fifteen cells that were blind.** See [F97](#f97).
+>
+> **3. The reversal condition is NOT met, so fix (1) stands — now on evidence rather than on caution.**
+> Wave 29 deliberately did **not** flip the choice, and did not choose the third candidate it registered:
+> choosing a fix in the same wave that discovers a new reason to prefer it is the [F14](#f14) / `RULE D20`
+> fence in a new costume.
+>
+> **4. The bar this entry is scored against is produced by the code under test** — `SynthValidateRunner
+> .ComputeStepBehavioral:1262` iterates `StepSizeRecommender.Recommend` to a fixed point. That is
+> [F96](#f96), and it is why `stepBehavioral` moved 8.0 → 9.0 across wave 25's two arms while staying
+> identical on the other seventeen cells: wave 25 changed `Recommend`, so it moved the bar as well as the
+> measurement. **Any future scoring of this entry must say which side of that loop it is standing on.**
+>
+> **5. The price in the handoff (~45 m) is for the HARNESS change.** The product carrier needs new persisted
+> session state surviving between wizard sessions, with the `Continue`/`Re-optimize` paths excluded where it is
+> inert, plus migration and the question of whether it is an option (and therefore owes a control in
+> `Resources/OptionsDataTemplates.xaml`). That is a ~2–4 h band and nobody has priced it.
 
 [F81](#f81--maxhalfwidthsampledhalfspanmultiple-has-been-a-ceiling-with-no-floor-and-the-half-width-unresolved-exit-returned-before-the-ceiling-was-consulted-at-all)'s
 floor engaged on **all three** published stall cells at round 0 and handed off to the cap at round 1 exactly as
