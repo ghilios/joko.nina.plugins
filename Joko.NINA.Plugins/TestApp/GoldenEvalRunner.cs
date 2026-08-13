@@ -88,6 +88,12 @@ namespace TestApp {
             public int MatchedHigh, TotalHigh, MatchedHighMed, TotalHighMed, MatchedAll, TotalAll;
             public Dictionary<int, PrecisionRecall> PerRegion = new Dictionary<int, PrecisionRecall>();
             public double DefocusOffset; // |focuser - best| in steps (filled later)
+
+            /// <summary>W27 (A): this frame's truth-related disclosures — scoringMode's input, protectedStars,
+            /// protectedDetections, truthViolations, scoredFraction and precisionNull. Carried on the frame so
+            /// <see cref="WriteReports"/> is passed the truth dispositions it previously was not: every stored
+            /// golden_eval report was written by a truth-protected instrument that could not say so.</summary>
+            public TruthDisclosureFrame Truth = new TruthDisclosureFrame();
         }
 
         public static async Task Run(string[] args) {
@@ -302,8 +308,13 @@ namespace TestApp {
                 var unresolvedRects = (gf.Unresolved ?? new List<GoldenStarBox>())
                     .Select(b => new RectD(b.X, b.Y, b.W, b.H)).ToList();
                 var match = GoldenMatch.Match(goldenRects, det, matchMode, tau, effectiveMatchRadius);
+                // W27 (A): the unresolved-excluded list is NAMED rather than inlined, so `protectedDetections` —
+                // how much protection was actually EXERCISED — is the difference between it and the scored list
+                // instead of something a reader has to re-derive. Identical call, identical arguments, identical
+                // result: this is a rename, and the scored numbers below are byte-for-byte what they were.
+                var falsePositivesBeforeProtection = GoldenMatch.ExcludeUnresolved(match.FalsePositives, det, unresolvedRects);
                 var falsePositives = TruthProtection.ExcludeProtected(
-                    GoldenMatch.ExcludeUnresolved(match.FalsePositives, det, unresolvedRects),
+                    falsePositivesBeforeProtection,
                     det, TruthProtection.ProtectionCenters(truthDispositions), effectiveMatchRadius);
 
                 var fe = new FrameEval {
@@ -318,6 +329,14 @@ namespace TestApp {
                         ? Math.Abs(frame.FocuserPosition - bestFocuser.Value) / (double)stepSize
                         : double.NaN
                 };
+
+                // W27 (A): the four disclosures bank-verify carries and this harness did not. REPORT-ONLY by
+                // construction — Measure is handed the results the scoring path already produced and never
+                // re-runs, re-orders or re-filters them, and its null control works on a copy of `det`.
+                fe.Truth = TruthDisclosure.Measure(
+                    truthDispositions, goldenRects, unresolvedRects, det,
+                    falsePositivesBeforeProtection, falsePositives, match.Pairs.Count,
+                    matchMode, tau, effectiveMatchRadius, fullW, fullH);
 
                 // Per-confidence recall (cuts: high; high+med; all). A golden box is "matched" iff it is in a TP pair.
                 var matchedGolden = new HashSet<int>(match.Pairs.Select(x => x.Golden));
@@ -400,6 +419,22 @@ namespace TestApp {
                 Console.WriteLine($"  run '{run.RunId}': no per-image golden sidecars found; nothing scored.");
                 return;
             }
+
+            // W27 (A): say, on the console and before the report, what this run was actually scored under. The
+            // wording is BankVerifyRunner's verbatim, so the two harnesses cannot drift apart and a grep for
+            // `scoring:` finds both. The mode is DERIVED from how many frames carried a sidecar -- a hardcoded
+            // label here would silently misattribute every stored report, which is the defect being repaired.
+            var truthTotal = TruthDisclosure.Aggregate(frameEvals.Select(f => f.Truth));
+            var framesWithTruth = TruthDisclosure.FramesWithTruth(frameEvals.Select(f => f.Truth));
+            Console.WriteLine(TruthDisclosure.ScoringLine(framesWithTruth, truthTotal.ProtectedStars));
+            Console.WriteLine(TruthDisclosure.ProtectedDetectionsLine(truthTotal.ProtectedDetections, truthTotal.ProtectedStars));
+            if (truthTotal.TruthViolations > 0) {
+                // Loud on purpose, exactly as bank-verify is: truth is complete by construction, so this has an
+                // exact answer and the answer must be 0.
+                Console.WriteLine(TruthDisclosure.ViolationLine(run.RunId, truthTotal.TruthViolations));
+                Logger.Warning($"golden eval {run.RunId}: {truthTotal.TruthViolations} scored false positives land within the match radius of a truth star (F31 regression)");
+            }
+
             WriteReports(runOut, run.RunId, paramsLabel, sourceLabel, p, frameEvals, matchMode, tau, effectiveMatchRadius,
                 effectivePixelScale, pixelScaleSource, matchRadiusSource);
         }
@@ -632,9 +667,12 @@ namespace TestApp {
             StarDetectorParams p, List<FrameEval> frames, GoldenMatchMode matchMode, double tau, double matchRadius,
             double pixelScale, string pixelScaleSource, string matchRadiusSource) {
 
-            // CSV (per-frame).
+            // CSV (per-frame). W27 (A): the truth disclosures are APPENDED at the end and never inserted -- the
+            // score_*.py scorers across nine wave roots index this file BY POSITION, so an inserted column
+            // silently re-labels every number to its right.
             var csv = new StringBuilder();
-            csv.AppendLine("focuser,params,golden,accepted,TP,FP,FN,precision,recall,f1,recallHigh,recallHighMed,recallAll,fnAcceptedElsewhere,fnNoCandidate,fnRejected");
+            csv.AppendLine("focuser,params,golden,accepted,TP,FP,FN,precision,recall,f1,recallHigh,recallHighMed,recallAll,fnAcceptedElsewhere,fnNoCandidate,fnRejected"
+                + "," + TruthDisclosure.CsvHeaderSuffix);
             foreach (var f in frames.OrderBy(f => f.FocuserPosition)) {
                 var pr = PrecisionRecall.Compute(f.TP, f.FP, f.FN);
                 var fnRej = f.FnByGate.Values.Sum();
@@ -642,7 +680,8 @@ namespace TestApp {
                     f.FocuserPosition, Csv(paramsLabel), f.GoldenCount, f.Accepted, f.TP, f.FP, f.FN,
                     Fmt(pr.Precision), Fmt(pr.Recall), Fmt(pr.F1),
                     Ratio(f.MatchedHigh, f.TotalHigh), Ratio(f.MatchedHighMed, f.TotalHighMed), Ratio(f.MatchedAll, f.TotalAll),
-                    f.FnAcceptedElsewhere, f.FnNoCandidate, fnRej));
+                    f.FnAcceptedElsewhere, f.FnNoCandidate, fnRej,
+                    TruthDisclosure.CsvRowSuffix(f.Truth)));
             }
             File.WriteAllText(Path.Combine(runOut, "golden_eval_frames.csv"), csv.ToString());
 
@@ -689,6 +728,16 @@ namespace TestApp {
             sb.AppendLine($"  recall@high={Ratio(frames.Sum(f => f.MatchedHigh), frames.Sum(f => f.TotalHigh))}  " +
                 $"recall@high+med={Ratio(frames.Sum(f => f.MatchedHighMed), frames.Sum(f => f.TotalHighMed))}  " +
                 $"recall@all={Ratio(frames.Sum(f => f.MatchedAll), frames.Sum(f => f.TotalAll))}");
+            sb.AppendLine();
+
+            // W27 (A): the four honesty disclosures bank-verify has always carried and this harness -- the one
+            // that produced the published results table -- carried none of. Placed directly under OVERALL because
+            // it is what the precision on that line was scored under, not a footnote to it. The mode is DERIVED
+            // from the frames, never hardcoded: see the identical rule on `matchLabel` above.
+            var truthTotal = TruthDisclosure.Aggregate(frames.Select(f => f.Truth));
+            foreach (var line in TruthDisclosure.ReportLines(runId, truthTotal, TruthDisclosure.FramesWithTruth(frames.Select(f => f.Truth)))) {
+                sb.AppendLine(line);
+            }
             sb.AppendLine();
 
             sb.AppendLine("PER-FRAME (sorted by focuser):");

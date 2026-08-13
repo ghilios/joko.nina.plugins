@@ -35,6 +35,10 @@
     <!-- G5's golden policy (StarTruth to GoldenFrame): pure, no NINA/OpenCV coupling, so it links the same way. -->
     <Compile Include="..\TestApp\SynthBank\GoldenFromTruth.cs" Link="Golden\GoldenFromTruth.cs" />
     <Compile Include="..\TestApp\SynthBank\TruthProtection.cs" Link="Golden\TruthProtection.cs" />
+    <!-- W27 (A): the four truth disclosures `golden eval` owes its reader. GoldenEvalRunner itself loads NINA
+         rendered images and cannot be linked, so the whole computation and every word of its wording live in this
+         one pure file, which the runner only calls. That is what makes the M-S1/M-S2/M-S3 mutants reachable. -->
+    <Compile Include="..\TestApp\SynthBank\TruthDisclosure.cs" Link="Golden\TruthDisclosure.cs" />
     <Compile Include="..\TestApp\SynthBank\ConvergenceBand.cs" Link="Bank\ConvergenceBand.cs" />
     <Compile Include="..\TestApp\SynthBank\ExposureClamp.cs" Link="Bank\ExposureClamp.cs" />
     <!-- W24 P3: the synth-validate report SCHEMA (pure POCOs + Newtonsoft attributes, no NINA/OpenCV coupling), so
