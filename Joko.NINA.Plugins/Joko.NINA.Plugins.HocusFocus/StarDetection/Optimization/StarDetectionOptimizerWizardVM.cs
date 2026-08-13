@@ -293,6 +293,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <see cref="StepSizeRecommender.MaxHalfWidthSampledHalfSpanMultiple"/>).</summary>
         public bool StepSizeWasCapped { get; set; }
 
+        /// <summary>True when the sweep's own HFRs prove the 3x band was never sampled and the fitted half-width
+        /// came back INSIDE the sampled span, so the step was widened to the most this sweep supports — see
+        /// <see cref="StepSizeRecommendation.WasBandFloored"/>. Mutually exclusive with
+        /// <see cref="StepSizeWasCapped"/> by construction, and carried separately so a reader can tell which of the
+        /// two bounds produced the partial step.</summary>
+        public bool StepSizeWasBandFloored { get; set; }
+
         /// <summary>The HFR dynamic range this sweep MEASURED (max/min), or NaN — see
         /// <see cref="StepSizeRecommendation.SampledHfrRange"/>.</summary>
         public double StepSizeSampledHfrRange { get; set; } = double.NaN;
@@ -300,6 +307,42 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>The exact factor the next capped run will multiply the step by, or NaN — see
         /// <see cref="StepSizeRecommendation.CappedGrowthRatio"/>.</summary>
         public double StepSizeCappedGrowthRatio { get; set; } = double.NaN;
+
+        /// <summary>
+        /// Why the step size is a HELD value rather than a measured one, or null when it was measured — see
+        /// <see cref="StepSizeRecommendation.DegenerateReason"/>.
+        ///
+        /// <para><b>Why this is on the summary and on the page.</b> When the recommender cannot use the fit it
+        /// hands back the CURRENT step size, and that number was previously written into
+        /// <see cref="RecommendedStepSize"/> and shown as "Recommended step size: 21" — a number meaning "I held
+        /// what you already had", in the same field and with the same authority as a measurement. Carrying the
+        /// reason through to <see cref="StepSizeText"/> is what makes a non-measurement visible as one.</para>
+        /// </summary>
+        public string StepSizeDegenerateReason { get; set; }
+
+        /// <summary>True when the recommended step size is a held value rather than a measurement.</summary>
+        public bool StepSizeIsDegenerate => !string.IsNullOrEmpty(StepSizeDegenerateReason);
+
+        /// <summary>Plain-language rendering of <see cref="StepSizeDegenerateReason"/>; the raw token is kept in
+        /// parentheses so a log or a support thread can be matched to the exit that produced it.</summary>
+        private string StepSizeDegenerateExplanation {
+            get {
+                switch (StepSizeDegenerateReason) {
+                    case StepSizeRecommender.DegenerateReasonNoFit:
+                        return "no focus curve could be fitted to this run";
+
+                    case StepSizeRecommender.DegenerateReasonNonFiniteVertex:
+                        return "the fitted curve has no usable best-focus point";
+
+                    case StepSizeRecommender.DegenerateReasonHalfWidthUnresolved:
+                        return $"the fitted curve never reaches {StepSizeRecommender.HfrThresholdMultiple:F0}x its " +
+                               "minimum HFR, which is the band the step is sized from";
+
+                    default:
+                        return "this run could not be measured";
+                }
+            }
+        }
 
         /// <summary>Plain-language step-size readout: "{current} → {recommended}" when changed, else
         /// "{recommended} (unchanged)", with a capped note when the sweep could not support the full move.
@@ -320,8 +363,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// which is the one quantity the cap exists to distrust.</para></summary>
         public string StepSizeText {
             get {
+                // A HELD value is not a recommendation, and it says so BEFORE the capped/measured wording is
+                // reached: the degenerate path never sets WasCapped, so without this branch the page would show a
+                // bare "{n} (unchanged)" that is indistinguishable from a measurement which agreed with the
+                // profile. StepSizeDegenerateReason exists precisely so could-not-look is a separate state.
+                if (StepSizeIsDegenerate) {
+                    return $"{RecommendedStepSize} (NOT measured: {StepSizeDegenerateExplanation}, so your current " +
+                           $"step size was kept [{StepSizeDegenerateReason}])";
+                }
                 var baseText = FormatRecommendation(CurrentStepSize, RecommendedStepSize);
-                if (!StepSizeWasCapped) {
+                // A FLOORED recommendation is the same kind of statement as a capped one and reads the same way:
+                // this sweep did not reach the band the step is sized from, so the number is a deliberate partial
+                // step toward the answer. The existing wording already quotes the sampled range, which on a floored
+                // round is the very quantity that engaged the floor, so nothing else needs to change.
+                if (!StepSizeWasCapped && !StepSizeWasBandFloored) {
                     return baseText;
                 }
                 var parts = new System.Collections.Generic.List<string>();
@@ -4072,8 +4127,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RecommendedStepSize = recommendation.StepSize,
                 RecommendedOffsetSteps = recommendation.OffsetSteps,
                 StepSizeWasCapped = recommendation.WasCapped,
+                StepSizeWasBandFloored = recommendation.WasBandFloored,
                 StepSizeSampledHfrRange = recommendation.SampledHfrRange,
                 StepSizeCappedGrowthRatio = recommendation.CappedGrowthRatio,
+                StepSizeDegenerateReason = recommendation.DegenerateReason,
                 CurrentStepSize = currentStepSize,
                 CurrentOffsetSteps = currentOffsetSteps,
                 ImprovedOverSeed = res.ImprovedOverSeed,

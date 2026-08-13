@@ -177,7 +177,7 @@ namespace TestApp {
             // NOT faithful: it left StarDetector's hotpixelFilterAlreadyApplied false, so the structure-detection
             // source got a SPATIAL hotpixel filter (StarDetector.cs:549) that live never applies.
             if (DiagnosticUtil.HasFlag(args, "--debayer-luminance") || DiagnosticUtil.HasFlag(args, "--cfa-hotpixel")) {
-                Console.WriteLine("NOTE: --debayer-luminance / --cfa-hotpixel are obsolete and ignored — the debayer and the " +
+                Console.WriteLine("NOTE: --debayer-luminance / --cfa-hotpixel are obsolete and ignored -- the debayer and the " +
                     "CFA hotpixel filter now always run inside Detect at the run's params, exactly as the live app does.");
             }
             if (DiagnosticUtil.HasFlag(args, "--defocus-aware")) {
@@ -359,7 +359,7 @@ namespace TestApp {
                 plt.AddErrorBars(xs, ys, null, err);
                 plt.XLabel("Focuser Position");
                 plt.YLabel("Median HFR (px)");
-                plt.Title("Focus Sweep — detector HFR vs position");
+                plt.Title("Focus Sweep -- detector HFR vs position");
                 plt.SaveFig(path);
             } catch (Exception ex) {
                 Logger.Warning($"V-curve PNG render failed ({ex.Message}); CSV/summary still written");

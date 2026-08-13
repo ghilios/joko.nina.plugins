@@ -331,7 +331,7 @@ namespace TestApp {
                 return NINA.Joko.Plugins.HocusFocus.Utility.MathUtility.ArcsecPerPixel(metaPixelSize, metaFocalLength) * binning;
             }
             if (settings != null && settings.PixelSizeMicrons > 0.0 && settings.FocalLengthMm > 0.0) {
-                source = $"settings file ({settings.Path}) — frame header carried no pixel size / focal length";
+                source = $"settings file ({settings.Path}) -- frame header carried no pixel size / focal length";
                 return NINA.Joko.Plugins.HocusFocus.Utility.MathUtility.ArcsecPerPixel(
                     settings.PixelSizeMicrons, settings.FocalLengthMm) * binning;
             }
@@ -406,7 +406,7 @@ namespace TestApp {
             file.DerivedNotes = string.Join("; ", notes);
 
             File.WriteAllText(path, JsonConvert.SerializeObject(file, Formatting.Indented));
-            Console.WriteLine($"  settings: derived {path} — {file.DerivedNotes}");
+            Console.WriteLine($"  settings: derived {path} -- {file.DerivedNotes}");
             return new Resolved {
                 Accessor = new FileOptionsAccessor(file.Options),
                 PixelSizeMicrons = file.PixelSizeMicrons,
@@ -563,7 +563,7 @@ namespace TestApp {
             // on stderr, not an informational line in a log nobody reads until the numbers disagree.
             Console.Error.WriteLine(
                 $"WARNING: no harness settings file existed, so one was BOOTSTRAPPED at {path} from the live NINA " +
-                $"profile '{activeProfile?.Name}'. These values are whatever that profile holds right now — this run " +
+                $"profile '{activeProfile?.Name}'. These values are whatever that profile holds right now -- this run " +
                 "is NOT comparable to any earlier arm that used a different file. Pass --settings <path> to pin one " +
                 "file across every arm of a comparison.");
             Logger.Warning($"HarnessSettingsStore bootstrapped {path} from profile '{activeProfile?.Name}'; " +
@@ -611,7 +611,7 @@ namespace TestApp {
                 var changed = new List<string>();
                 foreach (var kv in options) {
                     if (probe.TryGetValue(kv.Key, out var after) && !string.Equals(after, kv.Value, StringComparison.Ordinal)) {
-                        changed.Add($"{kv.Key} {kv.Value}→{after}");
+                        changed.Add($"{kv.Key} {kv.Value}->{after}");
                     }
                 }
                 changed.Sort(StringComparer.Ordinal);
@@ -630,7 +630,7 @@ namespace TestApp {
             var overridden = SimpleModePresetOverrides(loaded.Options, profileService);
             var detail = overridden.Count > 0
                 ? $" Overwritten by the presets: {string.Join(", ", overridden)}."
-                : " (Its recorded values happen to agree with the presets, so nothing changes — but an EDIT to one of them would not take effect.)";
+                : " (Its recorded values happen to agree with the presets, so nothing changes -- but an EDIT to one of them would not take effect.)";
             Console.Error.WriteLine(
                 "WARNING: " + path + " has UseAdvanced=False, so Simple-mode presets recompute the advanced detector " +
                 "knobs from Simple_NoiseLevel/Simple_PixelScale/Simple_FocusRange and editing them in this file " +

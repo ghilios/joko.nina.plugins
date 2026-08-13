@@ -125,7 +125,7 @@ namespace TestApp {
 
             var discovery = OptimizationRunDiscovery.Discover(runsDir);
             if (discovery.Runs.Count == 0) {
-                throw new InvalidOperationException($"No AF runs (≥3 focuser positions) discovered under {runsDir}.");
+                throw new InvalidOperationException($"No AF runs (>=3 focuser positions) discovered under {runsDir}.");
             }
 
             var firstFramePath = discovery.Runs[0].Frames.FirstOrDefault()?.Path;
@@ -147,7 +147,7 @@ namespace TestApp {
                     Line($"WARNING: {loadError}");
                 }
                 if (labels?.Positions == null || labels.Positions.Count == 0) {
-                    Line($"(run '{run.RunId}': no labels matched — skipping)");
+                    Line($"(run '{run.RunId}': no labels matched -- skipping)");
                     continue;
                 }
 
@@ -191,7 +191,7 @@ namespace TestApp {
             }
 
             if (frames.Count == 0) {
-                Line("No labeled frames could be detected — nothing to recommend.");
+                Line("No labeled frames could be detected -- nothing to recommend.");
                 File.WriteAllText(Path.Combine(outDir, "recommend.txt"), sb.ToString());
                 return;
             }
@@ -201,7 +201,7 @@ namespace TestApp {
             var rec = GateRecommender.Recommend(analysis, detectionParams, config);
 
             // ---- Report ----
-            Line("================ LABEL → GATE ATTRIBUTION ================");
+            Line("================ LABEL -> GATE ATTRIBUTION ================");
             Line($"Labeled frames: {frames.Count};  recall targets: {analysis.TotalRecallTargets} " +
                 $"(already accepted: {analysis.AlreadyRecovered}, NO-CANDIDATE: {analysis.NoCandidateCount})");
             foreach (var kv in analysis.RecallTargetCountByGate.OrderByDescending(kv => kv.Value)) {
@@ -220,17 +220,17 @@ namespace TestApp {
             Line($"Total recovered: {rec.TotalRecovered}/{rec.TotalRecallTargets};  " +
                 $"estimated weighted precision cost: {rec.EstimatedWeightedPrecisionCost.ToString("G3", CultureInfo.InvariantCulture)}");
             if (rec.RecommendDefocusAwareGates) {
-                Line("    → recommends ENABLING Defocus-Aware Gates (distortion/centering relaxation).");
+                Line("    -> recommends ENABLING Defocus-Aware Gates (distortion/centering relaxation).");
             }
             if (rec.RecommendStructureRecovery) {
-                Line("    → recommends ENABLING Defocus-Aware Structure Detection (NO-CANDIDATE donuts).");
+                Line("    -> recommends ENABLING Defocus-Aware Structure Detection (NO-CANDIDATE donuts).");
             }
             Line();
 
-            Line("================ PARAMS (current → recommended) ================");
+            Line("================ PARAMS (current -> recommended) ================");
             void P(string name, double cur, double next, string fmt = "G4") {
                 var marker = Math.Abs(cur - next) > 1e-9 ? " *" : "";
-                Line($"    {name,-26} {cur.ToString(fmt, CultureInfo.InvariantCulture),12} → {next.ToString(fmt, CultureInfo.InvariantCulture),-12}{marker}");
+                Line($"    {name,-26} {cur.ToString(fmt, CultureInfo.InvariantCulture),12} -> {next.ToString(fmt, CultureInfo.InvariantCulture),-12}{marker}");
             }
             P("BrightnessSensitivity", detectionParams.Sensitivity, rec.Recommended.Sensitivity);
             P("MinHFR", detectionParams.MinHFR, rec.Recommended.MinHFR);
@@ -238,7 +238,7 @@ namespace TestApp {
             P("StarPeakResponse", detectionParams.PeakResponse, rec.Recommended.PeakResponse);
             P("StarCenterTolerance", detectionParams.StarCenterTolerance, rec.Recommended.StarCenterTolerance);
             P("MinStarBoundingBoxSize", detectionParams.MinimumStarBoundingBoxSize, rec.Recommended.MinimumStarBoundingBoxSize, "G3");
-            Line($"    {"DefocusAwareGates",-26} {detectionParams.DefocusAwareDistortion,12} → {rec.Recommended.DefocusAwareDistortion,-12}");
+            Line($"    {"DefocusAwareGates",-26} {detectionParams.DefocusAwareDistortion,12} -> {rec.Recommended.DefocusAwareDistortion,-12}");
 
             var outFile = Path.Combine(outDir, "recommend.txt");
             File.WriteAllText(outFile, sb.ToString());

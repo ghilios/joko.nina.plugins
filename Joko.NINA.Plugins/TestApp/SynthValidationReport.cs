@@ -70,6 +70,13 @@ namespace TestApp.SynthBank {
         [JsonProperty("halfWidth")] public double HalfWidth { get; set; } = double.NaN;
         [JsonProperty("wasCapped")] public bool WasCapped { get; set; }
 
+        // P4's ENGAGEMENT MARKER. True when the sweep's own HFRs proved the 3x band was never sampled and the fitted
+        // half-width came back INSIDE the sampled span, so it was raised to the widest the sweep supports. It is the
+        // mirror of wasCapped and is NEVER written by the cap branch: the two are mutually exclusive by
+        // construction, so a scorer can tell a floored round from a capped one instead of seeing one flag for two
+        // different rules. A fix that cannot report whether it engaged is not finished.
+        [JsonProperty("wasBandFloored")] public bool WasBandFloored { get; set; }
+
         // F18. NaN/false on the control arm, which is how a reader tells "the bound was off" from "the bound was on
         // and did not bind" -- WasDetectBounded false with a finite MaxUsefulHalfSpan is the second.
         [JsonProperty("detectHalfWidth")] public double DetectHalfWidth { get; set; } = double.NaN;
@@ -82,6 +89,12 @@ namespace TestApp.SynthBank {
         // ratio can be checked against every capped round rather than against the field session's three.
         [JsonProperty("sampledHfrRange")] public double SampledHfrRange { get; set; } = double.NaN;
         [JsonProperty("cappedGrowthRatio")] public double CappedGrowthRatio { get; set; } = double.NaN;
+
+        // P1. Non-null exactly when the recommender could NOT measure a step size and held the current one --
+        // "no-fit", "non-finite-vertex" or "half-width-unresolved". Without it a held step and a measured step
+        // that happens to agree are byte-identical in this report, which is how a whole wave of trajectories
+        // ("21 -> 21 -> 21") could be read as convergence. halfWidth is NaN if and only if this is set.
+        [JsonProperty("degenerateReason")] public string DegenerateReason { get; set; }
     }
 
     /// <summary>design step 4b: <see cref="NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.ExposureRecommender"/>,
@@ -110,6 +123,17 @@ namespace TestApp.SynthBank {
         [JsonProperty("hasMeasurement")] public bool HasMeasurement { get; set; } // R^2 gate passed
         [JsonProperty("vertexHfr")] public double VertexHfr { get; set; } = double.NaN;
         [JsonProperty("recommendedFactor")] public int? RecommendedFactor { get; set; }
+
+        // P3. The binning factor IN EFFECT when this round's recommendation was computed -- i.e. the factor the
+        // round was rendered and fitted at. Without it a reader cannot tell a recommendation that agrees with the
+        // current state from one that asks for a change.
+        [JsonProperty("currentFactor")] public int CurrentFactor { get; set; }
+
+        // P3. The binning factor in effect at the END of the round, after the update policy ran. For round N this
+        // is recoverable from rounds[N+1].bootstrap.detectionBinning -- but NOT for the last round, which has no
+        // successor, and the last round is exactly where a terminal state is decided. Every round that HAS a
+        // successor is therefore a free cross-check on this field.
+        [JsonProperty("appliedFactor")] public int AppliedFactor { get; set; }
     }
 
     /// <summary>What the update policy actually did with this round's recommendations, and the current
@@ -121,6 +145,16 @@ namespace TestApp.SynthBank {
         [JsonProperty("recentered")] public bool Recentered { get; set; }
         [JsonProperty("newCenterPosition")] public int NewCenterPosition { get; set; }
         [JsonProperty("reasons")] public List<string> Reasons { get; set; } = new List<string>();
+
+        // P3. The binning-first deferral, as a first-class fact instead of a substring of reasons[]. True when this
+        // round applied a binning change and therefore did NOT run the exposure/step block.
+        [JsonProperty("stepDeferredByBinning")] public bool StepDeferredByBinning { get; set; }
+
+        // P3. P2's ENGAGEMENT MARKER: true when a binning change was applied to a factor this scenario had already
+        // been at, so the revisit bound declined to defer and the exposure/step block ran in the same round. A fix
+        // that cannot report whether it engaged is not finished, and a scorer that cannot read this cannot tell
+        // "the bound worked" from "the population never contained the defect".
+        [JsonProperty("binningDeferralBoundReached")] public bool BinningDeferralBoundReached { get; set; }
 
         [JsonIgnore] public bool AppliedAnything => BinningApplied || StepApplied || ExposureApplied;
     }
@@ -292,24 +326,24 @@ namespace TestApp.SynthBank {
             foreach (var d in report.Datasets) {
                 sb.AppendLine($"### {d.DatasetId}");
                 foreach (var s in d.Scenarios) {
-                    sb.AppendLine($"#### {s.ScenarioId} — {s.Description}");
+                    sb.AppendLine($"#### {s.ScenarioId} -- {s.Description}");
                     if (!s.Applicable) {
                         sb.AppendLine($"Not applicable: {s.SkipReason}");
                         sb.AppendLine();
                         continue;
                     }
                     var t = s.Terminal;
-                    sb.AppendLine($"Verdict **{t.OverallVerdict}** — converged={t.Converged}, roundsUsed={t.RoundsUsed}" +
+                    sb.AppendLine($"Verdict **{t.OverallVerdict}** -- converged={t.Converged}, roundsUsed={t.RoundsUsed}" +
                         (string.IsNullOrEmpty(t.StoppedReason) ? "" : $" ({t.StoppedReason})"));
                     if (double.IsFinite(t.StepBehavioral)) {
                         sb.AppendLine($"step_theory={t.StepTheory:0.##} step_behavioral={t.StepBehavioral:0.##} " +
                             $"(delta {t.StepBehavioralVsTheoryDeltaFraction:P1})");
                     }
                     if (t.DegradationSignaturePresent.HasValue) {
-                        sb.AppendLine($"Degradation signature present: {t.DegradationSignaturePresent.Value} — {t.DegradationDetail}");
+                        sb.AppendLine($"Degradation signature present: {t.DegradationSignaturePresent.Value} -- {t.DegradationDetail}");
                     }
                     sb.AppendLine();
-                    sb.AppendLine("| round | center | step | exposure | detBin | donut | R² | σ_focus | vertex | step rec | exposure rec | binning rec | applied |");
+                    sb.AppendLine("| round | center | step | exposure | detBin | donut | R^2 | sigma_focus | vertex | step rec | exposure rec | binning rec | applied |");
                     sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|---|---|");
                     foreach (var r in s.Rounds) {
                         var stepRecTxt = r.StepRecommendation == null ? "-" :

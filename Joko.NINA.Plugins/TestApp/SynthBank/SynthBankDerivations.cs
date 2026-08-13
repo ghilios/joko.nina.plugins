@@ -456,10 +456,10 @@ namespace TestApp.SynthBank {
                 ? $"faintest of only {onFrameCount} on-frame stars (fewer than NTarget={NTarget} found; under-estimating fallback, mirrors ExposureRecommender.PerFrameNthBrightest)"
                 : $"{NTarget}th-brightest of {onFrameCount} on-frame stars";
             var definition =
-                $"Exposure t solving snr(t) = {GateSnrPeakCoefficient:0.00}·peakElectrons(t)/σ_bg(t) = {ExposureRecommender.TargetSensitivity:0} for the {starDescription} " +
+                $"Exposure t solving snr(t) = {GateSnrPeakCoefficient:0.00}*peakElectrons(t)/sigma_bg(t) = {ExposureRecommender.TargetSensitivity:0} for the {starDescription} " +
                 $"taken as the MEDIAN over the {2 * offsetSteps + 1} sweep frames at step {stepSize} (matching ExposureRecommender's " +
                 $"median-across-non-recovery-frames statistic, not the in-focus frame alone), at binning={effectiveBinning} " +
-                $"(captureBinning={captureBinning}×detectionBinning={detectionBinning}), " +
+                $"(captureBinning={captureBinning} x detectionBinning={detectionBinning}), " +
                 $"clamped to [{MinExposureSeconds:0.0}, {ExposureRecommender.MaxRecommendedExposureSeconds:0}] s and rounded on ExposureRecommender.RoundExposureSeconds' ladder. " +
                 $"Band = t at snr(t) = {GateSnrBandFloor:0} (low) and snr(t) = {GateSnrBandCeiling:0} (high).";
 
@@ -560,14 +560,14 @@ namespace TestApp.SynthBank {
 
             string rationale;
             if (!hasObstruction) {
-                rationale = $"unobstructed optic (ε={dataset.CentralObstructionFraction:0.00}) — no donut is geometrically possible";
+                rationale = $"unobstructed optic (eps={dataset.CentralObstructionFraction:0.00}) -- no donut is geometrically possible";
             } else if (!innerRadiusClears) {
-                rationale = $"inner radius {innerRadiusCapturedPixels:0.00} px ≤ {DonutInnerRadiusFloorPixels:0.0} px at extreme defocus — hole too small to register as a donut";
+                rationale = $"inner radius {innerRadiusCapturedPixels:0.00} px <= {DonutInnerRadiusFloorPixels:0.0} px at extreme defocus -- hole too small to register as a donut";
             } else if (!hfrClears) {
-                rationale = $"HFR {hfrCapturedPixels:0.0} px < DonutHeuristic.HeavyDefocusHFR ({DonutHeuristic.HeavyDefocusHFR:0.0} px) at extreme defocus — not heavily defocused enough";
+                rationale = $"HFR {hfrCapturedPixels:0.0} px < DonutHeuristic.HeavyDefocusHFR ({DonutHeuristic.HeavyDefocusHFR:0.0} px) at extreme defocus -- not heavily defocused enough";
             } else {
-                rationale = $"ε={dataset.CentralObstructionFraction:0.00} > 0, inner radius {innerRadiusCapturedPixels:0.0} px > {DonutInnerRadiusFloorPixels:0.0} px, " +
-                             $"HFR {hfrCapturedPixels:0.0} px ≥ DonutHeuristic.HeavyDefocusHFR ({DonutHeuristic.HeavyDefocusHFR:0.0} px) at extreme defocus";
+                rationale = $"eps={dataset.CentralObstructionFraction:0.00} > 0, inner radius {innerRadiusCapturedPixels:0.0} px > {DonutInnerRadiusFloorPixels:0.0} px, " +
+                             $"HFR {hfrCapturedPixels:0.0} px >= DonutHeuristic.HeavyDefocusHFR ({DonutHeuristic.HeavyDefocusHFR:0.0} px) at extreme defocus";
             }
             return (donutExpected, rationale);
         }

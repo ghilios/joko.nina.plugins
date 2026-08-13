@@ -266,7 +266,7 @@ namespace TestApp.SynthBank {
 
             IAstapCatalogReader catalogReader = new AstapCatalogReader(spec.Defaults.AstapCatalogPath);
 
-            Prog($"synth-validate: spec={specPath} (sha256={specSha256.Substring(0, 12)}…) " +
+            Prog($"synth-validate: spec={specPath} (sha256={specSha256.Substring(0, 12)}...) " +
                 $"datasets={selectedDatasets.Count}/{spec.Datasets.Count} scenarios=[{string.Join(",", selectedScenarios.Select(s => s.Id))}] " +
                 $"maxRounds={maxRounds} maxEvals={(maxEvals?.ToString(CultureInfo.InvariantCulture) ?? "default")} out={outRoot}");
             // F58(d): VALUES, not a hash — a hash says something moved, these say which one.
@@ -363,6 +363,11 @@ namespace TestApp.SynthBank {
             public double ExposureSeconds;
             public int DetectionBinningFactor;
             public bool DonutOn;
+
+            // P2: every detection-binning factor this scenario has been at, seeded with the one it starts at.
+            // A recommendation for a factor already in this set is a REVISIT, and a revisit does not defer --
+            // see BinningRevisitPolicy.
+            public HashSet<int> VisitedDetectionBinningFactors;
         }
 
         // ── Per-dataset orchestration ─────────────────────────────────────────────────────────────────────────
@@ -488,6 +493,9 @@ namespace TestApp.SynthBank {
                 DetectionBinningFactor = scenario.ForceDetectionBinningTo1 ? 1 : expected.DetectionBinning,
                 DonutOn = scenario.ForceDonutOff ? false : expected.DonutDetection
             };
+            // P2: seed the visited set with the factor this scenario STARTS at, so a recommendation to go back to
+            // it is recognised as a revisit on the very first round it appears.
+            state.VisitedDetectionBinningFactors = BinningRevisitPolicy.NewVisitedSet(state.DetectionBinningFactor);
 
             var scenarioDir = Path.Combine(datasetOutDir, scenario.Id);
             string stoppedReason = null;
@@ -540,9 +548,10 @@ namespace TestApp.SynthBank {
                         converged = true;
                         stoppedReason = "converged (round applied nothing)";
                     } else {
-                        stoppedReason = $"stalled (round applied nothing, but step {state.StepSize} is outside the "
-                            + $"{stepBand:0.###} tolerance band of step_behavioral {stepBehavioral:0.###}) — "
-                            + "a no-op recommendation from a degenerate fit, not convergence";
+                        // P5 (F34): the cause is READ, not asserted. This message used to blame a degenerate fit on
+                        // every stall; D01/S1 stalled with degenerateReason null and R^2 = 0.99999999999994, and a
+                        // register entry then grouped it with two genuinely degenerate cells on that authority.
+                        stoppedReason = StallReason.Describe(state.StepSize, stepBand, stepBehavioral, roundReport.StepRecommendation);
                     }
                     break;
                 }
@@ -784,9 +793,13 @@ namespace TestApp.SynthBank {
                 detectability: stepDetectability, sizeForExecutedSweep: ctx.StepSizeForExecutedSweep);
             round.StepRecommendation = new StepRecommendationSnapshot {
                 StepSize = stepRec.StepSize, OffsetSteps = stepRec.OffsetSteps, HalfWidth = stepRec.HalfWidth, WasCapped = stepRec.WasCapped,
+                // P4's engagement marker, carried separately from WasCapped so a scorer can tell the two bounds apart.
+                WasBandFloored = stepRec.WasBandFloored,
                 DetectHalfWidth = stepRec.DetectHalfWidth, MaxUsefulHalfSpan = stepRec.MaxUsefulHalfSpan,
                 WasDetectBounded = stepRec.WasDetectBounded,
-                SampledHfrRange = stepRec.SampledHfrRange, CappedGrowthRatio = stepRec.CappedGrowthRatio
+                SampledHfrRange = stepRec.SampledHfrRange, CappedGrowthRatio = stepRec.CappedGrowthRatio,
+                // P1: non-null exactly when the recommender HELD the current step instead of measuring one.
+                DegenerateReason = stepRec.DegenerateReason
             };
 
             // Gated EXACTLY as OptimizationDiagnosticRunner.BuildAggregateRow gates it: only when the landed
@@ -819,21 +832,34 @@ namespace TestApp.SynthBank {
             round.BinningRecommendation = new BinningRecommendationSnapshot {
                 HasMeasurement = hasBinningMeasurement,
                 VertexHfr = bestFit != null ? bestFit.Minimum.Y : double.NaN,
-                RecommendedFactor = binningRecFactor
+                RecommendedFactor = binningRecFactor,
+                // P3: the factor this round was actually rendered and fitted at. AppliedFactor is filled in below,
+                // after the update policy has run.
+                CurrentFactor = state.DetectionBinningFactor,
+                AppliedFactor = state.DetectionBinningFactor
             };
 
             // ---- Update policy (design step 5) ----
 
             var applied = new AppliedSnapshot();
-            var binningDiffers = hasBinningMeasurement && binningRecFactor.HasValue && binningRecFactor.Value != state.DetectionBinningFactor;
-            if (binningDiffers) {
-                // Binning first: apply ONLY the binning change this round and defer exposure (and step) by one
-                // round -- SNRs are per-binned-pixel, so changing binning invalidates the exposure measurement
-                // (and the HFR-derived step geometry) this round just took.
+            // Binning first: apply ONLY the binning change this round and defer exposure (and step) by one round --
+            // SNRs are per-binned-pixel, so changing binning invalidates the exposure measurement (and the
+            // HFR-derived step geometry) this round just took. P2 bounds that: on a REVISIT to a factor this
+            // scenario has already been at, the justification above is empty (a measurement at that factor already
+            // exists), so the change is applied AND the exposure/step block runs in the same round. Without the
+            // bound an oscillating recommendation makes every round a binning round and the step never moves.
+            var binningDecision = BinningRevisitPolicy.Decide(
+                state.DetectionBinningFactor,
+                hasBinningMeasurement ? binningRecFactor : null,
+                state.VisitedDetectionBinningFactors);
+            if (binningDecision.BinningApplied) {
                 applied.BinningApplied = true;
-                applied.Reasons.Add($"binning {state.DetectionBinningFactor} -> {binningRecFactor.Value} (deferring exposure/step this round)");
-                state.DetectionBinningFactor = binningRecFactor.Value;
-            } else {
+                applied.StepDeferredByBinning = binningDecision.StepDeferred; // P3: the deferral as a fact, not as a substring of reasons[]
+                applied.BinningDeferralBoundReached = binningDecision.DeferralBoundReached; // P3: P2's engagement marker
+                applied.Reasons.Add(binningDecision.Reason);
+                state.DetectionBinningFactor = binningDecision.NewFactor;
+            }
+            if (binningDecision.RunExposureAndStep) {
                 var exposureApplies = exposureRec != null && exposureRec.HasRecommendation && sensitivityAtFloor && exposureRec.IncreasesExposure;
                 if (exposureApplies) {
                     applied.ExposureApplied = true;
@@ -858,6 +884,9 @@ namespace TestApp.SynthBank {
             }
             applied.NewCenterPosition = newCenter;
             state.CenterPosition = newCenter;
+            // P3: the factor carried into the NEXT round. Recorded here, after the update policy, so the LAST
+            // round -- which has no successor to read bootstrap.detectionBinning off -- still reports it.
+            round.BinningRecommendation.AppliedFactor = state.DetectionBinningFactor;
             round.Applied = applied;
 
             round.Assertions = EvaluateRoundAssertions(dataset, defaults, model, round, expected, stepBehavioral, isConvergenceScenario);

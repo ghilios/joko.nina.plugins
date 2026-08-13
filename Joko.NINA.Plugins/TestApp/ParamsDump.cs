@@ -48,11 +48,16 @@ namespace TestApp {
     /// </code></para>
     ///
     /// <para><b>ASCII-ONLY, and this is a measured trap rather than a style preference.</b>
-    /// <c>HarnessSettingsStore</c>'s preset-override warning writes a Unicode right arrow; on this machine the
-    /// console code page cannot encode it, so a REDIRECTED log receives the single byte 0x1A. A parser written
+    /// <c>HarnessSettingsStore</c>'s preset-override warning used to write a Unicode right arrow; on this machine
+    /// the console code page cannot encode it, so a REDIRECTED log received the single byte 0x1A. A parser written
     /// against the source string matched 0 of 40 perfectly good wave-15 logs and reported "could not look" on the
-    /// whole population. Every character this class prints is printable ASCII, values included — see
-    /// <see cref="Ascii"/>.</para>
+    /// whole population. Wave 23 measured the second half of the same trap: a σ reaching a redirected log as the
+    /// raw byte 0xE5 makes GNU grep classify the WHOLE file as binary, so it reports zero matches for the ASCII
+    /// strings elsewhere in it — a gate driver read "0 of 8" PARAMS-DUMP blocks off logs that held all eight.
+    /// Every character this class prints is printable ASCII, values included — see <see cref="Ascii"/> — and as
+    /// of wave 23 so is every string literal in it, the <see cref="ValidateSource"/> throw included, which is what
+    /// makes the claim on this paragraph true of the file that makes it. <c>TestAppOutputAsciiTests</c> holds the
+    /// property for TestApp as a whole.</para>
     ///
     /// <para><b>Where the output goes is the caller's choice, and on the af-fit side it is load-bearing.</b>
     /// <see cref="Write"/> takes the sink, so nothing here can decide to write into a file. Clause W1 of wave 16
@@ -179,7 +184,7 @@ namespace TestApp {
             if (source.Any(char.IsWhiteSpace)) {
                 throw new ArgumentException(
                     $"PARAMS-DUMP source '{source}' contains whitespace. RULE P16's parser reads the source as " +
-                    "\\S+ and pairs BEGIN with END by backreference, so this block would not be seen at all — " +
+                    "\\S+ and pairs BEGIN with END by backreference, so this block would not be seen at all -- " +
                     "and an unseen dump is scored COULD NOT LOOK, not 'the params agree'.", nameof(source));
             }
         }

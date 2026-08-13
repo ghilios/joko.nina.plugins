@@ -219,7 +219,7 @@ namespace TestApp {
 
             var perStep = new List<StepResult>(orderedRuns.Count);
             foreach (var run in orderedRuns) {
-                Console.WriteLine($"Measuring 4-corner tilt for {run.Step} ({Path.GetFileName(run.Folder)}, {run.Frames.Count} frames × 5 regions) ...");
+                Console.WriteLine($"Measuring 4-corner tilt for {run.Step} ({Path.GetFileName(run.Folder)}, {run.Frames.Count} frames x 5 regions) ...");
                 var sw4c = System.Diagnostics.Stopwatch.StartNew();
                 var stepResult = await MeasureTiltAsync(run, detection, detectionParams, regions, fRatio,
                     metadata.FocuserStepSizeMicrons, metadata.PixelSizeMicrons,
@@ -227,8 +227,8 @@ namespace TestApp {
                 perStep.Add(stepResult);
                 Console.WriteLine($"    [4-corner {run.Step}] done in {sw4c.ElapsedMilliseconds} ms");
                 Console.WriteLine($"    A={F(stepResult.Gradient.A)}, B={F(stepResult.Gradient.B)}, " +
-                    $"direction={F(NormalizeAngle(Math.Atan2(stepResult.Gradient.A, -stepResult.Gradient.B) * 180.0 / Math.PI))}°, " +
-                    $"tilt={F(stepResult.TiltAngleDeg)}°, mean={F(stepResult.Gradient.MeanFocuserPosition)}");
+                    $"direction={F(NormalizeAngle(Math.Atan2(stepResult.Gradient.A, -stepResult.Gradient.B) * 180.0 / Math.PI))} deg, " +
+                    $"tilt={F(stepResult.TiltAngleDeg)} deg, mean={F(stepResult.Gradient.MeanFocuserPosition)}");
             }
 
             // Calibrate using the pure shared calculator.
@@ -269,7 +269,7 @@ namespace TestApp {
                     diagDir: Path.Combine(outDir, "diag")).ConfigureAwait(false);
                 paraboloidSteps.Add(ps);
                 Console.WriteLine(ps.Fitted
-                    ? $"    A={F(ps.Gradient.A)}, B={F(ps.Gradient.B)}, stars={ps.StarsInModel}, R²={F(ps.RSquared)}"
+                    ? $"    A={F(ps.Gradient.A)}, B={F(ps.Gradient.B)}, stars={ps.StarsInModel}, R^2={F(ps.RSquared)}"
                     : $"    paraboloid fit FAILED: {ps.Status}");
             }
             TiltCalibrationResult paraboloidCalibration = null;
@@ -698,7 +698,7 @@ namespace TestApp {
                         pixelSize: pixelSizeMicrons, progress: new Progress<ApplicationStatus>(), stepSize: stepSize,
                         ct: cts.Token));
                     if (await Task.WhenAny(fitTask, Task.Delay(TimeSpan.FromSeconds(fitTimeoutSec + 5))).ConfigureAwait(false) != fitTask) {
-                        Console.WriteLine($"    [paraboloid {run.Step}] fit TIMED OUT (>{fitTimeoutSec}s) — abandoning and moving on");
+                        Console.WriteLine($"    [paraboloid {run.Step}] fit TIMED OUT (>{fitTimeoutSec}s) -- abandoning and moving on");
                         return new ParaboloidStepResult { Step = run.Step, Fitted = false, Status = $"fit timed out (>{fitTimeoutSec}s)" };
                     }
                     var (fit, _) = await fitTask.ConfigureAwait(false);
@@ -829,15 +829,15 @@ namespace TestApp {
             Line("================ TILT CALIBRATION VALIDATION ================");
             Line($"Screws: {metadata.NumberOfScrews}   Adjustment: {(isStepper ? "StepperMotors" : "Screws")}");
             Line($"Ground truth: radius={F(metadata.ScrewRadiusMillimeters)} mm, " +
-                $"{(isStepper ? "step size" : "thread pitch")}={F(groundTruthHardware)} µm/{(isStepper ? "step" : "turn")}, " +
-                $"pixel={F(metadata.PixelSizeMicrons)} µm, focuser={F(metadata.FocuserStepSizeMicrons)} µm/step");
+                $"{(isStepper ? "step size" : "thread pitch")}={F(groundTruthHardware)} um/{(isStepper ? "step" : "turn")}, " +
+                $"pixel={F(metadata.PixelSizeMicrons)} um, focuser={F(metadata.FocuserStepSizeMicrons)} um/step");
             Line($"Applied per screw step: {F(metadata.CalibrationAppliedAmount)} {(isStepper ? "steps" : "turns")}");
-            Line($"Expected Screw 1 angle: {F(metadata.ExpectedPositionAngleScrew1Deg)}°   Defocus-aware: {metadata.DefocusAwareDetectionNeeded}");
+            Line($"Expected Screw 1 angle: {F(metadata.ExpectedPositionAngleScrew1Deg)} deg   Defocus-aware: {metadata.DefocusAwareDetectionNeeded}");
             Line($"Detection settings source: {optimizationSource}");
             Line();
 
             Line("Per-run tilt plane:");
-            Line($"  {"Step",-10} {"A",10} {"B",10} {"dir°",8} {"tilt°",8} {"mean",10}  R²(C/TL/TR/BL/BR)");
+            Line($"  {"Step",-10} {"A",10} {"B",10} {"dir deg",8} {"tilt deg",8} {"mean",10}  R^2(C/TL/TR/BL/BR)");
             foreach (var s in perStep) {
                 double dir = NormalizeAngle(Math.Atan2(s.Gradient.A, -s.Gradient.B) * 180.0 / Math.PI);
                 var r2 = string.Join("/", Enumerable.Range(1, 5).Select(i => s.RegionRSquared[i].ToString("F2", CultureInfo.InvariantCulture)));
@@ -845,29 +845,29 @@ namespace TestApp {
             }
             Line();
 
-            Line("Calibrated screw angles (image-space, ° CW from top):");
-            Line($"  Screw 1: {F(calibration.Screw1AngleDegrees)}°  (expected {F(metadata.ExpectedPositionAngleScrew1Deg)}°, deviation {F(screw1Deviation)}°)");
-            Line($"  Screw 2: {F(calibration.Screw2AngleDegrees)}°");
-            Line($"  Screw 3: {F(calibration.Screw3AngleDegrees)}°");
+            Line("Calibrated screw angles (image-space, deg CW from top):");
+            Line($"  Screw 1: {F(calibration.Screw1AngleDegrees)} deg  (expected {F(metadata.ExpectedPositionAngleScrew1Deg)} deg, deviation {F(screw1Deviation)} deg)");
+            Line($"  Screw 2: {F(calibration.Screw2AngleDegrees)} deg");
+            Line($"  Screw 3: {F(calibration.Screw3AngleDegrees)} deg");
             if (metadata.NumberOfScrews == 4) {
-                Line($"  Screw 4: {F(calibration.Screw4AngleDegrees)}°");
+                Line($"  Screw 4: {F(calibration.Screw4AngleDegrees)} deg");
             }
-            Line($"  Raw measured Screw1->Screw2 gap: {F(calibration.RawAngleDiffDegrees)}° (ideal {(metadata.NumberOfScrews == 3 ? "120" : "90")}°)");
-            Line($"  Screw move directions: Screw1={F(calibration.Screw1DirectionDegrees)}°, Screw2={F(calibration.Screw2DirectionDegrees)}°");
+            Line($"  Raw measured Screw1->Screw2 gap: {F(calibration.RawAngleDiffDegrees)} deg (ideal {(metadata.NumberOfScrews == 3 ? "120" : "90")} deg)");
+            Line($"  Screw move directions: Screw1={F(calibration.Screw1DirectionDegrees)} deg, Screw2={F(calibration.Screw2DirectionDegrees)} deg");
             Line();
 
             Line($"Recovered {(isStepper ? "stepper step size" : "thread pitch")}: " +
-                $"{F(measuredHardware)} µm/{(isStepper ? "step" : "turn")}  " +
-                $"(ground truth {F(groundTruthHardware)}, Δ {(double.IsNaN(hardwarePctDelta) ? "n/a" : F(hardwarePctDelta) + "%")})");
-            Line($"Screw move magnitude ratio (larger/smaller): {F(calibration.MoveMagnitudeRatio)}× " +
-                "(should be ~1× for two equal calibration turns)");
+                $"{F(measuredHardware)} um/{(isStepper ? "step" : "turn")}  " +
+                $"(ground truth {F(groundTruthHardware)}, delta {(double.IsNaN(hardwarePctDelta) ? "n/a" : F(hardwarePctDelta) + "%")})");
+            Line($"Screw move magnitude ratio (larger/smaller): {F(calibration.MoveMagnitudeRatio)}x " +
+                "(should be ~1x for two equal calibration turns)");
             // A measured sign is always ±1; sign 0 is only reachable for a 4-step run whose metadata carried no
             // fallback sign (and a two-section format would misprint it as "+0"), so spell out the unmeasured cases.
             string curvatureSignText;
             if (inputs.HasCurvatureMeasurement) {
                 curvatureSignText = calibration.CurvatureSign.ToString("+0;-0", CultureInfo.InvariantCulture);
             } else if (calibration.CurvatureSign == 0) {
-                curvatureSignText = "0 (unknown — not measured, no fallback in metadata)";
+                curvatureSignText = "0 (unknown -- not measured, no fallback in metadata)";
             } else {
                 curvatureSignText = calibration.CurvatureSign.ToString("+0;-0", CultureInfo.InvariantCulture) +
                     " (not measured; carried from metadata)";
@@ -879,38 +879,38 @@ namespace TestApp {
             Line("Calibration confidence (signal vs noise from the per-step tilt vectors):");
             Line($"  Screw-move signal: {F(conf.ScrewMoveSignal)}   Noise floor: {F(conf.NoiseEstimate)}   SNR: {F(conf.SignalToNoise)}");
             if (inputs.HasCurvatureMeasurement) {
-                Line($"  Noise probes (should be « the signal) — AllInward piston residual: {F(conf.AllInwardTiltResidual)}, " +
+                Line($"  Noise probes (should be << the signal) -- AllInward piston residual: {F(conf.AllInwardTiltResidual)}, " +
                     $"re-baseline drift 1/2: {F(conf.Rebaseline1Drift)}/{F(conf.Rebaseline2Drift)}");
             } else {
                 // 4-step run: no curvature-direction steps were captured, so the AllInward residual and first
                 // re-baseline drift do not exist; the single re-baseline drift is the only noise probe.
-                Line($"  Noise probe (should be « the signal) — single re-baseline drift: {F(conf.Rebaseline2Drift)} (4-step run)");
+                Line($"  Noise probe (should be << the signal) -- single re-baseline drift: {F(conf.Rebaseline2Drift)} (4-step run)");
             }
-            Line($"  Predicted screw-direction uncertainty: ±{F(conf.PredictedAngleUncertaintyDeg)}°");
+            Line($"  Predicted screw-direction uncertainty: +/-{F(conf.PredictedAngleUncertaintyDeg)} deg");
             if (!conf.IsReliable) {
-                Line($"  NOTE: SNR {F(conf.SignalToNoise)} is below {F(TiltCalibrationCalculator.MinReliableSignalToNoise)} — the calibration is " +
+                Line($"  NOTE: SNR {F(conf.SignalToNoise)} is below {F(TiltCalibrationCalculator.MinReliableSignalToNoise)} -- the calibration is " +
                     "noise-dominated (insufficient or unstable signal). Re-capture on a star-rich field with a finer step; " +
                     "the recovered screw geometry from this run should not be applied.");
             }
             Line();
 
             // Alternative estimator: the per-star paraboloid tilt (the "calibrate from the sensor-model tilt" rewire).
-            Line("Per-star paraboloid tilt (alternative estimator — the robust sensor-model Gx/Gy):");
-            Line($"  {"Step",-12} {"A",10} {"B",10} {"stars",6} {"R²",7}  status");
+            Line("Per-star paraboloid tilt (alternative estimator -- the robust sensor-model Gx/Gy):");
+            Line($"  {"Step",-12} {"A",10} {"B",10} {"stars",6} {"R^2",7}  status");
             foreach (var ps in paraboloidSteps) {
                 Line(ps.Fitted
                     ? $"  {ps.Step,-12} {F(ps.Gradient.A),10} {F(ps.Gradient.B),10} {ps.StarsInModel,6} {F(ps.RSquared),7}  ok"
-                    : $"  {ps.Step,-12} {"—",10} {"—",10} {"—",6} {"—",7}  FAILED: {ps.Status}");
+                    : $"  {ps.Step,-12} {"--",10} {"--",10} {"--",6} {"--",7}  FAILED: {ps.Status}");
             }
             if (paraboloidCalibration?.Confidence != null) {
                 var pc = paraboloidCalibration.Confidence;
                 Line($"  Paraboloid calibration: SNR {F(pc.SignalToNoise)} (vs 4-corner {F(conf.SignalToNoise)}), " +
-                    $"screw gap {F(paraboloidCalibration.RawAngleDiffDegrees)}° (ideal {(metadata.NumberOfScrews == 3 ? "120" : "90")}°), " +
-                    $"move ratio {F(paraboloidCalibration.MoveMagnitudeRatio)}×, reliable={pc.IsReliable}");
+                    $"screw gap {F(paraboloidCalibration.RawAngleDiffDegrees)} deg (ideal {(metadata.NumberOfScrews == 3 ? "120" : "90")} deg), " +
+                    $"move ratio {F(paraboloidCalibration.MoveMagnitudeRatio)}x, reliable={pc.IsReliable}");
             } else {
                 int fitted = paraboloidSteps.Count(p => p.Fitted);
-                Line($"  Paraboloid calibration not computed — only {fitted}/{paraboloidSteps.Count} steps fitted. " +
-                    "The per-star model needs ≥9 stars matched across ≥5 frames; this field is too star-poor for it.");
+                Line($"  Paraboloid calibration not computed -- only {fitted}/{paraboloidSteps.Count} steps fitted. " +
+                    "The per-star model needs >=9 stars matched across >=5 frames; this field is too star-poor for it.");
             }
             Line();
 
@@ -936,13 +936,13 @@ namespace TestApp {
                 Line("Estimator comparison (per-star paraboloid vs 4-corner region-AF; physical gradient-space move magnitudes):");
                 Line($"  Screw1 move: paraboloid={F(paraboloidMove1)}  corner-AF={F(cornerMove1)}  relDiff={F(relDiff1 * 100.0)}%");
                 Line($"  Screw2 move: paraboloid={F(paraboloidMove2)}  corner-AF={F(cornerMove2)}  relDiff={F(relDiff2 * 100.0)}%");
-                Line($"  Recovered {(isStepper ? "step size" : "pitch")}: paraboloid={F(paraboloidHardwareMicrons)} µm/{(isStepper ? "step" : "turn")}  " +
-                    $"corner-AF={F(measuredHardware)} µm/{(isStepper ? "step" : "turn")}");
+                Line($"  Recovered {(isStepper ? "step size" : "pitch")}: paraboloid={F(paraboloidHardwareMicrons)} um/{(isStepper ? "step" : "turn")}  " +
+                    $"corner-AF={F(measuredHardware)} um/{(isStepper ? "step" : "turn")}");
             } else {
-                Line("Estimator comparison not computed — paraboloid calibration unavailable (see above).");
+                Line("Estimator comparison not computed -- paraboloid calibration unavailable (see above).");
             }
             double pistonImpliedMicronsPerStep = TiltCalibrationCalculator.PistonImpliedMicronsPerStep(inputs);
-            Line($"Piston-implied hardware: {pistonImpliedMicronsPerStep:0.###} µm/step");
+            Line($"Piston-implied hardware: {pistonImpliedMicronsPerStep:0.###} um/step");
             Line();
 
             // Curvature cross-check (Task 7.2): does the paraboloid's own K predict the same corner-vs-center sag
@@ -977,12 +977,12 @@ namespace TestApp {
             double rEffMicrons = Math.Sqrt(Math.Pow(cornerXNorm * sensorWidthMicrons, 2) + Math.Pow(cornerYNorm * sensorHeightMicrons, 2));
             double rEffSquaredMicrons2 = rEffMicrons * rEffMicrons;
 
-            Line($"Curvature cross-check (this harness's OWN re-measured corner-AF sag vs. paraboloid K's predicted sag at rEff={F(rEffMicrons)} µm):");
+            Line($"Curvature cross-check (this harness's OWN re-measured corner-AF sag vs. paraboloid K's predicted sag at rEff={F(rEffMicrons)} um):");
             Line("  NOTE: \"measured\" is this harness's independent headless per-region re-fit, not the wizard's stored");
-            Line("  per-region AF results — an absolute-position quantity like this sag is far more sensitive to that");
+            Line("  per-region AF results -- an absolute-position quantity like this sag is far more sensitive to that");
             Line("  re-measurement noise than the slope-only 4-corner (A,B) tilt plane is, so this ratio is a same-run");
-            Line("  self-consistency check only; it is not expected to reproduce the design doc's §4 finding.");
-            Line($"  {"Step",-10} {"measured µm",12} {"predicted µm",13} {"ratio",7}");
+            Line("  self-consistency check only; it is not expected to reproduce the design doc's section 4 finding.");
+            Line($"  {"Step",-10} {"measured um",12} {"predicted um",13} {"ratio",7}");
             for (int i = 0; i < perStep.Count && i < paraboloidSteps.Count; i++) {
                 var s = perStep[i];
                 var ps = paraboloidSteps[i];
@@ -1006,7 +1006,7 @@ namespace TestApp {
             bool hardwareOk = !hardwareProvided || (!double.IsNaN(hardwarePctDelta) && hardwarePctDelta <= 25.0);
             bool magnitudeOk = !double.IsNaN(calibration.MoveMagnitudeRatio) && calibration.MoveMagnitudeRatio <= 1.5;
             if (!magnitudeOk) {
-                Line("  NOTE: the two screw turns produced very unequal tilt changes — the recovered hardware/angles " +
+                Line("  NOTE: the two screw turns produced very unequal tilt changes -- the recovered hardware/angles " +
                     "are unreliable. Re-capture turning each screw the same amount. If the corner-AF cross-check " +
                     "above disagrees with the paraboloid magnitudes, suspect the per-star fit before suspecting " +
                     "the hardware.");
@@ -1119,7 +1119,7 @@ namespace TestApp {
 
         private static void PrintUsage() {
             Console.Error.WriteLine("Usage: TestApp tilt --dataset <folder> [--profile-id <guid>] [--out <dir>] [--reoptimize] [--max-evals <int>]");
-            Console.Error.WriteLine("  --dataset    (required) folder containing the 6 AF runs (Baseline, AllInward, ReBaseline1, Screw1, ReBaseline2, Screw2) — or 4 (Baseline, Screw1, ReBaseline2, Screw2) for a run saved without the curvature-direction steps.");
+            Console.Error.WriteLine("  --dataset    (required) folder containing the 6 AF runs (Baseline, AllInward, ReBaseline1, Screw1, ReBaseline2, Screw2) -- or 4 (Baseline, Screw1, ReBaseline2, Screw2) for a run saved without the curvature-direction steps.");
             Console.Error.WriteLine("  --profile-id (default active) NINA profile id (settings + focal length).");
             Console.Error.WriteLine("  --out        (default %LOCALAPPDATA%\\NINA\\Logs\\hf-diag\\tilt\\<timestamp>) output directory.");
             Console.Error.WriteLine("  --reoptimize force re-running star-detection optimization and overwrite the stored settings in metadata.");

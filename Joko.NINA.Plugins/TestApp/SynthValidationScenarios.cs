@@ -124,7 +124,7 @@ namespace TestApp.SynthBank {
             Expectation = SynthValidationExpectation.DegradationSignature,
             IsApplicable = (d, e) => d.CentralObstructionFraction > 0.0
                 ? (true, null)
-                : (false, $"unobstructed optic (ε={d.CentralObstructionFraction:0.00}) -- no donut to turn off")
+                : (false, $"unobstructed optic (eps={d.CentralObstructionFraction:0.00}) -- no donut to turn off")
         };
 
         public static readonly SynthValidationScenario S6 = new SynthValidationScenario {
