@@ -128,6 +128,94 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Utility {
             });
         }
 
+        // The three band cases, written separately so the BELOW case cannot pass by riding on the IN case. The
+        // clamp floors the recommendation at 1, so both land on `recommended == 1` and an else-branch keyed on the
+        // factor tells a 0.7 px rig it is inside a 2-4 px range. D01/D02/D03 in the synthetic bank render at
+        // exactly 0.700 px in focus, and they are the only three the generator floors.
+
+        [Test]
+        public void DescribeRecommendationDetail_BelowTheBand_SaysSoAndPointsAtTheAxisThatMoves() {
+            var when = new DateTime(2026, 8, 13, 3, 4, 5, DateTimeKind.Utc);
+            var below = DetectionBinningResolver.DescribeRecommendationDetail(1, 0.7, when);
+            Assert.Multiple(() => {
+                Assert.That(below, Does.Not.Contain("already in that range"),
+                    "0.7 px is 4.3x below the 2-4 px band; the product must not assert it satisfies it");
+                Assert.That(below, Does.Contain("0.7 px is below that range"));
+                Assert.That(below, Does.Contain("only divides"), "binning cannot rescue an under-sampled rig");
+                Assert.That(below, Does.Contain("MinHFR"), "it must name the axis that can move (F35 / F43)");
+                // And the row has to be VISIBLE, or the wording above is written for a user who never sees it.
+                Assert.That(DetectionBinningResolver.ShouldShowRecommendation(1, 0.7), Is.True,
+                    "below the band the recommendation asks for something even though the factor agrees");
+            });
+        }
+
+        [Test]
+        public void DescribeRecommendation_BelowTheBand_DoesNotSayTheFactorIsRight() {
+            // The row is what the user READS; the tooltip is what they have to hover for. Making the row visible
+            // below the band is only half the fix if the visible line still reads as all-clear.
+            Assert.Multiple(() => {
+                var below = DetectionBinningResolver.DescribeRecommendation(1, 0.7);
+                Assert.That(below, Is.EqualTo("Measured in-focus HFR 0.7 px - below the 2-4 px range"));
+                Assert.That(below, Does.Not.Contain("is right"));
+                Assert.That(below, Has.Length.LessThan(60), "it shares the dropdown's row - a line, not a paragraph");
+                Assert.That(below, Does.Not.Contain("MinHFR"), "the remedy is the tooltip's job");
+                // Below the band with the WRONG factor still has something to act on, and that keeps the row.
+                Assert.That(DetectionBinningResolver.DescribeRecommendation(2, 0.7),
+                    Is.EqualTo("Measured in-focus HFR 0.7 px - 1x1 recommended"));
+                // In band, unchanged.
+                Assert.That(DetectionBinningResolver.DescribeRecommendation(1, 3.0),
+                    Is.EqualTo("Measured in-focus HFR 3.0 px - 1x1 is right"));
+            });
+        }
+
+        [Test]
+        public void DescribeRecommendationDetail_InTheBand_KeepsTheInRangeWording() {
+            var when = new DateTime(2026, 8, 13, 3, 4, 5, DateTimeKind.Utc);
+            var inBand = DetectionBinningResolver.DescribeRecommendationDetail(1, 3.0, when);
+            Assert.Multiple(() => {
+                Assert.That(inBand, Does.Contain("3.0 px is already in that range"));
+                Assert.That(inBand, Does.Contain("binning is not needed"));
+                Assert.That(inBand, Does.Not.Contain("MinHFR"), "there is nothing to fix at the target HFR");
+                // Nothing to ask for: the setting matches and the measurement is where the knobs are calibrated.
+                Assert.That(DetectionBinningResolver.ShouldShowRecommendation(1, 3.0), Is.False);
+            });
+        }
+
+        [Test]
+        public void DescribeRecommendationDetail_AboveTheBand_DescribesTheDivision() {
+            var when = new DateTime(2026, 8, 13, 3, 4, 5, DateTimeKind.Utc);
+            Assert.That(DetectionBinningResolver.RecommendFromHfr(6.0), Is.EqualTo(2));
+
+            var above = DetectionBinningResolver.DescribeRecommendationDetail(1, 6.0, when);
+            Assert.Multiple(() => {
+                Assert.That(above, Does.Contain("2x2"));
+                Assert.That(above, Does.Contain("3.0 px"), "it must say where the division lands the star size");
+                Assert.That(above, Does.Not.Contain("already in that range"));
+                Assert.That(DetectionBinningResolver.ShouldShowRecommendation(1, 6.0), Is.True);
+            });
+        }
+
+        [Test]
+        public void RecommendFromHfr_IsUnchangedByTheBandWording() {
+            // The band split changes what the user is TOLD and nothing else. RecommendFromHfr is the single source
+            // of truth the options page, the wizard and the documentation all cite, so a moved value here would be
+            // a silent detection-behavior change on upgrade. Pinned across below / in / above the band.
+            var pinned = new (double Hfr, int Factor)[] {
+                (0.3, 1), (0.7, 1), (1.0, 1), (1.5, 1), (1.9, 1),      // below the 2 px lower edge
+                (2.0, 1), (3.0, 1), (3.6, 1), (4.4, 1),                // in band, and the rounding shoulder
+                (4.5, 2), (4.6, 2), (6.0, 2), (7.5, 3), (11.0, 4),     // above
+                (13.5, 4), (40.0, 4),                                  // clamped at the maximum factor
+            };
+            Assert.Multiple(() => {
+                foreach (var (hfr, factor) in pinned) {
+                    Assert.That(DetectionBinningResolver.RecommendFromHfr(hfr), Is.EqualTo(factor), $"HFR {hfr}");
+                }
+                Assert.That(DetectionBinningResolver.RecommendFromHfr(double.NaN), Is.EqualTo(1));
+                Assert.That(DetectionBinningResolver.RecommendFromHfr(0.0), Is.EqualTo(1));
+                Assert.That(DetectionBinningResolver.RecommendFromHfr(-3.0), Is.EqualTo(1));
+            });
+        }
+
         [Test]
         public void DiffersFromRecommendation_IsFalseWithoutAMeasurement() {
             // No measurement means no advice, so nothing to disagree with — the UI must not highlight a mismatch
