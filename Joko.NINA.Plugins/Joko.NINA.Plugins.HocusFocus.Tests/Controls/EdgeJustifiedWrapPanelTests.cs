@@ -172,11 +172,16 @@ public class EdgeJustifiedWrapPanelTests {
             var height = panel.DesiredSize.Height;
 
             for (var i = 0; i < r.Count; ++i) {
-                // A Panel does NOT clip its children: a line drawn past the panel's own height renders over the
-                // focus chart in the star row above.
+                // A line past the panel's own reported height means the Auto row under-reserved: the footer then
+                // overflows the bottom of the pane and is silently layout-clipped.
                 Assert.That(r[i].Bottom, Is.LessThanOrEqualTo(height + 0.5), $"child {i} escapes the row at width {w}");
                 Assert.That(r[i].Top, Is.GreaterThanOrEqualTo(-0.5), $"child {i} above the row at width {w}");
                 Assert.That(r[i].Left, Is.GreaterThanOrEqualTo(-0.5), $"child {i} left of the row at width {w}");
+                // The right edge is the direction content actually escapes in, and the only one that catches a
+                // child measured against the constraint instead of at its natural width. RenderSize, not w:
+                // ArrangeCore legitimately enlarges the panel to its unclipped desired width.
+                Assert.That(r[i].Right, Is.LessThanOrEqualTo(panel.RenderSize.Width + 0.5),
+                    $"child {i} runs off the right edge at width {w}");
 
                 for (var j = i + 1; j < r.Count; ++j) {
                     var a = r[i];
@@ -281,17 +286,57 @@ public class EdgeJustifiedWrapPanelTests {
     }
 
     [Test]
-    public void ChildWiderThanTheConstraint_TerminatesWithOneItemPerLine() {
-        // The "a line always accepts at least one item" guard is the only thing standing between this and an
-        // infinite loop. NUnit's [Timeout] cannot guard it: that runs the body on a worker thread and defeats
-        // [Apartment(STA)]. Reaching the assertion at all is the proof.
+    public void ChildWiderThanTheConstraint_GetsALineToItselfRatherThanAnEmptyOne() {
+        // The oversized child is at index 1 ON PURPOSE: index 0 is placed by the leading-child special case and
+        // never reaches the "a line always accepts at least one item" guard, so an index-0 fixture would pass with
+        // the guard deleted. Here the guard is what stops the 5000px child from opening a phantom empty line.
         var panel = new EdgeJustifiedWrapPanel { ItemGap = ItemGap, LineGap = LineGap };
+        panel.Children.Add(Stub(130, 25));
         panel.Children.Add(Stub(5000, 25));
-        panel.Children.Add(Stub(110, 25));
+        panel.Children.Add(Stub(110, 28));
         panel.Measure(new Size(200, double.PositiveInfinity));
 
-        // Do not assert the width: MeasureCore clamps DesiredSize to the 200px constraint.
-        Assert.That(panel.DesiredSize.Height, Is.EqualTo(56).Within(0.5), "25 + LineGap + 25");
+        // Three lines of 25 / 25 / 28, two LineGaps. Do not assert the width: MeasureCore clamps DesiredSize to
+        // the 200px constraint even though the packed content is 5000 wide.
+        Assert.That(panel.DesiredSize.Height, Is.EqualTo(90).Within(0.5), "25 + 6 + 25 + 6 + 28, with no empty line");
+    }
+
+    // Children must be measured at their NATURAL width: measuring them against the constraint makes MeasureCore
+    // clamp each DesiredSize to the constraint, every child then "fits", and the panel stops wrapping at all —
+    // silently, since a clamped child still renders at its natural size and simply overhangs.
+    [Test]
+    public void ChildrenAreMeasuredAtTheirNaturalWidth_NotAgainstTheConstraint() {
+        var panel = StandardPanel();
+        panel.Measure(new Size(150, double.PositiveInfinity));
+
+        Assert.Multiple(() => {
+            Assert.That(((FrameworkElement)panel.Children[2]).DesiredSize.Width, Is.EqualTo(195).Within(0.5),
+                "the 195px child must not be clamped to the 150px constraint");
+            Assert.That(panel.DesiredSize.Height, Is.EqualTo(90).Within(0.5), "so the row still breaks to three lines");
+        });
+    }
+
+    // Non-monotonicity guard. A line's height is its tallest item, so re-breaking at a different width can shuffle
+    // which children share a line and need MORE height than a narrower break did. MeasureOverride therefore
+    // reserves height for the width ArrangeOverride will really be handed, which is the unclipped desired width
+    // whenever some child is wider than the constraint.
+    [Test]
+    public void WhenAChildOverflowsTheConstraint_TheReservedHeightMatchesWhatArrangeLaysOut() {
+        var panel = new EdgeJustifiedWrapPanel { ItemGap = ItemGap, LineGap = 0 };
+        panel.Children.Add(Stub(243, 29));
+        panel.Children.Add(Stub(93, 14));
+        panel.Children.Add(Stub(163, 3));
+        panel.Children.Add(Stub(21, 58));
+        panel.Children.Add(Stub(95, 39));
+
+        panel.Measure(new Size(136, double.PositiveInfinity));
+        var reserved = panel.DesiredSize.Height;
+        panel.Arrange(new Rect(0, 0, 136, reserved));
+
+        foreach (var r in RectsOf(panel)) {
+            Assert.That(r.Bottom, Is.LessThanOrEqualTo(reserved + 0.5),
+                "arrange laid out taller than measure reserved — the footer overflows the pane");
+        }
     }
 
     [Test]
@@ -335,10 +380,11 @@ public class EdgeJustifiedWrapPanelTests {
         });
     }
 
-    // The worst failure mode a custom Panel has is drawing outside its own bounds, because a Panel does not clip.
-    // Here the panel sits where it really ships: the Auto row under the "*" focus-chart row.
+    // The panel where it really ships: the Auto row under the "*" focus-chart row. The Auto row must reserve
+    // exactly what the footer then lays out — a footer that measures short and arranges tall spills past the pane,
+    // and a Panel does not clip its own children.
     [Test]
-    public void InsideTheRealTwoRowGrid_TheFooterNeverDrawsOverTheChart() {
+    public void InsideTheRealTwoRowGrid_TheAutoRowReservesExactlyWhatTheFooterLaysOut() {
         foreach (var w in new[] { 1150.0, 500, 400, 300, 230 }) {
             var chart = new Border { Background = Brushes.Transparent };
             var panel = StandardPanel();
@@ -356,10 +402,17 @@ public class EdgeJustifiedWrapPanelTests {
             grid.Arrange(new Rect(0, 0, w, 600));
             grid.UpdateLayout();
 
-            var chartBottom = RectOf(chart, grid).Bottom;
+            var footerRow = grid.RowDefinitions[1].ActualHeight;
+            Assert.That(grid.RowDefinitions[0].ActualHeight + footerRow, Is.EqualTo(600).Within(0.5),
+                $"the two rows do not account for the pane at width {w}");
+            // DesiredSize is margin-inclusive, so this is the footer's full 15 + content + 5.
+            Assert.That(footerRow, Is.EqualTo(panel.DesiredSize.Height).Within(0.5),
+                $"the Auto row does not reserve what the footer asked for at width {w}");
+
             foreach (var r in panel.Children.Cast<FrameworkElement>().Select(c => RectOf(c, grid))) {
-                Assert.That(r.Top, Is.GreaterThanOrEqualTo(chartBottom - 0.5), $"footer overlaps the chart at width {w}");
-                Assert.That(r.Bottom, Is.LessThanOrEqualTo(600.5), $"footer escapes the pane at width {w}");
+                // 5 is the panel's bottom margin: anything past that is height the Auto row never reserved.
+                Assert.That(r.Bottom, Is.LessThanOrEqualTo(600 - 5 + 0.5), $"footer spills past its row at width {w}");
+                Assert.That(r.Top, Is.GreaterThanOrEqualTo(600 - footerRow - 0.5), $"footer starts above its row at width {w}");
             }
         }
     }

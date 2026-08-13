@@ -1,7 +1,10 @@
 using NUnit.Framework;
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Xml.Linq;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus;
@@ -23,16 +26,14 @@ public class AutoFocusFooterRowMarkupTests {
     private static readonly XNamespace Presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
     private static readonly XNamespace Xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
 
-    private static XElement DockableTemplate() {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null && dir.GetDirectories("Joko.NINA.Plugins.HocusFocus").Length == 0) {
-            dir = dir.Parent;
-        }
-        Assert.That(dir, Is.Not.Null, "Could not locate the plugin source directory from the test binaries.");
-
-        var xaml = Path.Combine(dir.GetDirectories("Joko.NINA.Plugins.HocusFocus").Single().FullName,
-            "AutoFocus", "DataTemplates.xaml");
-        Assert.That(File.Exists(xaml), Is.True, $"{xaml} not found");
+    // Anchored on the source file's own path, like OptionsDataTemplatesLayoutTests, rather than walking up from the
+    // test binaries — the walk breaks the moment the build output moves.
+    private static XElement DockableTemplate([CallerFilePath] string thisFile = null) {
+        // thisFile: <repo>/Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/AutoFocus/AutoFocusFooterRowMarkupTests.cs
+        var testsProjectDir = Directory.GetParent(Path.GetDirectoryName(thisFile)).FullName;
+        var xaml = Path.GetFullPath(Path.Combine(
+            testsProjectDir, "..", "Joko.NINA.Plugins.HocusFocus", "AutoFocus", "DataTemplates.xaml"));
+        Assert.That(File.Exists(xaml), Is.True, $"Could not locate DataTemplates.xaml at '{xaml}'");
 
         var template = XDocument.Load(xaml).Descendants(Presentation + "DataTemplate")
             .SingleOrDefault(t => ((string)t.Attribute(Xaml + "Key"))?.EndsWith("HocusFocusVM_Dockable",
@@ -44,6 +45,25 @@ public class AutoFocusFooterRowMarkupTests {
     /// <summary>Real child elements. Property elements — <c>&lt;Grid.RowDefinitions&gt;</c> and friends — are not children.</summary>
     private static XElement[] ElementChildren(XElement e) =>
         e.Elements().Where(c => !c.Name.LocalName.Contains('.')).ToArray();
+
+    /// <summary>
+    /// The left and right components of an element's Margin, parsed. Thickness accepts 1, 2 and 4 components
+    /// (uniform, horizontal/vertical, then left/top/right/bottom), so "0.0", ".0" and "0" must all read as zero.
+    /// </summary>
+    private static IEnumerable<(string Edge, double Value)> HorizontalMarginsOf(XElement e) {
+        var margin = (string)e.Attribute("Margin");
+        if (margin == null) {
+            yield break;
+        }
+
+        var parts = margin.Split(',');
+        Assert.That(parts.Select(p => double.TryParse(p, NumberStyles.Float, CultureInfo.InvariantCulture, out _)),
+            Is.All.True, $"Margin=\"{margin}\" on <{e.Name.LocalName}> is not a literal Thickness this guard can read.");
+
+        var values = parts.Select(p => double.Parse(p, NumberStyles.Float, CultureInfo.InvariantCulture)).ToArray();
+        yield return ("left", values[0]);
+        yield return ("right", values.Length == 4 ? values[2] : values[0]);
+    }
 
     [Test]
     public void FooterRow_IsASingleWrappingPanel_NotTwoSiblingsSharingOneCell() {
@@ -69,15 +89,17 @@ public class AutoFocusFooterRowMarkupTests {
             Assert.That(panel.Attribute("HorizontalAlignment"), Is.Null,
                 "The panel must keep the default Stretch to have a full row width to justify against.");
 
+            // The gaps are the ONLY source of spacing left, since child margins are forbidden below.
+            Assert.That((string)panel.Attribute("ItemGap"), Is.EqualTo("12"),
+                "Without ItemGap the Review Frames button butts straight against the ON/OFF pill.");
+            Assert.That((string)panel.Attribute("LineGap"), Is.EqualTo("6"),
+                "Without LineGap the wrapped lines touch.");
+
             // WPF margins do not collapse, so a horizontal child margin ADDS to ItemGap rather than absorbing into it.
             foreach (var child in ElementChildren(panel)) {
-                var margin = (string)child.Attribute("Margin");
-                if (margin != null) {
-                    var parts = margin.Split(',');
-                    Assert.That(parts[0].Trim(), Is.EqualTo("0"), $"left margin on <{child.Name.LocalName}> doubles ItemGap");
-                    if (parts.Length == 4) {
-                        Assert.That(parts[2].Trim(), Is.EqualTo("0"), $"right margin on <{child.Name.LocalName}> doubles ItemGap");
-                    }
+                foreach (var (edge, value) in HorizontalMarginsOf(child)) {
+                    Assert.That(value, Is.EqualTo(0.0),
+                        $"{edge} margin on <{child.Name.LocalName}> adds to ItemGap rather than absorbing into it");
                 }
                 Assert.That(child.Attribute("HorizontalAlignment"), Is.Null,
                     $"HorizontalAlignment on <{child.Name.LocalName}> does nothing — the panel arranges children at their desired width.");

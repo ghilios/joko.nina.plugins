@@ -695,7 +695,7 @@
     <!--  Implicit (by-type) template, used only when a HocusFocusVM is shown on its own — chiefly the "Run
           Autofocus" sequence item, which NINA hosts in a SizeToContent CustomWindow floored at just 350x300. It
           renders the shared CORE (chart + info) only: the Replay Saved AF / Review Frames row is deliberately
-          omitted here — those are pane-only controls, and sharing one grid cell they overlapped in the narrow popup.
+          omitted here — those are pane-only controls, and a sequence run has no kept frames to review.
           The docked AutoFocus pane resolves the keyed *_Dockable template above instead (via NINA's
           GenericTemplateSelector), which keeps that row. The Border's minimum size gives the chart a usable popup
           without constraining the dock; its Padding keeps the chart and info text off the window edge; Stretch makes

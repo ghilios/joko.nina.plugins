@@ -40,6 +40,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
     /// Group integrity is structural: anything that must never be split across lines (a themed ON/OFF toggle and
     /// its label, say) is passed as ONE child, typically a StackPanel, and this panel never looks inside it.
     /// No attached "keep together" property is needed, or offered.
+    ///
+    /// EVERY CHILD MUST BE CONTENT-SIZED. Children are measured at unbounded width and arranged at exactly that
+    /// desired width, so nothing inside one can reflow: a <c>TextWrapping="Wrap"</c> TextBlock never wraps and is
+    /// layout-clipped at its natural width, and a child with <c>HorizontalAlignment="Stretch"</c> and no width of
+    /// its own collapses to nothing. Both fail silently. That is the deliberate trade — the panel breaks BETWEEN
+    /// children so their text does not have to break inside them — but it means a nested WrapPanel is not a way to
+    /// subdivide a group further; give the panel more children instead.
     /// </summary>
     public class EdgeJustifiedWrapPanel : Panel {
 
@@ -112,7 +119,21 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             // availableSize.Width is only ever COMPARED against inside ComputeLines, never used in arithmetic,
             // so an infinite constraint (SizeToContent window, ScrollViewer, Auto grid column) just means "one
             // line" and can never leak Infinity or NaN into the DesiredSize we return.
-            return ComputeLines(sizes, availableSize.Width, ItemGap, LineGap, new List<LineRun>(sizes.Count));
+            var lines = new List<LineRun>(sizes.Count);
+            var packed = ComputeLines(sizes, availableSize.Width, ItemGap, LineGap, lines);
+
+            // Measure at the width ARRANGE will really see, so the height we reserve is the height we then use.
+            // A packed width above the constraint means some child is wider than the constraint on its own, and
+            // ArrangeCore responds by raising the arrange slot to this unclipped desired width — at which point
+            // the greedy break repacks, and because a line's height is its tallest item, repacking can need MORE
+            // height than the narrower break did. Recomputing here is a fixed point rather than the first step of
+            // a loop: the packed width can only exceed the constraint by being exactly the widest child's width,
+            // and re-breaking at that width cannot produce a line wider still.
+            if (packed.Width > availableSize.Width) {
+                packed = ComputeLines(sizes, packed.Width, ItemGap, LineGap, lines);
+            }
+
+            return packed;
         }
 
         protected override Size ArrangeOverride(Size finalSize) {
@@ -122,12 +143,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
             var itemGap = ItemGap;
             var lineGap = LineGap;
 
-            // Re-break from finalSize.Width. finalSize is NOT the measured size: this panel's HorizontalAlignment
-            // is Stretch, so an Auto grid row arranges it at the FULL row width — which is precisely what makes
-            // the trailing group land flush right — and a Grid star column or a ScrollViewer can equally arrange
-            // it narrower than it measured, with no intervening measure pass. Caching measure-time breaks or x
-            // positions brings back the very overlap this panel exists to fix, and can push a line below
-            // finalSize.Height, where it draws over the chart above (a Panel does not clip its children).
+            // Re-break from finalSize.Width. finalSize is NOT the measure constraint: this panel's
+            // HorizontalAlignment is Stretch, so an Auto grid row arranges it at the FULL row width — which is
+            // precisely what makes the trailing group land flush right. Caching measure-time breaks or x positions
+            // would leave the trailing group stranded wherever the narrower measure pass put it, which is the very
+            // misplacement this panel exists to fix. Note that WPF never arranges us narrower than we measured:
+            // ArrangeCore raises the slot to our unclipped desired size and applies a layout clip instead.
             var lines = new List<LineRun>(sizes.Count);
             ComputeLines(sizes, finalSize.Width, itemGap, lineGap, lines);
 
@@ -157,10 +178,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Controls {
                     x += size.Width;
                 }
 
-                // Top-down only; never compute y backwards from finalSize.Height. Re-breaking here can
-                // legitimately need more height than finalSize.Height because measure ran at a different width.
-                // Draw it anyway — the width change that caused it invalidates measure up the tree, so the next
-                // pass corrects the row height. Calling InvalidateMeasure from inside arrange risks a layout cycle.
+                // Top-down only; never compute y backwards from finalSize.Height. MeasureOverride reserves height
+                // for the break at this same width, so the lines fit — and if a future change ever breaks that
+                // agreement, the surplus overflows the BOTTOM of the pane (this row is the last one) rather than
+                // reaching the chart above. Calling InvalidateMeasure from inside arrange risks a layout cycle.
                 y += line.Height + lineGap;
             }
 
