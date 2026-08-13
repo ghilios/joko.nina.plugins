@@ -3,6 +3,26 @@
 Rows: 20 of 20. Precision/recall scored by `golden eval --params optimized --opt-results <w18>/attempt01`, match=center, match-radius=12, pixel-scale=header, on B15 (BuildId d79dae73); all 20 verified against each log's own snapshot-source line.
 Optimize columns from wave 18's pinned seedA0 arm. Binning recommendation from wave 25's AFTER arm (B15, S1) -- a DIFFERENT instrument, labelled. Truth from each dataset's synthetic_meta.json.
 
+
+## READ THE PRECISION COLUMN AS A LOWER BOUND
+
+Measured after this table was built (`/mnt/d/hf_w26/pd08/F31_truth_rescore.txt`, 2026-08-13 09:29Z, zero
+TestApp minutes): the detections `golden eval` scored for `D08_c11_2800mm` were re-matched against each frame's
+`*.truth.json` -- the renderer's COMPLETE star list -- at the same 12.0 px radius the golden scoring uses.
+
+**Of the 150 detections the golden calls false, 137 (91.3 %) match a REAL rendered star.** The golden reference
+lists **9** stars on a frame where the renderer placed **126**. `D08`'s true precision is therefore nearer
+**0.997** than the **0.966** in the table below, and every `1.000` in the column is a floor rather than a
+ceiling -- the reference under-lists, most heavily at extreme defocus, and the detector is scored down for
+finding what the reference omitted ([F31](followups.md)).
+
+**The 13 genuine junk detections are real, and they are localised:** all 13 fall on the two extreme wing frames
+and **zero** on any of the seven interior frames. That is a detector-at-its-limit observation, not a reference
+artifact, and it is the only measured false-positive behaviour on the bank.
+
+**Recall is unaffected by this correction** and remains the weak axis -- and it is tier-dependent, which is why
+`recall@high` and `recall@all` are both printed and a bare "recall" never is.
+
 | dataset | prec | recall@high | recall@all | opt time (s) | score BestJ (from BaselineJ) | sigma Best (from Baseline) | exposure rec vs optimal | det binning rec vs optimal | BrightnessSensitivity (effective gate) |
 |---|---|---|---|---|---|---|---|---|---|
 | D01_ultrawide_40mm | 1.000 | 0.183 | 0.123 | 401.6 | 0.994825 (0.000000) | 0.1514 (0.6145) | 0.50 vs 0.50 IN band | rec 1 / applied 1 vs 1 MATCH | 36.333 (36.33) |
