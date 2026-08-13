@@ -691,6 +691,205 @@ both still owed.**
 > Reproduce: `/mnt/d/hf_w24/d24_score.txt`; `/mnt/d/hf_w24/after/D0{1,2,3}_*__S1/synth_validate_report.json`;
 > `docs/synthetic-af-bank-followups-wave24-results.md` §5.
 
+> ### THE NARROW HALF OF THE OWED GATE IS SHIPPED. THE WIDE HALF IS STILL UNMEASURED, NOT UNTRIGGERED (2026-08-13, wave 25, P4)
+>
+> **What shipped.** Wave 25's P4 is the directional gate this entry has been asking for, keyed on
+> `sampledHfrRange` exactly as wave 23 and wave 24 specified, and **one-sided by construction rather than by
+> declaration**: it is a `Math.Max` against an existing ceiling, so it has no code path that lowers a
+> recommendation. Full mechanism in [F81](#f81--maxhalfwidthsampledhalfspanmultiple-has-been-a-ceiling-with-no-floor-and-the-half-width-unresolved-exit-returned-before-the-ceiling-was-consulted-at-all)
+> and `docs/synthetic-af-bank-followups-wave25-results.md` §10.1.
+>
+> **What it covers.** A sweep whose own HFRs prove the 3× band was never reached now gets the widest step the
+> data supports (`W = 1.5 × half-span`) instead of holding — on **both** the under-reaching-fit path and the
+> `half-width-unresolved` exit that previously returned before the bound was consulted at all.
+>
+> **What it does NOT cover, stated so nobody reads more into it:**
+>
+> | | |
+> |---|---|
+> | **the wide end — this entry's own direction** | **UNMEASURED, not untriggered.** No clause in wave 25 touches it. `D05_tec140_1000mm`/S2 remains published and therefore unusable blind, and wave 24's S2 census found **0 of 7** degenerate rounds, so the wide end has no field instance to fix against |
+> | **the `no-fit` and `non-finite-vertex` exits** | **deliberately not floored.** `no-fit` has no fit object and so no sampled span; `non-finite-vertex` has no origin to measure an offset from. Wave 24's `D24-B` measured **0** field occurrences of either, so the limit costs nothing ever observed, and a unit test pins it |
+> | **a fit-quality gate on R²** | still absent, still correctly absent. `D01` stalls at `R² = 0.99999999999994` and `D03` is degenerate at `R² = 0.9835`; an R²-keyed gate misses both |
+> | **an efficacy RATE on a blind population** | **not measurable on this bank.** Wave 25's blind arm returned `W-UNEXERCISED`: **0 of 13** paired blind S1 cells engaged the floor, because all 13 already converged. **The pathology is rare on the synthetic bank at S1** — and *only* there: on the eight `optimize` gate landings the floor moved **3 of 8**, including `mccomiskey`, a **real-bank** dataset. A mechanism that is 0 of 13 in one population and 3 of 8 in another is not rare in general, it is rare *here* |
+>
+> **What the blind arm did buy: do-no-harm evidence.** `RULE N25` over all 18 paired cells returned
+> `N-PRESERVED` — round-0 inertness **15 of 15**, assertion `A4` **18 of 18**, convergence lost **0**, distance
+> REGRESSED **0**. Both 100 % clauses had answers **predicted from the code before the arm ran**, so a failure
+> would have been unambiguous evidence that the shipped code was not the designed code.
+> Reproduce: `docs/synthetic-af-bank-followups-wave25-results.md` §4, §5, §10.1;
+> `/mnt/d/hf_w25/{before,after}/*__S1/synth_validate_report.json`; `/mnt/d/hf_w25/p3c_score.txt`.
+
+### F81 — `MaxHalfWidthSampledHalfSpanMultiple` has been a ceiling with no floor, and the `half-width-unresolved` exit returned before the ceiling was consulted at all
+**Status:** **Done** (2026-08-13, wave 25, P4 — shipping plugin code, user-visible via the wizard's step block) ·
+found 2026-08-12 designing wave 25 from [F34](#f34--synth-validate-scored-a-stalled-run-as-converged-at-a-step-4-outside-the-band-its-own-assertion-failed-it-on)'s
+and [F25](#f25--from-a-far-too-wide-sweep-the-step-recommender-widens-it-further-instead-of-recovering)'s stall cells
+
+**The stall was never "the fit was bad", and no existing entry owned the real cause.** `StepSizeRecommender`
+sizes the step from the half-width `W` of the band where fitted HFR climbs to `HfrThresholdMultiple = 3.0×` its
+minimum, and it has always bounded how far it will trust the model **past** the data:
+`maxHalfWidth = MaxHalfWidthSampledHalfSpanMultiple (1.5) × half-span`. **There was no mirror.** Two consequences,
+one variable, two code paths:
+
+| mechanism | cell | what happened |
+|---|---|---|
+| **the fit UNDER-reaches and nothing binds** | `D01_ultrawide_40mm`/S1 | `halfWidth = 6.0877` against a cap boundary of 12.0, so `if (halfWidth > maxHalfWidth)` is **false** and the cap — an **upper** bound — never fires. A hyperbola fitted to a 1.46× slice of curve interpolates that slice perfectly (**`R² = 0.99999999999994`**) and gets its asymptote badly wrong, so the extrapolated 3× crossing lands *inside* the sampled span. Recommendation: **hold 2**, against a truth of 8–9 |
+| **the exit that skips the bound entirely** | `D02_rich_135mm`/S1, `D03_redcat_250mm`/S1 | `FindHalfWidth` returns `NaN` on both sides, so `Recommend` takes the `half-width-unresolved` early return **before `maxHalfWidth` is consulted at all**. The recommendation is the caller's own current step, **held** — which guarantees the next sweep is exactly as narrow as the one that just failed |
+
+**All five S1 cells whose `stepRecommendation` was published have `sampledHfrRange` far below 3.0 — every one of
+them failed to sample the band the step is sized from. Two converge and three stall, and the difference is
+entirely whether the CAP happened to bind.** `D11`/S1 and `D08`/S1 converge because their fits *over*-reached, so
+`W` became `1.5 × half-span` **exactly** — 1.5 × 56 = 84, 1.5 × 96 = 144, 1.5 × 84 = 126, 1.5 × 144 = 216, four
+for four against the published reports. **On those cells the cap is not a safety net; it IS the convergence
+mechanism.** The three stall cells simply never entered it.
+
+**The asymmetry was already named in this very file, about the other bound.** `MinHalfWidthSampledHalfSpanMultiple`'s
+doc comment reads: *"The recommender has always bounded how far one run may WIDEN the sweep … It had no bound on
+how far one run may NARROW it, and that asymmetry is what lets a run … collapse the sweep in a single step."*
+Wave 7 fixed that asymmetry for the **detectability** bound. **The identical asymmetry in the band bound went
+unfixed for eighteen months, and it is what `D01` fell through.**
+
+**Fixed (wave 25, P4), and not one threshold was chosen by looking at data.** `3.0` is `HfrThresholdMultiple`,
+the constant that *defines* what the step is sized from; `1.5` is `MaxHalfWidthSampledHalfSpanMultiple`, the
+constant that already governs the majority path. Both predate this series. **A threshold that cannot be moved by
+the data cannot be contaminated by it**, which is why the [F14](#f14--astrodet-is-frameless)/`S16`/`D20`
+harvesting fence is not engaged: nothing here was harvested, the bar was read off the product's own definition
+of the quantity.
+
+```csharp
+/// True only when the sweep's HFR dynamic range was MEASURED and is below the band the step is sized from.
+/// NaN means "could not look" and must NOT engage the floor.
+private static bool BandDemonstrablyUnsampled(double sampledHfrRange) =>
+    double.IsFinite(sampledHfrRange) && sampledHfrRange < HfrThresholdMultiple;
+```
+
+- **P4a** — after the cap block: `BandDemonstrablyUnsampled(...) && maxHalfWidth > 0 && halfWidth < maxHalfWidth`
+  → `halfWidth = maxHalfWidth`, `wasBandFloored = true`.
+- **P4b** — at the `half-width-unresolved` return, when the band is demonstrably unsampled, **do not take the
+  degenerate exit**: floor, leave `DegenerateReason` **null**, continue down the ordinary path.
+- **The `NaN` guard is the most important line.** `x < 3.0` is already false for `NaN`, but writing it that way
+  makes the safety depend on IEEE-754 trivia. [F79](#f79--a-single-non-ascii-byte-in-a-redirected-log-makes-grep-report-zero-matches-for-strings-elsewhere-in-the-file)'s
+  defect shape is a check that fails **closed to a value** instead of reporting that it could not look, and this
+  is its mirror.
+- **`WasCapped` is NOT overloaded**, deliberately. The floor branch never writes it and is entered only when
+  `halfWidth < maxHalfWidth` — exactly when the cap branch was not — so the two are **mutually exclusive by
+  construction**, and the harness's `A4` assertion (which reads `WasCapped` alone) is provably untouched at
+  round 0. Measured: **18 of 18** paired cells bit-identical.
+- **A floored recommendation is NOT degenerate**, and that matters for the UI. `IsDegenerate` means *"this is a
+  HELD value, not a measurement"*; a floored recommendation **is** a measurement of the sweep — its own HFRs
+  prove the crossing lies beyond everything sampled. `D24-A`'s schema invariant survives: `halfWidth == NaN`
+  **iff** `degenerateReason != null` still holds, because floored rounds carry a finite half-width **and** a null
+  reason.
+- **New observable** ([F76](#f76--the-optimizer-wizard-opens-with-its-footer-below-the-bottom-of-the-screen-so-accept-is-unreachable-until-the-window-is-moved)'s
+  *"a fix that cannot report whether it engaged is not finished"*): `WasBandFloored` on the recommendation, on
+  the wizard's `OptimizationSummary`, and on the report snapshot. **User-visible:** `StepSizeText`'s "partial
+  step" wording is now gated on `StepSizeWasCapped || StepSizeWasBandFloored`; no new XAML row.
+
+**Scope limit, declared rather than overlooked:** the `no-fit` and `non-finite-vertex` exits are **not** floored
+(`no-fit` has no fit object and so no sampled span; `non-finite-vertex` has no origin to measure from). Wave 24's
+`D24-B` measured **0** field occurrences of either, so the limit costs nothing ever observed, and a unit test
+pins it.
+
+**Measured, under rules fixed and committed before the data:**
+
+| | |
+|---|---|
+| **gate** — `optimize` `FinalJ` bit-identical to K8, 8 of 8 at sixteen digits | the change contributes nothing to the objective, as declared under [F62](#f62--σ_focus-is-anti-informative-when-an-outlier-rejection-is-what-changed-it-it-improves-by-up-to-88--while-the-distance-to-a-known-truth-improves-on-none) |
+| **`G25-P3c`, the directional clause** | **3 WIDENED, 5 UNCHANGED, 0 NARROWED** on eight real gate landings — `D18` 18→26, `D20` 19→26, **`mccomiskey` 31→34 (a REAL-bank dataset)**. `NARROWED ≥ 1` was pre-registered as proof the shipped code was not the designed code. It did not occur |
+| **the three stall cells** | `D02` 2→3→**5** (truth 6) and `D03` 4→7→**12** (truth 16) both **converge**, reproducing the design's per-round arithmetic **exactly**. `D01` moves 2→3 and **still stalls** — see [F82](#f82--the-half-width-floor-is-not-sticky-across-rounds-and-the-cap-recomputed-from-a-shrunken-fit-pulls-it-back-down) |
+| **do-no-harm** (`RULE N25`, all 18 paired S1 cells) | **`N-PRESERVED`**: round-0 inertness **15 of 15**, `A4` **18 of 18**, convergence lost **0**, distance REGRESSED **0** |
+| **blind efficacy** | **none measurable.** `RULE W25` = `W-UNEXERCISED`, **0 of 13** blind cells floored, because all 13 already converged |
+
+**The blast radius is wider than the three named cells, and this was recorded BEFORE the data.** The rule fires on
+*any* sweep with `sampledHfrRange < 3` whose fitted half-width lands below `1.5 ×` the sampled half-span. For a
+standard hyperbola of edge ratio `e`, `halfWidth / halfSpan = sqrt(8 / (e² − 1))`, so the floor engages across
+**`e` ∈ (~2.135, 3.0)**: at `e = 2.5` a **1.215×** widening, just below `e = 3` a **1.5×** widening, at
+`e = 3.001` nothing — **a discontinuity at the threshold that moves a NUMBER.** A high `WasBandFloored` count is
+therefore **not** evidence of over-reach and a low one is **not** evidence of failure to engage; the do-no-harm
+rule is what decides harm. **The behaviour is convergent, like the cap**: the next, deeper sweep clears 3× and
+the floor stops binding — it is a widening that switches itself off.
+
+**One thing this turned up about the existing tests.** Three rows of the parametric recommender test
+(`e = 2.19, 2.30, 2.50`) now receive a floored step **and still pass**, because they assert only `WasCapped` and
+legality. **An existing test survived a real behavioural change, so it was never a control on that quantity.**
+Reproduce: `StepSizeRecommender.cs` (the `BandDemonstrablyUnsampled` guard, the P4b branch at the
+`half-width-unresolved` exit, the P4a block after the cap); `/mnt/d/hf_w25/p3c_score.txt`;
+`/mnt/d/hf_w25/{before,after}/D0{1,2,3}_*__S1/synth_validate_report.json`;
+`docs/synthetic-af-bank-followups-wave25-results.md` §3.1, §7, §10.1.
+
+### F82 — The half-width floor is not sticky across rounds, and the cap recomputed from a shrunken fit pulls it back down
+**Status:** Open (diagnosed to a line, two candidate fixes, priced) · found 2026-08-13, wave 25, on the one
+labelled control that missed its pre-registered bar
+
+[F81](#f81--maxhalfwidthsampledhalfspanmultiple-has-been-a-ceiling-with-no-floor-and-the-half-width-unresolved-exit-returned-before-the-ceiling-was-consulted-at-all)'s
+floor engaged on **all three** published stall cells at round 0 and handed off to the cap at round 1 exactly as
+designed. **On two of three it converges. On the third the half-width SHRANK between rounds and the stall
+survived.**
+
+| cell | r0 | r1 | outcome |
+|---|---|---|---|
+| `D02_rich_135mm`/S1 | **floored**, `halfWidth` **12.0**, step 3 | **capped**, `halfWidth` **18.0**, step 5 | converged, final **5** (truth 6) |
+| `D03_redcat_250mm`/S1 | **floored**, `halfWidth` **24.0**, step 7 | **capped**, `halfWidth` **42.0**, step 12 | converged, final **12** (truth 16) |
+| `D01_ultrawide_40mm`/S1 | **floored**, `halfWidth` **12.0**, step 3 | **capped**, `halfWidth` **9.0**, step 3 | **STALLED**, final **3** (truth 9) |
+
+`sampledHfrRange` stayed below the band on both of `D01`'s rounds (`1.4628`, `1.4587`), so the band was never
+reached and nothing else could rescue it.
+
+**The defect, stated narrowly.** The floor bounds the half-width from below *within* a round, against that
+round's own bound. It does **not** prevent the next round from re-deriving a **smaller** bound. **The cap and the
+floor are computed from the same quantity, so a shrinking bound drags both down together** — and because the cap
+is applied as an **upper** bound after the floor's value has been forgotten, round 1 recomputed `9.0` where round
+0 had already established `12.0`.
+
+**The mechanism is one level deeper than "the sweep narrowed", and this changes which fix is right.**
+`maxHalfWidth = MaxHalfWidthSampledHalfSpanMultiple × 0.5 × SearchSpan(bestFit)`, and `SearchSpan` is
+`max(x) − min(x)` over **`bestFit.Inputs` — the points that actually entered the fit**, not over the positions
+the sweep requested:
+
+| `D01`/S1 | r0 | r1 |
+|---|---|---|
+| **requested** sweep | centre 6000, step **2**, ±4 → span **16** | centre 6008, step **3**, ±4 → span **24** |
+| **fitted** span (`SearchSpan`) | **16** → `maxHalfWidth` **12.0** | **12** → `maxHalfWidth` **9.0** |
+| `worstFrameStarCount` | **0** | **0** |
+| `R²` | 0.99999999999994 | **0.7603** (`A6` FAILs: *"below 0.8"*) |
+
+**The round-1 sweep was requested WIDER — 16 → 24 focuser units — and its FITTED span NARROWED, 16 → 12**,
+because on a 40 mm ultrawide the outer frames of a widened sweep stopped yielding usable HFR points. **So the
+bound that is supposed to reward widening penalises it on exactly the star-poor fields that most need it.**
+
+**A second instrument measures the same divergence from the other side.** The harness's `A4` assertion computes
+the cap boundary from the **requested** sweep and reports
+`"WasCapped=True but truth predicts False (halfWidth=10.4 vs cap boundary 18, ratio 0.58)"` — **18** against the
+product's **9**. And the corroboration identity every floored round satisfies
+(`halfWidth == 1.5 × offsetSteps × bootstrapStep`, 3 of 3 on the floored rounds) is **exactly the identity
+`D01` r1 fails**: `1.5 × 4 × 3 = 18 ≠ 9.0`.
+
+**Two candidate fixes. Pre-register which one before looking at anything:**
+
+1. **Make the floor monotone across rounds** — carry the previous round's floored half-width forward as a lower
+   bound on the next round's `maxHalfWidth`. Simple, fixes `D01` directly, and confined to the recommender's
+   caller state.
+2. **Make the bound robust to a fit that loses its outer points** — derive `SearchSpan` from the **requested**
+   span (which is what the harness's own truth model already uses) rather than from the fitted inputs. Larger
+   blast radius: it changes `maxHalfWidth` on every capped round, so it needs the full do-no-harm treatment.
+
+**Do NOT re-run a full paired 20-cell arm to score this.** Wave 25 measured `W-UNEXERCISED` — 13 blind S1 cells
+moved by exactly zero across a real product change — so the only cells that can move are the three published
+controls plus whatever the 8-run `optimize` gate moves. **Price: ~45 m code + tests, plus a 3-cell targeted
+re-run (~10 m) and the gate (~42 m).** A second full arm would buy a second `SAME 13` for ~2 h 40 m.
+
+**Not a reason to doubt the ship.** `RULE N25` returned `N-PRESERVED` on its own pre-registered terms, no cell
+regressed, and `D01` still moved 2 → 3 rather than staying put.
+
+**One measurement caveat that belongs with this entry.** `terminal.stepBehavioral` — the truth the bar is scored
+against — is **not arm-invariant on `D01`**: `8.0` (band 3.2) BEFORE, `9.0` (band 3.6) AFTER, while identical
+across arms on the other 17 paired cells. `D01` misses under **either** truth (final 3 vs `[4.8, 11.2]` and
+`[5.4, 14.4]`), so no verdict turns on it — but *"the truth is spec-derived and identical across arms"* is an
+assumption this series can no longer make for free, and a rule that compares a measured value to
+`stepBehavioral` should assert cross-arm equality first, per cell, and name any cell where it fails.
+Reproduce: `/mnt/d/hf_w25/after/D01_ultrawide_40mm__S1/synth_validate_report.json` (rounds 0 and 1);
+`StepSizeRecommender.SearchSpan`; `/mnt/d/hf_w25/CONTROLLER_DEVIATIONS.md` D10;
+`docs/synthetic-af-bank-followups-wave25-results.md` §7.3.
+
 ### F26 — A stuck binning recommendation starves the step update indefinitely
 **Status:** Open · found 2026-08-03 running scenarios S1/S6 on the synthetic AF bank
 
@@ -2069,6 +2268,53 @@ hypothesis — is still owed**, and the entry stays Open.
 > aggressive one* — the correction to wave 23's under-reserve should not be applied in the other direction.
 > Reproduce: `docs/synthetic-af-bank-followups-wave24-design.md` §7.5;
 > `docs/synthetic-af-bank-followups-wave24-results.md` §12.
+
+> ### THE S1 ROW IS NOW CORROBORATED BY THREE INDEPENDENT ARMS AND SHOULD BE TREATED AS SETTLED (2026-08-13, wave 25)
+>
+> Wave 25 ran the **same instrument at the same scenario** twice — a paired `synth-validate` S1 arm, 20 datasets
+> scheduled per side, `--max-rounds 4`, `timeout 600` per cell, sequential, one `TestApp.exe` — on two different
+> binaries. Both arms landed **18 of 20** rows.
+>
+> | arm | binary | window | wall | scheduled | **per cell** | rows |
+> |---|---|---|---|---|---|---|
+> | BEFORE | B14 (`476369a`) | `01:13:17Z → 02:27:21Z` | **4 444 s** | 20 | **222 s** | 18 |
+> | AFTER | B15 (`29665a6`) | `03:44:22Z → 05:03:49Z` | **4 767 s** | 20 | **238 s** | 18 |
+>
+> **Both land within 6 % of this entry's recorded `S1 mean 234 s`**, measured by wave 24 on a different arm. The
+> S1 budget row is corroborated on three arms and ~80 cells and needs no further pricing work.
+>
+> **`D05_tec140_1000mm` and `D19_cygnus_deep_shed` timed out on BOTH arms**, `exit=124` at `timeout 600`, no
+> report, no manifest row. That is now **four consecutive S1 arms** (wave 23's, and both of wave 25's) losing
+> exactly these two cells to exactly this timeout. **They are a structural property of the instrument at
+> `timeout 600`, not a flake**, and any wave that needs them must raise the timeout — which changes the
+> instrument and breaks comparability with every prior S1 number. Wave 25 kept `timeout 600` deliberately for
+> that reason and named both cells before the data.
+>
+> **Design-time pricing, and the paired-arm correction that made the wave land.** Wave 24 §14 priced wave 25 at
+> ~3 h 15 m by costing **one** S1 arm for a **paired** comparison. Wave 25's design §1.1 caught the arithmetic
+> before starting and re-priced it at ~3 h 27 m TestApp / ~4 h 15 m critical path. **Actual TestApp wall:
+> 74 m + 43 m + 79 m = 3 h 16 m** — inside the corrected band, and outside the original estimate's accounting.
+> *A paired arm is TWO arms* belongs next to this entry's other pricing rules.
+>
+> | wave-25 step | priced | actual | ratio | priced from |
+> |---|---|---|---|---|
+> | S1 BEFORE arm, 20 cells | ~80 m (band 70–100) | **74 m 04 s** | **0.93×** | measured, same instrument + scenario |
+> | `optimize` gate, 8 runs | ~42 m | **42 m 43 s** | **1.02×** | measured, eight consecutive waves at ~5.2 m/run |
+> | S1 AFTER arm, 20 cells | ~85 m (*derived*, band 70–110) | **79 m 27 s** | **0.94×** | derived from the BEFORE arm + floored cells using more rounds |
+>
+> **The derived AFTER price was right, and right for the right reason.** The AFTER arm cost **323 s** more than
+> the BEFORE arm, and **266 s of that (82 %) is the three labelled control cells** (`D01` 97→210 s, `D02`
+> 113→217 s, `D03` 69→118 s), each of which took a second round where it previously stopped after one. The extra
+> time is localised to exactly the cells that engaged the new code path.
+>
+> **And a third population on which R² is no defence.** `D01_ultrawide_40mm`/S1 stalls at
+> **`R² = 0.99999999999994`** with `sampledHfrRange = 1.4628` and a **resolved** half-width. This entry's wave-10
+> diagnosis — *"R² measures fit to the SAMPLED points and says nothing about whether the vertex is identifiable
+> from them"* — now has three independent instances (wave 10's noise sweep, wave 24's `D03` at 0.9835, wave 25's
+> `D01` at ~1.0). **The corrective variable is the sampled HFR range, not the fit quality**, and wave 25 shipped
+> the bound that uses it ([F81](#f81--maxhalfwidthsampledhalfspanmultiple-has-been-a-ceiling-with-no-floor-and-the-half-width-unresolved-exit-returned-before-the-ceiling-was-consulted-at-all)).
+> Reproduce: `/mnt/d/hf_w25/w25_before.log`, `/mnt/d/hf_w25/w25_after.log`, `/mnt/d/hf_w25/gate_w25.log`;
+> `docs/synthetic-af-bank-followups-wave25-results.md` §12.
 
 ### F22 — Detection binning is a hard threshold on a measurement that under-reads, so boundary rigs get the wrong factor
 **Status:** Open · found 2026-08-02 running the synthetic bank's S0 control
@@ -6000,6 +6246,18 @@ same passing arm before it);
 > [F67](#f67--af-fits-star-count-and-optimizes-are-not-the-same-number-so-the-control-built-on-their-equality-reports-could-not-look-on-exactly-the-datasets-where-the-intervention-bites-hardest),
 > the wave's other confounded control.
 
+> ### THE APPHOST COUNTER-EXAMPLE IS NOW EIGHT DEEP (2026-08-13, wave 25)
+>
+> `/mnt/d/hf_w24/exe/TestApp.exe` and `/mnt/d/hf_w25/exe/TestApp.exe` are **byte-identical**
+> (`dd7103c28cc610e72671534cf23fb9a58b5a303a19d8779545cb7418d4ce6ff7`) across two binaries whose `TestApp.dll`
+> differs (`5398582d…` vs `2fb0c8fd…`) and whose `BuildId` differs (`dd6ca32e…` vs `d79dae73…`). **The apphost is
+> a launcher stub; it does not carry the managed code.** Eighth instance. **Binary identity in this series is the
+> dll sha256 PAIR, never the `.exe`** — and wave 25's `--self-test` demonstrated the check in **both** directions
+> on real artifacts before it was quoted, per this entry's own rule: the real arm PASSes, a copy with one
+> landing's `ProfileId` rewritten FAILs on **both** the pin clause and the cardinality clause.
+> Reproduce: `/mnt/d/hf_w25/binary_provenance_w25.txt` vs `/mnt/d/hf_w24/binary_provenance_w24.txt`;
+> `/mnt/d/hf_w25/prov_w25.txt`.
+
 ### F65 — The Hybrid consensus is an INTERSECTION over four models that can reject the same points in a DIFFERENT ORDER, so the rejected set at budget B is not a prefix of anything
 **Status:** Open · found 2026-08-09 (wave 14) when RULE F14's V4 failed on `Panos_attempt01` · **the mechanism
 is printed in wave 13's own artifact and had been read three times for other purposes**
@@ -7683,6 +7941,74 @@ Reproduce: `/mnt/d/hf_w24/prov_w24.py:75,179,227,304`; `/mnt/d/hf_w24/gate_w24.s
 `/mnt/d/hf_w24/v23_fingerprint_w24.py:2,171` against `/mnt/d/hf_w24/fp_v23_AFTER.txt`;
 `docs/synthetic-af-bank-followups-wave24-results.md` §9.2.
 
+> ### THE PRE-FLIGHT SHIPPED AND IT WORKS. IT ALSO HAD THE SAME BLIND SPOT TWICE: `\b` CANNOT SEE `_` (2026-08-13, wave 25, RULE V25)
+>
+> **The cheap half of this entry's next step is built and blocking.** `verify_derivation_w25.py <dir>` runs
+> **before the gate**, over every `*.py` and `*.sh` in the wave's root, with three clauses (sibling targets
+> resolve on disk; no unlicensed previous-wave token outside a declared `ALLOW` list; no **typed** ordinal or
+> count in a printed literal). `V25-A < 100 %` **or** `V25-B > 0` **or** `V25-C > 0` → **`V-DRIFT`, BLOCKING —
+> fix and re-run, no measurement starts.**
+>
+> **FAIL end, on this entry's own evidence, in one second.** Run against `/mnt/d/hf_w24` it returns **`V-DRIFT`,
+> 170 findings** over 10 files — 168 surviving tokens and **2 typed ordinals**, including both of the rows this
+> entry singles out (`gate_w24.sh:221`'s *"thirteenth"* on a fourteenth binary, `prov_w24.py:179`'s hardcoded
+> nine-wave list while thirteen are checked). It also counts and does **not** flag **86** references inside pure
+> non-printing comments: documentation is not drift, and a checker that cannot tell them apart is unusable.
+>
+> **PASS end, and what it cost: 21 findings on the wave's own instruments, all real, one load-bearing.** First
+> run against `/mnt/d/hf_w25` returned `V-DRIFT`: `V25-A` **5 of 15** siblings resolving, `V25-B` **9** tokens,
+> `V25-C` **2** typed ordinals. **The largest group was a `sed` ORDERING bug in the plan** — the list runs
+> `s#g24_#g25_#g` *before* `s#score_g24_w24#score_g25_w25#g`, so by the time the second rule fires the text
+> already reads `score_g25_w24` and it never matches; **ten of fifteen sibling references pointed at a file that
+> does not exist.** It also caught surviving `G24_START`/`G24_DONE` markers, two bare `_w24` filenames, the
+> *"thirteenth"* ordinal on a **fifteenth** binary, and **wave 20's hardcoded-enumeration defect still alive four
+> derivations later**. `G24_START` was load-bearing: the driver would have announced it while the controller's
+> `until` loop grepped for `G25_START`, hanging the wave on a completed arm.
+>
+> ---
+>
+> **AND NOW THE DURABLE FINDING, which is worth more than the pre-flight itself. `_` IS A WORD CHARACTER, SO
+> `\b` CANNOT SEE IT — and every marker, function and path in this series is underscore-joined.**
+>
+> The checker had **two** gaps, same root cause, **opposite affixes**, both found in one wave:
+>
+> | gap | pattern | what it could not see | how it surfaced |
+> |---|---|---|---|
+> | **suffix** | `\bG24\b` | `G24_START`, `G24_DONE` | **BY ACCIDENT.** `V25-C`'s typed-ordinal clause happened to fire on the same physical line (`gate_w25.sh:221` carried both `G24_START` and the word *"thirteenth"*). Had that line not also carried an ordinal, the load-bearing marker would have passed **silently** |
+> | **prefix** | `\bw24\b` | `w24_gate_log_wsl`, `w24_gate_out_win`, `w24_layout_self_test` | **The file was passed `V-CLEAN` and then could not run**: `gate_w25.sh: line 169: w24_layout_self_test: command not found` |
+>
+> ```python
+> PREV_TOKENS = (
+>     r"\bw%d(?:_[a-z][a-z0-9_]*)?\b"        # prefix form: w24_gate_log_wsl
+>     r"\b[GBRD]%d(?:_[A-Z][A-Z0-9_]*)?\b"   # suffix form: G24_START
+> )
+> ```
+>
+> **A checker that finds a defect by accident has not checked for it.** The register's standing rule is that
+> "could not look" needs its own state; this is the neighbouring case — **"looked with an instrument that could
+> not resolve the thing"** — and it was visible only because two independent clauses overlapped on one line.
+> Both closures were **demonstrated** on synthetic files that now report, with the checker's own `--self-test`
+> still exiting 0. Byte backups before each edit, no VCS revert.
+>
+> **The prefix gap also exposed something no renaming scheme could have fixed.** The three missing functions were
+> not a rename: wave 25's `layout_w25.sh` was written for a different arm and exposes a **different API**
+> (`w25_layout`, `w25_cell_dir`, `w25_resolve_deadline`), so they did not exist under any name. **The `sed` that
+> repointed the `source` line could not have helped — the two files were never the same interface.** *Derivation
+> assumes the predecessor's interface survived; check that, not just its spelling.*
+>
+> **Two more, recorded rather than quietly fixed:**
+>
+> 1. **`gate_w25.sh` still printed `=== gate_w23.sh --self-test ===`** — a **w23** label surviving **two**
+>    generations. **`V25` checks only the immediately previous wave's tokens: its `PREV` is a single wave, and
+>    drift is not.** A future version should check the whole prior series, not `N-1`.
+> 2. **The controller's own added guard tripped the checker, correctly.** It asserted a ported path did *not*
+>    contain `hf_w24` — itself a surviving previous-wave literal. Rewritten to assert **positively** that the
+>    path contains this wave's root: a stronger assertion that needs no reference to the past at all. **A
+>    negative assertion about the previous wave is itself previous-wave drift.**
+> Reproduce: `/mnt/d/hf_w25/verify_derivation_w25.py`, `/mnt/d/hf_w25/v25_failend.txt`,
+> `/mnt/d/hf_w25/v25_passend.txt`; `/mnt/d/hf_w25/CONTROLLER_DEVIATIONS.md` D1, D2, D8;
+> `docs/synthetic-af-bank-followups-wave25-results.md` §2.
+
 ### F9 — `bank-verify` cannot pin C0's detector knobs
 **Status:** Open
 
@@ -7702,7 +8028,7 @@ than the ring. This is the documented under-counting of defocused donuts in `.cl
 Use the heuristic's own donut statistics, or render the pixels and classify them.
 
 ### F34 — `synth-validate` scored a stalled run as converged, at a step 4× outside the band its own assertion failed it on
-**Status:** **Done** (2026-08-03, wave 2) · found 2026-08-03 re-measuring [F25](#f25--from-a-far-too-wide-sweep-the-step-recommender-widens-it-further-instead-of-recovering)
+**Status:** **CLOSED** (2026-08-13, wave 25 — the stall message now names a cause it checks, `RULE M25` = `M-CORRECTED`; original reporting fix 2026-08-03, wave 2) · found 2026-08-03 re-measuring [F25](#f25--from-a-far-too-wide-sweep-the-step-recommender-widens-it-further-instead-of-recovering)
 
 The fourth harness-calibration bug on this bank, and the third in the convergence-predicate family. The round
 loop set `stoppedReason = "converged (round applied nothing)"` unconditionally, and `ScenarioTerminal.Converged`
@@ -7834,6 +8160,52 @@ success is load-bearing for every conclusion drawn from it; see also the `truthV
 > on these three cells would report a bridge it did not build.
 > Reproduce: `/mnt/d/hf_w24/after/D01_ultrawide_40mm__S1/synth_validate_report.json`;
 > `/mnt/d/hf_w24/d24_score.txt`; `docs/synthetic-af-bank-followups-wave24-results.md` §5.2.
+
+> ### CLOSED — THE MESSAGE NOW NAMES A CAUSE IT CHECKS, AND THE FIX WAS MEASURED AGAINST A KNOWN ANSWER FIRST (2026-08-13, wave 25, P5 + RULE M25)
+>
+> This entry's tail asked for exactly one thing: *"the message names a cause it does not check … ~5 lines and one
+> test."* **Wave 25's P5 shipped it**, and `RULE M25` measured it in both directions.
+>
+> **The fix.** `SynthValidateRunner`'s stall path now reads `roundReport.StepRecommendation.DegenerateReason` and
+> branches, via a new pure `TestApp/SynthBank/StallReason.cs` (`SynthValidateRunner.cs` renders frames and runs
+> the optimizer and therefore cannot be source-linked into the test project — the same wall wave 24's P2 hit, so
+> the testable half was lifted out). Non-null keeps today's wording with the reason token appended; null says
+> what is actually true and **quotes the number that explains it**.
+>
+> **The FAIL end was run FIRST, on the published artifact that motivated this entry.** Over
+> `/mnt/d/hf_w24/after/*/synth_validate_report.json` — **25 cells scanned, exactly 1 contradiction, and it is
+> `D01_ultrawide_40mm`/S1 by name.** That is the instrument validated against a known answer before being pointed
+> at unknown data. Then the AFTER arm: **0 contradictions of 18 paired cells.** `RULE M25` = **`M-CORRECTED`**.
+>
+> **Before and after, on the cell that motivated the entry:**
+>
+> ```
+> BEFORE (B14):  stalled (round applied nothing, but step 2 is outside the 3.2 tolerance band of
+>                step_behavioral 8) -- a no-op recommendation from a degenerate fit, not convergence
+>                                                              ^^^^^^^^^^^^^^ degenerateReason was NULL
+>
+> AFTER  (B15):  stalled (round applied nothing, but step 3 is outside the 3.6 tolerance band of
+>                step_behavioral 9) -- a no-op recommendation from a NON-degenerate fit
+>                (sampled HFR range 1.459x, band 3x), not convergence
+> ```
+>
+> **Why this closes rather than extends.** The defect was *a message asserting a cause it never checked*, and it
+> is checked now, on every stall, with the FAIL end measured on the real prior artifact rather than on a fixture.
+> **The register consequence is already recorded**: a wrong message became a wrong register entry when wave 23
+> grouped `D01` with `D02` and `D03` on the strength of it, and wave 24's correction block above is what caught
+> it. The stop-policy half this entry re-opened in wave 23 is **not** closed here — it is
+> [F81](#f81--maxhalfwidthsampledhalfspanmultiple-has-been-a-ceiling-with-no-floor-and-the-half-width-unresolved-exit-returned-before-the-ceiling-was-consulted-at-all)'s,
+> and it shipped in the same wave.
+>
+> **F34's own pre-registrable bar, scored honestly.** The entry proposed *"`V23-G` on S1 above 13 of 17, and all
+> three cells reaching `roundsUsed > 1`."*
+>
+> | half | verdict |
+> |---|---|
+> | *all three cells reaching `roundsUsed > 1`* | **MET, and it was strengthened before the data** to `converged == true` inside the tolerance band in `roundsUsed <= 4`. All three reached `roundsUsed = 2`; **`D02` and `D03` MET the strengthened bar** (final 5 of truth 6, final 12 of truth 16); **`D01` MISSED** it (final 3 of truth 9) for the reason in [F82](#f82--the-half-width-floor-is-not-sticky-across-rounds-and-the-cap-recomputed-from-a-shrunken-fit-pulls-it-back-down) |
+> | *`V23-G` on S1 above 13 of 17* | **NOT SCORED, by pre-registration.** `13 of 17` is a B13 number and wave 24's P2 changed the round loop in between; `N25-E`, the clause that would have measured whether the comparison survives, was **dropped on the clock** and is a ~4 m item for wave 26 |
+> Reproduce: `/mnt/d/hf_w25/after/D01_ultrawide_40mm__S1/synth_validate_report.json` vs
+> `/mnt/d/hf_w25/before/...`; `docs/synthetic-af-bank-followups-wave25-results.md` §6, §7.
 
 ---
 

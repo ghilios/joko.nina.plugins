@@ -14,14 +14,16 @@ prior conversation.
    data, is satisfied. If the rule is not met, the change does not ship and is recorded as a costed recommendation.
 3. **~6 hours of compute per wave.** A wave that wants more must cut scope or split, and say which.
 4. **ONE branch: `ghilios/synthetic-af-bank-followups-wave23`, PR #195 (OPEN).** Never push `develop`.
-   It carries wave 23 and wave 24. **Every wave's FIRST decision, in writing, before any measurement: is PR #195
+   It carries waves 23, 24 and 25. **Every wave's FIRST decision, in writing, before any measurement: is PR #195
    still the right vessel, or has it merged and a fresh branch opens?** Check `gh pr view 195 --json state`
    immediately before committing the pre-registration and take that branch instead if it merged. Do not drift
    into a third section by default — waves 23 and 24 each decided this explicitly and recorded the reasoning.
 
 ## 1. STOP CONDITION
 
-**Stop at `12:00Z` on 2026-08-13** (extended by the owner from `15:00Z` on 2026-08-12; roughly three more waves).
+**Stop at `12:00Z` on 2026-08-13** (extended by the owner from `15:00Z` on 2026-08-12). **Waves 22-25 have
+executed; wave 25 finished its AFTER arm at `05:03:49Z`**, so roughly **seven hours** remain — and the owner's
+final results table has first claim on them (§7).
 Do not start a new wave or a new arm after that. Finish the step in flight, push, and write a final summary. A
 cron fires every 30 minutes; each firing must begin with the status sweep in §2 and report in two or three lines.
 
@@ -31,7 +33,9 @@ nothing left worth a wave" is an acceptable and welcome answer** — say it plai
 
 **The dry-wave stop is NOT armed.** Wave 23 opened [F79](followups.md) and produced the F26 scope correction;
 wave 24 opened **[F80](followups.md)**, verified F79, corrected F34's `D01` attribution, and closed F21's
-costing. Two consecutive productive waves, so the counter is at zero.
+costing; **wave 25 SHIPPED a product fix ([F81](followups.md)), CLOSED [F34](followups.md), opened
+[F82](followups.md), and extended F80 with two demonstrated gaps in its own new checker.** Three consecutive
+productive waves, so the counter is at zero.
 
 ## 2. THE STATUS SWEEP — run this at every cron firing, before anything else
 
@@ -67,8 +71,8 @@ second. Confirm a `*_START` line **and** a live `TestApp` before believing an ar
 - Commit with:
   `GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com"` and
   `--author="George Hilios <322725+ghilios@users.noreply.github.com>"`.
-- **Suite baseline: 3966**, verified by COUNT in wave 24 (`Failed: 0, Passed: 3966, Total: 3966`, `SUITE_EXIT=0`).
-  Everything below it in older docs is stale (3922, 3933, 3958, 3960 all are).
+- **Suite baseline: 3973**, verified by COUNT in wave 25 (`Failed: 0, Passed: 3973, Total: 3973`, `SUITE_EXIT=0`).
+  Everything below it in older docs is stale (3922, 3933, 3958, 3960, **3966** all are).
   Verify by **COUNT** out of the log, never by the tick ([F37](followups.md)).
   Local: `dotnet.exe test "$(wslpath -w Joko.NINA.Plugins/Joko.NINA.Plugins.sln)" -c Debug --nologo`
   (no `dotnet` in WSL; use Windows `dotnet.exe` via interop, ~4 min).
@@ -98,9 +102,13 @@ gate (score it **and** self-test its scorer in **both** directions) → arms seq
 results + register → full suite by COUNT → commit, push, update PR #195 body → verify CI by COUNT out of the log
 → next wave's pre-registration.
 
-**The pre-flight is new and it is ~15 m.** Wave 24 lost its arm's licence for several minutes because a `sed`
-renamed a scorer's paths but not the module it imports, and found **seven more** prose-vs-mechanism drifts at
-write-up. See [F80](followups.md) for the two-part check; run it **before the gate**, never after.
+**The pre-flight is ~15 m and it is BLOCKING.** Wave 25 built it (`/mnt/d/hf_w25/verify_derivation_w25.py`) and
+it returned `V-DRIFT` **21 findings** on the wave's own instruments before any measurement — including a `sed`
+**ordering** bug in the plan that left 10 of 15 sibling references pointing at a nonexistent file, and a
+surviving `G24_START` that would have hung the controller's own waiter. **Derive the next one from wave 25's, not
+wave 24's**, and know its two known limits: **`\b` cannot see `_`** (the pattern must accept an optional
+`_suffix` and an optional `_prefix`), and its `PREV` is a **single wave**, so a label that skips a generation is
+invisible to it. See [F80](followups.md). Run it **before the gate**, never after.
 
 ## 6. DISCIPLINE — the expensive lessons, in one place
 
@@ -128,11 +136,20 @@ write-up. See [F80](followups.md) for the two-part check; run it **before the ga
   binary carrying the σ fix, is a **line-vs-block counting bug** the σ had been masking. **The only reason it was
   caught is that a scorer and a driver compute the same clause by different routes and were compared** — keep
   that comparison, and never assume the two compute the same statistic.
-- **Instruments derived by `sed` keep their predecessor's prose** ([F80](followups.md), wave 24). Eight drifts in
-  five instruments in one wave, one load-bearing, **and every instrument passed its own `--self-test` with the
-  drift present**, because a self-test checks behaviour and the drift is in the labels. **Any ordinal or count in
-  a derived instrument's output must be COMPUTED, never typed** — and wave 20's fix for one instance of this did
-  not fix the class: `prov_w24.py:179` still prints a hardcoded nine-wave list while checking thirteen.
+- **Instruments derived by `sed` keep their predecessor's prose** ([F80](followups.md), waves 24 + 25). Eight
+  drifts in five instruments in wave 24 and 21 more in wave 25, **every instrument passing its own `--self-test`
+  with the drift present**, because a self-test checks behaviour and the drift is in the labels. **Any ordinal or
+  count in a derived instrument's output must be COMPUTED, never typed.**
+- **AN IDENTIFIER BOUNDARY IS NOT A WORD BOUNDARY** ([F80](followups.md), wave 25). `_` is a word character, so
+  `\b` cannot see it — and **every marker, function and path in this series is underscore-joined**. Wave 25's own
+  pre-flight had this bug **twice**, on opposite affixes: it missed `G24_START` (found only because another clause
+  happened to fire on the same line) and then `w24_layout_self_test` (passing `V-CLEAN` a file that could not
+  run). **A checker that finds a defect by accident has not checked for it.** And check the predecessor's
+  **interface** survived, not just its spelling: no renaming scheme can repoint a call site whose function no
+  longer exists under any name.
+- **A NEGATIVE ASSERTION ABOUT THE PREVIOUS WAVE IS ITSELF PREVIOUS-WAVE DRIFT** ([F80](followups.md), wave 25).
+  A guard asserting a path does *not* contain `hf_w24` embeds `hf_w24`. Assert **positively** that it contains
+  this wave's root — stronger, and it needs no reference to the past at all.
 - **Price from the same instrument AND the same scenario** ([F21](followups.md), wave 24). Every wave-24 step
   priced from a measured rate landed within 5 %; every step priced by *deriving* from a never-run scenario came
   in at ~0.4×. **When a scenario has never been run, give a BAND and say it is a derivation.** A conservative
@@ -144,11 +161,15 @@ Read `docs/waves22+-handoff-prompt.md` §2 for the priced backlog. Summary of wh
 
 | item | note |
 |---|---|
-| **the wave-25/26/27 plan** | **25 = the stall bridge + degenerate-fit gate** (goal 2, ships product, ~3 h 15 m — **and it must NOT be keyed on R²**, see below); **26 = P23's flat-direction perturbation arm** (~30 m) + optionally F67's residual (~30 m); **27 held OPEN** for wave 25's consequence. Wave 24 results §14 argues the order |
-| **the wave-25 gate's design constraint** | `D03_redcat_250mm`/S1 is **degenerate at R² = 0.9835**, and `D01_ultrawide_40mm`/S1 **stalls at R² ≈ 1.0 with no degeneracy at all**. **An R²-keyed fit-quality gate misses both.** Key it on `sampledHfrRange`, declare it **one-sided** (the wide end is empty, 0 of 7 S2 cells), and treat the non-degenerate stall as a **second mechanism**. [F25](followups.md)/[F34](followups.md) |
-| **the S1 re-measurement** | ~1 h 20 m. **Owed** before any goal-2 number is quoted: wave 23's `V23-G` S1 `13 of 17` was measured on the pre-P2 **starved** instrument and is not comparable to anything after it. Wave 25 can discharge it inside its own paired arm |
-| **[F80](followups.md)'s pre-flight** | ~15 m, and it belongs in wave 25's step order, not in a wave of its own |
-| **`lumos`'s zero-star frame** | ~10 m of `af-fit`/`review`. `rc=3` is now reproduced **and explained** (hard-floor FAIL, one frame yields 0 accepted stars); this settles whether it is an unusable run or a gate question |
+| **the owner's FINAL RESULTS TABLE** | **The only deliverable asked for by name**: precision / recall / optimization time / score / sigma / exposure vs optimal / binning vs optimal / `BrightnessSensitivity`, **per dataset**, from a `golden eval` arm. **Schedule it FIRST.** Wave 26 competes with it for the remaining hours |
+| **the wave-25 result** | **DONE and shipped.** `V-CLEAN` / `G-PASS` / **`W-UNEXERCISED`** / **`N-PRESERVED`** / **`M-CORRECTED`**. P4 = [F81](followups.md) (product), P5 closed [F34](followups.md). `docs/synthetic-af-bank-followups-wave25-results.md` |
+| **`N25-E`** | **~4 m of scoring, 0 TestApp — the cheapest open question in the series.** Dropped on wave 25's clock. Does wave 25's B14 BEFORE arm reproduce wave 23's S1 numbers? Either the series **recovers** the `13 of 17` baseline or retires it **with evidence**. Inputs on disk and fingerprinted (38 of 38 byte-identical) |
+| **[F82](followups.md)** | **The floor is not sticky across rounds.** `D01`'s half-width fell 12.0 → 9.0 because `SearchSpan` is measured over the **fitted** points and a widened sweep on a star-poor field loses its outer frames. Two candidate fixes; **pre-register which one before looking**. ~45 m code + ~10 m 3-cell re-run + the gate. **Do NOT re-run a full paired arm** — `W-UNEXERCISED` means 13 blind cells move by exactly zero |
+| **the `A4` truth-model gap** | ~20 m. The harness computes the cap boundary from the **requested** sweep, the product from the **fitted** span; they disagree on `D01` r1 by 2×. **Fix the assertion, not the product**, and never in an arm that also carries a product change |
+| **P23's flat-direction arm** | ~30 m. **Goal 3 has had TWO consecutive waves of nothing.** The only item that changes that |
+| **the S1 re-measurement** | **DISCHARGED AS AN ARM** by wave 25 (paired, 18 of 20 cells per side) — **but not as a published number.** No goal-2 accuracy rate may be quoted until `N25-E` says whether P2 moved S1 |
+| **the wide end of [F25](followups.md)** | **UNMEASURED, not untriggered.** No wave-25 clause touches it; `D05`/S2 is published and unusable blind |
+| **`lumos`'s zero-star frame** | ~10 m of `af-fit`/`review`. `rc=3` is now reproduced **and explained** (hard-floor FAIL, one frame yields 0 accepted stars); this settles whether it is an unusable run or a gate question. Wave 25 declared it dropped **in advance** |
 | **`Panos`'s σ fit** | ~5 m of `af-fit`. **The recorded "degenerate σ fit" belongs to `af-fit`, NOT `optimize`** — wave 24's `optimize` probe returned exit=0, hard-floor PASS, `bestJ=0.935582`, which is `L-NOT-COMPARABLE` and **not** a refutation. This is the only half still folklore |
 | **F77** | the silent deploy failure above — make the copy fail loudly or warn by name. ~20 m |
 | **`SystemParameters.WorkArea`** | reports the **primary** monitor. `ClampWindowToWorkArea`'s Win32 half already resolves per-monitor via `MonitorFromWindow`; the WPF half does not. Wrong rect if a window opens on a secondary display |
