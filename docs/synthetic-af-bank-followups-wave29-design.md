@@ -27,6 +27,36 @@ verdict. It is load-bearing for whether the previous wave's declared deviation g
 
 ---
 
+> ## CORRECTION, added after the measurement — §1(b) IS FALSE AT HEAD, and `RULE W29-S` says so
+>
+> **This design's headline is half wrong, the wave's own rule refuted it, and the pre-registration text below
+> is left EXACTLY as written so the error is visible rather than tidied away.**
+>
+> **`RULE W29-S` = `S-CARRIER-EXISTS`** (`/mnt/d/hf_w29/w29s_score.txt`): `S-a` **HOLDS**, `S-c` **HOLDS**,
+> **`S-b` is FALSE**. A product carrier *does* exist.
+>
+> §1(b)'s caller table names **two** of `BuildSummaryAsync`'s **five** callers. The full set, discovered by the
+> instrument rather than typed: `StartAsync`, `ReOptimizeWithLabelsAsync`, `ContinueOptimizationAsync`,
+> `OptimizeAgainAtRecommendedBinningAsync`, and — the one that matters —
+> **`CaptureNewSweepAsync`** (`StarDetectionOptimizerWizardVM.cs:5012`), which takes a **fresh sweep**
+> (`RunLiveAttemptAsync` per run), calls `BuildSummaryAsync` at `:5098`, and **carries the previous round's
+> recommended geometry into the next sweep** through the instance field `recaptureStepSize`.
+>
+> So the sentence *"No new sweep is taken between wizard rounds, so `SearchSpan` cannot change between them and
+> the defect cannot occur there at all"* is **false**, and with it the claims that fix (1) *"reaches no user"*
+> and that F82 *"scores goal 2 zero"*. **F82 is a real product defect on a real product path.**
+>
+> **The controller repeated the false claim in the wave-29 pre-registration commit message** (`544f2b2`), which
+> cannot be edited; it is corrected here, in the PR, and in the results document.
+>
+> **What survives, and it is the larger half:** §1(a) — the truth-model coupling — is `S-a`, and it **HOLDS**.
+> The harness still scores the recommender against a fixed point of the recommender. And the wave's refusal to
+> flip wave 26's choice still stands, now for a better reason than it was written for: `RULE W29-R` =
+> **`R-STANDS`**, so the reversal condition is not met on evidence, not merely unexamined.
+>
+> **The instrument was written to the pre-registration and NOT tuned to this result.** `S-b` was implemented
+> exactly as §4 fixes it; it returned FALSE on its own terms. That is a pre-registration working.
+
 ## 1. THE HEADLINE: the pre-registered fix has no carrier in the product, and the "truth" it is scored against is produced by the code under test
 
 Two facts, both decidable from source at zero compute, both verified in this document against shipping files:
