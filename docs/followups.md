@@ -527,6 +527,19 @@ tree would have said, and **does not repair and re-score** (`/mnt/d/hf_w28/w28n_
 
 ### F95 — A blocking pre-flight that runs before the instruments exist certifies an empty population
 
+> **NARROWED the same day, and the narrowing is the useful part.** The pre-flight was **re-run over the
+> populated root** and returns **`V-CLEAN`: 7 files checked, `V28-A` 8 of 8 siblings resolving, `V28-B` 0,
+> `V28-C` 0** (`/mnt/d/hf_w28/vdrift_w28_FINAL.txt`). **The instruments were clean all along**, so this entry
+> is not "a wave shipped unchecked instruments" — it is a **SEQUENCING** defect, and that is the durable
+> lesson:
+>
+> **A blocking pre-flight must run BEFORE the measurement and AFTER the instruments exist.** Every plan in this
+> series has said "before anything", which is a strictly larger window and admits an empty population. The
+> checker behaved correctly throughout — it refused to call an empty population 1.0000 and said so in those
+> words — so what failed was the *plan's* ordering, not the instrument. Both artifacts are kept: `vdrift_w28.txt`
+> (the empty-population run) and `vdrift_w28_FINAL.txt` (the real one).
+
+
 **Status:** **Open — remedy known, not applied this wave** (2026-08-13, wave 28) · [F80](#f80)/[F87](#f87)'s
 family, third distinct shape
 
