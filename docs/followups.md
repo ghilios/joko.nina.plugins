@@ -429,6 +429,90 @@ shape for this space.
 > three where the search **also** drove `StarClippingMultiplier` down, twice to the axis's own 0.25 floor.
 > Reproduce: `/mnt/d/hf_w26/q26_score.txt`; `docs/synthetic-af-bank-followups-wave26-results.md` §4.3, §7.
 
+### F84 — The at-floor sensitivity datasets: what is actually owed, and what the evidence has already killed
+
+**Status:** **OPEN — a decision, not a defect** (2026-08-13, answering the owner's question after wave 26) ·
+depends on [F83](#f83), reframed by [F31](#f31) and [F23](#f23)
+
+**The eight at-floor landings** (`BrightnessSensitivity = 0.0`), resolved from source predicates by wave 26's
+prep, with their combined effective gates:
+
+| seed | landing | gate | seed | landing | gate |
+|---|---|---|---|---|---|
+| seedA0 | `D08_c11_2800mm` | 0.5625 | seedA1 | `D01_ultrawide_40mm` | 0.2234 |
+| seedA0 | `D10_rc16_3250mm_sparse` | 2.3906 | seedA1 | `D09_c14_3800mm` | 2.4891 |
+| seedA0 | `D11_rc10_585_afbin2` | 2.3625 | seedA1 | `D12_c14_585_afbin2` | 1.6000 |
+| seedA0 | `D12_c14_585_afbin2` | 2.1313 | seedA1 | `D16_esprit550_ha3` | 0.1969 |
+
+Only `D12` pins on **both** seeds. Pinning is a property of a **landing**, not of a dataset.
+
+### The state of play, before any followup is chosen
+
+1. **The pin is INERT at every one of the eight landings.** All 8 read `GateIsProvablyInert = True`,
+   `GateRejectedCount = 0`, and `LowSensitivityRejections = 0` **on every frame**. **There is no measured harm
+   today.**
+2. **It is a real optimum, not a wandering artifact.** `RULE Q26` = `Q-PIN-COSTED`, `Q26-A` = `A-RESPONSIVE`
+   with **0 flat of 8**: moving sensitivity off the floor costs `J` every time.
+3. **It costs `J` to forbid it**, `dJ` `0.000104`-`0.019269` on the four scored (`Q26-B`), and is **nearly free
+   to forbid where the search was not going there** — `Q26-D`, 16 datasets, mostly ~`1e-4` and **exactly 0**
+   where the unconstrained search already chose a sensitivity at or above the bound.
+4. **It does not measurably cost precision.** `P-D08` **REFUTED at n = 3**: `D01` (gate 0.2234) and `D16`
+   (0.1969) both carry base precision **1.000 with ZERO false positives**. And `D08`'s apparent cost is
+   **91.3 % reference omission** — 137 of its 150 golden-false detections match a **real rendered truth star**
+   at the same 12 px radius, against **0.30** expected by chance. That is [F31](#f31)'s mechanism, quantified.
+5. **What the pin buys is FAINT-TIER RECALL ONLY.** `recall@high` and `recall@high+med` are **unchanged on all
+   four** scored datasets when sensitivity is raised.
+6. **It is [F6](#f6)'s pair, not one axis.** The three landings with sub-`1.5` gates are exactly the three where
+   the search **also** drove `StarClippingMultiplier` down, twice to that axis's own `0.25` floor.
+
+### What is owed — in priority order, with prices
+
+**(1) The `MarginalSnrStrength` decision. ~0 m to decide; a fresh 42 m baseline to act.** [F23](#f23) built the
+objective's **only** false-positive cost — `SMarginalSnr`, multiplicative, applied after the weighted sum — and
+it **ships at `MarginalSnrStrength = 0.0`, disabled.** Its own comment says it returns `1.0` *"whenever the
+candidate's Sensitivity is at or above that floor"*, i.e. **it is purpose-built to bite exactly when sensitivity
+is pinned below the peak-SNR floor.** Constants already chosen: `MarginalSnrFloor = 6.0`,
+`MarginalSnrThreshold = 0.05`, `MarginalSnrMinFactor = 0.5`.
+**But do NOT simply switch it on.** F23 is `Won't fix as written` **because its evidence base was VOID** — the
+precision collapse it was built to stop (0.993 -> 0.451 on `D09`) was measured against the same under-listing
+golden this entry quantifies at 91.3 %. **Enabling a penalty calibrated against void evidence would trade real
+recall for an artifact.** The decision needs (2) first.
+
+**(2) Re-measure precision against `truth.json`, not `golden.json`. ~1-2 h, no product code.** This is the
+prerequisite for every objective decision, and it is now demonstrably cheap: the renderer's complete star list
+ships beside every frame (`*.truth.json`, 126 stars where the golden lists 9), the detections are already on
+disk in `golden eval`'s own `detected_f*.csv`, and the match radius is declared in `synthetic_meta.json`. A
+truth-based precision pass would give **the first honest precision numbers on this bank** and would say whether
+a precision term is worth adding at all. **Without it, F23 and F83 are both undecidable.**
+
+**(3) Report the EFFECTIVE gate, not the nominal `0.0`. ~30 m, product, no measurement.** The landing, the
+summary and the wizard all show `BrightnessSensitivity = 0.000`, which looks alarming and **means nothing on its
+own** — the value that actually rejects candidates is `EffectiveSensitivityGate` (`0.20`-`2.49` across the
+eight), and `SensitivityIsAtFloor` / `GateIsProvablyInert` are already computed and already in
+`aggregate_summary.json` (nested under `ExposureRecommendation`). Surfacing them turns *"the optimizer chose
+zero"* into *"the optimizer chose zero, and it is inert because the structure/clip stage gates harder"*. **This
+is the only item that improves what a user sees, and it changes no behaviour.**
+
+**(4) The 13 junk detections. ~30 m to characterise.** The one genuinely wrong thing measured: `D08`'s 13
+detections matching **neither** golden nor truth, **all on the two extreme wing frames** (`13672`, `14328`) and
+**zero** on any of the seven interior frames. That is a detector-at-its-limit behaviour at extreme defocus, and
+it is unrelated to the pin.
+
+### What the evidence has KILLED — do not propose these
+
+- **Raising `DefaultSensitivityLower`, or any floor on the Sensitivity axis alone.** The search drives
+  `StarClippingMultiplier` down alongside it ([F6](#f6)); bounding one axis moves the landing along the other.
+- **"Stop persisting/reporting the extreme."** It hides the pathology instead of fixing it, and item (3) is the
+  honest version of the same impulse.
+- **Forbidding the extreme generally**, on the current evidence. It costs `J` where the search wants it and buys
+  **no measured precision** — `P-D08` refuted at n = 3, and `D08`'s cost 91.3 % artifact.
+
+### The one-sentence version
+
+**The pin is currently harmless, is a real optimum of an objective that cannot see precision, and the only thing
+worth doing before touching it is measuring precision against the renderer's truth instead of a reference that
+under-lists by an order of magnitude at defocus.**
+
 ### F83 — `J` carries no precision term on an unlabelled run, so a sensitivity pin is free in the objective by construction
 **Status:** Open · **structural, source-derived, zero compute** · found 2026-08-13, wave 26, pricing the sensitivity
 pin the owner asked to avoid
