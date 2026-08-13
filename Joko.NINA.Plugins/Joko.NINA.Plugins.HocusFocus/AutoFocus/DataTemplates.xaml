@@ -642,25 +642,34 @@
                 VerticalContentAlignment="Stretch"
                 Content="{Binding}"
                 ContentTemplate="{StaticResource NINA.Joko.Plugins.HocusFocus.AutoFocus.HocusFocusVM_Core}" />
-            <ninactrl:CancellableButton
+            <!--  These three used to be a left-aligned button and a right-aligned StackPanel sharing this one Auto
+                  row cell, so they OVERLAPPED as soon as the docked pane got narrow (~500px): a Grid cell gives
+                  every child the full cell, and nothing there yields. EdgeJustifiedWrapPanel keeps the wide look
+                  exactly (Replay flush left, Review Frames + toggle packed 12px apart flush right, all slack in the
+                  middle gap) and WRAPS instead of colliding once the three no longer fit — Replay onto a line of its
+                  own, then Review Frames and the toggle that enables it staying together on the next. The panel's
+                  Margin carries what were the children's outer margins, so wrapped lines start at the same inset as
+                  the first, and ItemGap replaces the toggle group's old 12px left margin. All three are separate
+                  children so the group can break further at very narrow widths; the checkbox and its label stay ONE
+                  child, because the themed ON/OFF pill must never be split from its text. Do not set
+                  HorizontalAlignment on the panel — Stretch is what gives it the full row width to justify
+                  against — and do not give the children horizontal margins, which would add to ItemGap rather than
+                  absorb into it.  -->
+            <controls:EdgeJustifiedWrapPanel
                 Grid.Row="1"
-                Height="25"
-                Margin="10,15,0,5"
-                Padding="5,0,5,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Bottom"
-                ButtonText="Replay Saved AF"
-                CancelButtonImage="{StaticResource CancelSVG}"
-                CancelCommand="{Binding CancelLoadSavedAutoFocusRunCommand}"
-                CancelToolTip="{ns:Loc LblCancel}"
-                Command="{Binding LoadSavedAutoFocusRunCommand}"
-                ToolTip="Replays saved AutoFocus images (Save enabled in Hocus Focus -&gt; Auto Focus Options) to produce an auto focus curve using whatever the current star detection and fit settings are" />
-            <StackPanel
-                Grid.Row="1"
-                Margin="0,15,10,5"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Bottom"
-                Orientation="Horizontal">
+                Margin="10,15,10,5"
+                ItemGap="12"
+                LineGap="6">
+                <ninactrl:CancellableButton
+                    Height="25"
+                    Padding="5,0,5,0"
+                    VerticalAlignment="Bottom"
+                    ButtonText="Replay Saved AF"
+                    CancelButtonImage="{StaticResource CancelSVG}"
+                    CancelCommand="{Binding CancelLoadSavedAutoFocusRunCommand}"
+                    CancelToolTip="{ns:Loc LblCancel}"
+                    Command="{Binding LoadSavedAutoFocusRunCommand}"
+                    ToolTip="Replays saved AutoFocus images (Save enabled in Hocus Focus -&gt; Auto Focus Options) to produce an auto focus curve using whatever the current star detection and fit settings are" />
                 <Button
                     Height="25"
                     VerticalAlignment="Center"
@@ -669,7 +678,6 @@
                     <TextBlock Margin="5,0,5,0" Text="Review Frames" />
                 </Button>
                 <StackPanel
-                    Margin="12,0,0,0"
                     VerticalAlignment="Center"
                     Orientation="Horizontal"
                     ToolTip="When on, the per-frame images from an auto-focus run started here in the AutoFocus pane — a live run or a Replay Saved AF — are kept in memory so the &quot;Review Frames&quot; button can show each frame with its detected stars and HFRs. Only applies to runs from this pane — auto-focus during an imaging sequence never keeps frames (it would use too much memory). The frames are released when you start a new run or close the review window. Off by default; saved in your profile.">
@@ -681,13 +689,13 @@
                         VerticalAlignment="Center"
                         Text="Keep frames for review" />
                 </StackPanel>
-            </StackPanel>
+            </controls:EdgeJustifiedWrapPanel>
         </Grid>
     </DataTemplate>
     <!--  Implicit (by-type) template, used only when a HocusFocusVM is shown on its own — chiefly the "Run
           Autofocus" sequence item, which NINA hosts in a SizeToContent CustomWindow floored at just 350x300. It
           renders the shared CORE (chart + info) only: the Replay Saved AF / Review Frames row is deliberately
-          omitted here — those are pane-only controls, and sharing one grid cell they overlapped in the narrow popup.
+          omitted here — those are pane-only controls, and a sequence run has no kept frames to review.
           The docked AutoFocus pane resolves the keyed *_Dockable template above instead (via NINA's
           GenericTemplateSelector), which keeps that row. The Border's minimum size gives the chart a usable popup
           without constraining the dock; its Padding keeps the chart and info text off the window edge; Stretch makes
