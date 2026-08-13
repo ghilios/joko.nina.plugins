@@ -31,7 +31,12 @@
 > **The last is the only route to a new blind population, and it has been open twelve waves.** Without it the
 > honest position is that this bank is measured out.
 >
-> **Suite baseline is 3997**, verified by COUNT in CI. Everything below 3997 in this file is stale.
+>
+> **Suite baseline is 4039**, verified by COUNT out of the CI log, and the arithmetic closes exactly:
+> `develop @ ec06bec` is **4015** in its own CI log, this branch is **4039**, and the difference of **24** is
+> precisely this run's additions (19 `TruthDisclosureTests` + 5 `DetectionBinningResolverTests`). The earlier
+> figure of **3997** was correct before the rebase; `develop` gained **42** tests from PR #198 in the meantime.
+> **Everything below 4039 in this file is stale, including 3973 and 3997.**
 
 **Read this file, then `docs/waves22+-handoff-prompt.md`, then `docs/followups.md`. Those three are the
 authority; this file only sets the run's boundaries.** Everything you need is on disk. Nothing depends on a
