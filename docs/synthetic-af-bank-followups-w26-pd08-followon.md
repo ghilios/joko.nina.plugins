@@ -97,3 +97,56 @@ cost.**
 
 **The pre-registration's own words, met:** *"A refutation is the more useful outcome, because it would mean the
 run's sharpest goal-3 lead is `D08`-specific and must not be generalised."* It is, and it must not.
+
+---
+
+# F31's caveat, SETTLED — 91.3 % of `D08`'s "false positives" are real stars the golden omits
+
+Measured `2026-08-13T09:29Z`, zero TestApp minutes. The detections are **the ones `golden eval` itself scored**,
+read out of its own `detected_f*.csv`; they are re-matched against each frame's `*.truth.json` — the renderer's
+complete star list — at **the same 12.0 px radius** the golden scoring uses, taken from `synthetic_meta.json`'s
+`matchRadiusPx` rather than chosen here. Population: the `D08_c11_2800mm` row of the owner's results table
+(the **seedA0** landing, precision `0.966`). Artifact: `/mnt/d/hf_w26/pd08/F31_truth_rescore.txt`.
+
+| focuser | truth stars | golden stars | detected | FP vs golden | of those, REAL in truth |
+|---|---|---|---|---|---|
+| 13672 | 126 | **9** | 10 | 4 | **0** — junk |
+| 13754 | 126 | 14 | 16 | 3 | 3 — all real |
+| 13836 | 125 | 29 | 48 | 19 | 19 — all real |
+| 13918 | 125 | 65 | 92 | 27 | 27 — all real |
+| 14000 | 123 | 81 | 119 | 38 | 38 — all real |
+| 14082 | 125 | 65 | 97 | 32 | 32 — all real |
+| 14164 | 125 | 29 | 45 | 16 | 16 — all real |
+| 14246 | 126 | 14 | 16 | 2 | 2 — all real |
+| 14328 | 126 | **9** | 15 | 9 | **0** — junk |
+| **total** | | | | **150** | **137 = 0.913** |
+
+## Two conclusions, and they point in different directions
+
+**1. Precision measured against the golden is systematically PESSIMISTIC, and the owner's table's precision
+column is a LOWER BOUND.** The golden lists **9** stars on a frame where the renderer placed **126**. Of the 150
+detections the golden calls false, **137 are real rendered stars**. `D08`'s true precision is nearer **0.997**
+than the measured `0.966`. This is [F31](followups.md)'s mechanism, now quantified as a rate rather than
+described: the reference under-lists, most heavily at extreme defocus, and the detector is penalised for finding
+what the reference omitted.
+
+**2. But the 13 genuine junk detections are REAL, and they are perfectly localised.** All 13 fall on the **two
+extreme wing frames** (`13672`, `14328`) and **zero** on any of the seven interior frames. So the detector does
+produce spurious detections — only at the extremes of the sweep, and only there. That is a small, precisely
+located defect worth its own entry, and it is **not** an artifact of the reference.
+
+## What this does to the sensitivity story
+
+It removes the last support for reading `D08` as evidence that the pin admits junk. Taken with `P-D08`'s
+refutation at n = 3 immediately above — two further sub-boundary landings with **precision 1.000 and zero false
+positives** — the position is now:
+
+- the pin does **not** measurably cost precision anywhere on this bank;
+- `D08`'s apparent precision cost is **91.3 % reference omission**;
+- what remains is 13 junk detections confined to extreme-defocus frames, which is a **detector-at-its-limit**
+  observation, not a sensitivity-pin one.
+
+**[F83](followups.md) is unaffected and remains the finding.** `J` still carries no precision term on an
+unlabelled run. The argument for acting on it was never that measured damage exists — it is that **nothing in
+the objective would report the damage if it did**, which this whole exercise illustrates: it took a truth
+re-score, outside `J` entirely, to find out that the one precision number on the bank was mostly an artifact.
