@@ -429,6 +429,30 @@ shape for this space.
 > three where the search **also** drove `StarClippingMultiplier` down, twice to the axis's own 0.25 floor.
 > Reproduce: `/mnt/d/hf_w26/q26_score.txt`; `docs/synthetic-af-bank-followups-wave26-results.md` §4.3, §7.
 
+### F110 — F82's entire evidence was taken with the detectability bound OFF, while the product supplies it unconditionally
+
+**Status:** **Open — source-derived, zero compute, and it can VOID F82's fix decision** (2026-08-13, found while
+deciding F82's fix) · bounds [F82](#f82) · a validity precondition, not a defect in the fix
+
+`--step-detect-bound` is **opt-in** in the harness (`TestApp/SynthValidateRunner.cs:783-793`), and `D01`'s
+published rounds carry **`maxUsefulHalfSpan: NaN`** — the bound was never applied to any cell of the evidence
+this entry rests on. **The product supplies detectability unconditionally**
+(`StarDetectionOptimizerWizardVM.cs:4073-4079`) and applies it **after** the floor.
+
+So every number in F82 — the `12.0 → 9.0` half-width, the stall at step 3, the whole diagnosis — was measured in
+a configuration the product does not run. **[F97](#f97)'s `S-CARRIER-EXISTS` established that a carrier exists;
+it did not check that the carrier's CONFIGURATION reproduces the numbers**, and those are different claims.
+
+**Consequence, and it is a live risk rather than a theoretical one:** if the detect bound already clamps
+`maxHalfWidth` below the requested-span floor on `D01` in the product's configuration, then candidate (3′) is
+inert there and the fix decision is void. That is why the decision document makes it verification clause
+**`V-0`**, a **validity gate run before any code is written**, rather than an assumption.
+
+**The general lesson, which is [F68](#f68)'s fifth part wearing new clothes:** *establishing that a product path
+exists is not establishing that the product path was measured.* A harness flag that defaults off, against a
+product that supplies the value unconditionally, is a silent divergence between the thing measured and the thing
+shipped — and nothing in this series' controls looks for one.
+
 ### F104 — `D01`'s two candidate gates release 36 660 high-tier candidates and re-capture takes 92 %: the joint is material and ADDITIVE, so F99's joint-recovery claim is refuted at a pre-registered bar
 
 **Status:** Closed — the product question is answered, and answered negatively · found 2026-08-13, wave 30,
@@ -2160,6 +2184,32 @@ Reproduce: `StepSizeRecommender.cs` (the `BandDemonstrablyUnsampled` guard, the 
 ### F82 — The half-width floor is not sticky across rounds, and the cap recomputed from a shrunken fit pulls it back down
 **Status:** Open (diagnosed to a line, two candidate fixes, priced) · found 2026-08-13, wave 25, on the one
 labelled control that missed its pre-registered bar · **SCOPE AND GENERALITY MEASURED, wave 29 — see below**
+
+> #### THE FIX CHOICE IS DECIDED, 2026-08-13 — and wave 26's pre-registered fix (1) is **REFUTED**
+>
+> Full argument: `docs/f82-fix-choice-decision.md`. **DECISION: candidate (3′), the requested-span lower bound
+> in explicit-parameter form.**
+>
+> **Fix (1) — the monotone floor — does not fix anything, and three waves quoted it as settled.**
+> `step = round(halfWidth / PointsPerSide)` with `PointsPerSide = 3.5` (`StepSizeRecommender.cs:201, :382`).
+> Fix (1) sets `D01` r1's `maxHalfWidth` to r0's floored `12.0`, and **both** the cap (`:347-350`) and the floor
+> (`:363-366`) clamp *to* `maxHalfWidth` — so `halfWidth = 12.0` either way, and `12.0 / 3.5 = 3.43 → step 3`,
+> **the same step that stalled.** It changes **zero recommended steps anywhere in the bank**. F82's own claim
+> that (1) *"fixes `D01` directly"* is false on F82's own table. Candidate (3) gives
+> `1.5 × 0.5 × 24 = 18.0 → 18.0 / 3.5 = 5.14 → step 5`, i.e. **3 → 5**.
+>
+> **Two further corrections to this entry's supporting record:**
+> * **Wave 29 §1's blast-radius inference is false on its own artifacts.** *"37 of 37 rounds capped-or-floored,
+>   so (2) moves every round of every cell"* does not follow: the fitted span **equals** the requested span on
+>   **36 of 37** rounds, so (2) and (3) are bit-inert on 36 of 37 and are indistinguishable on this bank. What
+>   separates them is a contract argument, not a measured one.
+> * **The price band for a product carrier was against the wrong carrier.** Wave 29 assumed cross-session
+>   persistence (~2–4 h, migration, an option, an XAML control). `S-CARRIER-EXISTS` found a **within-session**
+>   carrier where the state is an ordinary instance field like `recaptureStepSize` — **~1 h, no migration, no
+>   option, no XAML.**
+>
+> **What is retired:** fix (1) as this entry's remedy. **What is owed before code:** verification clause `V-0`
+> below.
 
 > #### AMENDMENT, wave 29, 2026-08-13 — the fix choice stands; the scope and the generality are now measured
 >
