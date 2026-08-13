@@ -70,6 +70,13 @@ namespace TestApp.SynthBank {
         [JsonProperty("halfWidth")] public double HalfWidth { get; set; } = double.NaN;
         [JsonProperty("wasCapped")] public bool WasCapped { get; set; }
 
+        // P4's ENGAGEMENT MARKER. True when the sweep's own HFRs proved the 3x band was never sampled and the fitted
+        // half-width came back INSIDE the sampled span, so it was raised to the widest the sweep supports. It is the
+        // mirror of wasCapped and is NEVER written by the cap branch: the two are mutually exclusive by
+        // construction, so a scorer can tell a floored round from a capped one instead of seeing one flag for two
+        // different rules. A fix that cannot report whether it engaged is not finished.
+        [JsonProperty("wasBandFloored")] public bool WasBandFloored { get; set; }
+
         // F18. NaN/false on the control arm, which is how a reader tells "the bound was off" from "the bound was on
         // and did not bind" -- WasDetectBounded false with a finite MaxUsefulHalfSpan is the second.
         [JsonProperty("detectHalfWidth")] public double DetectHalfWidth { get; set; } = double.NaN;

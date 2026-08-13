@@ -548,9 +548,10 @@ namespace TestApp.SynthBank {
                         converged = true;
                         stoppedReason = "converged (round applied nothing)";
                     } else {
-                        stoppedReason = $"stalled (round applied nothing, but step {state.StepSize} is outside the "
-                            + $"{stepBand:0.###} tolerance band of step_behavioral {stepBehavioral:0.###}) -- "
-                            + "a no-op recommendation from a degenerate fit, not convergence";
+                        // P5 (F34): the cause is READ, not asserted. This message used to blame a degenerate fit on
+                        // every stall; D01/S1 stalled with degenerateReason null and R^2 = 0.99999999999994, and a
+                        // register entry then grouped it with two genuinely degenerate cells on that authority.
+                        stoppedReason = StallReason.Describe(state.StepSize, stepBand, stepBehavioral, roundReport.StepRecommendation);
                     }
                     break;
                 }
@@ -792,6 +793,8 @@ namespace TestApp.SynthBank {
                 detectability: stepDetectability, sizeForExecutedSweep: ctx.StepSizeForExecutedSweep);
             round.StepRecommendation = new StepRecommendationSnapshot {
                 StepSize = stepRec.StepSize, OffsetSteps = stepRec.OffsetSteps, HalfWidth = stepRec.HalfWidth, WasCapped = stepRec.WasCapped,
+                // P4's engagement marker, carried separately from WasCapped so a scorer can tell the two bounds apart.
+                WasBandFloored = stepRec.WasBandFloored,
                 DetectHalfWidth = stepRec.DetectHalfWidth, MaxUsefulHalfSpan = stepRec.MaxUsefulHalfSpan,
                 WasDetectBounded = stepRec.WasDetectBounded,
                 SampledHfrRange = stepRec.SampledHfrRange, CappedGrowthRatio = stepRec.CappedGrowthRatio,

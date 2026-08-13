@@ -40,6 +40,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         public bool WasCapped { get; set; }
 
         /// <summary>
+        /// True when the sweep's own HFRs prove the <see cref="StepSizeRecommender.HfrThresholdMultiple"/>x band was
+        /// never sampled and the fitted half-width nonetheless came back INSIDE the sampled span, so
+        /// <see cref="HalfWidth"/> was raised to the widest this sweep supports
+        /// (<see cref="StepSizeRecommender.MaxHalfWidthSampledHalfSpanMultiple"/> x the sampled half-span). The mirror
+        /// of <see cref="WasCapped"/>: the cap bounds how far one run may WIDEN past the data, this bounds how far a
+        /// fit that under-reaches may hold it back.
+        ///
+        /// <para><b>This is a MEASUREMENT, not a held value</b>, which is why it does not set
+        /// <see cref="DegenerateReason"/>. The sweep's measured range says the crossing lies beyond everything
+        /// sampled; "widen to the most this data supports" is a statement with content, and it is the same
+        /// deliberate partial step <see cref="WasCapped"/> describes -- re-run with it and the next sweep, being
+        /// deeper, produces a better-grounded one.</para>
+        ///
+        /// <para><b>Distinct from <see cref="WasCapped"/> on purpose, and mutually exclusive with it by
+        /// construction:</b> the floor is only reached when the half-width was BELOW the bound, which is exactly
+        /// when the cap did not fire. A consumer that cannot tell a floored round from a capped one cannot tell
+        /// whether this rule engaged at all.</para>
+        /// </summary>
+        public bool WasBandFloored { get; set; }
+
+        /// <summary>
         /// The DETECTABILITY half-width actually used to bound <see cref="HalfWidth"/> — <see cref="MaxUsefulHalfSpan"/>
         /// after the "one run may not shrink the sweep by more than half" floor
         /// (<see cref="StepSizeRecommender.MinHalfWidthSampledHalfSpanMultiple"/>). <see cref="double.NaN"/> when no
@@ -293,9 +314,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             var rightW = FindHalfWidth(fitting, x0, +1.0, target, searchSpan);
             var leftW = FindHalfWidth(fitting, x0, -1.0, target, searchSpan);
 
+            // The sweep bound, and the range the sweep MEASURED, both hoisted above the half-width resolution
+            // because the floor below is needed on the branch that used to take a degenerate exit before either
+            // quantity had been formed. Both are pure functions of the fit, so hoisting them moves no number.
+            var maxHalfWidth = MaxHalfWidthSampledHalfSpanMultiple * 0.5 * searchSpan;
+            var sampledHfrRange = MeasureSampledHfrRange(bestFit);
+            var wasBandFloored = false;
+
             double halfWidth;
             if (double.IsNaN(rightW) && double.IsNaN(leftW)) {
-                return Degenerate(bestFit, DegenerateReasonHalfWidthUnresolved, currentStepSize, focuserMaxStep);
+                // The model never reaches 3x its minimum on either side within the bounded outward search. That is
+                // a could-not-look ONLY when the sweep itself cannot say the band was missed. When it CAN -- the
+                // sweep's own HFRs span less than 3x -- the honest answer is not "hold what you have" but "widen to
+                // the most this data supports", which is the same answer the cap gives a sweep that over-reaches.
+                // Taking the degenerate exit here is what makes a too-shallow sweep a permanent stall: the exit
+                // returns the CURRENT step, the next round sweeps at that same step, and nothing ever widens.
+                if (!(BandDemonstrablyUnsampled(sampledHfrRange) && maxHalfWidth > 0.0)) {
+                    return Degenerate(bestFit, DegenerateReasonHalfWidthUnresolved, currentStepSize, focuserMaxStep);
+                }
+                halfWidth = maxHalfWidth;
+                wasBandFloored = true;
             } else if (double.IsNaN(rightW)) {
                 halfWidth = leftW;
             } else if (double.IsNaN(leftW)) {
@@ -306,10 +344,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             // Only trust the model a bounded distance past the data it was fitted to.
             var wasCapped = false;
-            var maxHalfWidth = MaxHalfWidthSampledHalfSpanMultiple * 0.5 * searchSpan;
             if (maxHalfWidth > 0.0 && halfWidth > maxHalfWidth) {
                 halfWidth = maxHalfWidth;
                 wasCapped = true;
+            }
+
+            // The cap trusts the model at most MaxHalfWidthSampledHalfSpanMultiple times the sampled half-span PAST
+            // the data. It has never had a mirror: a fit whose extrapolated 3x crossing lands INSIDE the sampled
+            // span is trusted completely, even when the sweep's own HFRs prove the 3x band was never reached. A
+            // hyperbola fitted to a 1.5x slice of curve interpolates that slice perfectly and gets its asymptote
+            // wrong, so the crossing comes back too SMALL and the recommender answers "hold what you have" from a
+            // fit with R^2 = 1. This is the same asymmetry MinHalfWidthSampledHalfSpanMultiple documents on the
+            // detectability side, read the other way round.
+            //
+            // It is mutually exclusive with the cap BY CONSTRUCTION: this branch requires halfWidth < maxHalfWidth,
+            // which is exactly when the cap branch above was not entered, and it never writes wasCapped. The two
+            // signals stay separate so a consumer can tell a floored round from a capped one.
+            if (BandDemonstrablyUnsampled(sampledHfrRange) && maxHalfWidth > 0.0 && halfWidth < maxHalfWidth) {
+                halfWidth = maxHalfWidth;
+                wasBandFloored = true;
             }
 
             // F18: bound the geometric band by what the sweep could still SEE. Only ever tightens.
@@ -334,13 +387,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 OffsetSteps = DefaultOffsetSteps,
                 HalfWidth = halfWidth,
                 WasCapped = wasCapped,
+                WasBandFloored = wasBandFloored,
                 DetectHalfWidth = detectHalfWidth,
                 MaxUsefulHalfSpan = maxUsefulHalfSpan,
                 WasDetectBounded = wasDetectBounded,
-                SampledHfrRange = MeasureSampledHfrRange(bestFit),
+                SampledHfrRange = sampledHfrRange,
                 CappedGrowthRatio = wasCapped ? CappedGrowthRatioOf(searchSpan, currentStepSize, pointsPerSide) : double.NaN
             };
         }
+
+        /// <summary>
+        /// True only when the sweep's HFR dynamic range was MEASURED and is below the band the step is sized from.
+        /// NaN means "could not look" and must NOT engage the floor: <c>x &lt; 3.0</c> is already false for NaN, but
+        /// writing the condition that way makes the safety depend on IEEE-754 trivia rather than on a decision. The
+        /// defect shape this whole series is built against is a check that fails CLOSED to a value instead of
+        /// reporting that it could not look, and this is the mirror of it: an unmeasurable range is not evidence the
+        /// band was missed, so it gets the ordinary answer and not the widest one.
+        /// </summary>
+        private static bool BandDemonstrablyUnsampled(double sampledHfrRange) =>
+            double.IsFinite(sampledHfrRange) && sampledHfrRange < HfrThresholdMultiple;
 
         /// <summary>
         /// max(HFR) / min(HFR) over the points the fit was given, or NaN when that cannot be formed.

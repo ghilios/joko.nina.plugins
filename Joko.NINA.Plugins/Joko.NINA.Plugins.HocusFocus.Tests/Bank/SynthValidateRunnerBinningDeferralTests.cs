@@ -140,5 +140,67 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Bank {
                 Assert.That(factor, Is.EqualTo(2), "the binning changes are still all applied");
             });
         }
+
+        // ---- W25 P5 (F34) -- the stall message stops naming a cause it never checks -------------------------------
+
+        /// <summary>
+        /// <b>T4 — the message must READ the cause, not assert it.</b> The round loop printed, on every stall,
+        /// "a no-op recommendation from a degenerate fit, not convergence". It never looked at
+        /// <c>degenerateReason</c>. Wave 24 measured what that costs: <c>D01</c>/S1 stalled with
+        /// <c>degenerateReason</c> null, a finite <c>halfWidth</c> of 6.0877 and <c>R^2 = 0.99999999999994</c> — as
+        /// far from a degenerate fit as a fit gets — and the harness blamed one anyway. A wave-23 register entry
+        /// then grouped that cell with two genuinely degenerate ones on the strength of the message. A wrong
+        /// message became a wrong register entry.
+        ///
+        /// <para>The replacement quotes the number that actually explains the stall: the HFR dynamic range the
+        /// sweep MEASURED, against the band the step is sized from. On the degenerate branch the old wording is
+        /// kept and the exit token appended, so the reader learns WHICH exit rather than only that there was one.</para>
+        ///
+        /// <para><b>MUST FAIL pre-change.</b> Mutant: restore the unconditional string in
+        /// <c>StallReason.Cause</c> — <c>return "a no-op recommendation from a degenerate fit, not convergence";</c>
+        /// as the whole body.</para>
+        /// </summary>
+        [Test]
+        public void StallMessage_NamesTheNonDegenerateCause_WhenDegenerateReasonIsNull() {
+            // D01/S1's own numbers.
+            var nonDegenerate = new StepRecommendationSnapshot {
+                StepSize = 21, HalfWidth = 6.0877, DegenerateReason = null, SampledHfrRange = 1.4628
+            };
+            // D03/S1's: the exit that really is a could-not-look.
+            var degenerate = new StepRecommendationSnapshot {
+                StepSize = 21, HalfWidth = double.NaN, DegenerateReason = "half-width-unresolved", SampledHfrRange = 1.0799
+            };
+            // And a round that recorded no recommendation at all: neither cause may be assumed.
+            var absent = StallReason.Cause(null);
+
+            var message = StallReason.Describe(21, 8.4, 46.1, nonDegenerate);
+
+            Assert.Multiple(() => {
+                Assert.That(message, Does.Not.Contain("from a degenerate fit"),
+                    "the cell it was measured on is NOT degenerate, and the message must stop saying it is");
+                Assert.That(message, Does.Contain("NON-degenerate fit"), "it says what is actually true");
+                Assert.That(message, Does.Contain("1.463"), "and quotes the number that explains it -- what the sweep MEASURED");
+                Assert.That(message, Does.Contain("band 3x"), "against the band the step is sized from");
+                Assert.That(message, Does.Contain("not convergence"), "the verdict itself is unchanged");
+
+                // The band arithmetic is untouched: the message still says where it stopped and what it missed.
+                Assert.That(message, Does.StartWith("stalled (round applied nothing, but step 21 is outside the "));
+                Assert.That(message, Does.Contain("tolerance band of step_behavioral 46.1"));
+
+                var degenerateMessage = StallReason.Cause(degenerate);
+                Assert.That(degenerateMessage, Does.Contain("from a degenerate fit"), "today's wording, kept");
+                Assert.That(degenerateMessage, Does.Contain("half-width-unresolved"), "with the exit token appended");
+                Assert.That(degenerateMessage, Does.Not.Contain("NON-degenerate"));
+
+                Assert.That(absent, Does.Contain("could not"), "no snapshot is a could-not-look, not a third cause");
+                Assert.That(absent, Does.Not.Contain("from a degenerate fit"));
+                Assert.That(absent, Does.Not.Contain("NON-degenerate fit"));
+
+                // Never print a missing measurement at the reader.
+                foreach (var text in new[] { message, degenerateMessage, absent }) {
+                    Assert.That(text, Does.Not.Contain("NaN"));
+                }
+            });
+        }
     }
 }

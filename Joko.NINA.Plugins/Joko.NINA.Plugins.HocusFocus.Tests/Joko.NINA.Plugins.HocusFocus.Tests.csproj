@@ -45,6 +45,10 @@
          restore SynthValidateRunner.cs from its post-P1/P3 snapshot, delete BinningRevisitPolicy.cs and this
          line, delete SynthValidateRunnerBinningDeferralTests.cs. None of that touches P1 or P3. -->
     <Compile Include="..\TestApp\SynthBank\BinningRevisitPolicy.cs" Link="Bank\BinningRevisitPolicy.cs" />
+    <!-- W25 P5: the stall message's CAUSE clause. SynthValidateRunner still cannot be linked, so the branch that
+         reads DegenerateReason lives in this one pure file. REVERTING P5 = restore SynthValidateRunner.cs from its
+         post-P4 snapshot, delete StallReason.cs and this line, delete the T4 test. None of that touches P4. -->
+    <Compile Include="..\TestApp\SynthBank\StallReason.cs" Link="Bank\StallReason.cs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -762,8 +762,16 @@ public class StepSizeRecommenderTests {
 
         // Exit 3: a usable model AND a finite vertex, but a flat curve never reaches 3x its minimum on either
         // side within the bounded outward search. This is the exit where everything is present except the answer.
+        //
+        // W25 P4b: the sweep's HFRs here must SPAN the 3x band, or this is no longer a could-not-look at all. A
+        // sweep whose own range is below 3x has PROVEN the band lies beyond it, and the recommender now answers
+        // that with the sweep bound instead of holding the current step (see
+        // HalfWidthUnresolved_WithBandUnsampled_RecommendsTheSweepBound_NotTheHeldStep). The exit survives for the
+        // case it was always really about: a flat model whose sweep did reach the band and still resolved nothing.
+        var bandReachedOutputs = new[] { 4.0, 8.0, 16.0 };
+        const double bandReachedRange = 16.0 / 4.0;
         var halfWidthUnresolved = StepSizeRecommender.Recommend(
-            new HandBuiltFit(x => 4.0, new DataPoint(10000.0, 4.0), outputs, positions), currentStepSize: 42);
+            new HandBuiltFit(x => 4.0, new DataPoint(10000.0, 4.0), bandReachedOutputs, positions), currentStepSize: 42);
 
         var all = new[] { nullFit, unsolved, nonFiniteVertex, halfWidthUnresolved };
 
@@ -779,7 +787,7 @@ public class StepSizeRecommenderTests {
             Assert.That(nonFiniteVertex.SampledHfrRange, Is.EqualTo(expectedRange).Within(1e-12));
 
             Assert.That(halfWidthUnresolved.DegenerateReason, Is.EqualTo("half-width-unresolved"));
-            Assert.That(halfWidthUnresolved.SampledHfrRange, Is.EqualTo(expectedRange).Within(1e-12),
+            Assert.That(halfWidthUnresolved.SampledHfrRange, Is.EqualTo(bandReachedRange).Within(1e-12),
                 "the exit a later directional gate would fire on: its decision variable must exist here");
 
             // The three exits are told apart, not merely flagged.
@@ -813,6 +821,287 @@ public class StepSizeRecommenderTests {
             Assert.That(rec.IsDegenerate, Is.False);
             Assert.That(rec.HalfWidth, Is.Not.NaN, "the premise: this fit resolved a half-width");
             Assert.That(rec.SampledHfrRange, Is.Not.NaN);
+        });
+    }
+
+    // ---- W25 P4: the missing LOWER bound -- a sweep that never sampled the band gets the widest step it supports --
+    //
+    // The cap (MaxHalfWidthSampledHalfSpanMultiple) is the convergence mechanism for a too-shallow sweep: it holds
+    // the half-width at 1.5x the sampled half-span, the step grows ~1.714x a round, and after two or three rounds
+    // the sweep contains the 3x band and the cap stops binding. TWO paths bypass it entirely, and both stall
+    // forever instead of converging:
+    //
+    //   (a) the fit UNDER-reaches. A hyperbola fitted to a 1.46x slice of curve interpolates that slice perfectly
+    //       -- R^2 = 0.99999999999994 on the measured cell -- and gets its asymptote wrong, so the extrapolated 3x
+    //       crossing comes back INSIDE the sampled span. The cap is an upper bound and never fires; the
+    //       recommendation is "hold what you have", from a fit with R^2 = 1. No R^2-keyed gate can catch this.
+    //   (b) the outward search resolves NOTHING on either side and the degenerate exit is taken before the cap is
+    //       ever reached. The exit returns the CURRENT step, the next round sweeps at that same step, and nothing
+    //       ever widens.
+    //
+    // The discriminating variable in both is SampledHfrRange, which the recommender already publishes and which is
+    // MEASURED rather than extrapolated: a sweep whose ends reach 1.46x its minimum did not sample the 3x band,
+    // full stop. The bound is the sweep's own -- the same 1.5x the cap uses -- so the two are one rule read from
+    // both sides, and a floored round reports itself through WasBandFloored rather than through WasCapped.
+
+    /// <summary>The sampled positions of the W25 fixtures: 5 points, 200 apart, so the sampled half-span is 400
+    /// and the sweep bound (1.5x it) is 600. Small round numbers, because every expected value below is derived
+    /// from them in closed form rather than read off a run.</summary>
+    private static readonly double[] W25Positions = { P0 - 400.0, P0 - 200.0, P0, P0 + 200.0, P0 + 400.0 };
+
+    private const double W25SampledHalfSpan = 400.0;
+    private static double W25SweepBound => StepSizeRecommender.MaxHalfWidthSampledHalfSpanMultiple * W25SampledHalfSpan;
+
+    /// <summary>D01's measured range, to three places: the sweep's ends reached 1.4628x its minimum HFR.</summary>
+    private const double D01SampledRange = 1.4628;
+
+    private static double[] OutputsWithRange(double range) {
+        // A symmetric 5-point sweep whose max/min is exactly `range`. Only the extremes matter to the measurement.
+        var min = 2.0;
+        var max = min * range;
+        var mid = 0.5 * (min + max);
+        return new[] { max, mid, min, mid, max };
+    }
+
+    /// <summary>A hyperbola with minimum <paramref name="minHfr"/> at <see cref="P0"/> whose modelled HFR reaches
+    /// three times that minimum at exactly <paramref name="crossingOffset"/> steps out. Hand-built rather than
+    /// solved so the crossing is an input to the test instead of whatever the solver happened to land on.</summary>
+    private static Func<double, double> HyperbolaCrossingAt(double minHfr, double crossingOffset) {
+        var b = crossingOffset / (Math.Sqrt(8.0) * minHfr);
+        return x => {
+            var dx = (x - P0) / b;
+            return Math.Sqrt(minHfr * minHfr + dx * dx);
+        };
+    }
+
+    /// <summary>
+    /// <b>T1 — the <c>D01</c> mechanism: an under-reaching fit is floored to the sweep bound.</b> The measured cell
+    /// had <c>sampledHfrRange</c> 1.4628, a half-width of 6.0877 against a cap boundary of 12, <c>wasCapped</c>
+    /// false and <c>R^2 = 0.99999999999994</c> — a no-op recommendation from a fit that is, by every quality
+    /// measure the harness has, perfect. It is reproduced here in closed form: the model crosses 3x its minimum at
+    /// 200 steps, comfortably INSIDE the 600-step bound, so the cap cannot fire, while the sweep's own HFRs span
+    /// only 1.46x and therefore prove the crossing cannot really be there.
+    ///
+    /// <para><b>MUST FAIL pre-change.</b> Mutant: delete the P4a floor block in
+    /// <c>StepSizeRecommender.Recommend</c> (the <c>BandDemonstrablyUnsampled(...) &amp;&amp; halfWidth &lt;
+    /// maxHalfWidth</c> branch after the cap). Pre-change the half-width stays at 200 and the step at 57.</para>
+    /// </summary>
+    [Test]
+    public void UnderReachedFit_WithBandUnsampled_FloorsHalfWidthToTheSweepBound() {
+        const double minHfr = 2.0;
+        const double crossingOffset = 200.0;
+        var model = HyperbolaCrossingAt(minHfr, crossingOffset);
+        var fit = new HandBuiltFit(model, new DataPoint(P0, minHfr), OutputsWithRange(D01SampledRange), W25Positions);
+
+        var rec = StepSizeRecommender.Recommend(fit, currentStepSize: 57);
+
+        Assert.Multiple(() => {
+            // The premise, proven from the model itself rather than asserted: the 3x crossing really is at 200,
+            // really is inside the sampled half-span of 400, and is therefore below the 600 the cap would allow.
+            Assert.That(model(P0 + crossingOffset), Is.EqualTo(3.0 * minHfr).Within(1e-9),
+                "the premise: this model reaches 3x its minimum at 200 steps");
+            Assert.That(crossingOffset, Is.LessThan(W25SweepBound), "so the cap is an upper bound that cannot fire");
+            Assert.That(rec.SampledHfrRange, Is.EqualTo(D01SampledRange).Within(1e-12), "D01's measured range");
+            Assert.That(rec.ReachedHfrBand, Is.False, "the band was demonstrably not sampled");
+
+            Assert.That(rec.WasBandFloored, Is.True,
+                "P4's engagement marker: the fit under-reached and the sweep's own HFRs say so");
+            Assert.That(rec.HalfWidth, Is.EqualTo(W25SweepBound).Within(1e-9),
+                "floored to 1.5x the sampled half-span -- the widest this sweep supports");
+            Assert.That(rec.StepSize, Is.EqualTo((int)Math.Round(W25SweepBound / PointsPerSide, MidpointRounding.AwayFromZero)),
+                "and the step follows the floored half-width, so the next sweep is deeper and better grounded");
+            Assert.That(rec.StepSize, Is.Not.EqualTo(57), "pre-change this was a no-op: 200 / 3.5 = 57, the step it came in with");
+
+            // WasCapped is NOT overloaded. The harness's A4 assertion scores it against a truth model of the CAP,
+            // and the floor branch is entered only when halfWidth < maxHalfWidth -- exactly when the cap branch
+            // was not. The two are mutually exclusive by construction and must stay tellable apart.
+            Assert.That(rec.WasCapped, Is.False, "a floored round is not a capped round, and a scorer must be able to tell");
+            Assert.That(rec.CappedGrowthRatio, Is.NaN, "no cap fired, so there is no capped-growth ratio to report");
+            Assert.That(rec.DegenerateReason, Is.Null, "a floored recommendation is a MEASUREMENT of the sweep, not a held value");
+            Assert.That(rec.IsDegenerate, Is.False);
+        });
+    }
+
+    /// <summary>
+    /// <b>T2 — the <c>D02</c>/<c>D03</c> mechanism: the exit that skips the bound entirely.</b> When the outward
+    /// search resolves nothing on either side, the recommender used to take the <c>half-width-unresolved</c>
+    /// degenerate exit, which HOLDS the current step. On a sweep whose own HFRs prove the band was missed that is
+    /// the one answer guaranteed never to fix anything: the next round sweeps at the same step and resolves nothing
+    /// again. The two measured cells stalled at <c>sampledHfrRange</c> 1.2216 and 1.0799 with <c>halfWidth</c> NaN.
+    ///
+    /// <para><b>MUST FAIL pre-change.</b> Mutant: restore the unconditional
+    /// <c>return Degenerate(bestFit, DegenerateReasonHalfWidthUnresolved, ...)</c> at the top of the half-width
+    /// resolution. Pre-change the step comes back as the 42 it went in with.</para>
+    /// </summary>
+    [Test]
+    public void HalfWidthUnresolved_WithBandUnsampled_RecommendsTheSweepBound_NotTheHeldStep() {
+        // A near-flat model: it never reaches 3x its minimum anywhere in the bounded outward search, so BOTH
+        // FindHalfWidth calls return NaN -- D02/D03's exit exactly.
+        var fit = new HandBuiltFit(x => 4.0, new DataPoint(P0, 4.0), OutputsWithRange(1.2216), W25Positions);
+
+        var rec = StepSizeRecommender.Recommend(fit, currentStepSize: 42);
+
+        Assert.Multiple(() => {
+            Assert.That(rec.SampledHfrRange, Is.EqualTo(1.2216).Within(1e-12), "D02's measured range");
+            Assert.That(rec.WasBandFloored, Is.True, "the band was demonstrably unsampled, so the floor answers instead of the exit");
+            Assert.That(rec.HalfWidth, Is.EqualTo(W25SweepBound).Within(1e-9));
+            Assert.That(rec.StepSize, Is.EqualTo((int)Math.Round(W25SweepBound / PointsPerSide, MidpointRounding.AwayFromZero)));
+            Assert.That(rec.StepSize, Is.Not.EqualTo(42),
+                "pre-change this exit HELD the current step, which is why the cell could never widen out of the stall");
+            Assert.That(rec.WasCapped, Is.False, "nothing was extrapolated past the data; the floor is the other bound");
+            Assert.That(rec.OffsetSteps, Is.EqualTo(4));
+        });
+    }
+
+    /// <summary>
+    /// <b>T3 — a floored recommendation is not a degenerate one, and the schema invariant survives.</b>
+    /// <c>IsDegenerate</c> means "this is a HELD value, not a measurement". A floored recommendation is a
+    /// measurement OF THE SWEEP: its own HFRs place the 3x crossing beyond everything sampled, so "widen to the
+    /// most this data supports" is a statement with content. Reporting it as degenerate would put it back in the
+    /// bucket the wizard renders as "NOT measured", and would tell a scorer the run could not be looked at.
+    ///
+    /// <para>The <c>D24-A</c> schema invariant — <c>halfWidth == NaN</c> if and only if
+    /// <c>degenerateReason != null</c> — is pinned in both directions here, because P4b is precisely the change
+    /// that could have broken it.</para>
+    ///
+    /// <para><b>MUST FAIL pre-change.</b> Same mutant as T2.</para>
+    /// </summary>
+    [Test]
+    public void HalfWidthUnresolved_WithBandUnsampled_IsNotReportedAsDegenerate() {
+        var floored = StepSizeRecommender.Recommend(
+            new HandBuiltFit(x => 4.0, new DataPoint(P0, 4.0), OutputsWithRange(1.0799), W25Positions), currentStepSize: 42);
+
+        // The other side of the invariant: a fit that genuinely cannot say anything about the band is STILL
+        // degenerate, and still reports NaN. Nothing about P4 makes an unmeasurable sweep answerable.
+        var stillDegenerate = StepSizeRecommender.Recommend(
+            new HandBuiltFit(x => 4.0, new DataPoint(P0, 4.0), OutputsWithRange(4.0), W25Positions), currentStepSize: 42);
+
+        Assert.Multiple(() => {
+            Assert.That(floored.DegenerateReason, Is.Null, "a floored recommendation is a measurement of the sweep");
+            Assert.That(floored.IsDegenerate, Is.False);
+            Assert.That(floored.HalfWidth, Is.Not.NaN, "and it therefore carries a finite half-width");
+            Assert.That(double.IsFinite(floored.HalfWidth), Is.True);
+
+            Assert.That(stillDegenerate.DegenerateReason, Is.EqualTo(StepSizeRecommender.DegenerateReasonHalfWidthUnresolved),
+                "the band WAS sampled here, so nothing licenses the floor and the honest answer is still could-not-look");
+            Assert.That(stillDegenerate.HalfWidth, Is.NaN);
+            Assert.That(stillDegenerate.WasBandFloored, Is.False);
+
+            // D24-A, both directions, on both objects.
+            foreach (var rec in new[] { floored, stillDegenerate }) {
+                Assert.That(double.IsNaN(rec.HalfWidth), Is.EqualTo(rec.IsDegenerate),
+                    "D24-A: halfWidth is NaN if and only if a degenerate reason is set");
+            }
+        });
+    }
+
+    /// <summary>
+    /// <b>T5 (companion, PASSES pre-change) — a sweep that reached the band is untouched.</b> The floor is gated on
+    /// <c>SampledHfrRange &lt; HfrThresholdMultiple</c> and on nothing else, so a sweep that did reach 3x its
+    /// minimum keeps the half-width its fit produced, to the bit. The boundary is included and is the same
+    /// comparison sense <see cref="StepSizeRecommendation.ReachedHfrBand"/> already ships: at exactly 3.0 the band
+    /// was reached, and the floor does not fire.
+    /// </summary>
+    [Test]
+    public void BandReached_LeavesTheRecommendationBitIdentical() {
+        const double minHfr = 2.0;
+        const double crossingOffset = 200.0;
+
+        StepSizeRecommendation At(double sampledRange) => StepSizeRecommender.Recommend(
+            new HandBuiltFit(HyperbolaCrossingAt(minHfr, crossingOffset), new DataPoint(P0, minHfr),
+                OutputsWithRange(sampledRange), W25Positions),
+            currentStepSize: 57);
+
+        // Exactly at the threshold, and well past it. The boundary row is the load-bearing one: it is the same
+        // comparison sense ReachedHfrBand ships, so the two can never disagree about whether the band was sampled.
+        var atTheBoundary = At(StepSizeRecommender.HfrThresholdMultiple);
+        var wellPastIt = At(3.6);
+
+        Assert.Multiple(() => {
+            foreach (var (rec, label) in new[] { (atTheBoundary, "at the boundary"), (wellPastIt, "well past it") }) {
+                Assert.That(rec.ReachedHfrBand, Is.True, $"the premise ({label})");
+                Assert.That(rec.WasBandFloored, Is.False, $"nothing licenses the floor when the band was sampled ({label})");
+                Assert.That(rec.HalfWidth, Is.EqualTo(crossingOffset).Within(1e-3),
+                    $"the fit's own crossing, unmoved -- the pre-change value exactly ({label})");
+                Assert.That(rec.StepSize, Is.EqualTo((int)Math.Round(crossingOffset / PointsPerSide, MidpointRounding.AwayFromZero)),
+                    label);
+                Assert.That(rec.WasCapped, Is.False, label);
+            }
+        });
+    }
+
+    /// <summary>
+    /// <b>T6 (companion, PASSES pre-change) — could-not-look must not engage the floor.</b> NaN means the range was
+    /// not measurable, not that it was small: a fit with no outputs, or with a non-positive HFR among them, has
+    /// shown nothing about whether the band was sampled. <c>x &lt; 3.0</c> is already false for NaN, but the guard
+    /// is written as an explicit finiteness test so the safety is a decision rather than a consequence of IEEE-754
+    /// — the mirror of the fails-closed-to-a-value shape this series exists to remove.
+    ///
+    /// <para>Both P4 paths are covered: the under-reaching fit keeps its own half-width, and the unresolved exit
+    /// stays degenerate rather than being answered with the sweep bound.</para>
+    /// </summary>
+    [Test]
+    public void SampledHfrRangeNaN_DoesNotEngageTheFloor() {
+        const double minHfr = 2.0;
+        const double crossingOffset = 200.0;
+
+        // P4a's path, with nothing to measure the range from.
+        var underReached = StepSizeRecommender.Recommend(
+            new HandBuiltFit(HyperbolaCrossingAt(minHfr, crossingOffset), new DataPoint(P0, minHfr), null, W25Positions),
+            currentStepSize: 57);
+
+        // P4b's path, same absence. A non-positive HFR among the outputs is the other way the range goes NaN.
+        var unresolved = StepSizeRecommender.Recommend(
+            new HandBuiltFit(x => 4.0, new DataPoint(P0, 4.0), new[] { 4.0, 0.0, 4.2 }, W25Positions),
+            currentStepSize: 42);
+
+        Assert.Multiple(() => {
+            Assert.That(underReached.SampledHfrRange, Is.NaN, "the premise: could not look");
+            Assert.That(underReached.ReachedHfrBand, Is.False, "an unmeasurable range is not a reached band...");
+            Assert.That(underReached.WasBandFloored, Is.False, "...and it is not a MISSED one either");
+            Assert.That(underReached.HalfWidth, Is.EqualTo(crossingOffset).Within(1e-3), "the fit's own answer stands");
+
+            Assert.That(unresolved.SampledHfrRange, Is.NaN, "a non-positive HFR makes the ratio meaningless, not zero");
+            Assert.That(unresolved.WasBandFloored, Is.False);
+            Assert.That(unresolved.DegenerateReason, Is.EqualTo(StepSizeRecommender.DegenerateReasonHalfWidthUnresolved),
+                "could-not-look keeps the honest exit; the floor is licensed by a MEASUREMENT and there is none");
+            Assert.That(unresolved.StepSize, Is.EqualTo(42), "so the current step is still held here");
+        });
+    }
+
+    /// <summary>
+    /// <b>T7 (companion, PASSES pre-change) — the declared scope limit.</b> The <c>no-fit</c> and
+    /// <c>non-finite-vertex</c> exits are NOT floored, and that is a limit rather than an oversight.
+    /// <c>no-fit</c> reached with a null fit has no object to read a sampled span from; <c>non-finite-vertex</c>
+    /// has no origin to measure an offset from, so "1.5x the half-span out from WHERE" has no answer. Wave 24's
+    /// field census measured zero occurrences of either (<c>half-width-unresolved</c> 2 of 2), so the limit costs
+    /// nothing that has ever been observed — but it is pinned so a later wave widening it does so deliberately.
+    /// </summary>
+    [Test]
+    public void NoFitAndNonFiniteVertexExits_AreNotFloored() {
+        var lowRange = OutputsWithRange(D01SampledRange);
+
+        var nullFit = StepSizeRecommender.Recommend(null, currentStepSize: 42);
+        var unsolved = StepSizeRecommender.Recommend(
+            new HandBuiltFit(null, new DataPoint(P0, 2.0), lowRange, W25Positions), currentStepSize: 42);
+        var nonFiniteVertex = StepSizeRecommender.Recommend(
+            new HandBuiltFit(x => 4.0, new DataPoint(double.NaN, 2.0), lowRange, W25Positions), currentStepSize: 42);
+
+        Assert.Multiple(() => {
+            Assert.That(nullFit.DegenerateReason, Is.EqualTo(StepSizeRecommender.DegenerateReasonNoFit));
+            Assert.That(unsolved.DegenerateReason, Is.EqualTo(StepSizeRecommender.DegenerateReasonNoFit));
+            Assert.That(nonFiniteVertex.DegenerateReason, Is.EqualTo(StepSizeRecommender.DegenerateReasonNonFiniteVertex));
+
+            // The two exits that DO have a measurable range prove the limit is about the exit and not about the
+            // range: both carry a demonstrably-unsampled 1.4628 and neither is floored.
+            Assert.That(unsolved.SampledHfrRange, Is.EqualTo(D01SampledRange).Within(1e-12));
+            Assert.That(nonFiniteVertex.SampledHfrRange, Is.EqualTo(D01SampledRange).Within(1e-12));
+
+            foreach (var rec in new[] { nullFit, unsolved, nonFiniteVertex }) {
+                Assert.That(rec.WasBandFloored, Is.False, "outside P4's declared scope");
+                Assert.That(rec.HalfWidth, Is.NaN);
+                Assert.That(rec.StepSize, Is.EqualTo(42), "the current step is held, exactly as before");
+            }
         });
     }
 }

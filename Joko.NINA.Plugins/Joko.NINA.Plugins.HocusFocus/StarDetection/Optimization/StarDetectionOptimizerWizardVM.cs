@@ -293,6 +293,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <see cref="StepSizeRecommender.MaxHalfWidthSampledHalfSpanMultiple"/>).</summary>
         public bool StepSizeWasCapped { get; set; }
 
+        /// <summary>True when the sweep's own HFRs prove the 3x band was never sampled and the fitted half-width
+        /// came back INSIDE the sampled span, so the step was widened to the most this sweep supports — see
+        /// <see cref="StepSizeRecommendation.WasBandFloored"/>. Mutually exclusive with
+        /// <see cref="StepSizeWasCapped"/> by construction, and carried separately so a reader can tell which of the
+        /// two bounds produced the partial step.</summary>
+        public bool StepSizeWasBandFloored { get; set; }
+
         /// <summary>The HFR dynamic range this sweep MEASURED (max/min), or NaN — see
         /// <see cref="StepSizeRecommendation.SampledHfrRange"/>.</summary>
         public double StepSizeSampledHfrRange { get; set; } = double.NaN;
@@ -365,7 +372,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                            $"step size was kept [{StepSizeDegenerateReason}])";
                 }
                 var baseText = FormatRecommendation(CurrentStepSize, RecommendedStepSize);
-                if (!StepSizeWasCapped) {
+                // A FLOORED recommendation is the same kind of statement as a capped one and reads the same way:
+                // this sweep did not reach the band the step is sized from, so the number is a deliberate partial
+                // step toward the answer. The existing wording already quotes the sampled range, which on a floored
+                // round is the very quantity that engaged the floor, so nothing else needs to change.
+                if (!StepSizeWasCapped && !StepSizeWasBandFloored) {
                     return baseText;
                 }
                 var parts = new System.Collections.Generic.List<string>();
@@ -4116,6 +4127,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 RecommendedStepSize = recommendation.StepSize,
                 RecommendedOffsetSteps = recommendation.OffsetSteps,
                 StepSizeWasCapped = recommendation.WasCapped,
+                StepSizeWasBandFloored = recommendation.WasBandFloored,
                 StepSizeSampledHfrRange = recommendation.SampledHfrRange,
                 StepSizeCappedGrowthRatio = recommendation.CappedGrowthRatio,
                 StepSizeDegenerateReason = recommendation.DegenerateReason,
