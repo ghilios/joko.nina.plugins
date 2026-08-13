@@ -429,10 +429,1090 @@ shape for this space.
 > three where the search **also** drove `StarClippingMultiplier` down, twice to the axis's own 0.25 floor.
 > Reproduce: `/mnt/d/hf_w26/q26_score.txt`; `docs/synthetic-af-bank-followups-wave26-results.md` §4.3, §7.
 
+### F110 — F82's entire evidence was taken with the detectability bound OFF, while the product supplies it unconditionally
+
+**Status:** **Open — source-derived, zero compute, and it can VOID F82's fix decision** (2026-08-13, found while
+deciding F82's fix) · bounds [F82](#f82) · a validity precondition, not a defect in the fix
+
+`--step-detect-bound` is **opt-in** in the harness (`TestApp/SynthValidateRunner.cs:783-793`), and `D01`'s
+published rounds carry **`maxUsefulHalfSpan: NaN`** — the bound was never applied to any cell of the evidence
+this entry rests on. **The product supplies detectability unconditionally**
+(`StarDetectionOptimizerWizardVM.cs:4073-4079`) and applies it **after** the floor.
+
+So every number in F82 — the `12.0 → 9.0` half-width, the stall at step 3, the whole diagnosis — was measured in
+a configuration the product does not run. **[F97](#f97)'s `S-CARRIER-EXISTS` established that a carrier exists;
+it did not check that the carrier's CONFIGURATION reproduces the numbers**, and those are different claims.
+
+**Consequence, and it is a live risk rather than a theoretical one:** if the detect bound already clamps
+`maxHalfWidth` below the requested-span floor on `D01` in the product's configuration, then candidate (3′) is
+inert there and the fix decision is void. That is why the decision document makes it verification clause
+**`V-0`**, a **validity gate run before any code is written**, rather than an assumption.
+
+**The general lesson, which is [F68](#f68)'s fifth part wearing new clothes:** *establishing that a product path
+exists is not establishing that the product path was measured.* A harness flag that defaults off, against a
+product that supplies the value unconditionally, is a silent divergence between the thing measured and the thing
+shipped — and nothing in this series' controls looks for one.
+
+### F104 — `D01`'s two candidate gates release 36 660 high-tier candidates and re-capture takes 92 %: the joint is material and ADDITIVE, so F99's joint-recovery claim is refuted at a pre-registered bar
+
+**Status:** Closed — the product question is answered, and answered negatively · found 2026-08-13, wave 30,
+`RULE W30-G` = **`G-NOT-RECOVERABLE`** · `/mnt/d/hf_w30/w30g_score.txt`, `w30g_manifest.tsv`
+
+**[F22](#f22) FENCE, inline and mandatory:** on `D01_ultrawide_40mm` the detector's HFR over-reads by a large
+factor below ~1.1 px measured HFR and its autofocus already lands at `BestJ 0.994825`. **No count in this entry
+may be quoted as a recall or focus improvement for a user.** The only frame in which it may be read is goal 3 —
+*is a landed knob sitting at an extreme against the physics?*
+
+A 2×2 factorial on `MaxDistortion` (0.5 → 0.3) and `BrightnessSensitivity` (36.333 → 32.333, four axis steps
+**computed** from the product's own declaration), five run cells and two imported from wave 29, on
+`D01_ultrawide_40mm`, 9 frames per cell, on the B15 binary already on disk.
+
+| quantity | value |
+|---|---|
+| `Σ R_g` over all single-knob cells | **36 660** |
+| `Σ capture_g` | **33 884** |
+| `recapture` (pooled) | **0.9243** — bar 0.90 → **`G-2` True** |
+| `recapture` excluding the fenced `M4` | 0.9288 (agrees) |
+| `FN_total(M0)` | **50 249** |
+| material bar, **computed** as `0.01 × FN_total(M0)` | **502.5** |
+| `ΔTP(M3)`, the joint | **+1 572** |
+| `Σ ΔTP` over the unfenced singles `M1`+`M2` | **+1 480** |
+| `ΔTP(joint) ≥ 502.5` | **True** |
+| `ΔTP(joint) ≥ 2 × 1 480 = 2 960` | **False** → **`G-3` False** |
+
+**The joint IS material** (3.1× the bar; 3.1 % of all misses) **and it is essentially additive**: the
+interaction term is **+92**, a multiple of **1.06×** against a pre-registered bar of 2×.
+
+**Re-capture dominates, and the mechanism is one column of the published matrix.** `TooDistorted` at 0.3
+releases **12 090** candidates and **`LowSensitivity` absorbs 9 676 of them — 80.0 %.** Relaxing
+`LowSensitivity` by 11 % on top converts **92** of those 9 676 — **0.95 %**. A 36 σ bar relaxed by 11 % does not
+turn a low-fill blob into a detection, which is exactly the mechanism the pre-registration gave for predicting
+this outcome.
+
+**Goal-3 answer, and it is a negative.** No landed knob on `D01` is pinned against the physics in a recoverable
+way. `MinStarBoundingBoxSize` at 6 (against a shipped default of 5) is the one knob at an extreme, and its flow
+releases 9 537 candidates of which **3** reach acceptance. `MaxDistortion` landed mid-axis. **40.4 % of the
+misses live upstream of both gates** — `NO CANDIDATE (structure gap)` 8 931 and `TooSmall` 11 372 — where no
+setting of either gate can reach them. `D01`'s recall gap is the physics of a 19.4 ″/px rig with a ~0.7 px
+kernel.
+
+**Two rival predictions were registered before the data**, in the same pre-registration section, attached to
+two distinct terminal verdicts of the same 36-region tree: `G-JOINTLY-BOUND` (F99's) and `G-NOT-RECOVERABLE`
+(the design's). The data landed in the second. **Neither document could have claimed a hit it did not call**,
+and this is the strongest evidential form the series has produced.
+
+**Not measured, and owed by any ship that acts on this:** precision at the opened settings. 23–25 % of the
+distortion gate's acceptances were `ACCEPTED-elsewhere` — accepted but not matched to the star they were
+released from — against 5–10 % for the sensitivity gate. That is a signal, not a measurement; the pre-registered
+statistic reads only the false-negative attribution block. ~5 m to resolve.
+
+*(Design §16 assigned F104 to this verdict; the assignment holds.)*
+
+---
+
+### F105 — `golden_eval`'s first-rejection-wins attribution CONSERVES on real data, 5 of 5 cells, integer-exact — so waves 28's and 29's gate-count differences are safe to read
+
+**Status:** Closed — the model is checked · found 2026-08-13, wave 30, `RULE W30-G` clause `G-1` = HOLDS ·
+`/mnt/d/hf_w30/w30g_score.txt`
+
+Relaxing exactly one gate `g` changes no other threshold, so the report's attribution must satisfy, **exactly,
+in integers**:
+
+> `ΔNO-CANDIDATE = 0`; `ΔFN_h = 0` for every `h` strictly upstream of `g`; and
+> `R_g = Σ_{h downstream of g} ΔFN_h + ΔContaminated + ΔACCEPTED-elsewhere + ΔTP`
+
+**Five single-knob cells, five exact balances, no tolerance**, with every upstream invariant and the pre-chain
+`BloomSuppressed` stage returning zero:
+
+| cell | gate (position of 11) | `R_g` | balance |
+|---|---|---|---|
+| `M1` | `TooDistorted` (4) | 12 090 | ✓ |
+| `M2` | `LowSensitivity` (6) | 486 | ✓ |
+| `M4` | `TooDistorted` (4) | 14 425 | ✓ |
+| `L1` | `TooSmall` (1) | 9 537 | ✓ |
+| `L3` | `LowSensitivity` (6) | 122 | ✓ |
+
+Two of these (`L1`, `L3`) were pre-computed from wave 29's published artifacts before the pre-registration and
+balanced then. **Three (`M1`, `M2`, `M4`) were blind by design §8 and balanced on first contact.**
+
+**What it licenses.** The `G-MODEL-BROKEN` branch of the tree read: *"the report's first-rejection-wins
+attribution does not conserve, and **every gate-count difference in waves 28 and 29 is unsafe.**"* It did not
+fire. **First-rejection-wins is the correct model of the `FALSE-NEGATIVE ATTRIBUTION` block, and every
+Δ-on-a-bucket waves 28 and 29 published can be read as a flow rather than as a coincidence.** This is the first
+checked model of these reports in eleven waves, and it was granted by measurement, not by argument.
+
+**It can fail, and the failure is exercised.** Self-test `[2]` moves one bucket by one on a live fixture and the
+balance breaks; `[9]` drives a non-conserving cell to `G-MODEL-BROKEN` with a non-zero exit.
+
+**A design difference the instrument reported rather than repaired.** The design's hand-typed §4.1(c) chain had
+**7** gates; the arm's run-time extraction found **11** (`…, TooFlat, HFRAnalysisFailed, TooLowHFR,
+Contaminated`) plus the pre-chain `BloomSuppressed`. The design's formula named contamination as a separate
+terminal **and** the chain contains it as the last gate; counted twice it would have doubled. The scorer
+partitioned once, printed the difference, and **the five exact balances are themselves the proof that the
+11-gate partition is right** — the 7-gate one could not have balanced.
+
+---
+
+### F106 — A hand-carried debt ledger rots in BOTH directions, and the rot is measured: `P-D08` was published seven hours before the wave that listed it as owed
+
+**Status:** Open — the class is structural · found 2026-08-13, wave 30, `RULE W30-D` = **`D-STALE`** ·
+`/mnt/d/hf_w30/w30d_score.txt`
+
+`RULE W30-D` parsed wave 29's §11 *"WHAT WAS NOT RUN"* table out of the committed document (sha256 re-asserted
+at scoring time), resolved each of **14** rows to exactly one predicate with a declared **scope**, and searched
+six roots plus the docs directory. `D-0` held (14 parsed, heading matched once, 0 unresolvable, 6 of 6 roots
+present). `D-1` returned **False**: 6 of 10 debt-claiming rows have a satisfying artifact.
+
+**Two rows are genuinely stale**, and one of them is why the rule exists:
+
+- **`P-D08` at `n = 3`** — measured 09:06–09:08Z, published under a heading *"`# RESULT — P-D08 is REFUTED at
+  n = 3`"*, committed `e42e2df` at 09:09:37Z, artifacts at `/mnt/d/hf_w26/pd08/`. Wave 29's ledger listed it
+  **owed** at 18:05Z the same day. **Seven hours, inside a single day's run.** The cause: the search was for an
+  artifact *under the wave's own root* rather than for the measurement wherever it lives.
+- **the closing `V29`** — `vdrift_w29_CLOSING.txt`, 18:18:01Z, fourteen minutes **after** wave 29's roll call.
+  The ledger was true when written and stale by the time it was read.
+
+**This is [F85](#f85)'s class recurring** — a closed, shipped correction re-measured as an open defect — **and
+the gap is now under twelve hours.** The remedy is not to fix a row. It is to stop inheriting the list: resolve
+each row to a **checkable predicate with a declared scope**, where a **per-wave obligation** is discharged only
+under the ledger wave's own root and a **measurement** is discharged wherever its artifact lives. Applying the
+per-wave scope to a measurement row is the exact error that produced this stale debt, and the scope distinction
+is what found it.
+
+**Wave 30's own §10 ledger is written in that form** — one literal search command per row — and **withdraws
+four rows** rather than carrying them a further wave.
+
+*(Design §16 assigned F106 to the stale debt; the assignment holds. See F107 for the rule's own defect.)*
+
+---
+
+### F107 — A ledger checker whose row predicates are FILENAME globs converts a false "owed" into a false "already paid", which is the worse error: 3 of 6 on its first run
+
+**Status:** Open — diagnosed, unrepaired by design · found 2026-08-13, wave 30, verifying `RULE W30-D`'s own
+output · `/mnt/d/hf_w30/w30d_score.txt`, `/mnt/d/hf_w29/l/opt/L0/attempt01/optimize_summary.txt`,
+`/mnt/d/hf_w25/s1_arm_w25.sh`, `/mnt/d/hf_w27/s27_*`
+
+`RULE W30-D` named **six** already-paid rows. Checked against what each ledger row actually claimed:
+**two genuine, one true-but-circular, three false.**
+
+| row | matched | verdict on the match |
+|---|---|---|
+| **the 42 m `optimize` gate** | `hf_w29/l/opt/L{0..4}/…/optimize_summary.txt` | **FALSE.** Each is *"Runs root: `D01_ultrawide_40mm`; **Runs: 1**"* — a per-cell optimize from wave 29's own arm, not the 8-dataset `Q27-V1` gate. **And the row's own text reads "NOT OWED this wave"** — a row that disclaims the debt was scored as claiming one |
+| a full paired 18-cell S1 arm | `hf_w25/s1_arm_w25.sh` | **FALSE, twice.** The match is a **shell script**, not a run record; and the row's own text says *"a **second** arm buys a second `SAME 13`"* — wave 25's arm is the row's premise, not its discharge |
+| `S27-1` and wave 27's three mutants | `hf_w27/s27_*` (6 files) | **FALSE.** The glob matched wave 27's **`S27-4`** do-no-harm arm. The debt is `S27-1`'s **route agreement** (wave 27 §7.3: *"not adjudicated, by the scorer's own printed statement"*) and the **`M-S1`/`M-S2a`/`M-S2b`** records (§7.4: *"remain testimony"*). The one evidenced mutant, `M-S3`, was **never the debt**. One of the six matches, `s27_score.txt`, is a file the series has already annotated as unquotable |
+| localising `D01` | `hf_w30/w30g_manifest.tsv` | **TRUE BUT CIRCULAR.** Written by **wave 30's own arm** at 19:52:10Z and scored "already paid" at 19:53:49Z — **99 seconds later** |
+
+**Three defects, in increasing order of transferability.**
+
+1. **The specs are hand-typed filename regexes** — `^.*optimize.*\.(txt|log)$`, `^s1_arm.*$`, `^s27.*$`. The
+   rule replaced a hand-carried *list* with a hand-carried *regex*. **It rots the same way and it rots
+   silently**, because a glob that matches too much produces a confident wrong answer where a glob that matches
+   nothing produces a visible "not satisfied."
+
+2. **`D-1` has no time ordering.** A row paid seven hours *before* the ledger, a row paid fourteen minutes
+   *after* it, and a row paid *by the checking wave itself* all score identically. `paid_at <
+   ledger_written_at` is the missing comparison, and **both timestamps are already in the rule's own
+   manifest.** Without it, a wave that discharges an inherited debt will report itself as evidence that the
+   ledger rotted.
+
+3. **The validity clause cannot see any of this, by construction.** `D-0` asserts every row resolves to
+   **exactly one** predicate — 14 of 14, unresolvable 0, correctly. **A validity clause that checks a row
+   resolves *uniquely* cannot check that it resolves *correctly*.** This is the same shape as [F108](#f108):
+   asserting a key is *present* is not asserting it is the *right* key.
+
+**The direction of the error is what makes this high severity.** A false "owed" costs a re-run. **A false
+"already paid" retires an obligation nobody met** — row 1 would have retired the 42 m gate, row 6 a control
+open four waves that two wave-27 ship-clauses relied upon.
+
+**What works and should be kept:** the **scope distinction**. Every *unsatisfied* result the rule produced is
+correct — the wave-29 BEFORE fingerprint and the three scorer self-test captures were both scoped `ledger` and
+both correctly reported not satisfied — and the scope is what found `P-D08`. **The rule is not repaired and not
+re-scored**; `D-STALE` stands on its two genuine rows.
+
+---
+
+### F108 — A stale literal passed to `split()` silently widened a self-test's slice to the whole document, and no checker in this apparatus can see it: a stale ordinal used as a KEY is not printed output
+
+**Status:** Closed in the instrument (fixed and the fix asserted) · Open as a class · found 2026-08-13, wave 30
+· `/mnt/d/hf_w30/score_w30g.py:1176-1192`, `instrumentcheck/score_g_selftest.txt` (57) vs
+`w30g_selftest.txt` (59)
+
+`score_w30g.py`'s self-test clause `[6]` — the [F84](#f84) / `RULE S16` sensitivity fence, one of two fences the
+design declared load-bearing — sliced the artifact with the needle **`"READING: more than a tenth"`**. **The
+emitter stopped producing that text when the material bar became computed**: the `G-SINGLE-BINDS` reading line
+is now formatted from `G2_BAR` (`:857`, *"READING: more than %.0f%% of the released mass reached acceptance…"*)
+and the literal *"a tenth"* appears nowhere in the output.
+
+**`str.split()` on an absent needle returns a ONE-ELEMENT list**, so `[-1]` handed back **the whole document**.
+The assertion below it — *"the fenced name appears in no verdict sentence"* — stopped being about a verdict
+sentence and became a document-wide absence check that passes trivially. **It would have passed forever while
+asserting nothing.**
+
+**What caught it, and what structurally could not:**
+
+- the **blocking pre-flight** flagged the stale phrase **only where it was printed** — it found the emitter's
+  copy, not the self-test's;
+- **`V30-C` cannot see this copy at all.** `V30-C` scans **printing lines** for typed ordinals and counts; its
+  population this wave was **667** (*"printing lines 980, of which 273 carry a format slot and are skipped"*).
+  **A needle passed to `split()` is not printed output**, so it is outside `V30-C`'s population by construction.
+
+> **A checker that looks for typed ordinals in output cannot find a stale ordinal used as a KEY.**
+
+**The remedy is local and permanent:** assert the anchor is **present**, and assert the slice is a **proper**
+substring so it can never widen to the whole text again. The anchor was shortened to the stable prefix
+`"READING: more than "`. **Self-test `57 of 57` → `59 of 59`.**
+
+**Class and generalisation.** This is [F102](#f102)'s class — *a clause whose population quietly went empty
+while still printing a pass* — recurring **in the wave that built F102's remedy**, in a form that remedy does
+not cover: F102 makes populations printable and refusable, which works for populations the instrument
+**computes**, and **this slice was a population nothing ever counted.** The general rule: **`split()`,
+`partition()`, `find()`, `re.search(...).group()` and every other locate-by-literal idiom degrades silently to a
+no-op or to the identity when its literal goes stale, and a population counter on the *output* cannot observe
+the *key*.** Every such call needs its key asserted present and its result asserted a proper part.
+
+---
+
+### F109 — Waves 27–30 ship as ONE PR at the owner's instruction, and the design's stacked-base prescription was overruled: only the PR base prevents accretion, but consolidation is the owner's call
+
+**Status:** Closed — decided by the owner · 2026-08-13, wave 30 · `gh pr list`, `git merge-base`
+
+**Measured at wave 30's pre-registration:** #196 (`…wave27`) and #197 (`…wave29`) both targeted **`develop`**,
+so #197's own diff carried waves 27, 28 **and** 29 plus wave 27's C# ship — **25 files.** Wave 29 had opened a
+fresh branch specifically so *"#196 does not carry a third section"* and succeeded at that; **it did not stop
+the accretion, it moved it.** The design's diagnosis was that the mechanism is the PR **base**, not the branch.
+
+**The diagnosis was acted on; the prescription was rejected.** The design pre-registered a fourth branch with
+`--base ghilios/…wave29`, to make *"the first PR in this family whose diff is one wave."* **The owner instructed
+one PR instead.** #197 was re-targeted to `…wave27` (the design's own §0 recommendation, which it had declined
+to perform itself) and **merged**; **#199 was closed**; the branch was **rebased onto `develop @ ec06bec` and
+force-pushed** with `--force-with-lease`. Waves 27–30 now sit on `ghilios/synthetic-af-bank-followups-wave27` =
+**PR #196**, base `develop`, titled *"Waves 27-30: …"*.
+
+**Design §0's goal of a one-wave PR diff was not achieved and will not be.** Recorded as an overrule, not as a
+design success.
+
+**One measured consequence for the gate check.** Design §9's reversal check is
+`git diff --name-only <base> HEAD -- '*.cs'`. Against the **PR's** base it returns **7 C# files** from waves
+27's and 28's ships. Against **wave 30's own** base (`0b86a2e`) it is **empty**, as is
+`git ls-files --others --exclude-standard -- '*.cs'`. **Wave 30 changed no C# and owes no gate** — but `<base>`
+was written assuming one wave per PR, and a later reader running the check literally against the PR base would
+conclude otherwise. **From here on the check must name the wave's base explicitly.**
+
+---
+
+### AMENDMENTS TO EXISTING ENTRIES
+
+**[F99](#f99) — AMEND IN PLACE.** Append:
+
+> **AMENDED 2026-08-13, wave 30, `RULE W30-G` = `G-NOT-RECOVERABLE`
+> (`/mnt/d/hf_w30/w30g_score.txt`).**
+>
+> **The mechanism holds and is now quantified on the gate this entry named.** `TooDistorted` at
+> `MaxDistortion` 0.3 releases **12 090** high-tier candidates on `D01` and **`LowSensitivity` re-captures
+> 9 676 of them — 80.0 %.** At 0.2: 14 425 released, 11 652 re-captured. **This entry's central observation —
+> that a gate's entire yield can be absorbed one and two gates downstream, and that a `FN_total` difference
+> cannot see it — is confirmed on a second knob and a second gate.** Its methodological half, *"wave 30's rule
+> over sequential gates must read the per-gate flow, not the net,"* is **vindicated and superseded**: the flow
+> is now a conservation identity that balances exactly and can fail ([F105](#f105)).
+>
+> **The substantive hypothesis is REFUTED at the pre-registered bar.** This entry claimed *"`D01`'s binding
+> constraint is `TooDistorted`, **jointly with** `LowSensitivity`, and no single-knob change recovers it."*
+> Measured on the 2×2: `ΔTP(joint) = +1 572` against `Σ ΔTP(singles) = +1 480` — an interaction of **+92**, a
+> multiple of **1.06×** against the pre-registered bar of **2×**. **The pair does not bind jointly; the joint
+> is essentially additive.** It *is* material (1 572 ≥ the computed bar of 502.5) — so the second half of the
+> claim, *"no single-knob change recovers it,"* is also wrong in the direction that matters: `M1` alone
+> delivers 1 096, itself above the material bar. **[F22](#f22) fence: none of these counts may be quoted as a
+> recall or focus benefit; the frame is goal 3 only.**
+>
+> **Status → Closed.** The hypothesis was stated so it could be wrong, it was pre-registered as `PREDICTION A`
+> against a rival `PREDICTION B` in wave 30's design §4.6, and the data chose. That is the entry working as
+> intended.
+
+**[F98](#f98) — APPEND.** Wave 30 is the **first measurement of the low end** of the `MaxDistortion` axis.
+Measured at 0.3 and 0.2 on `D01`: no collapse, `R_g` = 12 090 and 14 425, pass-through 9.1 % and 8.3 %, marginal
+pass-through on the second dose **4.1 %**. **Part 1 (the instrument finding) is untouched.** **Part 2 (bound the
+axis at ~π/4 and rename) gains support at the top and gains a NEW precondition at the bottom**: 23–25 % of the
+distortion gate's acceptances at the opened settings were `ACCEPTED-elsewhere` (accepted, not matched to the
+star they were released from) against 5–10 % for the sensitivity gate. **A ship that bounds the axis at the top
+is supported; a ship that lowers the default at the bottom is not yet supported and owes a ~5 m precision
+measurement** (§10 row 7). The axis has 10 steps and wave 30 measured 3 of them.
+
+**[F103](#f103) — APPEND.** **The forward prediction hit 4 of 4, second consecutive wave.** Predicted at wave
+29 and measured at wave 30 (`vdrift_selftest_w30.txt` `[5b]`, 19:26:49Z): `/mnt/d/hf_w28` expired from **100
+`-B` findings to 0**; `/mnt/d/hf_w29` became the live `-B` fixture at **311**; `/mnt/d/hf_w24` held as the
+durable `-C` fixture at **2**, fourth wave running; `/mnt/d/hf_w26` and `/mnt/d/hf_w27` stayed silent at
+**0**. **A pinned per-clause fixture goes silent exactly one wave later, on schedule.** The expired roots are
+kept and asserted silent, so the expiry is demonstrated rather than described. **Wave 31's prediction, if there
+is one:** `/mnt/d/hf_w29` expires to 0 and `/mnt/d/hf_w30` becomes the live `-B` fixture.
+
+**[F94](#f94) — APPEND.** The `None` enumeration plus the **realized-tuple membership assertion** ran in **four**
+instruments this wave (`W30-G` 36 regions, `W30-D` 6, `V30` 12, `W30-FP` 18), every one printing `uncovered: 0`
+**and** its own realized tuple **and** `member of the enumerated set: True`. **It caught nothing this wave** —
+every tuple was inside its domain — and that is the honest report. What it *did* demonstrate is that the
+assertion can discriminate: `score_w30g.py`'s self-test `[13]` shows a tuple carrying `None` **is** a member and
+a tuple outside the declared domains **is not**, so the assertion can fail. **A check that cannot fire in a
+given wave is still worth its cost only if its firing end is exercised, and it was.**
+
+**[F102](#f102) — APPEND.** Every clause in every wave-30 instrument printed `candidates: N   findings: M`.
+**No clause printed an unexpected `N = 0` and no instrument refused with `POPULATION-EMPTY`** — the populations
+were 5/7/8/3/4/4/2 (`G-0`'s seven), 5 (`G-1`), 36 660 (`G-2`), 2 (`G-3`), 14 and 10 (`W30-D`), 12/5 026/667
+(`V30`), 1 230 (`W30-FP`). **But F102's class recurred anyway, in a place populations cannot reach** — see
+[F108](#f108). **F102's remedy covers populations the instrument computes; it does not cover a literal used as
+a key, which nothing counts.** The remedy is not weakened, it is bounded, and the bound should be written into
+it.
+
+**[F95](#f95) — APPEND.** Wave 30 ran the pre-flight **over a populated root** (7 files, 12 `-A` candidates,
+5 026 `-B`, 667 `-C`) **and at the close**, both from the pre-registration rather than from a debt, and the two
+runs are **byte-identical**. **Both halves of the remedy, from the start, for the first time.** One deviation
+against F95's neighbour requirement is recorded in §7.4: the `W30-FP` BEFORE sweep ran **26 minutes after**
+`V30`'s five fixture probes read `/mnt/d/hf_w29`, against design §6's bolded ordering. Consequence measured:
+none (`PRESERVED`, 0 moved). **The ordering must be enforced by the driver, not by intent.**
+
+**[F21](#f21) — APPEND.** Estimate vs actual, wave 30, sixth consecutive wave under on the analysis halves:
+
+| step | est | actual |
+|---|---|---|
+| 1 — write all 7 instruments | 60 m | **~39 m** (18:54:08 → 19:33:44Z) |
+| 2 — `W30-FP` BEFORE | 5 m | **≤ 60 s** |
+| 3 — `V30` pre-flight + 5 fixture probes | 15 m | **~7 m** |
+| 4 — the 5-cell arm | 25 m wall / ~15 m compute | **17 m 37 s wall / 1 057 s compute** |
+| 5 — `W30-G` scoring | 12 m | **~15 s** to emit |
+| 6 — `W30-D` | 15 m | **~2 m** |
+| 7 — the `K` column | 12 m | **NOT RUN** (§10 withdraws it) |
+| 8 — AFTER + closing `V30` | 8 m | **~2 m** |
+| **Steps 1–8 excluding 7** | **~140 m** | **~62 m — 56 % under** |
+
+**Two figures were priced from a measured rate and one of them was mildly optimistic.** The arm was priced at
+~950 s from wave 29's 145–198 s per cell and came in at **1 057 s, 11 % over** — because wave 29's two fastest
+cells were its two *dead* ones, so the reference rate was biased low. **A rate measured over an arm containing
+dead cells under-prices an arm with none.** The sweep price (3 m/side, from 61 MB/s over a trimmed 2.4 GB root
+set) was **generous by ~3×**: both sides completed in ≲ 2 minutes. **New constant handed forward:** 1 230 files
+across 6 declared roots sweep in **under a minute** on DrvFs. **And it could only be bounded, not measured** —
+see §8.3: the fingerprint records no start time.
+
+**`S27-1` and wave 27's three mutants — WITHDRAWN**, formally, after four waves on the cut list, per design §16
+and wave 29 §13. **And note that [F107](#f107) shows `RULE W30-D` falsely reported this row already paid** — it
+matched wave 27's `S27-4` arm. The withdrawal is on the merits, not on that match.
+
+**`docs/synthetic-af-bank-results-table.md`'s `K` column — WITHDRAWN**, per design §13's own rule for this item.
+Owed by waves 28, 29 and 30; unpaid by all three. `kcol_w30.py` remains on disk with a `21 of 21` self-test and
+can be run in ~2 m by any later ship.
+
+---
+
+### F96 — The harness's `stepBehavioral` "truth" is a fixed point of the recommender it scores, so every goal-2 conclusion is denominated in a bar the code under test produces
+
+**Status:** Open (diagnosed to a line; no fix priced) · found 2026-08-13, wave 29, `RULE W29-S` clause `S-a`
+= HOLDS · `/mnt/d/hf_w29/w29s_score.txt`
+
+`SynthValidateRunner.ComputeStepBehavioral` (`:1213–1270`) builds an analytic curve, fits it, calls
+`StepSizeRecommender.Recommend` at **`:1262`**, and loops until `rec.StepSize == step`. `RULE W29-S` asserts
+from source, at `HEAD`, by sha256, that the method is **declared once**, contains **exactly one** `Recommend(`
+call site inside its body (whole-file count 2, at `:792` and `:1262`, printed so the scoping is visibly doing
+work), and is the **only writer** over 70 harness files of the value serialized as `terminal.stepBehavioral`.
+
+**Consequence.** A change to `Recommend` moves the bar **and** the measurement together. This is the mechanism
+behind [F82](#f82)'s observation that `stepBehavioral` moved 8.0 → 9.0 across wave 25's two arms while it was
+identical on the other 17 cells: wave 25 changed `Recommend`. **Assertion `A3`, and every goal-2 statement in
+waves 20–29 that quotes `stepBehavioral` as truth, is a self-consistency check and not an accuracy measurement.**
+
+**What it does NOT say.** It does not say the recommender is wrong; a fixed point can be correct. It says the
+harness cannot tell. **The remedy is a spec-derived truth model** — backlog item 4's `A4` gap, priced at 20 m
+of code **+ 42 m of gate** because it rebuilds `TestApp`.
+
+**Note on scope.** Design §14 pre-registered F96 as a two-part entry — the truth-model coupling **and** "F82's
+fix has no product carrier" — to be **withdrawn in place** on `S-CARRIER-EXISTS`. The verdict was
+`S-CARRIER-EXISTS`, so **the carrier half is withdrawn and is not registered.** The coupling half is `S-a`,
+which held, and stands.
+
+---
+
+### F97 — F82's shrink-while-widening transition occurs on exactly ONE cell in the bank, and on ZERO of the fifteen that were blind
+
+**Status:** Open (measured; F82's fix choice unchanged) · found 2026-08-13, wave 29, `RULE W29-R` =
+**`R-STANDS`** · `/mnt/d/hf_w29/w29r_score.txt`
+
+Wave 26 pre-registered a reversal condition on its choice between F82's two fixes — *"if a later wave measures
+that `SearchSpan` … shrinks on more than a single cell while the requested sweep widens, then … (2) becomes
+correct."* **Three waves quoted it; none ran it.** Wave 29 ran it at zero compute over the 18 addressable
+paired S1 cells under `/mnt/d/hf_w25/after`, via the exact inversion
+`impliedSearchSpan = stepRecommendation.halfWidth / (1.5 × 0.5)`, with the multiple asserted `= 1.5` at **both**
+the B15 tree `29665a62e4f8` and `HEAD`, and with all 37 rounds confirmed capped-or-floored and none
+detect-bounded before any statistic was taken.
+
+```
+k = 18   c = 1   c_blind = 0   qualifying cells: ['D01_ultrawide_40mm']
+```
+
+**`c = 1`, and the one cell is `D01`, which was already burned.** `D05_tec140_1000mm` and
+`D19_cygnus_deep_shed` produced no report and **left the denominator** as named `CNL-NOREPORT`, never as zeros.
+
+**What this changes.** F82 is real and (per [F98's sibling finding in `RULE W29-S`](#f96)) reaches a real
+product path — but it is **rare, not general**: one cell in eighteen, zero in fifteen blind. On all 17 other
+cells the implied and requested spans move together on every transition. **Anyone pricing a fix should price it
+against 1 of 18, not against the 37-of-37 capped-or-floored population.** Wave 26's choice of fix (1) stands on
+wave 26's own grounds; the reversal condition is now **evaluated** rather than merely unexamined.
+
+**Blindness spent.** Producing this verdict required publishing the per-cell table for all 18 cells, so the 15
+formerly-blind cells' `halfWidth`/`bootstrap`/implied-span values are now read. See F100.
+
+---
+
+### F98 — `MaxDistortion` is a MINIMUM fill-ratio despite its name, and 0.9 is above the ~0.79 ceiling of a perfect disk, so a whole arm cell was dead before it ran
+
+**Status:** Open — **candidate goal-3 product finding** · found 2026-08-13, wave 29, `RULE W29-L` =
+**`L-UNEVALUATED`** · `/mnt/d/hf_w29/w29l_score.txt`, `/mnt/d/hf_w29/l/out/L{0,2,4}.log`
+
+`StarDetector.cs:1804` rejects a candidate as `TooDistorted` when `fillRatio < effectiveMaxDistortion`. The
+parameter is a **lower bound on bounding-box fill ratio**; **raising it tightens the gate.** The file's own
+comment at `:1786` states the ceiling: *"a perfect disk fills ~PI/4 ≈ 0.79."* With `DefocusAwareGates: false`
+in `D01`'s landed tree, `ComputeEffectiveMaxDistortion` returns `p.MaxDistortion` verbatim.
+
+Wave 29's design §6 pre-registered `MaxDistortion` **0.5 → 0.9** under the heading *"one knob relaxed per
+cell"*. Measured result on `D01`, 9 frames: **`TP=0 FP=0 FN=110384`, `recall@high = 0.000 (0/62 411)`** on
+both `L2` and `L4` — total detection collapse. Corroborated by wall clock: `L2` (152 s) and `L4` (145 s) were
+the two **fastest** cells in a five-cell arm, because nothing survived the gate to do downstream work.
+
+**Two findings, and they are separable.**
+
+1. **The instrument finding.** A pre-registration can specify a knob edit whose *direction* no clause reads.
+   The arm's self-test proved the edit was **surgical** (`33 of 33`, *"exactly 1 file changed"*, *"an unnamed
+   field is UNCHANGED"*) — surgical is not correctly signed. `RULE W29-L`'s verdict is
+   **`L-UNEVALUATED`** and it stands; the cell was not re-run at a corrected value and scored.
+2. **The product finding.** `OptimizerVariable.cs:176` declares the searchable axis
+   `Continuous(nameof(StarDetectorParams.MaxDistortion), 0.1, 1.0, 0.1)`. **The upper ~21 % of that axis
+   (> π/4 ≈ 0.785) is provably detection-killing for round stars** — any value above the perfect-disk fill
+   ratio rejects every candidate. A searchable range whose top fifth returns zero detections is a parameter
+   space that wastes optimizer evaluations, and the name `MaxDistortion` reads as the opposite of what it
+   gates. **Worth ~20 m to bound the axis at π/4 and rename or document the field; owes the 42 m gate because
+   it touches plugin code.**
+
+---
+
+### F99 — Relaxing the bounding-box floor on `D01` releases 9 537 candidates and three survive: the binding gates are downstream, and the pre-registered statistic could not see it
+
+**Status:** Open — the hypothesis wave 30 should pre-register · found 2026-08-13, wave 29 ·
+`/mnt/d/hf_w29/l/out/L{0,1}/attempt01/golden_eval.txt`
+
+> #### AMENDED, wave 30 — the mechanism HOLDS, the joint-recovery claim is REFUTED at a pre-registered bar
+>
+> `RULE W30-G` = **`G-NOT-RECOVERABLE`**, on a 2x2 factorial with `MaxDistortion` opened in the **correct**
+> direction (lowered; wave 29 raised it and killed two cells before they ran, F98).
+>
+> **What holds:** the two gates release real mass — 36 660 high-tier candidates across the cells — and the
+> conservation identity balances **integer-exact on 5 of 5** real cells (F105), so the flow account this entry
+> rests on is sound.
+>
+> **What is refuted:** the *joint recovery* claim. `dTP(joint) = +1572` against a summed-singles `+1480` and a
+> pre-registered synergy bar of `2 x singles = 2960`. The joint clears the **material** bar (502.5, computed as
+> `0.01 x FN_total`) and is **essentially ADDITIVE, not synergistic**, while `G-2` shows **re-capture dominates
+> at 92 %** — what one gate releases, the gates downstream take.
+>
+> **The outcome was called either way.** Wave 30 registered TWO differing predictions before the data — this
+> entry's (`G-JOINTLY-BOUND`) and the pre-registration's own (`G-NOT-RECOVERABLE`) — so neither result let the
+> wave claim a hit it had not called. That is the strongest form of evidence this series has produced.
+>
+> **[F22](#f22) fences the reading:** on this rig HFR over-reads badly below ~1.1 px and autofocus already
+> lands, so **none of this may be quoted as a focus improvement**. The deliverable is which gate binds, a
+> goal-3 question.
+
+`RULE W29-L`'s pre-registered statistic is the difference in `FN_total`. On `D01`, lowering
+`MinStarBoundingBoxSize` 6 → 3 gives `FN_total` 50 249 → 50 246, i.e. **−3**, which reads as "this gate does
+almost nothing". The per-gate blocks in the same artifact say otherwise:
+
+| gate | `L0` | `L1` (MinBox 6→3) | Δ |
+|---|---|---|---|
+| `REJECTED:TooSmall` | 11 372 | 1 835 | **−9 537** |
+| `REJECTED:TooDistorted` | 14 876 | 20 573 | **+5 697** |
+| `REJECTED:LowSensitivity` | 13 612 | 17 426 | **+3 814** |
+| others | | | +23 |
+
+**9 537 high-tier candidates were released from the bounding-box floor and 99.97 % of them were immediately
+re-caught by `TooDistorted` and `LowSensitivity`. Three reached acceptance.** The gate is not inert; its entire
+yield is absorbed one and two gates downstream.
+
+**The lesson is about the statistic, not the detector.** A first-rejection-wins attribution differenced only at
+the *total* cannot distinguish a gate that never fires from a gate whose output is fully captured downstream.
+**Wave 30's rule over sequential gates must read the per-gate flow, not the net.** And the substantive
+hypothesis this generates, stated so it can be wrong: **`D01`'s binding constraint is `TooDistorted`, jointly
+with `LowSensitivity`, and no single-knob change recovers it** — which is `L-JOINTLY-BOUND`'s claim arrived at
+by a different route than the rule that could not evaluate it.
+
+---
+
+### F100 — A blindness ledger that promises a quantity will stay unread, beside an instrument that must read it, burns the population at pre-registration time
+
+**Status:** Recorded (the burn is spent; the structural fix is cheap) · found 2026-08-13, wave 29 ·
+design §7 vs `/mnt/d/hf_w29/w29r_score.txt`
+
+Wave 29's design §7 wrote: *"the requested-vs-implied comparison has **never** been computed on any other
+cell"*, and named the 15 non-burned cells as **BLIND, and carrying `W29-R`'s verdict**. The same document's
+§5.3 pre-registered a scorer that computes exactly that comparison over all 18 addressable cells and prints
+`c` and `c_blind`. **`w29r_score.txt` publishes the full 18-row table.** The ledger's claim is now false, and
+the instrument that falsified it was commissioned by the document that made the claim.
+
+**The rule was not tuned** — `W29-R` is implemented exactly as §5.3 writes it, and its verdict was taken on the
+first computation of the statistic, which is what blindness protects. **But it is the last verdict on this
+population that can claim blindness.** Any future rule over `SearchSpan` persistence on `/mnt/d/hf_w25/after`
+has no blind cells left.
+
+**Fix, ~5 m per wave:** the design's blindness ledger must be checked against the design's own instrument
+specifications before the pre-registration commit — every quantity the ledger promises stays unread must not
+appear in any clause's per-member output. Nothing does this today.
+
+---
+
+### F101 — The derivation checker's `historical_ranges` has now failed THREE generations, each time with a passing self-test
+
+**Status:** Repaired in wave 29's checker; the pattern is the entry · found 2026-08-13, wave 29 ·
+`/mnt/d/hf_w28/verify_derivation_w28.py:579`, `/mnt/d/hf_w29/verify_derivation_w29.py:224–238`
+
+[F87](followups.md) recorded this function eating its own file; wave 27 repaired it; wave 28's design required
+the repair be carried forward and demonstrated, and wave 28's self-test clause `[6]` did demonstrate both ends
+it knew about. **It was still broken.** Wave 28 counted brackets on the **raw** line, so an unbalanced `[` or
+`{` inside a **string literal** opened a phantom block that ran to EOF. Measured on wave 28's own 599-line
+file:
+
+```
+ranges computed by WAVE 28's own function: [(93, 120), (557, 565), (579, 598)]
+  range 579 -> 598   opener: defonly = ['HISTORICAL_BLOCKS = ("PRIOR_BUILD_IDS", "ALLOW = [")',  ...
+   *** RUNS TO EOF ***
+```
+
+**29 of 599 lines of wave 28's own checker, including its tail, were exempt from `V28-B` and `V28-C` for the
+whole of wave 28.** It concealed nothing — every token in the exempt span is wave 28's own wave id — and that
+is luck, not design. Wave 29 blanks string literals length-preservingly before counting and asserts all four
+ends in clause `[6]`, including *"a token INSIDE the declared historical literal is NOT reported"*.
+
+**The durable finding is the pattern:** three generations, three passing self-tests, because each generation's
+self-test tested the ends the previous generation broke. **A self-test that only covers the last bug found is a
+regression test, not a specification.**
+
+---
+
+### F102 — `V28-C` returned zero because its population was almost empty: 124 of 126 printing lines in wave 28's scorers were never scanned
+
+**Status:** Repaired in wave 29's checker; the vacuity class is the entry · found 2026-08-13, wave 29 ·
+`/mnt/d/hf_w28/verify_derivation_w28.py:170`, `/mnt/d/hf_w29/verify_derivation_w29.py:160`
+
+`V*-C` forbids typed ordinals and counts in an instrument's printed output. Wave 28's line-selector was
+`\b(print|log|echo|printf|Prog|tee)\b`; wave 28's three scorers emit through `out.write(`, which matches none
+of it. Measured over `score_w28b.py` (36), `score_w28n.py` (52), `score_w28s.py` (38):
+
+```
+out.write( lines total : 126
+matched by w28 PRINTS  : 2      (incidentally -- the string being WRITTEN contained a keyword)
+matched by w29 PRINTS  : 126
+```
+
+**Wave 28's `V28-C: 0` was vacuous.** Wave 29 widened the selector to
+`\b(?:\w*[._])?(?:printf|print|echo|log|write|emit|say|tee|Prog)\b` and **demonstrated** the widening rather
+than asserting it — self-test `[3]` carries *"V29-C via `out.write` fired on its own mutant"* and *"V29-C via
+an underscored helper fired on its own mutant"*.
+
+**The class, which is the same as F101's and should be read with it:** a clause can pass for three waves
+because it has no candidates, and **no verdict tree in this series distinguishes "zero findings" from "zero
+candidates".** [F94](followups.md) made trees total over their *outcomes*; nothing makes a clause report its
+*population*. **~10 m to make every clause print `candidates: N   findings: M` and refuse on `N = 0` where a
+population is expected.**
+
+---
+
+### F103 — A pinned per-clause fixture goes silent exactly one wave later, as predicted in an instrument's own header and confirmed by measurement
+
+**Status:** Closed as a mechanism; standing obligation to re-measure each wave · found 2026-08-13, wave 29 ·
+`/mnt/d/hf_w29/vdrift_selftest_w29.txt` `[5b]`, `vdrift_probe_hf_w2{4,6,7,8}.txt`
+
+Wave 28 pinned `/mnt/d/hf_w27` as its live `V28-B` fixture and wrote into its own instrument's header that such
+a pin expires one wave later, because `PREV` advances and last wave's tokens stop being "previous-wave". Wave
+29 measured all four candidate roots before pinning anything:
+
+| root | `-A` resolving | `-B` findings | `-C` findings | role |
+|---|---|---|---|---|
+| `hf_w24` | 1 of 1 | 0 | **2** | durable `-C` fixture, third wave running |
+| `hf_w26` | 2 of 6 | **0** | 1 | expired at wave 28; kept and **asserted silent** |
+| `hf_w27` | 1 of 5 | **0** | 1 | **EXPIRED as predicted** — wave 28's live `-B` |
+| `hf_w28` | 0 of 5 | **100** | 1 | the new live `-B` |
+
+**This is the strongest evidence class this series has produced**, and the reason is structural: it is a
+**falsifiable forward claim about the instruments, written before the measurement, with a stated mechanism, and
+checked one wave later.** Everything else in the series is a rule scored against artifacts that already
+existed. **`hf_w28` is next to expire; wave 30 must re-measure and must treat a clause with no live fixture as
+a FAIL, not a pass.**
+
+---
+
+### AMENDMENTS TO EXISTING ENTRIES
+
+**[F82](followups.md) — AMEND IN PLACE. Its fix choice stands; its scope, its generality and its truth
+model are now measured.** Append:
+
+> **Amended 2026-08-13, wave 29.** Three things about this entry were unmeasured when it was written.
+>
+> 1. **The "truth of 9" is a PRODUCT-DERIVED FIXED POINT, not a spec-derived truth.** `terminal.stepBehavioral`
+>    is `StepSizeRecommender.Recommend` iterated to a fixed point by
+>    `SynthValidateRunner.ComputeStepBehavioral:1262` — see **F96**. `D01`'s stall is measured against a bar the
+>    recommender itself produces, and wave 25 moved both together.
+> 2. **"Confined to the recommender's caller state" names a caller, and it is
+>    `StarDetectionOptimizerWizardVM.CaptureNewSweepAsync` (`:5012`).** `RULE W29-S` clause `S-b` returned
+>    **FALSE**: of `BuildSummaryAsync`'s five callers, `CaptureNewSweepAsync` takes a **fresh sweep**
+>    (`RunLiveAttemptAsync`, `:5071`), calls `BuildSummaryAsync` at `:5098`, and carries the previous round's
+>    recommended geometry forward through the instance field `recaptureStepSize` (`:2608`, assigned `:5037`,
+>    consumed `:3236`). **F82 is a real product defect on a real product path**, and the wave-29
+>    pre-registration's claim that it "reaches no user" and "scores goal 2 zero" is **withdrawn**.
+> 3. **Its generality is one cell in eighteen.** `RULE W29-R` = `R-STANDS`: `k = 18`, `c = 1`, `c_blind = 0`.
+>    The only qualifying cell is `D01` itself. See **F97**. Wave 26's choice of fix (1) stands, on wave 26's
+>    own grounds, with the escape clause now **evaluated** rather than unexamined.
+> 4. **A third candidate fix is registered and deliberately NOT chosen** (wave 29 design §4.4): bound
+>    `maxHalfWidth` below by the span the sweep actually **requested**, guarded by
+>    `BandDemonstrablyUnsampled(sampledHfrRange)`. `RULE W29-S` clause `S-c` **HOLDS** — the requested positions
+>    are in `SweepDetectability.FrameFocuserPositions`, reachable inside `Recommend` via
+>    `MeasureMaxUsefulHalfSpan`. It needs **no cross-round state and no `A3` re-derivation**, which makes it the
+>    cheapest of the three (~45 m + a 3-cell re-run + the 42 m gate) and is precisely why the wave that thought
+>    of it did not select it. **The next wave pre-registers the choice among three.**
+
+**[F81](followups.md)** — append: the floor F81 shipped **is** reached in the product on a re-swept round, not
+only at round 0 of a session. `CaptureNewSweepAsync` (`:5012`) re-captures and carries `recaptureStepSize`
+forward, so the wizard's `Capture new sweep` path has genuine cross-round sweep state. The `Continue` and
+`Re-optimize` paths do not — they call `LoadRunStampedAsync` and re-optimize already-captured frames — so on
+those two the floor is inert after round 0, and that half of the original claim stands.
+
+**[F94](followups.md)** — append: wave 29's design §10 is the first in the series to publish its own outcome
+space as a table, and **every scorer re-derived it in code and agreed with the published counts**: `W29-S`
+**8 / 0 uncovered**, `W29-R` **4 / 0**, `W29-L` **8 / 0** — matching design §10's three tables exactly — and
+`V29`, which §10 declared as inheriting wave 28's tree without a count, re-derived **12 / 0** including the
+`A=None` empty-population region. The two logically-unreachable regions (`R-INCOHERENT`, `L-INCOHERENT`) are
+present, asserted empty, and checked against the measured numbers (`c = 1 ≤ k = 18 is True`; `L-1 ∧ L-2 =
+False`). **The remedy works for outcome coverage.** It does **not** cover two adjacent failures found this wave: a clause whose *population* is
+empty (**F102**) and a clause whose realized value is **neither `True` nor `False`** — `W29-L` ended at
+`L-0 = True, L-1 = None, L-2 = None`, a state outside the enumerated boolean cube, yet the scorer still printed
+`uncovered: 0` and appended a canned `READING:` line saying *"the control did not hold"* **when `L-0` in fact
+HELD**. The tree was total over booleans and the run was not a boolean. **Trees must enumerate `None` as a
+clause value, and a verdict's explanatory text must be derived from the clause values rather than templated per
+verdict name.**
+
+**[F95](followups.md)** — append: **the remedy's first half works and was proved this wave.** Wave 29's plan
+ordered instruments (Step 1) before the blocking pre-flight (Step 2); the last instrument was written at
+`17:01:28Z`, the pre-flight ran at `17:35:55Z` over a **populated root of 7 files**, and returned `V-CLEAN`
+with `SELFTEST V29 27 of 27`. Wave 28's equivalent certified **one file**. **The second half did not run** —
+the closing `V29` (`vdrift_w29_FINAL.txt`) has no artifact, against design §11's *"NOT cut, at any budget."*
+Both halves are needed and the series has now demonstrated one of them.
+
+**[F21](followups.md)** — append wave 29's per-step estimate vs actual (§10). Steps 1, 2, 4, 5 and 6 all landed
+**under**; the only two that overran were the two priced from instinct rather than from a measured rate
+(fingerprint sweeps, §10). Measured constant for future waves: **the six declared read-only roots are ~41.8 GB
+/ 2 452 files and hash at ~61 MB/s, i.e. ~12 m per sweep, ~24 m for a two-sided fingerprint.**
+
+**`docs/synthetic-af-bank-results-table.md`** — still owed from wave 28: the `K` column from `truthModel`
+(`max(hfrMin, hfrMinEffective)`), the note that `D01`/`D02`/`D03` are the only three floored by the generator,
+and **no 2–4 px band claim below the band** (`W28-B` = `B-SPLIT`). **Not paid this wave.** ~10 m.
+
+---
+
+### F92 — The post-wavelet blur is WELDED to `StructureLayers`, so one knob sets two opposing scale cutoffs
+
+**Status:** **Open — source-derived, zero compute, and it re-opens [F43](#f43)** (2026-08-13, wave 28,
+`RULE W28-S` = `S-WELDED`, 3 of 3)
+
+`StarDetector.cs:631-632` blurs the structure map immediately after the à trous residual is subtracted:
+
+```csharp
+// Step 5: Excluding large structures can cut off the outsides of large stars, or leave holes when far out
+//         of focus. Blurring smooths this out well for structure detection
+CvImageUtility.ConvolveGaussian(structureMap, structureMap, p.StructureLayers * 2 + 1);
+```
+
+with `sigma = 0.159758 * kernelSize` when unset (`CvImageUtility.cs:80-82`). At the shipped
+`StructureLayers = 4` the kernel is 9×9 and **σ ≈ 1.44 px**, so a 1-px source loses roughly `1/(2πσ²) ≈ ×0.077`
+of its peak amplitude **before** it is compared against
+`binarizeThreshold = median + NoiseClippingMultiplier · sigma` (`:653`).
+
+**The blur's stated purpose is to help LARGE and defocused stars, and its entire cost falls on small ones.**
+Its width is keyed to `StructureLayers`, which is the knob for the *upper* scale cutoff — the shipped tooltip
+says so: *"At the default of 4 (2⁴=16), structures larger than 16 pixels in size are excluded"*
+(`OptionsDataTemplates.xaml:444`). **Lowering `StructureLayers` therefore narrows the blur (helps a 1-px star)
+and makes the residual less smoothed (hurts it), in one move.**
+
+**Measured as a rule, both hashes recorded** (`/mnt/d/hf_w28/w28s_score.txt`, `StarDetector.cs`
+`1e202777…`, `IStarDetector.cs` `5304ed5f…`): the width argument is literally `p.StructureLayers * 2 + 1`
+(raw, **not** `EffectiveStructureLayers`); **no** member of `StarDetectorParams` — 55 properties — controls the
+blur width independently; and `EffectiveStructureLayers(p)` reaches the residual at `:619`/`:622` and appears
+**0 times** in the blur's argument list. The defocus/donut boost (`:1567-1578`) already decouples them in one
+direction, so **there is precedent for decoupling the other.**
+
+**Consequence for the register:** [F43](#f43)'s *"`StructureLayers` 4 → 2 makes it strictly worse"* moved both
+cutoffs at once and is **confounded in source**. The experiment that separates them has never been run.
+
+**Price to run it:** ~45 m code (a dedicated blur-width field defaulting to today's expression, so the default
+is bit-identical) + ~10 m arm; **plus a fresh 42 m `optimize` baseline and a re-derivation if it is ever to
+ship**, because the change reaches the detector. Design §11 defers it; `RULE W28-N` (see [F93](#f93-ready-to-paste))
+is the evidence that the amplitude account it rests on is correct.
+
+### F93 — `NoiseClippingMultiplier` is the binding gate below the calibrated band on the bank too — with one dataset where it is not enough
+
+**Status:** **Open — measured, and explicitly NOT a licence to change a default** (2026-08-13, wave 28,
+`RULE W28-N` = `N-RECOVERS`, 3 of 3) · corroborates [F43](#f43) on synthetic frames · bounded by [F22](#f22)
+
+[F43](#f43) found that on a reporter's **real** 61 MP 19.4″/px rig the binding gate was `NoiseClippingMultiplier`,
+not `Sensitivity`. Wave 28 ran it on the bank: 3 floored datasets × `NC ∈ {landed, 2.0, 1.0}`, no build, one
+edited field per cell, 432 s.
+
+| dataset | `NC` landed | high-tier `NO CANDIDATE` landed → `NC 1.0` | `recall@high` landed → `NC 1.0` | `recall@all` | precision at 1.0 |
+|---|---|---|---|---|---|
+| `D01_ultrawide_40mm` | 3.8125 | 42 991 → **8 931** (−79.2 %) | 0.183 → **0.195** | 0.123 → 0.183 | 1.000 |
+| `D02_rich_135mm` | 3.9375 | 3 732 → **1 071** (−71.3 %) | 0.446 → **0.687** | 0.377 → 0.598 | 1.000 |
+| `D03_redcat_250mm` | 3.625 | 197 → **7** (−96.4 %) | 0.365 → **0.549** | 0.238 → 0.364 | 1.000 |
+
+**The mechanism is confirmed and the payoff is not uniform.** `D02` and `D03` recover a quarter and a fifth of
+`recall@high`. **`D01` does not:** 34 060 high-tier candidates now form, **97.8 % of them are re-rejected by a
+later gate** (`TooDistorted` +13 866, `LowSensitivity` +12 826, `TooSmall` +6 515), and `recall@high` moves
++0.012. Its attribution profile inverts — `NO CANDIDATE` 84.3 % → 17.8 %, gates 12.1 % → 79.3 % — so **at
+`NC = 1.0` `D01` looks like `D02`/`D03` did at their landed settings.** The gates fire in sequence
+(`TooSmall` → `OnBorder` → `TooDistorted` → `Degenerate` → `LowSensitivity`), so those counts are
+first-rejection-wins and **which gate binds on `D01` is NOT established.**
+
+**Three things this entry does not say.** (1) It is **not a ship**: no wave-28 rule pre-registered a change on
+this axis, and the optimizer *chose* the landed values under an objective that charges nothing for a missed
+detection ([F83](#f83)). A default or search-bound change owes its own wave with a fresh baseline. (2) The
+`precision = 1.000` is **1.000 at baseline too**, so `N-3` shows no detected cost rather than a measured cost of
+zero. (3) [F22](#f22) still binds: below ~1.1 px measured HFR over-reads by up to +234 %, so **stars recovered
+below the band carry an HFR that cannot resolve the vertex** — and `D01` already reaches `BestJ` 0.994825.
+
+**Artifacts:** `/mnt/d/hf_w28/nc/<dataset>_nc<v>/attempt01/golden_eval.txt`, `w28n_score.txt`,
+`w28n_manifest.tsv`. The three landed cells reproduce the published `table18` rows exactly, so every delta is
+attributable to the one edited field.
+
+### F94 — Verdict trees keep shipping with uncovered regions, and the standing rule against it did not stop the second one
+
+**Status:** **Open — a class, now on its THIRD consecutive wave, and wave 29 found the reason the fix does not
+work** (2026-08-13, waves 27–29) · generalises wave 27 §8.1 · belongs beside [F68](#f68) part 5
+
+> #### APPEND, wave 29 — the coverage PROOF is the thing that is wrong, not just the tree
+>
+> Wave 29 answered F94 by **enumerating every tree and printing `uncovered: 0`** on all five instruments. It
+> was not enough, and the failure is instructive.
+>
+> `RULE W29-L` printed `regions enumerated: 8   uncovered: 0` and then ran to the clause state
+> **`(L-0=True, L-1=None, L-2=None)`** — a triple its own enumeration **never visits**, because the
+> enumeration ranges over `{True, False}` and the clauses are three-valued: `L-1` and `L-2` are `None` when
+> `joint` is not positive, which is a could-not-look and not a `False`.
+>
+> **A tree proved total over `{True, False}` is not total over `{True, False, None}`**, and every rule in this
+> series that has a could-not-look state has three-valued clauses. So the remedy waves 28 and 29 adopted —
+> enumerate and assert `uncovered: 0` — **proves the wrong totality** and will keep printing a clean coverage
+> line beside an uncovered state.
+>
+> **The corrected remedy: enumerate over the clause's ACTUAL value domain, `None` included, and assert that
+> the verdict function is total over THAT product.** A cheap check that would have caught it: assert the run's
+> own observed clause tuple is a member of the enumerated set, which costs one line and cannot be satisfied by
+> a proof of the wrong thing.
+>
+> Wave 29's `w29l_score.txt` also shipped a **false explanatory sentence** on the same run — *"the control did
+> not hold"* when `L-0` **held** (8 fields, 0 disagreeing). The verdict `L-UNEVALUATED` is correct on the
+> numbers; only the prose was wrong. It is annotated in place on the artifact rather than edited out.
+
+Wave 27's `RULE T27` tree left `3 ≤ union ≤ 9` with neither set at 5 uncovered, and the scorer printed
+`T-TREE-GAP` rather than papering over it. Wave 28's design §12 turned that into a standing rule — *"every
+verdict tree in this wave is checked for total coverage of its outcome space at pre-registration"* — and then
+**`RULE W28-N`'s tree shipped with 4 of 135 regions uncovered, every one of them a region where `N-1` is
+false.** `N-1` is the clause that checks the edit took effect; a run where it silently did not would have scored
+`N-RECOVERS` on the tree as written.
+
+**The pattern is specific and predictable: the uncovered region is always the VALIDITY clause.** `N-2` and `N-3`
+are substantive and appear in every branch; `N-1` is the gate that says the measurement happened at all, it is
+expected to hold, and it fell out of the tree. `W28-S` (27 regions) and `W28-B` (432 regions) both enumerate
+clean — and neither has a validity clause outside its own conjunction.
+
+**Remedy, and it is mechanical rather than a reminder:** a design must **enumerate its own outcome space at
+pre-registration** — the scorers already do this in code, and printing `regions enumerated: N   uncovered: 0`
+costs nothing — and **every clause, including the ones expected to hold, must appear in the tree.** A scorer
+that finds a gap prints `<RULE>-TREE-GAP`, enumerates the uncovered regions, prints what the design's literal
+tree would have said, and **does not repair and re-score** (`/mnt/d/hf_w28/w28n_score.txt`, self-test [5]).
+
+### F95 — A blocking pre-flight that runs before the instruments exist certifies an empty population
+
+> **NARROWED the same day, and the narrowing is the useful part.** The pre-flight was **re-run over the
+> populated root** and returns **`V-CLEAN`: 7 files checked, `V28-A` 8 of 8 siblings resolving, `V28-B` 0,
+> `V28-C` 0** (`/mnt/d/hf_w28/vdrift_w28_FINAL.txt`). **The instruments were clean all along**, so this entry
+> is not "a wave shipped unchecked instruments" — it is a **SEQUENCING** defect, and that is the durable
+> lesson:
+>
+> **A blocking pre-flight must run BEFORE the measurement and AFTER the instruments exist.** Every plan in this
+> series has said "before anything", which is a strictly larger window and admits an empty population. The
+> checker behaved correctly throughout — it refused to call an empty population 1.0000 and said so in those
+> words — so what failed was the *plan's* ordering, not the instrument. Both artifacts are kept: `vdrift_w28.txt`
+> (the empty-population run) and `vdrift_w28_FINAL.txt` (the real one).
+
+
+**Status:** **Open — remedy known, not applied this wave** (2026-08-13, wave 28) · [F80](#f80)/[F87](#f87)'s
+family, third distinct shape
+
+`verify_derivation_w28.py` ran at `11:06:36` over `/mnt/d/hf_w28/`, which then contained exactly one file —
+itself. `vdrift_w28.txt` reads `files checked: 1` and `>>> V-UNEVALUATED: no sibling target was referenced by
+any driver in this root`. The wave's six instruments (`fp_w28.sh`, `score_w28s.py`, `score_w28b.py`,
+`score_w28n.py`, `w28b_manifest.sh`, `w28n_arm_w28.sh`) were all written afterwards and **were never checked**.
+The plan's gate required `V-CLEAN`; the design says `UNEVALUATED` is never a pass; the wave proceeded.
+
+**The self-test and both pinned FAIL fixtures are healthy** — `SELF-TEST PASS`, 262 `V28-B` findings on
+`/mnt/d/hf_w27`, 2 `V28-C` findings on `/mnt/d/hf_w24`, and `/mnt/d/hf_w26` demonstrating expiry with 0. **The
+instrument works; it was pointed at nothing.**
+
+**The class, stated so it survives this wave:** F80's first three gaps were a *pattern* too narrow; F87's was a
+*population containing the instrument*; this is a *population that was empty at the only moment the check was
+taken*. **A blocking pre-flight must be re-run at the wave's close over the finished root, and the closing run
+is the one whose verdict is quoted.** The pre-flight run proves the checker works; the closing run proves the
+wave is clean. They are two runs and this series has been conflating them. Price: **~2 m per wave.**
+
+### 9.5 Amendments owed to existing entries
+
+* **[F43](#f43) — AMEND IN PLACE, and it is the amendment this wave owes most.** The entry's *"`StructureLayers`
+  4 → 2 makes it strictly worse (0 at both central positions)"* is **confounded in source**, proved by
+  `RULE W28-S` = `S-WELDED` at zero compute. Lowering `StructureLayers` moves **two** cutoffs in opposite
+  directions: it narrows the post-wavelet Gaussian at `StarDetector.cs:632` (whose width is literally
+  `p.StructureLayers * 2 + 1`, so 4 → 2 takes the kernel 9×9 → 5×5 and σ 1.44 → 0.80 px, which **helps** a 1-px
+  star clear the binarization threshold) **and** shrinks the à trous residual's low-pass from ≈2⁴ to ≈2² px, so
+  `src − residual` retains less of the star (which **hurts** it, and by more). The measurement stands; the
+  **inference that the axis is useless does not**, because the two effects were never separated and no member of
+  `StarDetectorParams` can separate them. **F43's "`MinHFR` is the ONLY axis that rescues it" must now be read as
+  "the only axis that rescues it among those tested, on an axis set that contained a confounded knob."** See
+  [F92](#f92-ready-to-paste); and note [F93](#f93-ready-to-paste) finds a **second** axis that rescues `D01`'s
+  candidate formation (`NoiseClippingMultiplier` 3.8125 → 1.0 cuts its structure gap 79.2 %) — though not its
+  `recall@high`.
+* **[F62](#f62)** — append that wave 28 tested the "one band-pass phenomenon" claim out of sample and **it did
+  not survive below the band**. `RULE D27`'s upper-edge result is untouched and the prediction holds on **9 of 10**
+  blind datasets above the band; the lower-edge prediction fails on **0 of 4** LOW datasets, with `Δacc > 0` on
+  all 17. `RULE D27` and item 8 may still be two views of one mechanism, but the *evidence* for the unification is
+  one-sided and must be quoted that way.
+* **[F31](#f31)** — append a second, independent demonstration of the reference's wing evaporation: on wave 28's
+  blind population the golden-denominated and detector-only routes disagree on **5 of 17** datasets and **all
+  five disagree in the same direction** (`Δrecall < 0 < Δacc`). A per-frame recall statistic is biased against
+  the focus frame wherever the golden's denominator peaks there.
+* **[F21](#f21)** — extend the measured `golden eval` rate. Wave 27 recorded 6–46 s per 9-frame cell (full
+  20-dataset arm 349 s). **Wave 28's `D01` at `NC = 1.0` took 179 s** — 3.9× the previous maximum — because
+  lowering the threshold multiplies the candidate count. **Price a cell from the RANGE and from the knob
+  setting, not from the dataset alone.** Wave 28's 10 cells totalled 381 s of `TestApp` time inside a 432 s wall.
+* **[F35](#f35)** — its finding that *"the W class's recall is lost in candidate FORMATION — the structure map
+  never proposes 49 % of them"* now has a lever: `NoiseClippingMultiplier` converts most of that loss into
+  formed candidates ([F93](#f93-ready-to-paste)). On `D02`/`D03` they become detections; on `D01` 97.8 % of them
+  are re-rejected downstream, which is also where F35's *"`MinimumStarBoundingBoxSize` rejects another 17 % as
+  `TooSmall`"* now points.
+* **[F84](#f84)** — unchanged and re-affirmed: **wave 28 proposed and measured nothing on the `Sensitivity`
+  axis.** `D01`'s `LowSensitivity` count rising from 786 to 13 612 at `NC = 1.0` is a **downstream consequence**
+  of more candidates existing, not evidence for or against a sensitivity floor.
+* **`docs/synthetic-af-bank-results-table.md`** — add the **in-focus kernel HFR `K` (px)** column from
+  `truthModel` (`max(hfrMin, hfrMinEffective)`), and the note that `D01`/`D02`/`D03` are the **only three floored
+  by the generator** (`hfrMin < hfrMinEffective`), all at `K = 0.700` despite 19.4 / 5.7 / 3.1 ″/px. It reorders
+  the recall column into a monotone story and costs nothing. **Do not annotate it with a 2–4 px band claim
+  below the band** — `W28-B` is `B-SPLIT` and the lower edge is not established.
+
+---
+
+### F85 — A closed, shipped correction was re-measured as an open defect, because two fields share a name
+
+**Status:** **Done** (2026-08-13, wave 27) — the disclosure gap is fixed; the register contradiction is
+corrected in place · relates to [F31](#f31), [F68](#f68) part 1, [F79](#f79), [F84](#f84)
+
+`golden eval`'s `FP` and a Python re-derivation from the golden's `stars` list alone are **both** "false
+positives": **11** and **150** on the same detections. Wave 26 read the second and compared it against the
+first, concluding the owner's precision column was a lower bound when it was already truth-corrected. The 150
+decomposes as **50** excluded by the golden's own `unresolved` boxes + **89** excluded by `TruthProtection` +
+**11** surviving genuine wing-frame junk; its `137` ("within 12 px of ANY truth star") is a **third** quantity,
+neither of the other two. **The junk count is 11, not 13** — two of the "13" sit inside an `unresolved` box.
+
+**Proximate cause:** `GoldenEvalRunner` applied `TruthProtection` and never reported that it did, while
+`BankVerifyRunner` reported it in three places. A grep of the 20 published logs, `golden_eval.txt` and
+`golden_eval_frames.csv` for `scoringMode` / `protected` / `precisionNull` returned **zero hits**.
+
+**Independent confirmation of the 89:** `score_t27_w27.py --protection off` gives `D08` FP `11 → 100`
+(`/mnt/d/hf_w27/t27_v0_failend.txt`), and **350** across the population.
+
+**Remedy, shipped:** `TestApp/SynthBank/TruthDisclosure.cs` ports all four of `bank-verify`'s disclosures into
+`golden eval` — `scoringMode` + `protectedStars`, `precisionNull`, `truthViolations`, `scoredFraction` — plus a
+fifth, `protectedDetections` (protection *exercised*). Wording is shared between the two harnesses so they
+cannot drift apart. **`RULE S27-4` proves the change is report-only at byte level: 360 of 360 detection
+artifacts byte-identical, `TP`/`FP`/`FN` unchanged on 20 of 20, and 20 of 20 report sinks changed** (so the port
+is not inert). **Open sub-item:** `S27-1`'s route agreement was not adjudicated, and `protectedDetections` is
+single-routed — see wave 27 results §7.3 and §8.6.
+
+### F86 — The golden sidecars on disk carry the PRE-REPAIR policy in their own words
+
+**Status:** **Open — a named caveat, deliberately not fixed** (2026-08-13, wave 27) · relates to [F31](#f31),
+[F85](#f85)
+
+`GoldenFromTruth.cs:744-748` writes *"a detection here should count as a false positive"* into the `Reason`
+field of every `omitted` component, and that string is sitting in **all 180 `*.golden.json` in the bank**. The
+behaviour it describes was repaired on **2026-08-03** and the string was not, because it is a diagnostic field
+nothing reads programmatically. **It is the single most likely thing that actually misled wave 26.**
+
+Wave 27 fixes the two contradicting XML doc comments (`GoldenFromTruth.cs:34-36` *"a detector reporting
+something at its location should be scored as a false positive"* vs `:76-84` *"scoring a detection there as a
+false positive would be punishing a detector for something the reference itself cannot certify either way"*) and
+**deliberately does NOT regenerate the sidecars**, for three reasons in this order:
+
+1. regenerating 180 goldens collides with **fingerprint class 2 preservation** and would invalidate every
+   precision/recall number this series has published;
+2. changing only the generator string would make future sidecars disagree with the 180 on disk — a silent
+   divergence, the same class of defect being fixed;
+3. nothing reads `Reason` programmatically.
+
+**Anyone reading a `Reason` field in a `*.golden.json` must read this entry first.** The correct policy is:
+`omitted` and `unresolved` are both *visibility* judgements, visibility bears on **recall**, and a rendered star
+is not a false positive at any SNR.
+
+### F87 — A rule that describes itself must exclude itself from its own population, or it launders its own subject
+
+**Status:** **Done** (2026-08-13, wave 27) — closed with a both-ends self-test · a **fourth** gap in
+[F80](#f80)'s checker, and a **new class**, not the `_`-word-boundary family
+
+`verify_derivation_w27.py`'s `in_historical_block()` scanned backwards for any line *containing* a
+`HISTORICAL_BLOCKS` token and treated it as opening a historical literal — **but the line that DEFINES
+`HISTORICAL_BLOCKS` contains every one of those tokens**, so from that line to EOF the `V27-B` clause was
+switched **off**.
+
+**Evidence, both ends:** before the repair the checker reported **`V-CLEAN`, 0 unlicensed tokens** on its own
+file **while printing `=== RULE V26 ===` as its banner on a wave-27 root** (`/mnt/d/hf_w27/vdrift_w27_run1.txt`);
+after the repair it reported **32 findings on itself** (`vdrift_w27_run2.txt`, the pre-repair copy is preserved
+as `verify_derivation_w27.py.bak` and contains **69** literal `V26` occurrences), and **255** on the pinned
+`/mnt/d/hf_w26` fixture (`vdrift_selftest_FINAL.txt` `[5b]`). *(A "53 tokens" figure quoted during the wave was
+a `grep -c` of lines, a third quantity, and is withdrawn; a pre-repair "204" on the `hf_w26` fixture was read but
+its artifact was not kept, so it is testimony. **Neither is load-bearing** — the run1-versus-run2 pair proves the
+defect without any count.)*
+
+**The lesson, and it generalises past this checker:** the first three F80 gaps were a *pattern* being too narrow.
+This one is a *population* silently containing the instrument, so the instrument's own definition of what to look
+for became a licence to stop looking. **Any self-describing rule must state whether its own source is in its
+population, and prove the answer with a fixture.** Closed with self-test clause `[6]`, which demonstrates that a
+real historical block is exempt, that the file after it is not, and that the definition line opens nothing. Two
+FAIL fixtures are now pinned: `hf_w24` (kept) and `hf_w26` (added, not swapped).
+
+### F88 — `git diff --name-only <tree>` omits UNTRACKED files, so a two-binary provenance diff can miss a whole new source file
+
+**Status:** **Open — remedy known and applied once** (2026-08-13, wave 27) · belongs beside [F66](#f66)
+
+Wave 27's B16 adds `TestApp/SynthBank/TruthDisclosure.cs` — the entire substance of the change — and it was
+**untracked at build time**, so `binary_provenance_w27.txt`'s tracked diff lists 3 files and omits it.
+`Q27-V1`, which intersects the change set against the `optimize` gate's reachable set to decide whether a
+42-minute gate is owed, would have computed that intersection over an incomplete population.
+
+**Remedy, applied:** take the **union** of `git diff --name-only <tree> -- '*.cs'` and `git ls-files --others
+--exclude-standard -- '*.cs'`. `q27_v1.txt` does this and reports 5 files.
+
+**Same shape as [F66](#f66):** a provenance instrument reporting confidently on a population that silently
+excludes the thing under examination. Every future two-binary provenance step must take the union.
+
+### F89 — A mutation harness that restores with `cp -p` restores the pre-mutation MTIME, and MSBuild then skips the recompile
+
+**Status:** **Open — remedy known** (2026-08-13, wave 27, controller process finding; **no artifact**)
+
+`cp -p` preserves mtime. After a mutant is restored with it, MSBuild sees a source no newer than its object and
+**skips the rebuild**, so the next run silently re-measures the mutant. In wave 27 it made a correctly-restored
+tree look broken.
+
+**Remedy:** `touch` the file after every restore; keep the sha256 check, which guards content but says nothing
+about mtime. **Recorded honestly: this finding's evidence is the controller's account, not a file.** One mutant
+(`M-S3`) was subsequently re-verified with its run record kept (`s27_2_mutant_MS3.log`, 3 red of 19); `M-S1`,
+`M-S2a` and `M-S2b` remain testimony, and this defect is the likeliest reason their records were lost.
+
+### F90 — Reuse the computation, never the banner, or the artifact lies about which rule it evaluated
+
+**Status:** **Open — remedy known, one instance annotated** (2026-08-13, wave 27) · belongs with
+[F74](#f74)'s family, not [F80](#f80)'s
+
+`score_repro_w27.py` — the `RULE R27` comparator — was reused to perform wave 27's `S27-4` byte comparison. It
+emits its own rule name **unconditionally**, so `/mnt/d/hf_w27/s27_score.txt` ends
+`>>> RULE R27 = R-DIFFERS (40 files)` while `/mnt/d/hf_w27/repro_all_score.txt` ends
+`>>> RULE R27 = R-IDENTICAL`. **For a period the record carried two contradictory verdicts for the same rule
+name**, on two different populations, and a reader grepping `RULE R27 =` would have found the contradiction with
+no way to tell which was which.
+
+**This is sharper than F80's prose drift.** F80 is about *commentary* that stops describing the instrument.
+Here the **verdict line itself** — the one line a future reader greps — was correct for the code and wrong for
+the run.
+
+**Remedy:** a reusable scorer must take its rule label as an **argument** and assert it against the manifest it
+was handed, exactly as this series already computes every ordinal rather than typing it. **Fixed for wave 27 by
+annotation, not deletion**: `s27_score.txt` now opens with a banner saying its own verdict line must not be
+quoted and naming `s27_4_score.txt` as the scored clause, with the wrong line left in place at the foot so the
+record shows what happened.
+
+### F91 — A BEFORE/AFTER control whose two sweeps are built by different expressions reports a FALSE violation
+
+**Status:** **Done** (2026-08-13, wave 27) — caught by the population assertion, corrected, both readings kept ·
+[F74](#f74)'s shape in the BEFORE/AFTER direction
+
+Wave 27's first `T27-V4` AFTER sweep returned **`T27-V4 = VIOLATED`**. **Nothing on disk had changed.** The
+AFTER expression omitted the **20 `.log` files** that the BEFORE expression had captured, so it compared 780
+paths against a BEFORE list of 800 and reported the 20 absentees as moved. A fingerprint gate is the control
+that decides whether a wave's denominators moved under it; a false `VIOLATED` there forces `T-UNEVALUATED` on a
+wave whose population was in fact untouched.
+
+**The only reason it surfaced** is the standing rule that the **population size is asserted inside the file** —
+`BEFORE 800 / AFTER 780` is arithmetic, not a judgement call. The corrected sweep reads **`BEFORE 800 AFTER 800
+compared 800 … DIFFERING: 0 → T27-V4 = PRESERVED`**.
+
+**The rule, general:** *a BEFORE/AFTER control must build both populations from the SAME expression.* Two
+expressions intended to describe one population are two populations, and every difference the control reports is
+then unattributable — in either direction. Prefer one function, called twice, with the population size asserted
+equal before any hash is compared.
+
+### Amendments owed to existing entries
+
+* **[F31](#f31)** — append `RULE T27`'s verdict: **the repair it made is SOUND on 18 of the 19 blind datasets,
+  saturated on `D18_m24_deep_shed` alone (`precisionNull` 0.2820, `A_all` 0.2372, `A_protOnly` 0.1938), with
+  `D01_ultrawide_40mm` a named near-miss at 0.2182.** F31 is **not** reopened — the verdict is neither
+  `T-SATURATED` nor `T-CHANCE-DOMINATED`, so the density guard is not triggered. Also record that F31's null was
+  demonstrated on one dataset (`D09`) and is now generalised to 20, at four offsets, and that the shipped
+  single-offset control is **under-powered on 7 of them**.
+* **[F83](#f83)** — the decision proceeds on real numbers. **Caveat 3's `+0.034` must carry a factor label**: it
+  is `+0.034` at detection binning 1 and `+0.003` at binning 2, where `D08` reads `P=0.997 FP=1` (§4.3).
+* **[F62](#f62)** — append `RULE D27` = `D-MOVED`, 6 of 6: scoring at the optimizer's own detection-binning
+  factor moves `recall@all` by up to **+0.296** (`D14`) and by **−0.012** on `D15`. The no-`BestJ`-across-factors
+  landmine now has a measured magnitude on the recall side.
+* **[F21](#f21)** — add the measured `golden eval` rate (§10) so no future wave prices a golden-eval arm off the
+  `optimize` rate.
+* **[F80](#f80)** — cross-reference [F87](#f87) as the fourth gap and the first of a new class; and add the
+  reuse-direction case from wave 27 results §7.8, where a scorer re-aimed at a new population kept the original
+  rule's verdict banner, so `s27_score.txt` claims `RULE R27 = R-DIFFERS` while `repro_all_score.txt` claims
+  `RULE R27 = R-IDENTICAL`.
+* **`docs/synthetic-af-bank-results-table.md`** — annotate `D18`'s precision cell in place as **uninformative**
+  with its three statistics; annotate `D01` with the near-miss; add the `scoredFraction` column or at minimum
+  the six low rows of §3; re-state the seven `RULE D27` rows at both factors with each labelled.
+
+---
+
 ### F84 — The at-floor sensitivity datasets: what is actually owed, and what the evidence has already killed
 
 **Status:** **OPEN — a decision, not a defect** (2026-08-13, answering the owner's question after wave 26) ·
 depends on [F83](#f83), reframed by [F31](#f31) and [F23](#f23)
+
+> #### CORRECTION, wave 27, 2026-08-13 — this entry's `91.3 %` describes a PRE-REPAIR quantity
+>
+> **Every passage below that says "91.3 % reference omission", and item (2), was written as though
+> [F31](#f31)'s repair did not exist. It shipped 2026-08-03** (`aaf26e8`, refined `5c382a1`) as
+> `TestApp/SynthBank/TruthProtection.cs`, wired into **both** `GoldenEvalRunner.cs:301-307` and
+> `BankVerifyRunner.cs:464-466` — **and F31 is recorded `Done` in this same file, ~1 600 lines above.**
+>
+> Wave 26's re-score (`/mnt/d/hf_w26/pd08/F31_truth_rescore.txt`) re-derived false positives from the golden's
+> `stars` list **alone**, consulting neither the golden's own `unresolved` boxes nor `TruthProtection`. Its 150
+> decompose as **50 excluded by `unresolved` + 89 truth-protected + 11 surviving**; its `137` is a *third*
+> quantity ("within 12 px of ANY truth star"). **`golden eval`'s FP field on those same detections is 11**, and
+> the owner's table's `0.966` is `308/(308+11)` — truth-corrected as printed. Two different fields, both called
+> "false positive" ([F68](#f68) part 1).
+>
+> In place, below:
+> * **Item (2) — "Re-measure precision against `truth.json`" — is DISCHARGED, not owed.** It shipped in wave 2.
+> * *"without it, F23 and F83 are both undecidable"* is **false**. F23 was re-measured at `afbank-verify/5`, and
+>   that re-measurement is what voided it.
+> * Point 4's *"`D08`'s apparent cost is 91.3 % reference omission"* should read: **`D08`'s scored cost is 11
+>   genuine junk detections**, all on the two extreme wing frames, zero on the seven interior frames. The
+>   correction **strengthens** this entry's conclusion — see [F83](#f83) caveat 3.
+> * Item (4)'s **"13 junk detections" is 11**: two of the 13 sit inside a golden `unresolved` box.
+>
+> **What was actually open:** `golden eval` emits **none** of `bank-verify`'s four truth disclosures
+> (`scoringMode`/`protectedStars`, `precisionNull`, `truthViolations`, `scoredFraction`), so no reader of a
+> published `golden_eval.txt` can tell whether protection was applied. That silence is the mechanism that
+> produced this misreading, and wave 27 ships the fix. See
+> `docs/synthetic-af-bank-followups-wave27-design.md` and `docs/wave27-register-correction-survey.md`.
 
 **The eight at-floor landings** (`BrightnessSensitivity = 0.0`), resolved from source predicates by wave 26's
 prep, with their combined effective gates:
@@ -658,7 +1738,16 @@ lowers `recall@all` on all four, and raises `REJECTED:LowSensitivity`. **All fou
    mechanism on **this dataset by name**: *"`D08` holds 81 golden stars at focus and 9 at the extreme frame,
    against 123–126 truth stars per frame throughout."* The base cell accepts 10 and 15 on frames whose golden
    holds 9. **So the +0.034 may be real faint stars the golden omits rather than junk**, and separating the two
-   needs a re-score against each frame's own `*.truth.json` — F31's own method, **not run**.
+   needs a re-score against each frame's own `*.truth.json` — F31's own method, ~~**not run**~~.
+
+   > **CAVEAT 3 IS DISCHARGED, wave 27, 2026-08-13 — and it resolves IN THIS ENTRY'S FAVOUR.** The separating
+   > measurement had already been run, twice over. (i) The scoring is truth-protected at source since
+   > 2026-08-03 ([F31](#f31)), so these 11 survived `ExcludeProtected` — by construction **none of them has an
+   > `omitted`/`merged-into` truth star within the 12 px radius**. (ii) Wave 26's own per-frame table
+   > (`/mnt/d/hf_w26/pd08/F31_truth_rescore.txt`) reports **0 real** of the wing-frame false positives on both
+   > `13672` and `14328`, against "ALL REAL" on the seven interior frames. **So the 11 are genuine junk and the
+   > `+0.034` is real, not a reference artifact.** Caveat 2 (saturation) is untouched by this and is precisely
+   > what `RULE T27` measures.
 
 **What survives all three**, because it does not read the golden at all: the FN attribution. `REJECTED:LowSensitivity`
 is the *detector's* count of what the sensitivity gate rejected, and it goes None → 55 / 28 / 16 / 37.
@@ -1094,7 +2183,64 @@ Reproduce: `StepSizeRecommender.cs` (the `BandDemonstrablyUnsampled` guard, the 
 
 ### F82 — The half-width floor is not sticky across rounds, and the cap recomputed from a shrunken fit pulls it back down
 **Status:** Open (diagnosed to a line, two candidate fixes, priced) · found 2026-08-13, wave 25, on the one
-labelled control that missed its pre-registered bar
+labelled control that missed its pre-registered bar · **SCOPE AND GENERALITY MEASURED, wave 29 — see below**
+
+> #### THE FIX CHOICE IS DECIDED, 2026-08-13 — and wave 26's pre-registered fix (1) is **REFUTED**
+>
+> Full argument: `docs/f82-fix-choice-decision.md`. **DECISION: candidate (3′), the requested-span lower bound
+> in explicit-parameter form.**
+>
+> **Fix (1) — the monotone floor — does not fix anything, and three waves quoted it as settled.**
+> `step = round(halfWidth / PointsPerSide)` with `PointsPerSide = 3.5` (`StepSizeRecommender.cs:201, :382`).
+> Fix (1) sets `D01` r1's `maxHalfWidth` to r0's floored `12.0`, and **both** the cap (`:347-350`) and the floor
+> (`:363-366`) clamp *to* `maxHalfWidth` — so `halfWidth = 12.0` either way, and `12.0 / 3.5 = 3.43 → step 3`,
+> **the same step that stalled.** It changes **zero recommended steps anywhere in the bank**. F82's own claim
+> that (1) *"fixes `D01` directly"* is false on F82's own table. Candidate (3) gives
+> `1.5 × 0.5 × 24 = 18.0 → 18.0 / 3.5 = 5.14 → step 5`, i.e. **3 → 5**.
+>
+> **Two further corrections to this entry's supporting record:**
+> * **Wave 29 §1's blast-radius inference is false on its own artifacts.** *"37 of 37 rounds capped-or-floored,
+>   so (2) moves every round of every cell"* does not follow: the fitted span **equals** the requested span on
+>   **36 of 37** rounds, so (2) and (3) are bit-inert on 36 of 37 and are indistinguishable on this bank. What
+>   separates them is a contract argument, not a measured one.
+> * **The price band for a product carrier was against the wrong carrier.** Wave 29 assumed cross-session
+>   persistence (~2–4 h, migration, an option, an XAML control). `S-CARRIER-EXISTS` found a **within-session**
+>   carrier where the state is an ordinary instance field like `recaptureStepSize` — **~1 h, no migration, no
+>   option, no XAML.**
+>
+> **What is retired:** fix (1) as this entry's remedy. **What is owed before code:** verification clause `V-0`
+> below.
+
+> #### AMENDMENT, wave 29, 2026-08-13 — the fix choice stands; the scope and the generality are now measured
+>
+> **1. It IS a product defect, on a real product path.** Wave 29's own pre-registration argued the opposite —
+> that no caller had anywhere to put a cross-round half-width, so the fix would reach no user — and **its own
+> rule refuted it**: `RULE W29-S` = **`S-CARRIER-EXISTS`**. The design's caller table named two of
+> `BuildSummaryAsync`'s **five** callers; **`CaptureNewSweepAsync`** (`StarDetectionOptimizerWizardVM.cs:5012`)
+> takes a **fresh sweep** via `RunLiveAttemptAsync`, calls `BuildSummaryAsync` at `:5098`, and carries the
+> previous round's recommended geometry forward in `recaptureStepSize`. So `SearchSpan` **can** change between
+> wizard rounds and the defect **can** occur there.
+>
+> **2. But it is far rarer than this entry implies.** `RULE W29-R` ran wave 26's own reversal condition, which
+> three waves had quoted and none had executed: over **18 addressable paired S1 cells**, the
+> shrink-while-widening transition occurs on **`c = 1`** — and that one cell is `D01`, which is burned.
+> **`c_blind = 0` over the fifteen cells that were blind.** See [F97](#f97).
+>
+> **3. The reversal condition is NOT met, so fix (1) stands — now on evidence rather than on caution.**
+> Wave 29 deliberately did **not** flip the choice, and did not choose the third candidate it registered:
+> choosing a fix in the same wave that discovers a new reason to prefer it is the [F14](#f14) / `RULE D20`
+> fence in a new costume.
+>
+> **4. The bar this entry is scored against is produced by the code under test** — `SynthValidateRunner
+> .ComputeStepBehavioral:1262` iterates `StepSizeRecommender.Recommend` to a fixed point. That is
+> [F96](#f96), and it is why `stepBehavioral` moved 8.0 → 9.0 across wave 25's two arms while staying
+> identical on the other seventeen cells: wave 25 changed `Recommend`, so it moved the bar as well as the
+> measurement. **Any future scoring of this entry must say which side of that loop it is standing on.**
+>
+> **5. The price in the handoff (~45 m) is for the HARNESS change.** The product carrier needs new persisted
+> session state surviving between wizard sessions, with the `Continue`/`Re-optimize` paths excluded where it is
+> inert, plus migration and the question of whether it is an option (and therefore owes a control in
+> `Resources/OptionsDataTemplates.xaml`). That is a ~2–4 h band and nobody has priced it.
 
 [F81](#f81--maxhalfwidthsampledhalfspanmultiple-has-been-a-ceiling-with-no-floor-and-the-half-width-unresolved-exit-returned-before-the-ceiling-was-consulted-at-all)'s
 floor engaged on **all three** published stall cells at round 0 and handed off to the cap at round 1 exactly as
@@ -2848,7 +3994,7 @@ would alias one instance.
 The underlying overwrite ([F15](#f15--optimize---per-run-overwrites-each-runs-stored-settings)) is unchanged — a
 bank folder still accumulates whichever prepass went last. What changes is that the survivor now says so.
 
-### F31 — Synthetic-bank precision is NOT exact: the golden omits real stars, and they score as false positives
+### F31 — ~~Synthetic-bank precision is NOT exact: the golden omits real stars, and they score as false positives~~ — FIXED 2026-08-03; the title is the DEFECT, not the current state
 **Status:** **Done** (2026-08-03, wave 2 — repaired, validated against a null control, and everything re-baselined at `afbank-verify/5`) · found 2026-08-03 verifying the F23 wave-1 result · **INVALIDATED F23's evidence base**
 
 `docs/synthetic-af-bank-baseline-results.md` headlines the synthetic bank with "Golden precision (D06,
@@ -3707,7 +4853,9 @@ agrees-with-the-presets case.
 ### F43 — The optimizer wizard refuses to start unless the DEFAULT settings already produce a usable curve
 **Status:** **Done (wave 5)** for the Live path; **replay DECIDED (wave 6) — extend, but not before the
 `BaselineJ = 0` presentation question is answered**, so the implementation is still open · found 2026-08-05 from a
-user report on a 40 mm rig
+user report on a 40 mm rig · **AMENDED wave 28: this entry's "`StructureLayers` 4 → 2 makes it strictly worse"
+is CONFOUNDED IN SOURCE — one knob moves two opposing cutoffs (`RULE W28-S` = `S-WELDED`). See the amendment
+below and F92**
 
 `SeedFitIsUsableAsync` (`StarDetectionOptimizerWizardVM.cs:2869`, called at `:2541`) evaluates the **default seed
 params** once and refuses to optimize unless some run yields a finite σ(focus) over ≥ 3 positions. On a Live
@@ -3749,6 +4897,35 @@ removes precisely the frames the vertex is fitted from.
 **And `MinHFR` is the ONLY axis that rescues it.** `MinimumStarBoundingBoxSize` 5 → 3 changes nothing (still 0 at
 focus); `StructureLayers` 4 → 2 makes it strictly worse (0 at *both* central positions). So the single knob that
 un-blocks this rig class is the one the guard's refusal prevents the search from ever touching.
+
+> #### AMENDMENT, wave 28, 2026-08-13 — the `StructureLayers` result above is CONFOUNDED IN SOURCE
+>
+> **The measurement stands. The inference that the axis is useless does not.** `RULE W28-S` = `S-WELDED`, 3 of 3
+> clauses, decided from source at zero compute (`/mnt/d/hf_w28/w28s_score.txt`; `StarDetector.cs` sha256
+> `1e202777…`, `IStarDetector.cs` `5304ed5f…`): **`StructureLayers` sets two opposing scale cutoffs at once.**
+>
+> * It sets the **upper** cutoff, via the à trous residual's ≈`2^StructureLayers` px low-pass, which is
+>   *subtracted* — the knob's documented purpose.
+> * It **also** sets the width of the post-wavelet Gaussian blur, which is the **lower** cutoff:
+>   `CvImageUtility.ConvolveGaussian(structureMap, structureMap, p.StructureLayers * 2 + 1)`
+>   (`StarDetector.cs:631-632`), with `sigma = 0.159758 * kernelSize` (`CvImageUtility.cs:80-82`). The width
+>   argument is **raw** `p.StructureLayers`, not `EffectiveStructureLayers(p)`; **no** member of
+>   `StarDetectorParams` (55 properties) controls it independently; and `EffectiveStructureLayers(p)` reaches the
+>   residual at `:619`/`:622` and appears **0 times** inside the blur call's argument list.
+>
+> So **4 → 2 takes the kernel 9×9 → 5×5 and σ 1.44 → 0.80 px, which HELPS a ~1 px star clear the binarization
+> threshold at `:653`, while simultaneously shrinking the residual's low-pass from ≈2⁴ to ≈2² px, so
+> `src − residual` retains less of the star — which HURTS it, and by more.** The two effects were never
+> separated, and with the shipped parameter set they **cannot** be: there is no knob for the blur width alone.
+> The experiment this entry's sentence assumes was run has never been run.
+>
+> **Read the claim as: "`MinHFR` is the only axis that rescued it among those tested, on an axis set that
+> contained a confounded knob."** See **F92** for the decoupling build (~45 m + ~10 m arm, +42 m `optimize`
+> baseline if it is ever to ship). And note **F93**: `NoiseClippingMultiplier` 3.8125 → 1.0 on this same `D01`
+> cuts its high-tier `NO CANDIDATE (structure gap)` count **42 991 → 8 931 (−79.2 %)** at precision 1.000 — a
+> **second** axis that rescues candidate *formation* on this rig class, though on `D01` 97.8 % of the recovered
+> candidates are then re-rejected by a later gate and `recall@high` moves only +0.012. Full working:
+> `docs/synthetic-af-bank-followups-wave28-results.md` §1, §2, §9.
 
 **Why [F35](#f35--minhfr-should-be-seeded-from-the-sweep-wings-and-neither-available-hfr-statistic-can-size-it)
 does not already cover this.** F35's `MinHfrSeed` is applied inside `OptimizeAsync` (`:3076`) — **after** this

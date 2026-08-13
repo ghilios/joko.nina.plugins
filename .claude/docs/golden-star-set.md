@@ -61,6 +61,15 @@ audit must not use it.** Measured against the (correct) detector positions on th
    / per-frame) + precision + **FN gate attribution** (`NO CANDIDATE` = structure/candidate-formation gap vs
    `REJECTED:<gate>` = a tunable late gate vs `ACCEPTED-elsewhere`).
 
+   **On the SYNTHETIC bank only**, `golden eval` and `bank-verify` additionally **protect** detections landing on
+   real rendered stars the golden policy dropped (`*.truth.json`, tiers `omitted` / `merged-into`) from the
+   false-positive count, at the match radius — `TestApp/SynthBank/TruthProtection.cs`, [F31](../../docs/followups.md).
+   Real-bank runs have no truth sidecar, so `TruthProtection.LoadForImage` returns null, the path is a no-op, and
+   **real-bank numbers are unaffected**. `bank-verify` announces this (`scoring: golden+truth-protected (N …
+   protected)`); **`golden eval` did not until wave 27**, so for any `golden_eval.txt` produced before then, date
+   the run against **2026-08-03** (`aaf26e8`) to know which metric you are reading. A synthetic-bank precision
+   from before that date is NOT comparable with one from after.
+
 **Donut caveat:** the per-pixel-SNR reference UNDER-counts heavily defocused donuts (their surface brightness is
 spread below the per-pixel threshold), so candidate counts fall toward the focus-sweep extremes. For donut-recall
 on the most-defocused frames, extend the reference with a matched filter (convolve `(img-bg)/σ` with a disk/annulus

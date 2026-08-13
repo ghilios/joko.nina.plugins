@@ -299,11 +299,11 @@ namespace TestApp {
                     protectedStars += TruthProtection.BuildProtectionBoxes(td, effectiveMatchRadius).Count;
                 }
             }
-            var scoringMode = truthByFocuser.Count > 0 ? "golden+truth-protected" : "golden";
-            Console.WriteLine($"  scoring: {scoringMode}"
-                + (truthByFocuser.Count > 0
-                    ? $" ({protectedStars} real-but-unboxed truth stars protected from FP scoring across {truthByFocuser.Count} frames)"
-                    : " (no truth sidecars; false positives scored against the golden alone)"));
+            // W27 (A): the mode and its wording now come from TruthDisclosure, which `golden eval` also uses. The
+            // emitted string is unchanged -- what changes is that the two harnesses can no longer word the same
+            // disclosure differently, which is how they came to disagree about reporting it at all.
+            var scoringMode = TruthDisclosure.ScoringMode(truthByFocuser.Count);
+            Console.WriteLine(TruthDisclosure.ScoringLine(truthByFocuser.Count, protectedStars));
 
             // RunEvaluationData for the AF fit (mirrors OptimizationDiagnosticRunner.PrepareRunAsync).
             var stepSize = InferStepSize(ordered.Select(f => (double)f.FocuserPosition).ToList());
@@ -429,6 +429,10 @@ namespace TestApp {
             int tp = 0, fp = 0, fn = 0, matchedHigh = 0, totalHigh = 0, matchedAll = 0, totalAll = 0;
             // /5 instrument self-checks — see the header comment on the schema field.
             int detections = 0, truthViolations = 0, nullTp = 0, nullFp = 0;
+            // W27 (A): protection EXERCISED. `protectedStars` on the run is protection AVAILABLE, and this runner
+            // reported only that -- a run can carry hundreds of protected stars and exercise none of them, so
+            // availability alone cannot be read as the size of the correction.
+            int protectedDetections = 0;
             var sensorFrames = new List<SensorDetectedStars>();
             DrawingSize imageSize = DrawingSize.Empty;
             foreach (var (focuser, path, image) in loaded) {
@@ -461,11 +465,13 @@ namespace TestApp {
                     truthByFocuser.TryGetValue(focuser, out var td);
                     var unresolvedRects = (gf.Unresolved ?? new List<GoldenStarBox>())
                         .Select(b => new RectD(b.X, b.Y, b.W, b.H)).ToList();
+                    var falsePositivesBeforeProtection = GoldenMatch.ExcludeUnresolved(match.FalsePositives, det, unresolvedRects);
                     var falsePositives = TruthProtection.ExcludeProtected(
-                        GoldenMatch.ExcludeUnresolved(match.FalsePositives, det, unresolvedRects),
+                        falsePositivesBeforeProtection,
                         det, TruthProtection.ProtectionCenters(td), matchRadius);
                     tp += match.Pairs.Count; fp += falsePositives.Count; fn += match.FalseNegatives.Count;
                     detections += det.Count;
+                    protectedDetections += falsePositivesBeforeProtection.Count - falsePositives.Count;
 
                     // The F31 signature, counted rather than reasoned about: a scored false positive that sits on
                     // a REAL rendered star. Complete by construction, so this has an exact answer and the answer
@@ -505,6 +511,7 @@ namespace TestApp {
             cm.recallHigh = totalHigh > 0 ? (double)matchedHigh / totalHigh : double.NaN;
             cm.detections = detections;
             cm.truthViolations = truthViolations;
+            cm.protectedDetections = protectedDetections;
             // How much of the detection set the precision ratio actually saw. Protection removes a detection from
             // BOTH sides rather than crediting it, so a low value does not bias precision — but it does mean the
             // number rests on a smaller sample, and at Sensitivity 0 that reaches ~57% on D17. Reported so a reader
@@ -513,12 +520,12 @@ namespace TestApp {
             cm.precisionNull = (nullTp + nullFp) > 0 ? (double)nullTp / (nullTp + nullFp) : double.NaN;
 
             // Sensor-model paraboloid fit (reuses SensorModel.RegisterStarsAndFit, like inspect-align).
-            Prog($"  [{label}] golden done (P={cm.precision:F3} null={cm.precisionNull:F3} viol={cm.truthViolations} R@hi={cm.recallHigh:F3}); sensor fit start");
+            Prog($"  [{label}] golden done (P={cm.precision:F3} null={cm.precisionNull:F3} viol={cm.truthViolations} protDet={cm.protectedDetections} R@hi={cm.recallHigh:F3}); sensor fit start");
             if (cm.truthViolations > 0) {
                 // Loud on purpose. This is the exact shape of F31, and four harness-calibration bugs have now
-                // been found by someone happening to look rather than by anything failing.
-                Console.WriteLine($"    !! [{label}] {cm.truthViolations} scored false positive(s) sit on a REAL rendered star "
-                    + "-- the precision metric is charging for correct detections again (F31). Precision from this run is not trustworthy.");
+                // been found by someone happening to look rather than by anything failing. The wording is shared
+                // with `golden eval` (TruthDisclosure) so the same defect reads the same way in both harnesses.
+                Console.WriteLine(TruthDisclosure.ViolationLine(label, cm.truthViolations));
                 Logger.Warning($"bank-verify {label}: {cm.truthViolations} scored false positives land within the match radius of a truth star (F31 regression)");
             }
             try {
@@ -668,9 +675,10 @@ namespace TestApp {
                 pixelScaleMode,
                 // Aggregate of the per-run scoringMode: "golden+truth-protected" iff every scored run had a
                 // truth sidecar, "golden" iff none did, "mixed" otherwise (a bank holding both kinds).
-                scoringMode = (runs.Count(r => r.scoringMode == "golden+truth-protected"), runs.Count(r => r.scoringMode == "golden")) switch {
-                    (> 0, 0) => "golden+truth-protected",
-                    (0, > 0) => "golden",
+                scoringMode = (runs.Count(r => r.scoringMode == TruthDisclosure.ModeTruthProtected),
+                               runs.Count(r => r.scoringMode == TruthDisclosure.ModeGolden)) switch {
+                    (> 0, 0) => TruthDisclosure.ModeTruthProtected,
+                    (0, > 0) => TruthDisclosure.ModeGolden,
                     (0, 0) => "none",
                     _ => "mixed"
                 },
@@ -821,6 +829,13 @@ namespace TestApp {
             /// correct whatever tier the golden policy gave it. Non-zero means F31 has regressed and this run's
             /// precision is not trustworthy. Always 0 on the real bank, which has no truth sidecar.</summary>
             public int truthViolations { get; set; }
+            /// <summary>Protection EXERCISED: how many detections <c>TruthProtection.ExcludeProtected</c> actually
+            /// removed from this config's false-positive count. The run-level <c>protectedStars</c> is protection
+            /// AVAILABLE and was, until W27, the only one of the pair reported — a run can carry hundreds of
+            /// protected stars and exercise none of them, so availability alone does not tell a reader how big
+            /// the correction to precision was. ADDITIVE and derived, so the <c>afbank-verify</c> schema is
+            /// deliberately NOT bumped: no number changes and every prior report stays comparable.</summary>
+            public int protectedDetections { get; set; }
             /// <summary>Fraction of <see cref="detections"/> that entered the precision ratio (the rest landed on
             /// protected or unresolved reference objects and are unjudgeable). Not a bias — protection removes a
             /// detection from both numerator and denominator — but precision rests on a smaller sample as this

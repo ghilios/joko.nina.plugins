@@ -169,7 +169,8 @@ a **third** derivation-drift shape); the gate **deliberately skipped** and repla
 | # | item | price | goal | needs a binary? | why |
 |---|---|---|---|---|---|
 | ~~**1**~~ | ~~**`PREDICTION P-D08` at `n = 3`**~~ **DISCHARGED 2026-08-13 — and REFUTED.** `seedA1/D01` and `seedA1/D16` both carry base precision **1.000 with ZERO false positives**, so a sub-boundary gate does **not** imply a precision cost. `D08` is one dataset, not a class. And `D08`'s own apparent cost is **91.3 % reference omission** (137 of 150 golden-false detections match a real `truth.json` star, 0.30 expected by chance). See [F84](followups.md) | done | 3 | no | struck |
-| **1** | **Re-measure precision against `*.truth.json`, not `*.golden.json`, across the bank** | **~1–2 h, NO product code, NO binary** | **3, and it re-scores the owner's table** | **NO** | **Now the prerequisite for every objective-shaped decision, and demonstrably cheap.** The renderer's complete star list ships beside every frame (`126` stars where the golden lists `9` at extreme defocus), the detections are already on disk in `golden eval`'s own `detected_f*.csv`, and the match radius is declared in `synthetic_meta.json` (`12.0`). Measured on `D08` on 2026-08-13: **91.3 % of golden-false detections are REAL rendered stars**, `0.30` expected by chance. **This is why [F23](followups.md) is `won't fix as written` — its evidence base was this same artifact — so without a truth-based pass, F23 and [F83](followups.md) are BOTH undecidable.** The owner's results table's precision column is a lower bound until this runs |
+| ~~**1**~~ | ~~**Re-measure precision against `*.truth.json`, not `*.golden.json`, across the bank**~~ **STRUCK by wave 27, 2026-08-13 — ALREADY DONE, and this row was FALSE.** `TruthProtection` shipped **2026-08-03** (`aaf26e8`, refined `5c382a1`) and is wired into **both** `GoldenEvalRunner.cs:301-307` and `BankVerifyRunner.cs:464-466`. [F31](followups.md) records it `Done` **1,600 lines above** the [F84](followups.md) entry that asked for it — the register contradicted itself. Wave 26's `91.3 %` re-derived FPs from the golden's `stars` list **alone**, consulting neither `unresolved` nor `TruthProtection`: of its 150, **139 were already excluded** (50 + 89) and `golden eval` reported **`FP = 11`**, precision **`0.966`**, exactly as published. **The precision column is NOT a lower bound — `1.000` is a ceiling.** F23 was re-measured at `afbank-verify/5` and is voided on that, not undecidable | done | 3 | no | struck |
+| **1** | **Disclose the scoring mode in `golden eval`** — it emits **none** of `bank-verify`'s four truth disclosures | **~75 m, TestApp only** | instrument integrity | yes | `bank-verify` prints `scoring: golden+truth-protected (N … protected)` (`:302-306`) and persists `scoringMode`/`protectedStars`/`precisionNull`/`truthViolations`/`scoredFraction`; **`golden eval` emits nothing equivalent to console, `golden_eval.txt`, either CSV, or any JSON** — `WriteReports` is not even passed the truth dispositions. So no reader of a published `golden_eval.txt` can tell whether protection was applied, what chance alone would score, or what fraction of the detections was judged. **This omission is the direct cause of the wave-26 misreading.** Wave 27 half (A) |
 | **2** | **the [F83](followups.md) DECISION** — (a) raise `DefaultSensitivityLower`, (b) a precision term on unlabelled runs, or (c) label the bank | **a decision, then ~42 m of baseline** | **3** | for (a)/(b) | The measurement is done and the three options are laid out with their evidence and prices. **What is missing is an owner's call**, not an arm. (a) is the option the evidence is most hostile to — F23 already measured a hard floor as worse than doing nothing |
 | **3** | **`lumos`'s zero-star frame** (`RULE L26`) | ~10 m **+ a diagnosis** | 1 | yes | Wave 26 returned **could-not-look**: `af-fit` produced no `af_fit_points.csv`. **The next attempt owes a diagnosis of the missing CSV before it re-runs the same command** |
 | **4** | **the `A4` truth-model gap** | ~20 m | 2 | yes (rebuilds TestApp) | The harness computes the cap boundary from the **requested** sweep, the product from the **fitted** span; they disagree on `D01` r1 by 2×, and `A4` compares against `WasCapped` alone so it now flags floored rounds. **Fix the assertion, not the product**, and keep it out of any arm carrying a product change |
@@ -185,7 +186,25 @@ fences**. [F70](followups.md)(b′) was **rejected by the owner**. [F45](followu
 with `N*` unreachable in `AutoFocusEngine`. [F59](followups.md) is **rejected on the merits**. The wide end of
 [F25](followups.md) is **unmeasured, not untriggered**, and remains so.
 
-**Is another wave worth it? YES, and the answer changed on 2026-08-13.** The old item 1 ran and was refuted, which removed the last measured support for acting on the sensitivity pin — but the same afternoon's work showed that **the bank's precision numbers are measured against a reference that under-lists by an order of magnitude at defocus.** So the next run has a genuine, binary-free, ~1–2 h opening item (the truth re-score) whose result decides two long-open entries (F23, F83) and re-scores the owner's deliverable. **After that, item 8 — recall on wide fields — is the largest untouched product gap in the series** and is worth a design before it is worth an arm.
+**Is another wave worth it? YES — but NOT for the reason this paragraph gave, which was false.**
+
+~~"the same afternoon's work showed that the bank's precision numbers are measured against a reference that
+under-lists by an order of magnitude at defocus … the next run has a genuine, binary-free, ~1–2 h opening item
+(the truth re-score)"~~ — **corrected by wave 27, 2026-08-13.** The reference does under-list, but the scoring
+has **compensated for it since 2026-08-03**; the re-score had already shipped. The 91.3 % measured a
+**pre-repair** quantity that `golden eval`'s own FP field had already excluded.
+
+**What was genuinely open, and what wave 27 found by looking:** `golden eval` carries **none** of the four
+truth-related disclosures its sibling `bank-verify` carries, so its published numbers cannot be interrogated —
+that silence *is* the defect, and it is what let the register contradict itself. Wave 27 ships the disclosures
+(half A), audits whether the correction is sound or saturated across 20 datasets (`RULE T27`), and found that
+**7 of the 20 published rows are scored at a detection binning `optimize` does not use** (`RULE D27` =
+**`D-MOVED`, 6 of 6**; `D14_cdk14_2563mm_e47`'s `recall@all` is understated by **0.296**).
+
+**After that, item 8 — recall on wide fields — remains the largest untouched product gap in the series** and is
+worth a design before it is worth an arm. Note that `RULE D27` has now moved recall on seven rows, so **re-read
+the wide-field gap against the corrected numbers**: `D01`/`D02`/`D03` are all factor-1 datasets and are
+unaffected, which sharpens rather than softens the gap.
 
 > ### DO NOT RE-RUN A FULL PAIRED 20-CELL S1 ARM TO CHASE `D01`
 >
