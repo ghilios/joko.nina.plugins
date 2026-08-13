@@ -429,6 +429,353 @@ shape for this space.
 > three where the search **also** drove `StarClippingMultiplier` down, twice to the axis's own 0.25 floor.
 > Reproduce: `/mnt/d/hf_w26/q26_score.txt`; `docs/synthetic-af-bank-followups-wave26-results.md` §4.3, §7.
 
+### F104 — `D01`'s two candidate gates release 36 660 high-tier candidates and re-capture takes 92 %: the joint is material and ADDITIVE, so F99's joint-recovery claim is refuted at a pre-registered bar
+
+**Status:** Closed — the product question is answered, and answered negatively · found 2026-08-13, wave 30,
+`RULE W30-G` = **`G-NOT-RECOVERABLE`** · `/mnt/d/hf_w30/w30g_score.txt`, `w30g_manifest.tsv`
+
+**[F22](#f22) FENCE, inline and mandatory:** on `D01_ultrawide_40mm` the detector's HFR over-reads by a large
+factor below ~1.1 px measured HFR and its autofocus already lands at `BestJ 0.994825`. **No count in this entry
+may be quoted as a recall or focus improvement for a user.** The only frame in which it may be read is goal 3 —
+*is a landed knob sitting at an extreme against the physics?*
+
+A 2×2 factorial on `MaxDistortion` (0.5 → 0.3) and `BrightnessSensitivity` (36.333 → 32.333, four axis steps
+**computed** from the product's own declaration), five run cells and two imported from wave 29, on
+`D01_ultrawide_40mm`, 9 frames per cell, on the B15 binary already on disk.
+
+| quantity | value |
+|---|---|
+| `Σ R_g` over all single-knob cells | **36 660** |
+| `Σ capture_g` | **33 884** |
+| `recapture` (pooled) | **0.9243** — bar 0.90 → **`G-2` True** |
+| `recapture` excluding the fenced `M4` | 0.9288 (agrees) |
+| `FN_total(M0)` | **50 249** |
+| material bar, **computed** as `0.01 × FN_total(M0)` | **502.5** |
+| `ΔTP(M3)`, the joint | **+1 572** |
+| `Σ ΔTP` over the unfenced singles `M1`+`M2` | **+1 480** |
+| `ΔTP(joint) ≥ 502.5` | **True** |
+| `ΔTP(joint) ≥ 2 × 1 480 = 2 960` | **False** → **`G-3` False** |
+
+**The joint IS material** (3.1× the bar; 3.1 % of all misses) **and it is essentially additive**: the
+interaction term is **+92**, a multiple of **1.06×** against a pre-registered bar of 2×.
+
+**Re-capture dominates, and the mechanism is one column of the published matrix.** `TooDistorted` at 0.3
+releases **12 090** candidates and **`LowSensitivity` absorbs 9 676 of them — 80.0 %.** Relaxing
+`LowSensitivity` by 11 % on top converts **92** of those 9 676 — **0.95 %**. A 36 σ bar relaxed by 11 % does not
+turn a low-fill blob into a detection, which is exactly the mechanism the pre-registration gave for predicting
+this outcome.
+
+**Goal-3 answer, and it is a negative.** No landed knob on `D01` is pinned against the physics in a recoverable
+way. `MinStarBoundingBoxSize` at 6 (against a shipped default of 5) is the one knob at an extreme, and its flow
+releases 9 537 candidates of which **3** reach acceptance. `MaxDistortion` landed mid-axis. **40.4 % of the
+misses live upstream of both gates** — `NO CANDIDATE (structure gap)` 8 931 and `TooSmall` 11 372 — where no
+setting of either gate can reach them. `D01`'s recall gap is the physics of a 19.4 ″/px rig with a ~0.7 px
+kernel.
+
+**Two rival predictions were registered before the data**, in the same pre-registration section, attached to
+two distinct terminal verdicts of the same 36-region tree: `G-JOINTLY-BOUND` (F99's) and `G-NOT-RECOVERABLE`
+(the design's). The data landed in the second. **Neither document could have claimed a hit it did not call**,
+and this is the strongest evidential form the series has produced.
+
+**Not measured, and owed by any ship that acts on this:** precision at the opened settings. 23–25 % of the
+distortion gate's acceptances were `ACCEPTED-elsewhere` — accepted but not matched to the star they were
+released from — against 5–10 % for the sensitivity gate. That is a signal, not a measurement; the pre-registered
+statistic reads only the false-negative attribution block. ~5 m to resolve.
+
+*(Design §16 assigned F104 to this verdict; the assignment holds.)*
+
+---
+
+### F105 — `golden_eval`'s first-rejection-wins attribution CONSERVES on real data, 5 of 5 cells, integer-exact — so waves 28's and 29's gate-count differences are safe to read
+
+**Status:** Closed — the model is checked · found 2026-08-13, wave 30, `RULE W30-G` clause `G-1` = HOLDS ·
+`/mnt/d/hf_w30/w30g_score.txt`
+
+Relaxing exactly one gate `g` changes no other threshold, so the report's attribution must satisfy, **exactly,
+in integers**:
+
+> `ΔNO-CANDIDATE = 0`; `ΔFN_h = 0` for every `h` strictly upstream of `g`; and
+> `R_g = Σ_{h downstream of g} ΔFN_h + ΔContaminated + ΔACCEPTED-elsewhere + ΔTP`
+
+**Five single-knob cells, five exact balances, no tolerance**, with every upstream invariant and the pre-chain
+`BloomSuppressed` stage returning zero:
+
+| cell | gate (position of 11) | `R_g` | balance |
+|---|---|---|---|
+| `M1` | `TooDistorted` (4) | 12 090 | ✓ |
+| `M2` | `LowSensitivity` (6) | 486 | ✓ |
+| `M4` | `TooDistorted` (4) | 14 425 | ✓ |
+| `L1` | `TooSmall` (1) | 9 537 | ✓ |
+| `L3` | `LowSensitivity` (6) | 122 | ✓ |
+
+Two of these (`L1`, `L3`) were pre-computed from wave 29's published artifacts before the pre-registration and
+balanced then. **Three (`M1`, `M2`, `M4`) were blind by design §8 and balanced on first contact.**
+
+**What it licenses.** The `G-MODEL-BROKEN` branch of the tree read: *"the report's first-rejection-wins
+attribution does not conserve, and **every gate-count difference in waves 28 and 29 is unsafe.**"* It did not
+fire. **First-rejection-wins is the correct model of the `FALSE-NEGATIVE ATTRIBUTION` block, and every
+Δ-on-a-bucket waves 28 and 29 published can be read as a flow rather than as a coincidence.** This is the first
+checked model of these reports in eleven waves, and it was granted by measurement, not by argument.
+
+**It can fail, and the failure is exercised.** Self-test `[2]` moves one bucket by one on a live fixture and the
+balance breaks; `[9]` drives a non-conserving cell to `G-MODEL-BROKEN` with a non-zero exit.
+
+**A design difference the instrument reported rather than repaired.** The design's hand-typed §4.1(c) chain had
+**7** gates; the arm's run-time extraction found **11** (`…, TooFlat, HFRAnalysisFailed, TooLowHFR,
+Contaminated`) plus the pre-chain `BloomSuppressed`. The design's formula named contamination as a separate
+terminal **and** the chain contains it as the last gate; counted twice it would have doubled. The scorer
+partitioned once, printed the difference, and **the five exact balances are themselves the proof that the
+11-gate partition is right** — the 7-gate one could not have balanced.
+
+---
+
+### F106 — A hand-carried debt ledger rots in BOTH directions, and the rot is measured: `P-D08` was published seven hours before the wave that listed it as owed
+
+**Status:** Open — the class is structural · found 2026-08-13, wave 30, `RULE W30-D` = **`D-STALE`** ·
+`/mnt/d/hf_w30/w30d_score.txt`
+
+`RULE W30-D` parsed wave 29's §11 *"WHAT WAS NOT RUN"* table out of the committed document (sha256 re-asserted
+at scoring time), resolved each of **14** rows to exactly one predicate with a declared **scope**, and searched
+six roots plus the docs directory. `D-0` held (14 parsed, heading matched once, 0 unresolvable, 6 of 6 roots
+present). `D-1` returned **False**: 6 of 10 debt-claiming rows have a satisfying artifact.
+
+**Two rows are genuinely stale**, and one of them is why the rule exists:
+
+- **`P-D08` at `n = 3`** — measured 09:06–09:08Z, published under a heading *"`# RESULT — P-D08 is REFUTED at
+  n = 3`"*, committed `e42e2df` at 09:09:37Z, artifacts at `/mnt/d/hf_w26/pd08/`. Wave 29's ledger listed it
+  **owed** at 18:05Z the same day. **Seven hours, inside a single day's run.** The cause: the search was for an
+  artifact *under the wave's own root* rather than for the measurement wherever it lives.
+- **the closing `V29`** — `vdrift_w29_CLOSING.txt`, 18:18:01Z, fourteen minutes **after** wave 29's roll call.
+  The ledger was true when written and stale by the time it was read.
+
+**This is [F85](#f85)'s class recurring** — a closed, shipped correction re-measured as an open defect — **and
+the gap is now under twelve hours.** The remedy is not to fix a row. It is to stop inheriting the list: resolve
+each row to a **checkable predicate with a declared scope**, where a **per-wave obligation** is discharged only
+under the ledger wave's own root and a **measurement** is discharged wherever its artifact lives. Applying the
+per-wave scope to a measurement row is the exact error that produced this stale debt, and the scope distinction
+is what found it.
+
+**Wave 30's own §10 ledger is written in that form** — one literal search command per row — and **withdraws
+four rows** rather than carrying them a further wave.
+
+*(Design §16 assigned F106 to the stale debt; the assignment holds. See F107 for the rule's own defect.)*
+
+---
+
+### F107 — A ledger checker whose row predicates are FILENAME globs converts a false "owed" into a false "already paid", which is the worse error: 3 of 6 on its first run
+
+**Status:** Open — diagnosed, unrepaired by design · found 2026-08-13, wave 30, verifying `RULE W30-D`'s own
+output · `/mnt/d/hf_w30/w30d_score.txt`, `/mnt/d/hf_w29/l/opt/L0/attempt01/optimize_summary.txt`,
+`/mnt/d/hf_w25/s1_arm_w25.sh`, `/mnt/d/hf_w27/s27_*`
+
+`RULE W30-D` named **six** already-paid rows. Checked against what each ledger row actually claimed:
+**two genuine, one true-but-circular, three false.**
+
+| row | matched | verdict on the match |
+|---|---|---|
+| **the 42 m `optimize` gate** | `hf_w29/l/opt/L{0..4}/…/optimize_summary.txt` | **FALSE.** Each is *"Runs root: `D01_ultrawide_40mm`; **Runs: 1**"* — a per-cell optimize from wave 29's own arm, not the 8-dataset `Q27-V1` gate. **And the row's own text reads "NOT OWED this wave"** — a row that disclaims the debt was scored as claiming one |
+| a full paired 18-cell S1 arm | `hf_w25/s1_arm_w25.sh` | **FALSE, twice.** The match is a **shell script**, not a run record; and the row's own text says *"a **second** arm buys a second `SAME 13`"* — wave 25's arm is the row's premise, not its discharge |
+| `S27-1` and wave 27's three mutants | `hf_w27/s27_*` (6 files) | **FALSE.** The glob matched wave 27's **`S27-4`** do-no-harm arm. The debt is `S27-1`'s **route agreement** (wave 27 §7.3: *"not adjudicated, by the scorer's own printed statement"*) and the **`M-S1`/`M-S2a`/`M-S2b`** records (§7.4: *"remain testimony"*). The one evidenced mutant, `M-S3`, was **never the debt**. One of the six matches, `s27_score.txt`, is a file the series has already annotated as unquotable |
+| localising `D01` | `hf_w30/w30g_manifest.tsv` | **TRUE BUT CIRCULAR.** Written by **wave 30's own arm** at 19:52:10Z and scored "already paid" at 19:53:49Z — **99 seconds later** |
+
+**Three defects, in increasing order of transferability.**
+
+1. **The specs are hand-typed filename regexes** — `^.*optimize.*\.(txt|log)$`, `^s1_arm.*$`, `^s27.*$`. The
+   rule replaced a hand-carried *list* with a hand-carried *regex*. **It rots the same way and it rots
+   silently**, because a glob that matches too much produces a confident wrong answer where a glob that matches
+   nothing produces a visible "not satisfied."
+
+2. **`D-1` has no time ordering.** A row paid seven hours *before* the ledger, a row paid fourteen minutes
+   *after* it, and a row paid *by the checking wave itself* all score identically. `paid_at <
+   ledger_written_at` is the missing comparison, and **both timestamps are already in the rule's own
+   manifest.** Without it, a wave that discharges an inherited debt will report itself as evidence that the
+   ledger rotted.
+
+3. **The validity clause cannot see any of this, by construction.** `D-0` asserts every row resolves to
+   **exactly one** predicate — 14 of 14, unresolvable 0, correctly. **A validity clause that checks a row
+   resolves *uniquely* cannot check that it resolves *correctly*.** This is the same shape as [F108](#f108):
+   asserting a key is *present* is not asserting it is the *right* key.
+
+**The direction of the error is what makes this high severity.** A false "owed" costs a re-run. **A false
+"already paid" retires an obligation nobody met** — row 1 would have retired the 42 m gate, row 6 a control
+open four waves that two wave-27 ship-clauses relied upon.
+
+**What works and should be kept:** the **scope distinction**. Every *unsatisfied* result the rule produced is
+correct — the wave-29 BEFORE fingerprint and the three scorer self-test captures were both scoped `ledger` and
+both correctly reported not satisfied — and the scope is what found `P-D08`. **The rule is not repaired and not
+re-scored**; `D-STALE` stands on its two genuine rows.
+
+---
+
+### F108 — A stale literal passed to `split()` silently widened a self-test's slice to the whole document, and no checker in this apparatus can see it: a stale ordinal used as a KEY is not printed output
+
+**Status:** Closed in the instrument (fixed and the fix asserted) · Open as a class · found 2026-08-13, wave 30
+· `/mnt/d/hf_w30/score_w30g.py:1176-1192`, `instrumentcheck/score_g_selftest.txt` (57) vs
+`w30g_selftest.txt` (59)
+
+`score_w30g.py`'s self-test clause `[6]` — the [F84](#f84) / `RULE S16` sensitivity fence, one of two fences the
+design declared load-bearing — sliced the artifact with the needle **`"READING: more than a tenth"`**. **The
+emitter stopped producing that text when the material bar became computed**: the `G-SINGLE-BINDS` reading line
+is now formatted from `G2_BAR` (`:857`, *"READING: more than %.0f%% of the released mass reached acceptance…"*)
+and the literal *"a tenth"* appears nowhere in the output.
+
+**`str.split()` on an absent needle returns a ONE-ELEMENT list**, so `[-1]` handed back **the whole document**.
+The assertion below it — *"the fenced name appears in no verdict sentence"* — stopped being about a verdict
+sentence and became a document-wide absence check that passes trivially. **It would have passed forever while
+asserting nothing.**
+
+**What caught it, and what structurally could not:**
+
+- the **blocking pre-flight** flagged the stale phrase **only where it was printed** — it found the emitter's
+  copy, not the self-test's;
+- **`V30-C` cannot see this copy at all.** `V30-C` scans **printing lines** for typed ordinals and counts; its
+  population this wave was **667** (*"printing lines 980, of which 273 carry a format slot and are skipped"*).
+  **A needle passed to `split()` is not printed output**, so it is outside `V30-C`'s population by construction.
+
+> **A checker that looks for typed ordinals in output cannot find a stale ordinal used as a KEY.**
+
+**The remedy is local and permanent:** assert the anchor is **present**, and assert the slice is a **proper**
+substring so it can never widen to the whole text again. The anchor was shortened to the stable prefix
+`"READING: more than "`. **Self-test `57 of 57` → `59 of 59`.**
+
+**Class and generalisation.** This is [F102](#f102)'s class — *a clause whose population quietly went empty
+while still printing a pass* — recurring **in the wave that built F102's remedy**, in a form that remedy does
+not cover: F102 makes populations printable and refusable, which works for populations the instrument
+**computes**, and **this slice was a population nothing ever counted.** The general rule: **`split()`,
+`partition()`, `find()`, `re.search(...).group()` and every other locate-by-literal idiom degrades silently to a
+no-op or to the identity when its literal goes stale, and a population counter on the *output* cannot observe
+the *key*.** Every such call needs its key asserted present and its result asserted a proper part.
+
+---
+
+### F109 — Waves 27–30 ship as ONE PR at the owner's instruction, and the design's stacked-base prescription was overruled: only the PR base prevents accretion, but consolidation is the owner's call
+
+**Status:** Closed — decided by the owner · 2026-08-13, wave 30 · `gh pr list`, `git merge-base`
+
+**Measured at wave 30's pre-registration:** #196 (`…wave27`) and #197 (`…wave29`) both targeted **`develop`**,
+so #197's own diff carried waves 27, 28 **and** 29 plus wave 27's C# ship — **25 files.** Wave 29 had opened a
+fresh branch specifically so *"#196 does not carry a third section"* and succeeded at that; **it did not stop
+the accretion, it moved it.** The design's diagnosis was that the mechanism is the PR **base**, not the branch.
+
+**The diagnosis was acted on; the prescription was rejected.** The design pre-registered a fourth branch with
+`--base ghilios/…wave29`, to make *"the first PR in this family whose diff is one wave."* **The owner instructed
+one PR instead.** #197 was re-targeted to `…wave27` (the design's own §0 recommendation, which it had declined
+to perform itself) and **merged**; **#199 was closed**; the branch was **rebased onto `develop @ ec06bec` and
+force-pushed** with `--force-with-lease`. Waves 27–30 now sit on `ghilios/synthetic-af-bank-followups-wave27` =
+**PR #196**, base `develop`, titled *"Waves 27-30: …"*.
+
+**Design §0's goal of a one-wave PR diff was not achieved and will not be.** Recorded as an overrule, not as a
+design success.
+
+**One measured consequence for the gate check.** Design §9's reversal check is
+`git diff --name-only <base> HEAD -- '*.cs'`. Against the **PR's** base it returns **7 C# files** from waves
+27's and 28's ships. Against **wave 30's own** base (`0b86a2e`) it is **empty**, as is
+`git ls-files --others --exclude-standard -- '*.cs'`. **Wave 30 changed no C# and owes no gate** — but `<base>`
+was written assuming one wave per PR, and a later reader running the check literally against the PR base would
+conclude otherwise. **From here on the check must name the wave's base explicitly.**
+
+---
+
+### AMENDMENTS TO EXISTING ENTRIES
+
+**[F99](#f99) — AMEND IN PLACE.** Append:
+
+> **AMENDED 2026-08-13, wave 30, `RULE W30-G` = `G-NOT-RECOVERABLE`
+> (`/mnt/d/hf_w30/w30g_score.txt`).**
+>
+> **The mechanism holds and is now quantified on the gate this entry named.** `TooDistorted` at
+> `MaxDistortion` 0.3 releases **12 090** high-tier candidates on `D01` and **`LowSensitivity` re-captures
+> 9 676 of them — 80.0 %.** At 0.2: 14 425 released, 11 652 re-captured. **This entry's central observation —
+> that a gate's entire yield can be absorbed one and two gates downstream, and that a `FN_total` difference
+> cannot see it — is confirmed on a second knob and a second gate.** Its methodological half, *"wave 30's rule
+> over sequential gates must read the per-gate flow, not the net,"* is **vindicated and superseded**: the flow
+> is now a conservation identity that balances exactly and can fail ([F105](#f105)).
+>
+> **The substantive hypothesis is REFUTED at the pre-registered bar.** This entry claimed *"`D01`'s binding
+> constraint is `TooDistorted`, **jointly with** `LowSensitivity`, and no single-knob change recovers it."*
+> Measured on the 2×2: `ΔTP(joint) = +1 572` against `Σ ΔTP(singles) = +1 480` — an interaction of **+92**, a
+> multiple of **1.06×** against the pre-registered bar of **2×**. **The pair does not bind jointly; the joint
+> is essentially additive.** It *is* material (1 572 ≥ the computed bar of 502.5) — so the second half of the
+> claim, *"no single-knob change recovers it,"* is also wrong in the direction that matters: `M1` alone
+> delivers 1 096, itself above the material bar. **[F22](#f22) fence: none of these counts may be quoted as a
+> recall or focus benefit; the frame is goal 3 only.**
+>
+> **Status → Closed.** The hypothesis was stated so it could be wrong, it was pre-registered as `PREDICTION A`
+> against a rival `PREDICTION B` in wave 30's design §4.6, and the data chose. That is the entry working as
+> intended.
+
+**[F98](#f98) — APPEND.** Wave 30 is the **first measurement of the low end** of the `MaxDistortion` axis.
+Measured at 0.3 and 0.2 on `D01`: no collapse, `R_g` = 12 090 and 14 425, pass-through 9.1 % and 8.3 %, marginal
+pass-through on the second dose **4.1 %**. **Part 1 (the instrument finding) is untouched.** **Part 2 (bound the
+axis at ~π/4 and rename) gains support at the top and gains a NEW precondition at the bottom**: 23–25 % of the
+distortion gate's acceptances at the opened settings were `ACCEPTED-elsewhere` (accepted, not matched to the
+star they were released from) against 5–10 % for the sensitivity gate. **A ship that bounds the axis at the top
+is supported; a ship that lowers the default at the bottom is not yet supported and owes a ~5 m precision
+measurement** (§10 row 7). The axis has 10 steps and wave 30 measured 3 of them.
+
+**[F103](#f103) — APPEND.** **The forward prediction hit 4 of 4, second consecutive wave.** Predicted at wave
+29 and measured at wave 30 (`vdrift_selftest_w30.txt` `[5b]`, 19:26:49Z): `/mnt/d/hf_w28` expired from **100
+`-B` findings to 0**; `/mnt/d/hf_w29` became the live `-B` fixture at **311**; `/mnt/d/hf_w24` held as the
+durable `-C` fixture at **2**, fourth wave running; `/mnt/d/hf_w26` and `/mnt/d/hf_w27` stayed silent at
+**0**. **A pinned per-clause fixture goes silent exactly one wave later, on schedule.** The expired roots are
+kept and asserted silent, so the expiry is demonstrated rather than described. **Wave 31's prediction, if there
+is one:** `/mnt/d/hf_w29` expires to 0 and `/mnt/d/hf_w30` becomes the live `-B` fixture.
+
+**[F94](#f94) — APPEND.** The `None` enumeration plus the **realized-tuple membership assertion** ran in **four**
+instruments this wave (`W30-G` 36 regions, `W30-D` 6, `V30` 12, `W30-FP` 18), every one printing `uncovered: 0`
+**and** its own realized tuple **and** `member of the enumerated set: True`. **It caught nothing this wave** —
+every tuple was inside its domain — and that is the honest report. What it *did* demonstrate is that the
+assertion can discriminate: `score_w30g.py`'s self-test `[13]` shows a tuple carrying `None` **is** a member and
+a tuple outside the declared domains **is not**, so the assertion can fail. **A check that cannot fire in a
+given wave is still worth its cost only if its firing end is exercised, and it was.**
+
+**[F102](#f102) — APPEND.** Every clause in every wave-30 instrument printed `candidates: N   findings: M`.
+**No clause printed an unexpected `N = 0` and no instrument refused with `POPULATION-EMPTY`** — the populations
+were 5/7/8/3/4/4/2 (`G-0`'s seven), 5 (`G-1`), 36 660 (`G-2`), 2 (`G-3`), 14 and 10 (`W30-D`), 12/5 026/667
+(`V30`), 1 230 (`W30-FP`). **But F102's class recurred anyway, in a place populations cannot reach** — see
+[F108](#f108). **F102's remedy covers populations the instrument computes; it does not cover a literal used as
+a key, which nothing counts.** The remedy is not weakened, it is bounded, and the bound should be written into
+it.
+
+**[F95](#f95) — APPEND.** Wave 30 ran the pre-flight **over a populated root** (7 files, 12 `-A` candidates,
+5 026 `-B`, 667 `-C`) **and at the close**, both from the pre-registration rather than from a debt, and the two
+runs are **byte-identical**. **Both halves of the remedy, from the start, for the first time.** One deviation
+against F95's neighbour requirement is recorded in §7.4: the `W30-FP` BEFORE sweep ran **26 minutes after**
+`V30`'s five fixture probes read `/mnt/d/hf_w29`, against design §6's bolded ordering. Consequence measured:
+none (`PRESERVED`, 0 moved). **The ordering must be enforced by the driver, not by intent.**
+
+**[F21](#f21) — APPEND.** Estimate vs actual, wave 30, sixth consecutive wave under on the analysis halves:
+
+| step | est | actual |
+|---|---|---|
+| 1 — write all 7 instruments | 60 m | **~39 m** (18:54:08 → 19:33:44Z) |
+| 2 — `W30-FP` BEFORE | 5 m | **≤ 60 s** |
+| 3 — `V30` pre-flight + 5 fixture probes | 15 m | **~7 m** |
+| 4 — the 5-cell arm | 25 m wall / ~15 m compute | **17 m 37 s wall / 1 057 s compute** |
+| 5 — `W30-G` scoring | 12 m | **~15 s** to emit |
+| 6 — `W30-D` | 15 m | **~2 m** |
+| 7 — the `K` column | 12 m | **NOT RUN** (§10 withdraws it) |
+| 8 — AFTER + closing `V30` | 8 m | **~2 m** |
+| **Steps 1–8 excluding 7** | **~140 m** | **~62 m — 56 % under** |
+
+**Two figures were priced from a measured rate and one of them was mildly optimistic.** The arm was priced at
+~950 s from wave 29's 145–198 s per cell and came in at **1 057 s, 11 % over** — because wave 29's two fastest
+cells were its two *dead* ones, so the reference rate was biased low. **A rate measured over an arm containing
+dead cells under-prices an arm with none.** The sweep price (3 m/side, from 61 MB/s over a trimmed 2.4 GB root
+set) was **generous by ~3×**: both sides completed in ≲ 2 minutes. **New constant handed forward:** 1 230 files
+across 6 declared roots sweep in **under a minute** on DrvFs. **And it could only be bounded, not measured** —
+see §8.3: the fingerprint records no start time.
+
+**`S27-1` and wave 27's three mutants — WITHDRAWN**, formally, after four waves on the cut list, per design §16
+and wave 29 §13. **And note that [F107](#f107) shows `RULE W30-D` falsely reported this row already paid** — it
+matched wave 27's `S27-4` arm. The withdrawal is on the merits, not on that match.
+
+**`docs/synthetic-af-bank-results-table.md`'s `K` column — WITHDRAWN**, per design §13's own rule for this item.
+Owed by waves 28, 29 and 30; unpaid by all three. `kcol_w30.py` remains on disk with a `21 of 21` self-test and
+can be run in ~2 m by any later ship.
+
+---
+
 ### F96 — The harness's `stepBehavioral` "truth" is a fixed point of the recommender it scores, so every goal-2 conclusion is denominated in a bar the code under test produces
 
 **Status:** Open (diagnosed to a line; no fix priced) · found 2026-08-13, wave 29, `RULE W29-S` clause `S-a`
@@ -522,6 +869,28 @@ the two **fastest** cells in a five-cell arm, because nothing survived the gate 
 
 **Status:** Open — the hypothesis wave 30 should pre-register · found 2026-08-13, wave 29 ·
 `/mnt/d/hf_w29/l/out/L{0,1}/attempt01/golden_eval.txt`
+
+> #### AMENDED, wave 30 — the mechanism HOLDS, the joint-recovery claim is REFUTED at a pre-registered bar
+>
+> `RULE W30-G` = **`G-NOT-RECOVERABLE`**, on a 2x2 factorial with `MaxDistortion` opened in the **correct**
+> direction (lowered; wave 29 raised it and killed two cells before they ran, F98).
+>
+> **What holds:** the two gates release real mass — 36 660 high-tier candidates across the cells — and the
+> conservation identity balances **integer-exact on 5 of 5** real cells (F105), so the flow account this entry
+> rests on is sound.
+>
+> **What is refuted:** the *joint recovery* claim. `dTP(joint) = +1572` against a summed-singles `+1480` and a
+> pre-registered synergy bar of `2 x singles = 2960`. The joint clears the **material** bar (502.5, computed as
+> `0.01 x FN_total`) and is **essentially ADDITIVE, not synergistic**, while `G-2` shows **re-capture dominates
+> at 92 %** — what one gate releases, the gates downstream take.
+>
+> **The outcome was called either way.** Wave 30 registered TWO differing predictions before the data — this
+> entry's (`G-JOINTLY-BOUND`) and the pre-registration's own (`G-NOT-RECOVERABLE`) — so neither result let the
+> wave claim a hit it had not called. That is the strongest form of evidence this series has produced.
+>
+> **[F22](#f22) fences the reading:** on this rig HFR over-reads badly below ~1.1 px and autofocus already
+> lands, so **none of this may be quoted as a focus improvement**. The deliverable is which gate binds, a
+> goal-3 question.
 
 `RULE W29-L`'s pre-registered statistic is the difference in `FN_total`. On `D01`, lowering
 `MinStarBoundingBoxSize` 6 → 3 gives `FN_total` 50 249 → 50 246, i.e. **−3**, which reads as "this gate does
