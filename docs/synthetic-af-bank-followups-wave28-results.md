@@ -354,6 +354,22 @@ renegotiated after the number was seen; plan step 7 says so and it was followed.
 
 ### 6.1 `RULE V28` — self-test PASS, both FAIL fixtures evidenced, and a verdict of `V-UNEVALUATED`
 
+> ### CLOSED AFTER THIS DOCUMENT'S ROLL CALL — the pre-flight was RE-RUN over the populated root
+>
+> **`RULE V28` = `V-CLEAN`** (`vdrift_w28_FINAL.txt`, 2026-08-13T16:08Z): **7 files checked, `V28-A` 8 of 8
+> siblings resolve, `V28-B` 0 unlicensed previous-wave tokens, `V28-C` 0 typed ordinals.**
+>
+> **So the six instruments ARE drift-clean, and the finding below narrows rather than disappears.** What
+> [F95](followups.md) records is a **SEQUENCING** defect, not an unchecked population: the controller ran the
+> blocking pre-flight at the moment the plan's Step 1 says to, which was **before the instruments it guards
+> existed**. The honest reading of the original `V-UNEVALUATED` was always *"an empty population is never
+> 1.0000"* — the checker said so in those words and refused to call it a pass. The remedy is ordering: **a
+> blocking pre-flight must run BEFORE the measurement and AFTER the instruments**, which is a narrower window
+> than "before anything", and no wave's plan has ever said so.
+>
+> The original artifact `vdrift_w28.txt` is KEPT unaltered beside the new one, so both states are on the record.
+
+
 `vdrift_selftest_w28.txt` ends `>>> SELF-TEST PASS` with all six clause groups, including `[6]` in both
 directions — *"the block is exempt (line 3) and the file after it is NOT (line 7)"* and *"the DEFINITION of
 `HISTORICAL_BLOCKS` opens nothing — it is not an instance of itself"*, which is [F87](followups.md)'s repair
@@ -429,7 +445,7 @@ Wave 28's design §12 duly made total coverage a standing rule — *"every verdi
 total coverage of its outcome space at pre-registration"* — **and then shipped a tree with four uncovered
 regions.** The standing rule was written and not executed. `W28-S` (27 regions) and `W28-B` (432 regions) both
 enumerate clean; only the rule with a validity clause outside its own tree does not. Registered as
-[F94](#f94-ready-to-paste).
+**F94**.
 
 #### 7.3 The blocking pre-flight certified a root containing **one file** — itself
 
@@ -453,7 +469,7 @@ Two consequences, both stated as they are:
 
 **This is [F80](followups.md)'s family in a new direction: not a pattern too narrow and not a population
 containing the instrument, but a population that was EMPTY at the only moment the check was taken.** A blocking
-gate that runs before the things it blocks exist blocks nothing. Registered as [F95](#f95-ready-to-paste).
+gate that runs before the things it blocks exist blocks nothing. Registered as **F95**.
 
 ### SEVERITY 2
 
@@ -588,7 +604,7 @@ Continuing from [F91](followups.md). **`F43` is amended in place in the register
 under "Consequence for the register"), because it
 is an existing entry whose stated result is now known to be confounded.
 
-### F92 — The post-wavelet blur is WELDED to `StructureLayers`, so one knob sets two opposing scale cutoffs {#f92-ready-to-paste}
+### F92 — The post-wavelet blur is WELDED to `StructureLayers`, so one knob sets two opposing scale cutoffs
 
 **Status:** **Open — source-derived, zero compute, and it re-opens [F43](#f43)** (2026-08-13, wave 28,
 `RULE W28-S` = `S-WELDED`, 3 of 3)
@@ -624,10 +640,10 @@ cutoffs at once and is **confounded in source**. The experiment that separates t
 
 **Price to run it:** ~45 m code (a dedicated blur-width field defaulting to today's expression, so the default
 is bit-identical) + ~10 m arm; **plus a fresh 42 m `optimize` baseline and a re-derivation if it is ever to
-ship**, because the change reaches the detector. Design §11 defers it; `RULE W28-N` (see [F93](#f93-ready-to-paste))
+ship**, because the change reaches the detector. Design §11 defers it; `RULE W28-N` (see **F93**)
 is the evidence that the amplitude account it rests on is correct.
 
-### F93 — `NoiseClippingMultiplier` is the binding gate below the calibrated band on the bank too — with one dataset where it is not enough {#f93-ready-to-paste}
+### F93 — `NoiseClippingMultiplier` is the binding gate below the calibrated band on the bank too — with one dataset where it is not enough
 
 **Status:** **Open — measured, and explicitly NOT a licence to change a default** (2026-08-13, wave 28,
 `RULE W28-N` = `N-RECOVERS`, 3 of 3) · corroborates [F43](#f43) on synthetic frames · bounded by [F22](#f22)
@@ -661,7 +677,7 @@ below the band carry an HFR that cannot resolve the vertex** — and `D01` alrea
 `w28n_manifest.tsv`. The three landed cells reproduce the published `table18` rows exactly, so every delta is
 attributable to the one edited field.
 
-### F94 — Verdict trees keep shipping with uncovered regions, and the standing rule against it did not stop the second one {#f94-ready-to-paste}
+### F94 — Verdict trees keep shipping with uncovered regions, and the standing rule against it did not stop the second one
 
 **Status:** **Open — a class, now on its second consecutive wave** (2026-08-13, wave 28) · generalises wave 27
 §8.1 · belongs beside [F68](#f68) part 5
@@ -684,7 +700,7 @@ costs nothing — and **every clause, including the ones expected to hold, must 
 that finds a gap prints `<RULE>-TREE-GAP`, enumerates the uncovered regions, prints what the design's literal
 tree would have said, and **does not repair and re-score** (`/mnt/d/hf_w28/w28n_score.txt`, self-test [5]).
 
-### F95 — A blocking pre-flight that runs before the instruments exist certifies an empty population {#f95-ready-to-paste}
+### F95 — A blocking pre-flight that runs before the instruments exist certifies an empty population
 
 **Status:** **Open — remedy known, not applied this wave** (2026-08-13, wave 28) · [F80](#f80)/[F87](#f87)'s
 family, third distinct shape
@@ -717,7 +733,7 @@ wave is clean. They are two runs and this series has been conflating them. Price
   **inference that the axis is useless does not**, because the two effects were never separated and no member of
   `StarDetectorParams` can separate them. **F43's "`MinHFR` is the ONLY axis that rescues it" must now be read as
   "the only axis that rescues it among those tested, on an axis set that contained a confounded knob."** See
-  [F92](#f92-ready-to-paste); and note [F93](#f93-ready-to-paste) finds a **second** axis that rescues `D01`'s
+  **F92**; and note **F93** finds a **second** axis that rescues `D01`'s
   candidate formation (`NoiseClippingMultiplier` 3.8125 → 1.0 cuts its structure gap 79.2 %) — though not its
   `recall@high`.
 * **[F62](#f62)** — append that wave 28 tested the "one band-pass phenomenon" claim out of sample and **it did
@@ -735,7 +751,7 @@ wave is clean. They are two runs and this series has been conflating them. Price
   setting, not from the dataset alone.** Wave 28's 10 cells totalled 381 s of `TestApp` time inside a 432 s wall.
 * **[F35](#f35)** — its finding that *"the W class's recall is lost in candidate FORMATION — the structure map
   never proposes 49 % of them"* now has a lever: `NoiseClippingMultiplier` converts most of that loss into
-  formed candidates ([F93](#f93-ready-to-paste)). On `D02`/`D03` they become detections; on `D01` 97.8 % of them
+  formed candidates (**F93**). On `D02`/`D03` they become detections; on `D01` 97.8 % of them
   are re-rejected downstream, which is also where F35's *"`MinimumStarBoundingBoxSize` rejects another 17 % as
   `TooSmall`"* now points.
 * **[F84](#f84)** — unchanged and re-affirmed: **wave 28 proposed and measured nothing on the `Sensitivity`
@@ -787,7 +803,7 @@ compute from the measured rate and price analysis at a third of instinct.**
 | not run | price | status |
 |---|---|---|
 | **ship (2)** — surfacing the below-band condition outside the wizard | **~45 m + suite** | **GATED AND THE GATE DID NOT HOLD.** `W28-B` = `B-SPLIT`, so per design §9(2) it does not ship and is a costed recommendation. The machinery exists and is wizard-only: `HasUndersampledStars` (`StarDetectionOptimizerWizardVM.cs:237-238`), `MinHfrSeed.IsBelowGate` (`MinHfrSeed.cs:113-120`). **Note ship (1) has now put a below-band message on the options row**, which changes what this item is worth |
-| **the blur/layer decoupling build** ([F92](#f92-ready-to-paste)) | **~45 m + ~10 m arm (+42 m baseline to ship)** | Deferred by price, not by verdict. `W28-N` says the amplitude account it rests on is **right**, which raises its value |
+| **the blur/layer decoupling build** (**F92**) | **~45 m + ~10 m arm (+42 m baseline to ship)** | Deferred by price, not by verdict. `W28-N` says the amplitude account it rests on is **right**, which raises its value |
 | any `StructureLayers` sweep without that build | ~5 m | **Refused** — `W28-S` proves in source that it re-measures [F43](followups.md)'s confound |
 | **localising `D01`'s residual loss** (§1.1) | **~60 m + ~15 m compute** | **NOT RUN, and named as the wave's biggest un-answered question.** The gates are sequential, so it needs an arm that opens them one at a time |
 | **a `NoiseClippingMultiplier` default/bound change** | **design 60 m + ~1.7 h `optimize` baseline + re-derivation** | **NOT LICENSED** by wave 28 (§4.2) |
@@ -813,10 +829,10 @@ pinned to extremes.
 | **1** | **[F82](followups.md) — `D01`'s step-size recommendation stalled at 3 against a truth of 9.** Diagnosed to a line, two candidate fixes, priced | **~45 m + ~10 m** | **2** ✓✓✓ | **The design's own recommendation, and wave 28's evidence strengthens it.** It is a product defect with a mechanism (`SearchSpan` over `bestFit.Inputs`, so a shrinking bound drags cap and floor down together), on the same rig item 8 is about, and it is the only open item scoring goal 2. Item 8's own headline dataset already reaches `BestJ` 0.994825, so its recall gap is not costing goal 1 on `D01`; its **step size** is |
 | **2** | **Localise `D01`'s residual loss** — with `NC = 1.0` held fixed, open `MinimumStarBoundingBoxSize` (landed **6**, the bank's highest, against a shipped default of 5 and a `WideField` preset that *lowers* it) and `MaxDistortion` one at a time | **design 30 m + ~60 m + ~15 m compute** | **1** ✓✓, **3** ✓ | Wave 28 converted 34 060 `NO CANDIDATE` into 33 298 gate rejections and **did not say which gate binds**. The gates are sequential, so this needs an arm, not a re-read. It also scores goal 3: `MinBox = 6` on the two rigs with the smallest stars is a parameter pinned against the physics |
 | **3** | **Pre-register the lower edge properly and re-score `W28-B`** — the `LOW` class at `K ≈ 1.04` behaves like `HIGH`, and only 2 of 20 datasets dip on the detector-only route | **~30 m, zero compute** | **1** ✓ | §3.4's bracket is **diagnostic, not authority**, and the [F14](followups.md) fence forbids re-drawing the boundary with these columns in hand. Fix the rule first, then re-score. Cheap, and it settles what `DetectionBinningResolver`'s band means below 2 px |
-| **4** | **A `NoiseClippingMultiplier` ship rule, pre-registered, with a fresh baseline** | **60 m design + ~1.7 h baseline + re-derivation** | **1** ✓✓ | [F93](#f93-ready-to-paste) is a measurement, not a licence (§4.2). The optimizer chose the landed values; changing a default or a search bound moves the landings, so the baseline is not optional. **Do not run this before item 2** — the payoff on `D01` is currently +0.012 and item 2 decides whether it can be more |
-| **5** | **Close the instrument debt, all of it in one pass** — ship (1)'s `M1`–`M6` records, `fp_w28.sh`'s self-test capture, the `W28-FP` verdict line, a closing `V28` run, and wave 27's `S27-1` + three mutants | **~35 m total** | instrument | Five items, each ≤ 10 m, and three of them are one wave old already. [F95](#f95-ready-to-paste) in particular is a two-minute habit change |
-| **6** | **Make total tree coverage a mechanical step, not a standing sentence** ([F94](#f94-ready-to-paste)) | **~10 m** | instrument | The standing rule was written in wave 28's design §12 **and then not executed on wave 28's own tree**. A sentence did not work; enumerate the outcome space in the pre-registration |
-| **7** | The blur/layer decoupling build ([F92](#f92-ready-to-paste)) | ~45 m + ~10 m (+42 m to ship) | **1** ✓✓ | Now better-motivated than at pre-registration — `W28-N` confirms the amplitude account — but it is a detector change and owes a baseline. **After items 1–3** |
+| **4** | **A `NoiseClippingMultiplier` ship rule, pre-registered, with a fresh baseline** | **60 m design + ~1.7 h baseline + re-derivation** | **1** ✓✓ | **F93** is a measurement, not a licence (§4.2). The optimizer chose the landed values; changing a default or a search bound moves the landings, so the baseline is not optional. **Do not run this before item 2** — the payoff on `D01` is currently +0.012 and item 2 decides whether it can be more |
+| **5** | **Close the instrument debt, all of it in one pass** — ship (1)'s `M1`–`M6` records, `fp_w28.sh`'s self-test capture, the `W28-FP` verdict line, a closing `V28` run, and wave 27's `S27-1` + three mutants | **~35 m total** | instrument | Five items, each ≤ 10 m, and three of them are one wave old already. **F95** in particular is a two-minute habit change |
+| **6** | **Make total tree coverage a mechanical step, not a standing sentence** (**F94**) | **~10 m** | instrument | The standing rule was written in wave 28's design §12 **and then not executed on wave 28's own tree**. A sentence did not work; enumerate the outcome space in the pre-registration |
+| **7** | The blur/layer decoupling build (**F92**) | ~45 m + ~10 m (+42 m to ship) | **1** ✓✓ | Now better-motivated than at pre-registration — `W28-N` confirms the amplitude account — but it is a detector change and owes a baseline. **After items 1–3** |
 
 **The recommendation, stated as a judgement rather than a table row.** Take **item 1 (F82)** first, as the design
 asked: it scores the goal nothing else scores, it is diagnosed to a line, and wave 28's §11 argument that `D01`'s
@@ -863,7 +879,9 @@ three `ConvolveGaussian` sites, not one — and applied literally would have mad
 `S-UNEVALUATED` on correct source. `W28-N`'s verdict tree **never gates on `N-1`**, leaving 4 of 135 regions
 uncovered, which is the **second consecutive wave** to ship a tree with a gap and the first to do it under a
 standing rule written in its own design forbidding exactly that. And the blocking pre-flight ran over a root
-containing **one file — itself** — returning `V-UNEVALUATED` where the plan required `V-CLEAN`, so none of the
+containing **one file — itself** — returning `V-UNEVALUATED` where the plan required `V-CLEAN`. **Re-run
+after the roll call over the populated root it returns `V-CLEAN`, 7 files, 8 of 8 siblings (§6.1), so the defect
+is one of SEQUENCING and the instruments are clean.** At the time it ran, none of the
 six instruments the wave then wrote was ever checked for derivation drift. **`N-RECOVERS` is a measurement and
 not a licence:** nothing in wave 28 pre-registered a rule that would permit changing a default, the optimizer
 chose the values it would replace, and a default change owes its own wave with a fresh baseline.
