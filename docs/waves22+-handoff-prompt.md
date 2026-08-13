@@ -1,10 +1,19 @@
 # Waves 22+ — continuation prompt
 
-Run this after `/clear`. Waves 17, 18, 19 and 20 have executed; **wave 21 executed last and was the final wave
-of that run** (hard stop 12:00Z, no new arm after it). Where this file states a wave-21 outcome it says
-**pre-registered; read wave 21's results for the outcome** — and where
-`docs/synthetic-af-bank-followups-wave21-design.md` exists, **the design is the authority over this file.**
+Run this after `/clear`. Waves 17–21 executed in an earlier run; **waves 22, 23 and 24 have since executed**, and
+**wave 24 is the most recent**. The run is extended to **`12:00Z` on 2026-08-13**, roughly three more waves.
+**Where a wave's own design document exists, THE DESIGN IS THE AUTHORITY OVER THIS FILE**, and where this file
+states an outcome it names the results document that carries it.
 **You are the controller, you delegate context-heavy work to agents, and you do not stop for approval.**
+
+> **START HERE — the three-line state, current as of wave 24 (`2026-08-13T00:12Z`).**
+>
+> | | |
+> |---|---|
+> | **vessel** | `ghilios/synthetic-af-bank-followups-wave23`, **PR #195, OPEN**, carrying waves 23 and 24. Re-decide the vessel in writing before every wave; check `gh pr view 195 --json state` before committing |
+> | **the gate** | **FOURTEEN binaries**, bit-identical at sixteen digits every time. Wave 24's `G24` PASSED on BuildId `dd6ca32ef7f941c2a54753398cc2cf6b`, novel against thirteen |
+> | **the suite** | **3966**, verified by COUNT (`Failed: 0, Passed: 3966, Total: 3966`, `SUITE_EXIT=0`, wave 24). Everything below it is stale: 3922, 3933, 3958, 3960 |
+> | **next wave** | **25 = the stall bridge + degenerate-fit gate**, ~3 h 15 m, ships product, goal 2. **It must NOT be keyed on R².** See §1c and wave 24 results §14 |
 
 ---
 
@@ -15,26 +24,36 @@ of that run** (hard stop 12:00Z, no new arm after it). Where this file states a 
    recommendation. **Ship unconditionally where the ship is not what the rule decides** — wave 20 shipped D1/D2/D3
    and lost a verdict, and the ship was right.
 2. **~6 hours of compute per wave.** A wave that wants more must cut scope or split across two and say which.
-3. **ONE branch, `ghilios/synthetic-af-bank-followups-wave13`, PR #191.** Never push `develop`. **Wave 21 closed
-   the previous run, so wave 22's FIRST decision is whether PR #191 is still the right vessel** or whether it
-   merges and a fresh branch opens. Decide it in writing before any measurement; do not drift into a thirteenth
+3. **ONE branch, `ghilios/synthetic-af-bank-followups-wave23`, PR #195 (OPEN).** Never push `develop`. PR #191
+   merged as `d2f3400`; wave 23 cut the current branch fresh from `develop @ 3d370ff`, and **wave 24 continued on
+   it deliberately** because its binary had to carry `e7a5ee6` ([F79](followups.md)'s fix). **Every wave's FIRST
+   decision, in writing, before any measurement, is whether PR #195 is still the right vessel** or whether it has
+   merged and a fresh branch opens. Waves 23 and 24 each recorded the reasoning; do not drift into a third
    section by default.
 4. **Proceed without asking.** A blocker is a result: record what was tried, what failed, what unblocking costs,
    and move on.
 
 **Stop early** if the gate fails and cannot be explained, or if two consecutive waves produce no finding worth a
-register entry. **Read §2 before committing to a wave: this run's register may now be close to dry.** The
-remaining backlog is one ~2 m comment fix, a ~20 m test, a ~30 m UI session, two ~8–53 m arms and a rejected
-list. **If that is honestly the whole of it, say so and stop** — the next wave owes an explicit sentence on
-whether it has a finding worth an entry, and "no" is an acceptable answer.
+register entry. The next wave owes an explicit sentence on whether it has a finding worth an entry, and "no" is
+an acceptable answer.
+
+**The dry-wave counter is at ZERO and the register is NOT dry.** The paragraph that used to stand here said the
+backlog was down to *"one ~2 m comment fix, a ~20 m test, a ~30 m UI session, two ~8–53 m arms and a rejected
+list."* **Three waves have since produced [F79](followups.md), [F80](followups.md), the F26 scope correction, the
+F34 `D01` correction, F21's finished costing, and a named product bridge for wave 25.** §1c carries what is
+actually open.
 
 ---
 
-## 1. WHERE THINGS STAND after waves 17–21
+## 1. WHERE THINGS STAND after waves 17–24
 
 | | state |
 |---|---|
-| **the gate** | Eight values, **reproduced on TWELVE binaries** (waves 11–21), bit-identical to sixteen digits every time. It has never moved. Wave 21's `G21` PASSED on BuildId `58b3b0828eaa494499feec0b1098822f`, with `P1a/P1b/P2a–e/P3a` all **8 of 8**. §5 |
+| **the gate** | Eight values, **reproduced on FOURTEEN binaries** (waves 11–24), bit-identical to sixteen digits every time. It has never moved. Wave 24's `G24` PASSED on BuildId `dd6ca32ef7f941c2a54753398cc2cf6b`, **novel against thirteen**, with `G24-1/2/P1/P2a–e/P3a/P3b/3a–3f` all **8 of 8**. §5 |
+| **[F79](followups.md)** — NEW in wave 23, **VERIFIED in wave 24** | A single non-ASCII byte (`0xE5`, a CP437 `σ`) made `grep` class a whole log binary and report **zero** matches for strings elsewhere in it — **failing closed**, latent since wave 11, in 8 of 8 gate logs of twelve wave roots. **Fixed in wave 23** (120 lines / 20 files, guarded by `TestAppOutputAsciiTests`); **`G24-P4` measured 0 non-ASCII bytes in 8 of 8** on the first gate built after it, with the FAIL end demonstrated first on wave 23's real gate. **AND the fix exposed a second defect it was masking** — the same driver line still prints `0 of 8` because it counts **lines** where a block is a `BEGIN`/`END` **pair**. Both defects emit the identical wrong number |
+| **[F80](followups.md)** — NEW in wave 24 | **Instruments derived by `sed` keep their predecessor's prose.** Eight prose-vs-mechanism drifts across five instruments in one wave, one **load-bearing** (a scorer refused its own PASS end because a `sed` renamed paths but not the module it imports — and **that refusal was correct**, F75 working). **Every one passed its own `--self-test`**, because a self-test checks behaviour and the drift is in the labels. Remedy specified and priced at **~15 m**; run it **before the gate** |
+| **[F26](followups.md)** | **Scope CORRECTED (wave 23 §13): the livelock is in `TestApp/SynthValidateRunner.cs`, the HARNESS, not in the shipping wizard. NINA never loads it.** Wave 24 shipped the guard — a **revisit** rule, not the entry's own counter, which never fires on the oscillating form. On `D08`/S1 it meets **F26's own pre-registered bar** (`roundsUsed` 4→**3**, step `21`→**62**, `converged` false→**true**). **But RULE B24 is `B-UNEXERCISED`: 0 of 7 blind S4 cells ever revisited a factor**, so the livelock is **conditional and rarer than the entry implies** |
+| **[F25](followups.md) / [F34](followups.md)** | **The owed directional gate is now implementable and the obvious version of it is WRONG.** Wave 24's P1 (shipping plugin code) added `DegenerateReason` and **measures `SampledHfrRange` on the degenerate path**, where it had been `NaN` — the gate's decision variable did not exist on the branch it must decide. The census: **`D03`/S1 is degenerate at R² = 0.9835**, `D02`/S1 at −0.2741, **the wide end is EMPTY (0 of 7 S2 cells)**, and **`D01`/S1 is NOT degenerate at all** (`halfWidth` 6.0877, R² ≈ 1.0) yet stalls at 4.5× too narrow. **F34's grouping of D01/D02/D03 as three degenerate stalls is corrected.** §1c |
 | **F67** | **CLOSED by intervention (wave 17).** The cause is **`DetectionBinning`** — **neither** of wave 16's two candidates. `C17-A` **63 of 63 = 1.0000** against a status quo of **0.000 of 63**. Nothing further is owed on the entry itself; the residual is a *different* question, §2 |
 | **F73 / RULE R19** | **`R-DETERMINISTIC`** (wave 19): 20 of 20 datasets, **660 of 660** landing keys, `R19-A` minus `R19-B` = zero. **But it is a NULL ARM** — the two build trees were C#-identical (`git diff --name-only … '*.cs'` empty), so it measures the **noise** floor and **not** whether a code change can move a landing at fixed `J`. The code axis was never run |
 | **F69** | **(b) and (c) SHIPPED (wave 20)**, measured on the eleventh binary: `optimize/detected` on 8 of 8 gate logs and 1 of 1 probe log, 55/55 fields; the no-op notice once on the probe, zero times on the gate. **(a) shipped in wave 21 — verify in that wave's results** |
@@ -48,14 +67,22 @@ whether it has a finding worth an entry, and "no" is an acceptable answer.
 | **F75** | New (wave 21): the wave held **two standards for its two interlocks**. `B21_ARM_READY` is driver-written, last, only on `>= 4` rows, under an explicit *"never hand-write the marker"*; `G21_PASSED` — the one the arm blocks on — was a controller `printf` named only in the plan. **An interlock whose writer is a human is a note, not an interlock.** One-line repair named in the entry |
 | **F45(b)** | **REJECTED ON TIME by wave 21** (~3–4 h against a 3 h 25 m wave). Remains behind the RULE S16 fence, §3a |
 | **F59** | **REJECTED ON THE MERITS** (wave 20's measurement, wave 21 concurring). §2 carries the corrected costing — do not re-cost it at "~1 h" |
-| **F15** | 42 of 42 bank landings byte-identical for **eight consecutive waves**. Wave 21's other three controls also passed: **59 of 59** aux files, **48 of 48** prior-wave arm landings across three roots, **10 of 10** wave-20 logs — all byte-identical, **0 could-not-look** |
-| **the suite** | **3922**, verified by COUNT. **Everything below 3922 in older docs is stale.** Verify by count, never the tick ([F37](followups.md)) |
+| **F15** | 42 of 42 bank landings byte-identical for **eleven consecutive waves**. Wave 24's other three controls also passed: **59 of 59** aux files, **48 of 48** prior-wave arm landings across three roots, **38 of 38** wave-23 `synth_validate_report.json` files — all byte-identical, **0 could-not-look**, **and wave 24 KEPT the output** (`fp_*_AFTER.txt`), discharging wave 23 §8's caveat |
+| **the suite** | **3966**, verified by COUNT in wave 24 (`Failed: 0, Passed: 3966, Total: 3966`, `3 m 35 s`, `SUITE_EXIT=0`) — the 3960 baseline plus wave 24's 6 new tests, every one named and four shown red pre-change. **Everything below 3966 in older docs is stale (3922, 3933, 3958, 3960).** Verify by count, never the tick ([F37](followups.md)) |
+| **the two named real-bank gaps** | **`lumos` MEASURED at last** (wave 24, after ten waves as folklore): `rc=3` **reproduces**, and it is a **hard-floor FAIL** — `bestJ = currentJ = 0`, no improvement, *"at least one frame has < 3 stars under optimized params (min observed = 0)"*. **`Panos` is `L-NOT-COMPARABLE`**: `optimize` returns **exit=0, hard-floor PASS, `bestJ = 0.935582`** — but the recorded *"degenerate σ fit"* is an **`af-fit`** property, so this probe cannot settle it. §2 |
 
-**Artifacts:** `D:\hf_w17\` … `D:\hf_w21\`. Reusable: `score_w12.py` (the gate), `prov_w<N>.py` (free controls,
+**Artifacts:** `D:\hf_w17\` … `D:\hf_w24\`. Reusable: `score_w12.py` (the gate), `prov_w<N>.py` (free controls,
 self-testing), `convert_landing_w15.py` (landing → harness settings, via the production Accept path),
 `bank_fingerprint_w15.py`, `aux_fingerprint_w17.py`, `arm_fingerprint_w19.py`, `log_fingerprint_w20.py`,
 `score_r19_w19.py` (the 33-key landing differ), `score_d20_w20.py` (the `optimize/detected` reader),
-`layout_w21.sh` (the shared path layout) and `b21_manifest.tsv` (the driver→scorer handoff, §4).
+`layout_w24.sh` (the shared path layout), `b24_arm_w24.sh` (the four-phase `synth-validate` arm driver, two
+binaries, manifest handoff), `score_b24_w24.py` (B24/R24/D24, self-test **21 of 21**),
+`score_g24_w24.py` (the gate + the interlock writer, self-test **24 of 24**),
+`ascii_census_w24.py` ([F79](followups.md)'s byte census), `v23_fingerprint_w24.py` (fingerprint class 4) and
+`gapprobe_w24.sh` (the `lumos`/`Panos` probe).
+
+**Derive the next wave's copies with `sed` if you must — but run [F80](followups.md)'s `--verify-derivation`
+pre-flight before the gate.** Wave 24 shipped eight prose drifts and one broken module reference this way.
 
 ---
 
@@ -78,7 +105,53 @@ snapshot of what currently *varies*, not a design boundary. The tests that pin i
 
 ---
 
+## 1c. THE PLAN FOR WAVES 25–27, and the one design constraint you must not lose
+
+**Wave 24 handed forward a named, priced, product-shaped bridge. This is the most concrete state this backlog has
+been in.**
+
+| wave | what | goal | price | ships product? |
+|---|---|---|---|---|
+| **25** | **the stall bridge + degenerate-fit gate** | **2** (primary), 1 | **~3 h 15 m** — ~1 h code + tests, ~42 m gate, ~1 h 20 m paired S1 arm, ~15 m scoring | **YES** (`StepSizeRecommender`) |
+| **26** | **P23's flat-direction perturbation arm** (~30 m), optionally with **F67's residual** (~30 m) | **3** | ~1 h 45 m with the gate | no |
+| **27** | **HELD OPEN** for wave 25's consequence — the S1 follow-up if the gate bridges, or a wide-end S2 arm if it does not | — | — | — |
+
+> ### THE CONSTRAINT ON WAVE 25, measured, and it inverts the obvious design
+>
+> **Do NOT key the fit-quality gate on R².** Wave 24 measured, on the fourteenth binary:
+>
+> - **`D03_redcat_250mm`/S1 is a DEGENERATE recommendation at R² = 0.9835.** An R² gate never sees it.
+> - **`D01_ultrawide_40mm`/S1 is NOT DEGENERATE** — `halfWidth = 6.0877`, `degenerateReason = null`,
+>   R² = 0.9999999999999397 — **and it stalls anyway**, holding a step 4.5× too narrow. A *degeneracy* gate never
+>   sees it either.
+>
+> **So the stall has at least two distinct causes and neither is "the fit was bad."** Wave 25 must:
+>
+> 1. key the gate on **`sampledHfrRange`**, directionally — the field now exists on the degenerate branch because
+>    wave 24's P1 put it there (it was `NaN` before, which is why wave 23's Bridge A was unimplementable);
+> 2. **declare the threshold one-sided in writing before the data** — the wide end is **empty** (0 degenerate
+>    rounds in 7 S2 cells) and [F25](followups.md)'s own wide-end example, `D05`/S2, is **published** and cannot
+>    be used blind;
+> 3. treat the **non-degenerate stall as a second mechanism**, and fix the harness message that asserts *"from a
+>    degenerate fit"* without checking `degenerateReason` (**~5 lines + 1 test**);
+> 4. **score it blind on S1 across the 17 datasets that are NOT `D01`/`D02`/`D03`**, with those three as labelled
+>    controls in no denominator — the structure wave 24 used for `D08`. **That also discharges the S1
+>    re-measurement already owed**, which is why 3 h 15 m and not 4 h 35 m.
+
+**Two cheap pre-flight items for wave 25:** [F80](followups.md)'s `--verify-derivation` check (**~15 m**), and
+`lumos`'s zero-star frame (**~10 m** of `af-fit`/`review`).
+
+**And one standing warning.** If wave 25's bridge lands, **wave 23's `V23-G` S1 `13 of 17` becomes uncomparable
+to everything after it** — it was measured on the pre-P2 **starved** instrument, and wave 25 changes both the
+instrument and the product. **Run wave 25's S1 BEFORE arm on B14-or-later rather than reaching for wave 23's
+numbers**, and state the comparison as a change of instrument, not as an improvement.
+
+---
+
 ## 2. THE BACKLOG, priced — cheapest first
+
+**§1c supersedes this table for waves 25–27.** What follows is the older, still-valid priced backlog; read it for
+items §1c does not name, and for the costings that have been corrected in place.
 
 Pick by **decision value per hour**. Prefer questions that can be **refuted**. Prefer instruments **already
 printed**. **State per item whether the gate REACHES its code** — the gate is a control on the binary's search,
@@ -97,7 +170,7 @@ a control it does not have. Name the check that *does* reach them instead.
 | **F73's honest missing arm — the CODE axis** | it *is* the arm: same 20 datasets, a binary differing by a change **believed inert on the search**, all **33** keys diffed. Wave 19's `git diff --name-only <old> <new> -- '*.cs'` line is now mandatory provenance for any two-binary rule | **~53 m** |
 | **F59** | **NO, and the cost is not "~1 h".** `DerivePresetSettings()` assigns four of the five (`MaxDistortion`, `StarCenterTolerance`, `HotpixelThreshold`, `Sensitivity`), so under the pinned file's `UseAdvanced=False` they are **overwritten on load** and repairing the exporter changes the detector by exactly nothing for them. The fifth, `SaturationThreshold`, is **not** preset-owned and **would** bind — making this a **coordinate-system move owing a fresh 42 m baseline**, and that is the whole price | **42 m baseline** + re-derivation |
 | **F45(b)** production plumbing | **NO.** Fenced, §3a. `N*` is not reachable in `AutoFocusEngine` (`:901` drops the count into `MeasureAndError`, a NuGet struct of two doubles) | **~3–4 h** + tests |
-| **F21** | **NO.** **Now priced — the deliverable was delivered.** Nothing further is owed unless a *rule* over `synth-validate` is wanted, and one is now affordable | **45–52 s** per dataset×scenario×2 rounds |
+| **F21** | **NO. Costing FINISHED in wave 24 — and the 45–52 s figure below must NOT be used to price an arm.** It was measured on `D11`, a factor-2 38 MB dataset at `--max-rounds 2`, and pricing a factor-1 arm from it under-reserved wave 23 by **3.5×**. Use the **per-scenario** rates: **S0 136 s/cell, S1 234 s/cell** (means over 19–20 cells, from `run.log` mtime deltas). **For a scenario never run, the price is a DERIVATION — give a band; wave 24's derived S4/S2 prices came in at ~0.4×** | **S0 136 s · S1 234 s** per cell |
 
 **F21 — the working invocation, measured. Copy it; do not re-derive it:**
 
@@ -205,7 +278,7 @@ arm**; **a gate never shown to PASS is not a gate, and the demonstration must as
 **check that BOTH branches of a clause are reachable**; **refuting an argument is not refuting its conclusion**;
 **a control demonstrated on one dataset is a control demonstrated on one dataset**.
 
-**Added by waves 18–21, each paid for:**
+**Added by waves 18–24, each paid for:**
 
 - **[F68](followups.md) is FIVE parts now**, not four: **population** (artifact **and field**), **statistic**,
   **aggregation**, **the empty-set answer**, and **which copy of the field is read and whether it is the live
@@ -254,6 +327,33 @@ arm**; **a gate never shown to PASS is not a gate, and the demonstration must as
   dlls** (`TestApp.exe` is byte-identical across wave 18's B1/B2 *and* wave 20's eleventh binary).
 - **An item under two minutes is never dropped.** Wave 19 finished at 1 h 35 m of a 6 h ceiling with a
   one-minute item undone, and it cost RULE C19 its verdict at commit time.
+- **A WRONG NUMBER CAN HAVE MORE THAN ONE CAUSE, and fixing one cause does not validate the instrument**
+  ([F79](followups.md), wave 24). Wave 23's `0 of 8` was the σ/`grep` defect; wave 24's **identical** `0 of 8`,
+  on a binary carrying the σ fix, is a **line-vs-block counting bug the σ had been masking**. **Both emit the
+  same string, so the output alone could never separate them — only the scorer-vs-driver comparison did.** Keep
+  a scored clause and its convenience print computing the same statistic by different routes, compare them, and
+  **never assume they compute the same statistic**: here one counted blocks and the other counted lines.
+- **A control that cannot fail is not a control — and wave 24 shipped one INSIDE the guard of its own arm**
+  (results §9.1). The self-test branch checking a clock comparison was `[ now > "23:59" ]`, a tautology, and it
+  returned rc=0 immediately before the driver aborted in one second and skipped all 22 cells. **Demonstrate every
+  guard in BOTH directions by byte-level mutation**, and remember that a `*_START` line without a live
+  `TestApp.exe` is not a running arm.
+- **Instruments derived by `sed` keep their predecessor's prose** ([F80](followups.md), wave 24). Eight drifts,
+  five instruments, one wave, one load-bearing — **and all of them passed their own `--self-test`**, because a
+  self-test checks behaviour and the drift is in the labels. Run the `--verify-derivation` pre-flight **before
+  the gate**. **Any ordinal or count in a derived instrument's output must be COMPUTED, never typed** — and note
+  that wave 20's fix for one instance of this did **not** fix the class.
+- **Price from the same instrument AND the same scenario** ([F21](followups.md), wave 24). Every wave-24 step
+  priced from a **measured** rate landed within 5 % (gate 0.98×, S0 arm 0.95×); every step priced by **deriving**
+  from a never-run scenario came in at ~0.4×. **Give a derivation a BAND and say it is one.** A conservative
+  derived price is the cheaper error — wave 24's over-reserve is what bought both of its dropped items.
+- **A rule may have a PREDICTED answer, and that is a virtue, not a weakness** (RULE R24). Wave 24 predicted
+  before the data that P2 was inert on S0, argued the mechanism, and then measured 20/20 on 17 terminal fields.
+  **A rule with a predicted answer is a rule that can be wrong**, which is the only kind worth running.
+- **Fence your OWN known noise source before the data, and make it reported-not-thresholded.** `R24-C` named the
+  commit, the file and the line numbers of a prose change guaranteed to differ between the two binaries, and
+  scored it as reported. Its one difference landed exactly there. **That is not loosening — the numbers and the
+  verdicts stayed at 100 %.**
 
 ### Traps
 
@@ -282,10 +382,20 @@ arm**; **a gate never shown to PASS is not a gate, and the demonstration must as
 - **Never run NINA during a pinned arm.** Only one `TestApp.exe` at a time. No fan-out (1.33×, F60; a pinned arm
   cannot fan out at all). **Never rebuild an arm's directory mid-wave** ([F53](followups.md)(c)) — plan the
   binaries up front.
-- Newtonsoft writes NaN/Infinity as the **strings** `"NaN"`/`"Infinity"`. Keep logs **ASCII**: a Unicode
-  character in a redirected log arrives as the single byte `0x1A` on this machine's console code page.
-- `D17_cdk14_oiii5` finds zero stars at short exposures; `lumos` exits rc=3; `astrodet` **the DATASET** is
-  frameless (F14); `Panos` has a degenerate σ fit and must be UNEVALUATED **by name**.
+- Newtonsoft writes NaN/Infinity as the **strings** `"NaN"`/`"Infinity"`. **Logs are ASCII again as of wave 24's
+  binary** ([F79](followups.md) fixed, `G24-P4` verified 0 of 8) — but **every wave root at or before 23 still
+  carries the `0xE5`**, so any clause reading an OLD log must still use `-a`, `awk` first, or Python on bytes. And
+  a Unicode character that CP437 *cannot* represent still arrives as `0x1A`.
+- `D17_cdk14_oiii5` finds zero stars at short exposures; `astrodet` **the DATASET** is frameless (F14).
+- **`lumos` exits rc=3 — MEASURED, wave 24, and no longer folklore.** It is a **hard-floor FAIL**, not a crash:
+  `bestJ = currentJ = 0` (no improvement, 88/250 evals) and *"at least one frame has < 3 stars under optimized
+  params (min observed = 0)"*. Open: is the zero-star frame a frame property or a parameter-space one — ~10 m of
+  `af-fit`/`review`.
+- **`Panos` — read this before quoting it.** The recorded *"degenerate σ fit, UNEVALUATED **by name**"* is about
+  the **σ / focus-curve fit in `af-fit`**. **Wave 24's `optimize --per-run` probe returned exit=0, hard-floor
+  PASS, `bestJ = 0.935582`, 360 accepted stars on one frame** — which is `L-NOT-COMPARABLE`, **NOT** a refutation,
+  because `optimize` does not compute σ_focus at all. `Panos` **is** addressable by `optimize`. The σ claim costs
+  ~5 m of `af-fit` to settle and is the only half still folklore.
 - **Price an arm from a representative population AND the same instrument** (§5). On CI, verify the **COUNT**,
   not the tick (F37).
 
@@ -305,26 +415,46 @@ G<N>` and `python3 /mnt/d/hf_w<N-1>/prov_w<N-1>.py --self-test /mnt/d/hf_w<N>/ga
 `BuildId`, `DetectorVersion`, `ProfileId`, `ConcurrencyCheck` read **across the arm**, `FitInputs`, `BaselineJ`.
 Wave 5's φ table is invalid on three axes — never quote it.
 
-**The `BuildId` novelty list — ELEVEN recorded ids, and wave 21's is the twelfth:**
+**The `BuildId` novelty list — THIRTEEN recorded ids, and wave 24's is the FOURTEENTH:**
 
 ```
 5cb7e474 (w11)  103d61c4 (w12)  62334f10 (w13)  084e3485 (w14)  df3a867d (w15)  10bc1b47 (w16)
 932a1366 (w17)  e745c958 (w18 B1)  7a3a03ba (w18 B2)  763d1476 (w19)  1a4dd85a (w20)
+58b3b082 (w21)  7927513b (w23)                        <- and dd6ca32e (w24) is the fourteenth
 ```
 
-Wave 14's `exe_floor` never recorded one (`af-fit` writes no landing), so it cannot be listed. **Keep dll sha256s
-in a separate, labelled table** and have the scorer fail loudly if a `BuildId` ever matches a known dll hash — an
-earlier draft of this charter listed a `TestApp.dll` **sha256** as a `BuildId`, [F66](followups.md)'s exact shape
-committed into the document that warns about it.
+Wave 14's `exe_floor` never recorded one (`af-fit` writes no landing), so it cannot be listed; wave 22 built no
+binary. **Keep dll sha256s in a separate, labelled table** and have the scorer fail loudly if a `BuildId` ever
+matches a known dll hash — an earlier draft of this charter listed a `TestApp.dll` **sha256** as a `BuildId`,
+[F66](followups.md)'s exact shape committed into the document that warns about it.
+
+**The apphost is now a SEVENTH counter-example.** `TestApp.exe` sha256
+`dd7103c28cc610e72671534cf23fb9a58b5a303a19d8779545cb7418d4ce6ff7` is **byte-identical across wave 18 B1, wave 18
+B2, wave 20, wave 21, wave 23 and wave 24** — six binaries that are none of each other. **Hash the dlls. And
+`git diff --name-only <B_old_tree>..<B_new_tree> -- '*.cs'` is mandatory provenance for any two-binary rule:
+`BuildId` proves a rebuild happened, never that the code differs.**
+
+> **Wave 24 got that diff's BASE wrong and it mattered.** It recorded `e7a5ee6..HEAD` (10 paths) when B13's tree
+> is `839c38b`, so the correct delta is `839c38b..HEAD` = **27 `.cs` files**. The 21 it omitted are F79's ASCII
+> sweep — **exactly the commit that causes the one prose difference `R24-C` reports**. A reader of the original
+> artifact would have found a reported difference and no commit in the provenance capable of producing it.
+> **Read the BEFORE binary's own provenance file for its tree hash; do not assume the previous wave's HEAD.**
 
 **The four fingerprint classes, and what each is FOR:**
 
 | class | population | script | role |
 |---|---|---|---|
-| 1 | 42 bank landings | `bank_fingerprint_w15.py` | **preservation** — F15's fix, seven clean waves |
+| 1 | 42 bank landings | `bank_fingerprint_w15.py` | **preservation** — F15's fix, **eleven** clean waves |
 | 2 | 59 aux (`harness_settings.json` ×39 + `synthetic_meta.json` ×20) | `aux_fingerprint_w17.py` | **preservation** |
 | 3 | 48 prior-wave arms (`hf_w18/seedA0` 20, `seedA1` 20, `hf_w18/gate` 8) | `arm_fingerprint_w19.py` | **preservation** — the out-of-sample population must stay unspent |
-| 4 | **the previous wave's logs** | `log_fingerprint_w20.py` | **evidence** — wave 20's class 4 was wave 19's 28 logs because every denominator in its satisfiability analysis was counted on them; **wave 21's class 4 is wave 20's own logs**, for the same reason |
+| 4 | **whatever THIS wave's denominators are counted on** | wave-specific | **evidence.** Wave 20's was wave 19's logs; wave 21's was wave 20's; **wave 24's was wave 23's 38 `synth_validate_report.json` files, because `R24-A`'s entire BEFORE side was those files.** *A file class that becomes a denominator is evidence, and a file class that becomes evidence must become a control in the same wave* |
+
+**Two things wave 24 learned about class 4, both cheap and both mandatory now.** (i) **KEEP the AFTER check's
+output in a file** — wave 23 ran four AFTER checks that left no artifact; wave 24's are in `fp_*_AFTER.txt`.
+(ii) **Count the ADDRESSABLE population, not the directories.** Wave 24's plan said 40 wave-23 cells; **38**
+reports exist, because two cells timed out at 600 s and produced none. Asserting 40 would have blocked RULE R24's
+entire BEFORE side on an addressability error ([F74](followups.md)). A self-test branch now asserts `EXPECTED`
+equals the addressable population **and** that the gap is exactly the named NOT-RUN cells.
 
 **Budget — price from the same INSTRUMENT, not merely a representative population.**
 
@@ -359,9 +489,10 @@ measurement arm.** Agents read, write, design and analyse. **Only one `TestApp.e
 7. Spawn a **CODE** agent if the wave ships anything. **Every new test must be shown to fail against the
    pre-change source** — or, for new API where a revert fails the build, against a **named mutant** — and you
    verify that claim yourself. The mutation harness keeps byte backups, not VCS reverts.
-8. **You run the full suite**, verified by COUNT. Baseline **3838 after wave 20**; **read wave 21's results for
-   the current number**. Name every added test.
-9. **You commit and push**, append the wave's section to the PR (§0.3), and verify CI by COUNT read out of the log.
+8. **You run the full suite**, verified by COUNT. Baseline **3966** (wave 24, `SUITE_EXIT=0`). Name every added
+   test and the delta, and **name the delta before anything is called green**.
+   **`dotnet test <sln>` does NOT build `TestApp`** — build it separately and read the build output.
+9. **You commit and push**, append the wave's section to PR #195 (§0.3), and verify CI by COUNT read out of the log.
 
 **Commit with the privacy email:**
 ```

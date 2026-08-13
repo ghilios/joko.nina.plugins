@@ -13,20 +13,25 @@ prior conversation.
 2. **Waves MAY ship user-visible product changes** when the wave's own ship rule, fixed and committed BEFORE the
    data, is satisfied. If the rule is not met, the change does not ship and is recorded as a costed recommendation.
 3. **~6 hours of compute per wave.** A wave that wants more must cut scope or split, and say which.
-4. **ONE branch: `ghilios/synthetic-af-bank-followups-wave13`, PR #191.** Never push `develop`.
-   **Wave 22's FIRST decision, in writing, before any measurement: is PR #191 still the right vessel, or does it
-   merge and a fresh branch open?** It already carries waves 13–21 plus a run of owner-directed UI work. Do not
-   drift into a fourteenth section by default.
+4. **ONE branch: `ghilios/synthetic-af-bank-followups-wave23`, PR #195 (OPEN).** Never push `develop`.
+   It carries wave 23 and wave 24. **Every wave's FIRST decision, in writing, before any measurement: is PR #195
+   still the right vessel, or has it merged and a fresh branch opens?** Check `gh pr view 195 --json state`
+   immediately before committing the pre-registration and take that branch instead if it merged. Do not drift
+   into a third section by default — waves 23 and 24 each decided this explicitly and recorded the reasoning.
 
 ## 1. STOP CONDITION
 
-**Stop at `15:00Z` on 2026-08-12.** Do not start a new wave or a new arm after that. Finish the step in flight,
-push, and write a final summary. A cron fires every 30 minutes; each firing must begin with the status sweep in
-§2 and report in two or three lines.
+**Stop at `12:00Z` on 2026-08-13** (extended by the owner from `15:00Z` on 2026-08-12; roughly three more waves).
+Do not start a new wave or a new arm after that. Finish the step in flight, push, and write a final summary. A
+cron fires every 30 minutes; each firing must begin with the status sweep in §2 and report in two or three lines.
 
 **Stop EARLY and say so if** the gate fails and cannot be explained, or **two consecutive waves produce no
 finding worth a register entry**. §2 of the handoff says the register may now be close to dry. **"There is
 nothing left worth a wave" is an acceptable and welcome answer** — say it plainly rather than manufacturing work.
+
+**The dry-wave stop is NOT armed.** Wave 23 opened [F79](followups.md) and produced the F26 scope correction;
+wave 24 opened **[F80](followups.md)**, verified F79, corrected F34's `D01` attribution, and closed F21's
+costing. Two consecutive productive waves, so the counter is at zero.
 
 ## 2. THE STATUS SWEEP — run this at every cron firing, before anything else
 
@@ -34,12 +39,19 @@ nothing left worth a wave" is an acceptable and welcome answer** — say it plai
 date -u +%H:%M:%SZ
 tasklist.exe | grep -ciE "TestApp|NINA"
 cd /home/ghilios/src/hocus-focus && git status --short && git log --oneline -1
-gh run list --branch ghilios/synthetic-af-bank-followups-wave13 --limit 2 \
+gh run list --branch ghilios/synthetic-af-bank-followups-wave23 --limit 2 \
   --json status,conclusion,headSha --jq '.[]|"\(.headSha[0:7]) \(.status) \(.conclusion // "-")"'
 ```
 
 **READ LOGS, NOT EXIT CODES.** A background job reporting `exit 0` has repeatedly meant a driver aborted in one
 second. Confirm a `*_START` line **and** a live `TestApp` before believing an arm is running.
+
+> **Wave 24 hit this exactly, and the `*_START` line was present.** `b24_arm_w24.sh` aborted in one second on
+> first launch, skipping all 22 cells, because it compared wall-clock times as **strings** (`"21:01" > "03:00"`
+> is lexically true) against a deadline that was **tomorrow**. The `START` line alone would have been believed;
+> only *"no live `TestApp.exe`"* caught it. **And the self-test branch guarding that comparison was
+> `[ now > "23:59" ]` — a tautology that could never fire, which returned rc=0 immediately before the failed
+> launch. A control that cannot fail is not a control.** Wave 24 results §9.1.
 
 **If nothing is running and no agent is live, start the next step immediately.** Never report "waiting".
 
@@ -55,9 +67,13 @@ second. Confirm a `*_START` line **and** a live `TestApp` before believing an ar
 - Commit with:
   `GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com"` and
   `--author="George Hilios <322725+ghilios@users.noreply.github.com>"`.
-- **Suite baseline: 3922.** Verify by **COUNT** out of the CI log, never by the tick ([F37](followups.md)).
+- **Suite baseline: 3966**, verified by COUNT in wave 24 (`Failed: 0, Passed: 3966, Total: 3966`, `SUITE_EXIT=0`).
+  Everything below it in older docs is stale (3922, 3933, 3958, 3960 all are).
+  Verify by **COUNT** out of the log, never by the tick ([F37](followups.md)).
   Local: `dotnet.exe test "$(wslpath -w Joko.NINA.Plugins/Joko.NINA.Plugins.sln)" -c Debug --nologo`
   (no `dotnet` in WSL; use Windows `dotnet.exe` via interop, ~4 min).
+- **`dotnet test <sln>` does NOT build `TestApp`.** A compile break in any runner never surfaces in the suite.
+  Build it separately and read the build output.
 
 ## 4. F77 — CHECK THE DEPLOYED BINARY BEFORE QUOTING ANY UI RESULT
 
@@ -77,9 +93,14 @@ against the DLL's mtime to prove which binary a session loaded.
 
 ## 5. THE WAVE ORDER
 
-pre-registration committed → build ONE binary → gate (score it **and** self-test its scorer in **both**
-directions) → arms sequentially → analysis agent writes results + register → full suite by COUNT → commit, push,
-update PR #191 body → verify CI by COUNT out of the log → next wave's pre-registration.
+pre-registration committed → **`--verify-derivation` pre-flight ([F80](followups.md))** → build ONE binary →
+gate (score it **and** self-test its scorer in **both** directions) → arms sequentially → analysis agent writes
+results + register → full suite by COUNT → commit, push, update PR #195 body → verify CI by COUNT out of the log
+→ next wave's pre-registration.
+
+**The pre-flight is new and it is ~15 m.** Wave 24 lost its arm's licence for several minutes because a `sed`
+renamed a scorer's paths but not the module it imports, and found **seven more** prose-vs-mechanism drifts at
+write-up. See [F80](followups.md) for the two-part check; run it **before the gate**, never after.
 
 ## 6. DISCIPLINE — the expensive lessons, in one place
 
@@ -102,6 +123,20 @@ update PR #191 body → verify CI by COUNT out of the log → next wave's pre-re
   fault.** Check whether a later commit with the same test passed before weakening the suite.
 - **`strings` is two instruments**: type/member names in `#Strings` (UTF-8), string literals in `#US` (UTF-16,
   `strings -el`). Read the `DetectorVersion` **field**, never `grep AtrousWaveletFast`.
+- **A WRONG NUMBER CAN HAVE MORE THAN ONE CAUSE, and fixing one does not validate the instrument**
+  ([F79](followups.md), wave 24). Wave 23's `0 of 8` was a `grep`/σ defect; wave 24's *identical* `0 of 8`, on a
+  binary carrying the σ fix, is a **line-vs-block counting bug** the σ had been masking. **The only reason it was
+  caught is that a scorer and a driver compute the same clause by different routes and were compared** — keep
+  that comparison, and never assume the two compute the same statistic.
+- **Instruments derived by `sed` keep their predecessor's prose** ([F80](followups.md), wave 24). Eight drifts in
+  five instruments in one wave, one load-bearing, **and every instrument passed its own `--self-test` with the
+  drift present**, because a self-test checks behaviour and the drift is in the labels. **Any ordinal or count in
+  a derived instrument's output must be COMPUTED, never typed** — and wave 20's fix for one instance of this did
+  not fix the class: `prov_w24.py:179` still prints a hardcoded nine-wave list while checking thirteen.
+- **Price from the same instrument AND the same scenario** ([F21](followups.md), wave 24). Every wave-24 step
+  priced from a measured rate landed within 5 %; every step priced by *deriving* from a never-run scenario came
+  in at ~0.4×. **When a scenario has never been run, give a BAND and say it is a derivation.** A conservative
+  derived price is the cheaper error — wave 24's over-reserve is what bought both of its dropped items.
 
 ## 7. WHAT IS OPEN
 
@@ -109,6 +144,12 @@ Read `docs/waves22+-handoff-prompt.md` §2 for the priced backlog. Summary of wh
 
 | item | note |
 |---|---|
+| **the wave-25/26/27 plan** | **25 = the stall bridge + degenerate-fit gate** (goal 2, ships product, ~3 h 15 m — **and it must NOT be keyed on R²**, see below); **26 = P23's flat-direction perturbation arm** (~30 m) + optionally F67's residual (~30 m); **27 held OPEN** for wave 25's consequence. Wave 24 results §14 argues the order |
+| **the wave-25 gate's design constraint** | `D03_redcat_250mm`/S1 is **degenerate at R² = 0.9835**, and `D01_ultrawide_40mm`/S1 **stalls at R² ≈ 1.0 with no degeneracy at all**. **An R²-keyed fit-quality gate misses both.** Key it on `sampledHfrRange`, declare it **one-sided** (the wide end is empty, 0 of 7 S2 cells), and treat the non-degenerate stall as a **second mechanism**. [F25](followups.md)/[F34](followups.md) |
+| **the S1 re-measurement** | ~1 h 20 m. **Owed** before any goal-2 number is quoted: wave 23's `V23-G` S1 `13 of 17` was measured on the pre-P2 **starved** instrument and is not comparable to anything after it. Wave 25 can discharge it inside its own paired arm |
+| **[F80](followups.md)'s pre-flight** | ~15 m, and it belongs in wave 25's step order, not in a wave of its own |
+| **`lumos`'s zero-star frame** | ~10 m of `af-fit`/`review`. `rc=3` is now reproduced **and explained** (hard-floor FAIL, one frame yields 0 accepted stars); this settles whether it is an unusable run or a gate question |
+| **`Panos`'s σ fit** | ~5 m of `af-fit`. **The recorded "degenerate σ fit" belongs to `af-fit`, NOT `optimize`** — wave 24's `optimize` probe returned exit=0, hard-floor PASS, `bestJ=0.935582`, which is `L-NOT-COMPARABLE` and **not** a refutation. This is the only half still folklore |
 | **F77** | the silent deploy failure above — make the copy fail loudly or warn by name. ~20 m |
 | **`SystemParameters.WorkArea`** | reports the **primary** monitor. `ClampWindowToWorkArea`'s Win32 half already resolves per-monitor via `MonitorFromWindow`; the WPF half does not. Wrong rect if a window opens on a secondary display |
 | **F72 / A5, A7, A8** | A5/A7 unblocked now the wizard footer renders. A8 needs a run whose recommended step is **capped** |

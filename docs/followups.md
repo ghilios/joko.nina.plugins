@@ -651,6 +651,46 @@ both still owed.**
 > [F34](#f34--synth-validate-scored-a-stalled-run-as-converged-at-a-step-4-outside-the-band-its-own-assertion-failed-it-on)
 > in wave 2 and is **not** re-opened; what wave 23 re-opens is the **stop** that fix shipped alongside it.
 
+> ### THE OWED GATE IS NOW IMPLEMENTABLE, AND THE OBVIOUS VERSION OF IT WOULD BE WRONG (2026-08-12, wave 24, P1 + RULE D24)
+>
+> **What was blocking it, and it was not nerve.** Wave 23's Bridge A says *"the gate must be on
+> `sampledHfrRange`, not on R²."* **`SampledHfrRange` was assigned ONLY on the non-degenerate path**
+> (`StepSizeRecommender.cs:295`). On the `:252` half-width exit `bestFit.Outputs` **is** present and measurable
+> and was thrown away. **The gate's decision variable was `NaN` on exactly the branch the gate must decide**, so
+> the bridge was not implementable as written, at any price.
+>
+> **Wave 24 shipped the instrument** (P1, **shipping plugin code**): `Degenerate(...)` now takes a reason and sets
+> `DegenerateReason` on all three exits — `"no-fit"` (`:233`), `"non-finite-vertex"` (`:239`),
+> `"half-width-unresolved"` (`:252`) — and measures `SampledHfrRange = MeasureSampledHfrRange(bestFit)` whenever
+> `bestFit != null`. Both are mirrored into the report and surfaced in the wizard's step block. **P1 changes no
+> recommended step size**: `G24-P3b` pinned the eight gate values as exact integers and returned **8 of 8**.
+>
+> **The census it enables — RULE D24, `D-REPORTED`, NO BAR by pre-registration:**
+>
+> ```
+> dataset              sc  rnd  degenerateReason       sampledHfr   R^2        bootstrapStep
+> D02_rich_135mm       S1  0    half-width-unresolved  1.2216       -0.2741    2
+> D03_redcat_250mm     S1  0    half-width-unresolved  1.0799        0.9835    4
+> wide-end (S2) degenerate rounds: 0     narrow-end (S1/S4) degenerate rounds: 2
+> ```
+>
+> **Three things wave 25 must not get wrong, all measured:**
+>
+> 1. **A gate keyed on R² MISSES `D03`.** `D03_redcat_250mm`/S1 is a **degenerate** recommendation at
+>    **R² = 0.9835**; `D02` is degenerate at **−0.2741**. Same exit, R² 1.26 apart, one of them excellent. This
+>    corroborates [F21](#f21--stepsizerecommenders-half-width-is-not-stable-against-noise-even-on-a-perfect-fit)'s
+>    *"R² measures fit to the SAMPLED points and says nothing about whether the vertex is identifiable"* on a
+>    second, independent population. `sampledHfrRange` separates them; R² does not.
+> 2. **Only ONE of the three exits fires in the field** — `half-width-unresolved`, **2 of 2**. `no-fit` and
+>    `non-finite-vertex` are **0**. The schema invariant holds **23 of 23**: `halfWidth == "NaN"` **iff**
+>    `degenerateReason` is non-null, so there is **no fourth degenerate path** P1 failed to label.
+> 3. **The WIDE end is EMPTY.** Seven S2 cells (step ×4, this entry's own direction) produced **zero** degenerate
+>    rounds. **Wave 25's directional threshold will be one-sided and must say so in writing before the data** —
+>    and this entry's own wide-end example, `D05_tec140_1000mm`/S2, is **published**, so it cannot be used blind
+>    either.
+> Reproduce: `/mnt/d/hf_w24/d24_score.txt`; `/mnt/d/hf_w24/after/D0{1,2,3}_*__S1/synth_validate_report.json`;
+> `docs/synthetic-af-bank-followups-wave24-results.md` §5.
+
 ### F26 — A stuck binning recommendation starves the step update indefinitely
 **Status:** Open · found 2026-08-03 running scenarios S1/S6 on the synthetic AF bank
 
@@ -795,6 +835,70 @@ fails its own precision gates.
 > **The lesson, which is this register's own recurring one:** the entry named a component (*"the wizard"*) it had
 > never opened. The check that settles it is two greps and costs a minute. **Name the file and the line, or do
 > not name the component.**
+
+> ### GUARDED (2026-08-12, wave 24, P2) — IT MEETS THIS ENTRY'S OWN BAR ON `D08`/S1, AND THE LIVELOCK IS RARER THAN THIS ENTRY IMPLIES
+>
+> **The scope correction above is unchanged and unaffected.** P2 is a **harness** change
+> (`TestApp/SynthValidateRunner.cs` + `TestApp/SynthBank/BinningRevisitPolicy.cs`); it reaches no user, and
+> nothing below should be read as a field bridge.
+>
+> **The guard that shipped is NOT this entry's next step as worded, and the reason is measured.** This entry says
+> *"if the binning recommendation **has not changed the applied value** for N consecutive rounds, stop deferring."*
+> **On the oscillating form wave 23 reproduced, the applied value changes every single round** — `2 -> 1 -> 2 -> 1` —
+> so a counter keyed on *"the applied value has not changed"* **never fires** on the trace this entry is now cited
+> for. That wording matches the **original 2026-08-03 evidence**, where the recommendation was stuck at `1` for
+> four rounds; it does not match the oscillation. A consecutive-**deferral** counter (`N = 2`) would fire, but it
+> also fires on a **legitimate monotone walk** (`1 -> 2 -> 3` is two honest deferrals, because no measurement at
+> factor 3 exists yet).
+>
+> **What shipped is the REVISIT rule**, derived from the deferral's own stated justification (`:830-832`:
+> *"changing binning invalidates the exposure measurement … this round just took"* — a justification that is
+> **empty for a factor already measured**): *defer only when the recommended factor has not already been in
+> effect during this scenario.* It changes behaviour **if and only if the recommendation has entered a cycle**,
+> which is precisely the defect.
+>
+> **On `D08_c11_2800mm`/S1 — this entry's own dataset and scenario — it works, and it meets the bar this entry
+> pre-registered:**
+>
+> | | BEFORE (B13, wave 23's binary) | AFTER (B14) |
+> |---|---|---|
+> | trajectory | `21 -> 21 -> 21 -> 21` | **`21 -> 36 -> 62`** |
+> | `roundsUsed` | 4 | **3** |
+> | `converged` | **false** | **true** |
+> | `stoppedReason` | `reached --max-rounds (4)` | `converged (step 62 within the 32.8 tolerance band of step_behavioral 82)` |
+> | `overallVerdict` | 2 | 1 |
+>
+> **This entry's priced bar was *"`roundsUsed <= 3` with `finalStepSize` inside `[49.2, 131.2]`."* Measured:
+> `roundsUsed = 3`, `finalStepSize = 62`.** P2's engagement marker `applied.binningDeferralBoundReached` is
+> **true on round 1**, exactly where the revisit occurs, with the reason
+> *"binning 1 -> 2 (already measured at factor 2; not deferring)"* — [F76](#f76--the-optimizer-wizard-opens-with-its-footer-below-the-bottom-of-the-screen-so-accept-is-unreachable-until-the-window-is-moved)'s
+> rule honoured: *a fix that cannot report whether it engaged is not finished.*
+>
+> **AND `D08`/S1 CANNOT CARRY A VERDICT, WHICH IS THE OTHER HALF.** Its four round records were read to *design*
+> the fix, so it is a **labelled reproduction control excluded from every denominator**. The wave's blind
+> population was **scenario S4 — never run in any prior wave, in no results document, in no register entry** —
+> requested on all 20 datasets, 7 binary-resolved applicable.
+>
+> **RULE B24 returned `B-UNEXERCISED`: 0 of 7 BEFORE cells revisited a binning factor** (`factors seen=[1]` on
+> every one), so the engagement marker fired **0 of 7** and do-no-harm read **7 of 7 identical** — exactly how P2
+> is defined to behave with no revisit. The branch table, fixed before the data, calls this **NOT a pass and NOT a
+> fail**.
+>
+> **So the honest status of this entry is: the livelock is CONDITIONAL and RARER than its own evidence suggests.**
+> It did not occur once in a blind seven-dataset population selected to provoke binning mismatches, at the shipped
+> `--max-rounds 4`. Wave 23 found a revisit in 1 cell of 38 from the other side. Whether it fires is decided by
+> where a rig's vertex HFR sits relative to the `1.5` rounding boundary of `clamp(round(hfr/3), 1, 4)`
+> ([F22](#f22--detection-binning-is-a-hard-threshold-on-a-measurement-that-under-reads-so-boundary-rigs-get-the-wrong-factor)),
+> **not** by the deferral rule being generally wrong. **A future wave wanting the mechanism must select datasets
+> whose vertex HFR straddles that boundary, not datasets with `expectedDetectionBinning == 2`.**
+>
+> **The measurement gap this entry opened is CLOSED.** It recorded that `binningRecommendation` carried no
+> `appliedFactor` and no `currentFactor`, so starvation had to be *inferred* from the bootstrap never moving.
+> Both fields now exist and are populated (P3), along with `applied.stepDeferredByBinning` and
+> `applied.binningDeferralBoundReached`.
+> Reproduce: `/mnt/d/hf_w24/before/D08_c11_2800mm__S1/synth_validate_report.json` against
+> `/mnt/d/hf_w24/after/D08_c11_2800mm__S1/synth_validate_report.json`; `/mnt/d/hf_w24/b24_score.txt`;
+> `docs/synthetic-af-bank-followups-wave24-results.md` §4.
 
 **Status revision, and it is now itself revised.** The one-round deferral cost is real and worth the guard below.
 The 2026-08-03 re-measurement withdrew the word *"indefinitely"* from this entry's title on the grounds that the
@@ -1929,6 +2033,42 @@ hypothesis — is still owed**, and the entry stays Open.
 > catalogues. The probe asks only: *does the population exist, and what does one round cost?* Deliverables and
 > nothing else: the wall time, the round count, `HalfWidth` and recommended step per round, and whether a second
 > round occurred at all.
+
+> ### THE COSTING, FINISHED (2026-08-12, wave 24) — AND THE FAILURE MODE IS NOW EXTRAPOLATION, NOT INSTRUMENT
+>
+> Wave 21 priced the probe at **45–52 s**; wave 23 priced a 40-cell arm from it and **under-reserved by 3.5×**,
+> because that figure was measured on `D11`, a **factor-2, 38 MB** dataset at `--max-rounds 2`. Wave 24 priced
+> **per (scenario, dataset)** from wave 23's own `run.log` mtime deltas — the finest instrument that exists for
+> this question, accounting for 97 % of that arm's wall clock:
+>
+> | scenario | n | mean | median | min | max |
+> |---|---|---|---|---|---|
+> | S0 | 19 | **136 s** | 86 s | 12 s | 460 s |
+> | S1 | 20 | **234 s** | 130 s | 30 s | 577 s |
+>
+> **Both are far finer than the blended `7 446 s / 40 = 186 s` this entry could previously offer, and where they
+> were applied they were excellent. What missed was the derived prices.**
+>
+> | wave-24 step | priced | actual | ratio | priced from |
+> |---|---|---|---|---|
+> | R-AFTER arm, S0 × 20 | ~45 m | **42 m 56 s** | **0.95×** | **the S0 rate above — measured** |
+> | RULE G24 gate, 8 `optimize` runs | ~42 m | **41 m 15 s** | **0.98×** | six prior waves at ~5.2 m/run — **measured** |
+> | A-BEFORE arm, S4 × 20 + 2 | ~45 m | **17 m 39 s** | **0.39×** | **2× those datasets' S1 sum — DERIVED** |
+> | A-AFTER arm, + 3 controls | ~50 m | **18 m 12 s** | **0.36×** | **DERIVED, same way** |
+> | S2 census, 7 cells | ~18 m | **7 m 47 s** | **0.43×** | **1× their S1 sum — DERIVED** |
+> | item L24, 2 `optimize` runs | ~12 m | **10 m 17 s** | **0.86×** | the mixed `optimize` rate — measured |
+>
+> **The rule this entry should now carry:** *price from the same instrument **AND the same scenario**. When a
+> scenario has never been run, say the price is a derivation and give it a BAND, not a number.* S4 and S2 had
+> never been run; both derivations over-priced by ~2.5×, while every measured price landed within 5 %. The
+> prediction that 13 inapplicable cells would return in 1–2 s each was **correct**; what was over-priced was the
+> **applicable** cells, which ran 13 s – 6 m 39 s against an assumed ~270 s.
+>
+> **And the over-reserve was worth keeping.** The spare 1 h 14 m let wave 24 run **both** items at the top of its
+> drop list (the S2 census, drop D1; item L24, drop D2). *A conservative derived price is a cheaper error than an
+> aggressive one* — the correction to wave 23's under-reserve should not be applied in the other direction.
+> Reproduce: `docs/synthetic-af-bank-followups-wave24-design.md` §7.5;
+> `docs/synthetic-af-bank-followups-wave24-results.md` §12.
 
 ### F22 — Detection binning is a hard threshold on a measurement that under-reads, so boundary rigs get the wrong factor
 **Status:** Open · found 2026-08-02 running the synthetic bank's S0 control
@@ -7421,8 +7561,127 @@ first, or read bytes.** A `grep` that returns rc=1 on a log is not evidence of a
 > worded**: `Lines`/`Write` were already guarded by an `Ascii()` helper with a test. Its single violation is at
 > `:182`, in an `ArgumentException` message, which is **thrown, not printed**. The doc now covers every string
 > literal in the class including that throw.
+
+> ### VERIFIED IN THE FIELD (2026-08-12, wave 24, `G24-P4`) — AND THE FIX EXPOSED A SECOND DEFECT IT HAD BEEN MASKING
+>
+> **Status: the ASCII fix HOLDS.** Wave 24 is the first wave whose binary carries `e7a5ee6`, and its gate is the
+> cheapest possible verification. The clause was pre-registered as **non-blocking** (a predecessor's cosmetic
+> deliverable must not cost a wave its arms) with **both** branches reachable, and its FAIL end was measured
+> **first, on real published artifacts**:
+>
+> | gate | files with >= 1 byte >= 0x80 | total | verdict |
+> |---|---|---|---|
+> | `/mnt/d/hf_w23/gate` (FAIL end, run first) | **8 of 8** | 8 — one `0xE5` each, offsets 7975–8153 | `P4-NON-ASCII-PRESENT` |
+> | `/mnt/d/hf_w24/gate` (the first gate built after the fix) | **0 of 8** | **0** | **`P4-ASCII-CLEAN`** |
+>
+> Counted in **Python on bytes**, never `grep` — *a clause about a fails-closed defect must not use the instrument
+> that fails closed.*
+>
+> **AND THE SAME DRIVER PRINT STILL READS `0 of 8`, FROM A COMPLETELY DIFFERENT CAUSE.** On a gate that had just
+> reproduced K8 bit-identically, `gate_w24.sh` printed `[G24-P2] logs with EXACTLY ONE 'optimize/detected' block:
+> 0   expected: 8` — and the same for `optimize/baseline` and `optimize/seed`. **Character-for-character what wave
+> 23 printed, and not one byte of the cause is shared.**
+>
+> | wave | what `grep` sees | driver prints | why |
+> |---|---|---|---|
+> | 23 | **0** hits (whole file classed binary by one `0xE5`) | `0 of 8` | this entry: fails **closed** |
+> | 24 | **2** hits per log | `0 of 8` | the driver counts **LINES MENTIONING** the string; a block is a `BEGIN`/`END` **pair**, so the true count is 2 and *"exactly one"* is **never satisfiable** |
+>
+> Measured on `/mnt/d/hf_w24/gate/toml999.log`: `136:PARAMS-DUMP optimize/detected BEGIN`,
+> `192:PARAMS-DUMP optimize/detected END`. **The pre-registered clause was unaffected and needed no repair** —
+> `score_g24_w24.py` parses **blocks** and returns **8 of 8 = PASS** on the same eight files in the same minute.
+>
+> **Four durable points, and they are why this extends F79 rather than opening its own entry.**
+>
+> 1. **A wrong number can have more than one cause, and fixing one cause does not validate the instrument.** The
+>    `σ` had been masking a second bug **in the same statistic, in the same script**, for that driver's whole life.
+> 2. **Wave 23's diagnosis — *"it's the σ"* — was TRUE and INCOMPLETE.** Had the `σ` never existed, that line
+>    would still have read `0 of 8`, on all three blocks, on every wave from 11 to 24.
+> 3. **Both defects emit the identical string, so the output alone could never separate them.** The only reason
+>    this was caught is that **the scorer and the driver compute the same clause by different routes and were
+>    compared.** That comparison is now a load-bearing control and should be named as one in any wave that keeps
+>    a convenience print beside a scored clause.
+> 4. **And the two must not be assumed to compute the same statistic.** Here one counts **blocks** and the other
+>    counts **lines** — a difference completely invisible in the output.
+>
+> Reproduce: `/mnt/d/hf_w24/g24_ascii.txt` (clean), `/mnt/d/hf_w24/g24_asciifailend.txt` (the FAIL end),
+> `/mnt/d/hf_w24/g24_p2p3.txt` (the scorer's 8 of 8) against `/mnt/d/hf_w24/gate_w24.log` (the driver's 0 of 8);
+> `docs/synthetic-af-bank-followups-wave24-results.md` §2.
+
 Reproduce: `python3 -c "d=open('/mnt/d/hf_w23/gate/toml999.log','rb').read(); print(d.count(b'\xe5'), d.find(b'\xe5'))"`;
 `grep -c` vs `grep -ac` on the same file; `docs/synthetic-af-bank-followups-wave23-results.md` §2.
+
+### F80 — Instruments derived by textual substitution keep their predecessor's prose, and it silently stops describing them
+**Status:** Open (remedy specified and priced) · found 2026-08-12, wave 24, when a scorer refused its own PASS end
+because a `sed` line renamed the paths but not the module
+
+Every wave in this series carries its measurement instruments forward by `sed`-ing the previous wave's copies —
+deliberately, and for a good reason: *editing an instrument mid-series is how it stops being the same instrument,*
+and the gate must be read by the same code path as the thirteen binaries before it. **The derivation is the
+problem, not the carrying-forward.** `sed` rewrites what it is told to rewrite; **everything else keeps saying
+what the previous wave said**, and nothing checks that an instrument's output still describes the instrument.
+
+**Evidence — eight prose-vs-mechanism disagreements across five instruments in ONE wave, one load-bearing.**
+
+| # | instrument | the drift |
+|---|---|---|
+| 1 | `prov_w24.py` | active log labels read `RULE G23` while the wave's rule is `G24` |
+| 2 | `prov_w24.py:75` | a **historical** label reads *"wave 21 (RULE G23's …)"* — wave 21's rule was **G21**; wave 23's own `sed` rewrote its predecessor's history. **Each derivation corrupts the labels of the ones before it** |
+| 3 | `gate_w24.sh:221` | header prints *"ONE binary, the **thirteenth**"* on the **fourteenth** |
+| 4 | **`score_g24_w24.py:275`** | **resolves `os.path.join(HERE, "prov_w23.py")`, a file that does not exist. LOAD-BEARING — see below** |
+| 5 | **`prov_w24.py:179`** | prints a hardcoded *"differs from waves 11/12/13/14/15/16/17/18-B1/18-B2: YES"* — **NINE waves named while THIRTEEN are checked** |
+| 6 | `prov_w24.py:227,304` | the self-test banner and usage string print **`prov_w23.py`**; the published artifact `prov_w24.txt` therefore opens by naming a different file |
+| 7 | `v23_fingerprint_w24.py:2,171` | docstring says *"the **wave-21** synth-validate reports"* and the PASS line prints **"38 of 38 wave-21 f21 files BYTE-IDENTICAL"** — the population is **wave 23's** 38 reports. **The published class-4 control output names the wrong wave's evidence** |
+| 8 | `gapprobe_w24.sh:3` | header reads *"WAVE 23 — ITEM L"* |
+
+**Why #5 is the sharpest evidence, and why this needs its own entry.** Wave 20 shipped a `prov_w20.py` that
+printed *"novel against NINE recorded ids"* while checking ten. That was recorded, fixed, and written into the
+charter's standing discipline as *"the report and the exit status are two channels — wire BOTH to the verdict,
+and self-test the message against the mechanism it describes,"* with the fix being that the count is computed
+from `len(PRIOR_BUILD_IDS)`. **The count line was fixed and self-tests AGREE (`printed=13`, `len=13`). A second
+line twenty lines away still hardcodes a nine-wave list, and has been carried forward through four
+derivations.** *Fixing the instance is not fixing the class.*
+
+**Why #4 was load-bearing, and why the instrument still behaved perfectly.** After wave 24's gate PASSED 8 of 8
+bit-identical, `score_g24_w24.py --arm-gate` returned **rc=1** and wrote **no marker**, blocking the arm:
+
+```
+[4] prov_w23.py free controls exit=2   (BuildIds seen: ['dd6ca32ef7f941c2a54753398cc2cf6b'])
+    >>> REFUSING: the free controls did not pass.
+>>> NO MARKER WRITTEN.
+```
+
+The *gate driver's* `sed` carried `s#prov_w23#prov_w24#g`; the *scorer's* did not. So the scorer called a
+nonexistent module, caught the exception, recorded `exit=2` — **a could-not-look correctly refusing to certify.**
+That is [F75](#f75--the-wave-held-two-standards-for-its-two-interlocks-one-driver-written-and-explicitly-protected-from-hand-writing-the-other-specified-as-a-controller-printf)'s
+discipline working exactly as designed: *the writer is the code that computes the verdict, and it wrote nothing
+because it could not compute one.* **A hand-written marker here would have licensed an arm on an unrun control.**
+
+**Why it is not [F74](#f74--a-driver-and-its-scorer-each-rebuilt-the-artifact-path-from-a-template-disagreed-and-cost-a-pre-registered-rule-its-verdict--while-the-interlock-marker-between-them-already-carried-the-answer),
+[F66](#f66--three-of-wave-14s-checks-could-not-return-their-own-pass-and-the-register-has-been-reading-strings-as-one-instrument-when-it-is-two) or F75.** F74 is two components independently rebuilding one path; F66 is a check that
+cannot return its own PASS; F75 is who writes an interlock. **This is a *generative* defect: the mechanism that
+produces each wave's instruments also produces prose that no longer describes them, and it does so silently,
+repeatedly, and in a way that self-tests pass through** — every instrument above passed its own `--self-test`
+(24 of 24, 21 of 21, 5 of 5) with the drift present, because a self-test checks behaviour and the drift is in
+the labels.
+
+**Next step — the cheap half first, and it is ~15 m.** A `--verify-derivation` pre-flight, run **before the
+gate**, asserting for every instrument under `/mnt/d/hf_w<N>/`:
+
+1. every `os.path.join(HERE, …)` target and every imported sibling **exists on disk** (catches #4 in one second,
+   before any measurement rather than after the gate); and
+2. the file contains **no reference to the previous wave's id** (`w<N-1>`, `G<N-1>`, `prov_w<N-1>`,
+   `hf_w<N-1>`) outside an explicitly-declared allow-list of intentional cross-wave paths — the BEFORE-side roots
+   are legitimate and must be declared, which is the point (catches #1, #2, #3, #5, #6, #7, #8).
+
+**The better end state, and it should NOT be attempted in the same wave:** parameterise the wave id **once** at
+the top of each instrument and derive nothing. It requires editing five instruments that are deliberately carried
+forward unchanged, which is the very thing the derivation exists to avoid, so it needs a wave that can re-baseline
+them. **And the durable rule, which costs nothing: any ordinal or count in a derived instrument's output must be
+COMPUTED, never typed.**
+Reproduce: `/mnt/d/hf_w24/prov_w24.py:75,179,227,304`; `/mnt/d/hf_w24/gate_w24.sh:221`;
+`/mnt/d/hf_w24/v23_fingerprint_w24.py:2,171` against `/mnt/d/hf_w24/fp_v23_AFTER.txt`;
+`docs/synthetic-af-bank-followups-wave24-results.md` §9.2.
 
 ### F9 — `bank-verify` cannot pin C0's detector knobs
 **Status:** Open
@@ -7534,6 +7793,47 @@ success is load-bearing for every conclusion drawn from it; see also the `truthV
 > *degeneracy* are currently byte-identical to the loop, which is this entry's own recorded observation one level
 > up. Recording which branch `Recommend` took would make the two distinguishable from the report alone.
 > Reproduce: `/mnt/d/hf_w23/v23/D0{1,2,3}_*__S1/synth_validate_report.json`; `/mnt/d/hf_w23/v23_score.txt`.
+
+> ### THE "SEPARATE, CHEAP IMPROVEMENT" SHIPPED — AND ON ITS FIRST USE IT REFUTED THIS ENTRY'S OWN ATTRIBUTION (2026-08-12, wave 24)
+>
+> This entry asked for exactly one thing beyond its fix: *"a no-op from **agreement** and a no-op from
+> **degeneracy** are currently byte-identical to the loop … Recording which branch `Recommend` took would make the
+> two distinguishable from the report alone."* **Wave 24's P1 recorded it** (`stepRecommendation.degenerateReason`,
+> on all three exits, in shipping plugin code). **The first thing it distinguished was a mis-attribution in the
+> block above.**
+>
+> **The correction.** The table above lists `D01_ultrawide_40mm`/S1, `D02_rich_135mm`/S1 and
+> `D03_redcat_250mm`/S1 as three cells that *"all stop on this entry's own branch"* from degenerate fits.
+> **`D01` IS NOT DEGENERATE.** Read from the AFTER arm on the fourteenth binary:
+>
+> ```
+> D01_ultrawide_40mm/S1  r0: bootstrapStep=2  stepRec=2
+>     halfWidth = 6.0877461433410645     <- RESOLVED, not NaN
+>     degenerateReason = null            <- no degenerate exit was taken
+>     sampledHfrRange = 1.4628           R^2 = 0.9999999999999397
+> terminal: converged=false roundsUsed=1 finalStepSize=2 expectedStepSize=9 stepBehavioral=8.0 band=3.2
+> stoppedReason: 'stalled (round applied nothing, but step 2 is outside the 3.2 tolerance band of
+>                 step_behavioral 8) -- a no-op recommendation from a degenerate fit, not convergence'
+> ```
+>
+> **The half-width resolved, the fit is essentially perfect, and there is no degenerate reason — and the
+> recommender still answered "keep 2" against a truth of 9, so the loop applied nothing and the run stalled after
+> one round of four.** That is a **non-degenerate, high-confidence recommendation to hold a step 4.5× too
+> narrow**: a second mechanism, not this one.
+>
+> **A second defect the same field exposes, in this entry's own runner.** The `stoppedReason` above asserts
+> *"from a degenerate fit"* **unconditionally** — `SynthValidateRunner.cs:543-545` never checks whether the fit
+> was degenerate, and now it can, because `degenerateReason` is a field it can read. **The message names a cause
+> it does not check**, and it named the wrong one on `D01` in wave 23's published results and in this entry.
+> **~5 lines and one test.**
+>
+> **So the stall has AT LEAST TWO distinct causes and neither of them is "the fit was bad."** Combined with
+> [F25](#f25--from-a-far-too-wide-sweep-the-step-recommender-widens-it-further-instead-of-recovering)'s finding
+> that `D03` is degenerate at **R² = 0.9835**, the design consequence for the owed gate is sharp: **a fit-quality
+> gate — keyed on R² or on degeneracy — addresses neither `D03` nor `D01`.** A wave that ships one and scores it
+> on these three cells would report a bridge it did not build.
+> Reproduce: `/mnt/d/hf_w24/after/D01_ultrawide_40mm__S1/synth_validate_report.json`;
+> `/mnt/d/hf_w24/d24_score.txt`; `docs/synthetic-af-bank-followups-wave24-results.md` §5.2.
 
 ---
 
