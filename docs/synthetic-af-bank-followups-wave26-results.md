@@ -754,3 +754,48 @@ recorded here because this wave found it and did not have the population in scop
 **Is a further wave worth anyone's time?** For the six-hour shape the charter assumes: **no** — the remaining
 items are a decision, a fix with a mandatory gate, and two probes. For a **~30-minute** session: **yes, one** —
 the `n = 3` replication above, which needs no binary and settles whether the wave's sharpest lead is real.
+
+---
+
+## Phase `d` / `RULE Q26-D` — RESOLVED by the controller after the write-up timestamp
+
+The section above marks phase `d` OPEN. It finished at **`2026-08-13T08:50:10Z`** with **32 rows**, and is
+resolved here rather than by editing the open marker, so the record of what was open at `07:11:52Z` stands.
+
+**A SEPARATE, LABELLED TABLE, in NO denominator of `RULE Q26`'s verdict** (design §7.1, population Q4). Same
+instrument as `Q26-B`: a paired re-search, both sides on B15, `--sensitivity-floor` on one side only. Full
+table at `/mnt/d/hf_w26/q26_d_table.txt`.
+
+| | |
+|---|---|
+| paired datasets | **16 of 16** — every dataset contributing no at-floor landing |
+| costed (`dJ > 0`) | **12** |
+| equal-or-better (`dJ <= 0`) | **4** — `D02_rich_135mm`, `D13_apo200_1800mm` (both marginally negative), and `D06_sparse_1000mm`, `D14_cdk14_2563mm_e47` at **exactly `0.00000000`** |
+| hard floor lost under the constraint | **0** |
+| could-not-look | **0** |
+
+**What it adds to the verdict, which it does not change.** `Q26-B` measured the constraint on the four datasets
+whose landings sit AT the floor and found `dJ` from `0.000104` to `0.019269`. `Q26-D` measures the identical
+constraint on the sixteen that do NOT, and finds it **nearly free**: mostly ~`1e-4`, and **exactly zero on the
+two datasets whose unconstrained search already chose a sensitivity at or above the bound** (`D06` 10.0 -> 10.0,
+`D14` 10.0 -> 10.0), where the bound cannot bind by construction. Two more come out marginally *better* under
+the constraint, which is the search's own run-to-run behaviour and not a benefit.
+
+**So the cost of forbidding the extreme is concentrated exactly where the search was going there.** That is the
+useful shape for the owner's decision: a floor at `10.0` would be inert on most of the bank and would bite on
+the four datasets that pin — which is the same four whose pins `Q26-C` shows buying **faint-tier recall only**,
+with `recall@high` and `recall@high+med` unchanged on all four.
+
+**The largest cost in the extension is `D16_esprit550_ha3` at `dJ = 0.0062`**, and `D16` is **also** an at-floor
+landing on `seedA1` (gate `0.1969`). It therefore appears in both populations, on different seeds — which is
+consistent with the design's blindness argument that the two seeds do not pin on the same datasets, and is a
+reminder that "pins at the floor" is a property of a *landing*, not of a dataset.
+
+### One correction to the controller's own reporting
+
+The controller twice described phase `d` as *"the labelled extension"* in the sense of **runs with star labels
+enabled**, and said it would *"test the fix directly"* by giving `J` a precision term. **That was wrong.**
+"Labelled" in the design means *reported as a separate, labelled table*; the driver passes `--label` only as a
+run NAME (`"${ds}_${variant}"`), and phase `d`'s runs are as unlabelled as every other run in this series.
+**Nothing in wave 26 tests whether adding a precision term to `J` changes the optimizer's behaviour.** That
+remains untested and is [F83](followups.md)'s open decision.
