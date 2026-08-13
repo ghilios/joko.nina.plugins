@@ -1,19 +1,31 @@
 # Waves 22+ — continuation prompt
 
-Run this after `/clear`. Waves 17–21 executed in an earlier run; **waves 22, 23, 24 and 25 have since executed**,
-and **wave 25 is the most recent**. The run is extended to **`12:00Z` on 2026-08-13**.
+Run this after `/clear`. Waves 17–21 executed in an earlier run; **waves 22, 23, 24, 25 and 26 have since
+executed**, and **wave 26 was the LAST wave of that run, which has ENDED.**
 **Where a wave's own design document exists, THE DESIGN IS THE AUTHORITY OVER THIS FILE**, and where this file
 states an outcome it names the results document that carries it.
 **You are the controller, you delegate context-heavy work to agents, and you do not stop for approval.**
 
-> **START HERE — the three-line state, current as of wave 25 (`2026-08-13T05:07Z`).**
+> **START HERE — the three-line state, current as of wave 26 (`2026-08-13T07:12Z`).**
 >
 > | | |
 > |---|---|
-> | **vessel** | `ghilios/synthetic-af-bank-followups-wave23`, **PR #195, OPEN**, carrying waves 23, 24 and 25. Re-decide the vessel in writing before every wave; check `gh pr view 195 --json state` before committing |
-> | **the gate** | **FIFTEEN binaries**, bit-identical at sixteen digits every time. Wave 25's `G25` PASSED on BuildId `d79dae73582e4a6c95e5c81f1f143ffc`, **novel against fourteen** |
-> | **the suite** | **3973**, verified by COUNT (`Failed: 0, Passed: 3973, Total: 3973`, `SUITE_EXIT=0`, wave 25). Everything below it is stale: 3922, 3933, 3958, 3960, **3966** |
-> | **next** | **the owner's FINAL RESULTS TABLE** (precision / recall / optimization time / score / sigma / exposure vs optimal / binning vs optimal / `BrightnessSensitivity`, per dataset) from a `golden eval` arm — the only deliverable asked for by name. **Wave 26 competes with it for the remaining hours.** See §1c |
+> | **vessel** | `ghilios/synthetic-af-bank-followups-wave23`, **PR #195**, carrying waves 23, 24, 25 and 26. Re-decide the vessel in writing before every wave; check `gh pr view 195 --json state` before committing |
+> | **the gate** | **FIFTEEN binaries**, bit-identical at sixteen digits every time. Wave 25's `G25` PASSED on BuildId `d79dae73582e4a6c95e5c81f1f143ffc`, **novel against fourteen**. **Wave 26 built NO binary and SKIPPED the gate deliberately** (design §5's four conditions), replacing it with three sharper controls — see §1c |
+> | **the suite** | **3973**, verified by COUNT (`Failed: 0, Passed: 3973, Total: 3973`, `SUITE_EXIT=0`, wave 25). Everything below it is stale: 3922, 3933, 3958, 3960, **3966**. Wave 26 changed no C# |
+> | **the deliverable** | **DONE.** The owner's final results table shipped at `7e98915` — all 20 datasets, precision / recall / optimization time / score / sigma / exposure vs optimal / binning vs optimal / `BrightnessSensitivity` (effective gate). `docs/synthetic-af-bank-results-table.md` |
+> | **next** | **Read §1c's "STATE OF THE REGISTER" first.** The run is over; every remaining item needs a binary, and one item needs ~2 minutes and no binary |
+
+> **WAVE 26 IN FIVE LINES.** **Nothing shipped and nothing was built** — B15 was reused and the gate deliberately
+> skipped, replaced by `Q26-V0` (hash identity, **FAIL end demonstrated on B14**), `Q26-V5` (determinism) and
+> **`Q26-V3`, which tested what no gate ever has: B15 reproduces wave 18's `FinalJ` on 8 of 8 landings produced
+> fifteen binaries earlier, exactly.** **`RULE Q26` = `Q-PIN-COSTED`**: the flat-direction hypothesis is
+> **REFUTED** (`A-RESPONSIVE`, 0 flat of 8) and forbidding the extreme costs `J` on **4 of 4** paired
+> re-searches. **But the headline cost zero compute: `J` is composed WITHOUT a precision term when a run is
+> unlabelled (`OptimizationObjective.cs:484-490`), and this bank runs unlabelled** — so a sensitivity pin buys
+> stars for free, which is the mechanism behind `RULE P23`'s 22-of-24 driven pins. That is **[F83](followups.md)**.
+> `RULE L26` (`lumos`) is **could-not-look**: `af-fit` emitted no CSV and the instrument refused rather than
+> guessing.
 
 > **WAVE 25 IN FIVE LINES.** **P4 SHIPPED** (`StepSizeRecommender` had a ceiling with no floor —
 > [F81](followups.md)) under `G-PASS` + `N-PRESERVED`; **P5 shipped** unconditionally and **CLOSED
@@ -45,12 +57,15 @@ states an outcome it names the results document that carries it.
 register entry. The next wave owes an explicit sentence on whether it has a finding worth an entry, and "no" is
 an acceptable answer.
 
-**The dry-wave counter is at ZERO and the register is NOT dry.** The paragraph that used to stand here said the
-backlog was down to *"one ~2 m comment fix, a ~20 m test, a ~30 m UI session, two ~8–53 m arms and a rejected
-list."* **Four waves have since produced [F79](followups.md), [F80](followups.md), the F26 scope correction, the
-F34 `D01` correction and then F34's CLOSURE, F21's finished costing (now corroborated on three arms), a shipped
-product fix ([F81](followups.md)) and a newly diagnosed product defect ([F82](followups.md)).** §1c carries what
-is actually open.
+**The dry-wave counter is at ZERO and the register is NOT dry — but it is now THIN, and the reason is specific.**
+The paragraph that used to stand here said the backlog was down to *"one ~2 m comment fix, a ~20 m test, a ~30 m
+UI session, two ~8–53 m arms and a rejected list."* **Five waves have since produced [F79](followups.md),
+[F80](followups.md) (three times), the F26 scope correction, the F34 `D01` correction and then F34's CLOSURE,
+F21's finished costing, a shipped product fix ([F81](followups.md)), a newly diagnosed product defect
+([F82](followups.md)) and — wave 26 — [F83](followups.md), a structural defect in the objective every conclusion
+in this series is denominated in.** **What makes the backlog thin is not a shortage of questions; it is that
+every remaining one needs a BINARY**, and the last wave deliberately built none. §1c's **STATE OF THE REGISTER**
+is the honest inventory.
 
 ---
 
@@ -60,7 +75,8 @@ is actually open.
 |---|---|
 | **the gate** | Eight values, **reproduced on FIFTEEN binaries** (waves 11–25), bit-identical to sixteen digits every time. It has never moved. Wave 25's `G25` PASSED on BuildId `d79dae73582e4a6c95e5c81f1f143ffc`, **novel against fourteen**, with `G25-1/2/P1/P2a/P2e/P3a` all **8 of 8** and `P4-ASCII-CLEAN`. Wave 24's `G24` PASSED on `dd6ca32ef7f941c2a54753398cc2cf6b`. §5 |
 | **[F81](followups.md)** — NEW in wave 25, **SHIPPED** | **`MaxHalfWidthSampledHalfSpanMultiple` was a ceiling with no floor**, and the `half-width-unresolved` exit returned before the ceiling was consulted at all. Both fixed in shipping plugin code (P4), one-sided **by construction** (a `Math.Max` against an existing ceiling), guarded by a `double.IsFinite` could-not-look check that is [F79](followups.md)'s mirror. `WasBandFloored` is the new observable and it is **not** an overload of `WasCapped` — the two are mutually exclusive by construction, which is what makes the do-no-harm clause provable from the code |
-| **[F82](followups.md)** — NEW in wave 25, **OPEN** | **The floor is not sticky across rounds.** `D01`'s half-width went **12.0 → 9.0** between rounds because `SearchSpan` is measured over the **fitted** points, and the round-1 sweep — requested **wider** (16 → 24 units) — **lost its outer frames**, so the cap recomputed a lower bound than the floor had established. Diagnosed to a line, two candidate fixes, **and it does NOT need a full paired arm to score** (see §1c) |
+| **[F83](followups.md)** — NEW in wave 26, **OPEN — and it is the one to read first** | **`J` carries NO precision term on an unlabelled run.** `JRun` takes the `else` branch at `OptimizationObjective.cs:484-490` when recall and precision are absent, and **the whole synthetic bank runs unlabelled** (`Labels: (none — unlabeled)`). `SStars` counts stars, not correct stars; the one false-positive term that exists (`SMarginalSnr`) ships at strength **0**. **So driving `BrightnessSensitivity` to its floor buys stars for FREE — that is the mechanism behind `RULE P23`'s 22-of-24 driven pins**, and every *reading* of an optimize result on this bank ("the optimizer chose this because it is better") means better in a score with no false-positive cost. **Zero compute, source-derived.** The entry also carries `Q26-B`'s measured price for forbidding the pin, the 8-of-8 provably-inert reading, and `PREDICTION P-D08` confirmed at `n = 1` with three caveats larger than the effect |
+| **[F82](followups.md)** — NEW in wave 25, **OPEN, and its FIX CHOICE IS NOW PRE-REGISTERED** | **The floor is not sticky across rounds.** `D01`'s half-width went **12.0 → 9.0** between rounds because `SearchSpan` is measured over the **fitted** points, and the round-1 sweep — requested **wider** (16 → 24 units) — **lost its outer frames**, so the cap recomputed a lower bound than the floor had established. Diagnosed to a line, two candidate fixes, **and it does NOT need a full paired arm to score** (see §1c) |
 | **[F34](followups.md)** | **CLOSED (wave 25).** The stall message now reads `DegenerateReason` and branches; `RULE M25` = `M-CORRECTED` with the FAIL end measured on wave 24's real published arm (**25 cells, exactly 1 contradiction, `D01` by name**) and 0 on the AFTER arm |
 | **[F79](followups.md)** — NEW in wave 23, **VERIFIED in wave 24** | A single non-ASCII byte (`0xE5`, a CP437 `σ`) made `grep` class a whole log binary and report **zero** matches for strings elsewhere in it — **failing closed**, latent since wave 11, in 8 of 8 gate logs of twelve wave roots. **Fixed in wave 23** (120 lines / 20 files, guarded by `TestAppOutputAsciiTests`); **`G24-P4` measured 0 non-ASCII bytes in 8 of 8** on the first gate built after it, with the FAIL end demonstrated first on wave 23's real gate. **AND the fix exposed a second defect it was masking** — the same driver line still prints `0 of 8` because it counts **lines** where a block is a `BEGIN`/`END` **pair**. Both defects emit the identical wrong number |
 | **[F80](followups.md)** — NEW in wave 24, **PRE-FLIGHT SHIPPED in wave 25** | **Instruments derived by `sed` keep their predecessor's prose.** Eight drifts across five instruments in wave 24, one **load-bearing**, **every one passing its own `--self-test`**. Wave 25 turned the remedy into a **blocking** pre-flight (`verify_derivation_w25.py`, `RULE V25`) and it earned its keep immediately: `V-DRIFT` **21 findings** on the wave's own instruments, including a **`sed` ORDERING bug in the plan** that left 10 of 15 sibling references pointing at a nonexistent file, and a surviving `G24_START` that would have hung the controller's own waiter. **AND THE CHECKER HAD TWO GAPS OF ITS OWN, SAME ROOT CAUSE: `\b` CANNOT SEE `_`** — it missed the marker **suffix** form (`G24_START`, found only because another clause fired on the same line) and then the **prefix** form (`w24_gate_log_wsl`), passing `V-CLEAN` a file that could not self-test. Both closed and **demonstrated**. Its `PREV` is a **single wave** and drift is not: a **w23** label survived two generations |
@@ -81,9 +97,14 @@ is actually open.
 | **F59** | **REJECTED ON THE MERITS** (wave 20's measurement, wave 21 concurring). §2 carries the corrected costing — do not re-cost it at "~1 h" |
 | **F15** | 42 of 42 bank landings byte-identical for **twelve consecutive waves**. Wave 25's other three controls also passed: **59 of 59** aux files, **48 of 48** prior-wave arm landings across three roots, **38 of 38** wave-23 `synth_validate_report.json` files — all byte-identical, **0 could-not-look**, output KEPT (`fp_*_AFTER.txt`). **Wave 25's gate REFUSED TO START TWICE (`exit 3`) because two of the four BEFORE fingerprints had not been written yet — both refusals were correct.** *A control written after the arm is not a control*, and an abort that names the missing control is the guard working |
 | **the suite** | **3973**, verified by COUNT in wave 25 (`Failed: 0, Passed: 3973, Total: 3973`, `3 m 42 s`, `SUITE_EXIT=0`) — the 3966 baseline plus wave 25's 7 new tests, every one named, four shown red by named mutants and three labelled companions. **Everything below 3973 in older docs is stale (3922, 3933, 3958, 3960, 3966).** Verify by count, never the tick ([F37](followups.md)) |
-| **the two named real-bank gaps** | **`lumos` MEASURED at last** (wave 24, after ten waves as folklore): `rc=3` **reproduces**, and it is a **hard-floor FAIL** — `bestJ = currentJ = 0`, no improvement, *"at least one frame has < 3 stars under optimized params (min observed = 0)"*. **`Panos` is `L-NOT-COMPARABLE`**: `optimize` returns **exit=0, hard-floor PASS, `bestJ = 0.935582`** — but the recorded *"degenerate σ fit"* is an **`af-fit`** property, so this probe cannot settle it. §2 |
+| **the two named real-bank gaps** | **`lumos` MEASURED at last** (wave 24, after ten waves as folklore): `rc=3` **reproduces**, and it is a **hard-floor FAIL** — `bestJ = currentJ = 0`, no improvement, *"at least one frame has < 3 stars under optimized params (min observed = 0)"*. **`Panos` is `L-NOT-COMPARABLE`**: `optimize` returns **exit=0, hard-floor PASS, `bestJ = 0.935582`** — but the recorded *"degenerate σ fit"* is an **`af-fit`** property, so this probe cannot settle it. §2. **Wave 26's `RULE L26` tried to close the `lumos` half and returned COULD-NOT-LOOK** — `af-fit` produced no `af_fit_points.csv`, so the driver wrote 0 rows and refused rather than branching to `L-FRAME` off an absent measurement. The next attempt owes a diagnosis of the missing CSV first |
 
-**Artifacts:** `D:\hf_w17\` … `D:\hf_w24\`. Reusable: `score_w12.py` (the gate), `prov_w<N>.py` (free controls,
+**Artifacts:** `D:\hf_w17\` … `D:\hf_w26\`. **Wave 26 adds a reusable set that needs no binary:**
+`verify_derivation_w26.py` (the pre-flight, **shape-matched**, FAIL end **pinned** to `/mnt/d/hf_w24`),
+`prep_w26.py` (resolves the at-floor population from each landing's own `Provenance.CommandLine` and writes
+perturbed vectors through the production Accept path), `q26_arm_w26.sh` (six-phase driver) and
+`score_q26_w26.py` (**`--out` MANDATORY** — it refuses without one, which is wave 25's lost-artifact defect fixed
+structurally rather than remembered). Also reusable: `score_w12.py` (the gate), `prov_w<N>.py` (free controls,
 self-testing), `convert_landing_w15.py` (landing → harness settings, via the production Accept path),
 `bank_fingerprint_w15.py`, `aux_fingerprint_w17.py`, `arm_fingerprint_w19.py`, `log_fingerprint_w20.py`,
 `score_r19_w19.py` (the 33-key landing differ), `score_d20_w20.py` (the `optimize/detected` reader),
@@ -122,30 +143,47 @@ snapshot of what currently *varies*, not a design boundary. The tests that pin i
 
 ---
 
-## 1c. WHAT IS LEFT, and what wave 25 settled
+## 1c. THE STATE OF THE REGISTER, at the end of the run
 
 **Wave 25 executed the stall bridge and it shipped.** `P4` = [F81](followups.md) (product), `P5` = the harness
 message that **closed** [F34](followups.md). Verdicts: `RULE V25` **`V-CLEAN`** (after two blocking runs that
 were both right), `RULE G25` **`G-PASS`**, `RULE W25` **`W-UNEXERCISED`**, `RULE N25` **`N-PRESERVED`**,
 `RULE M25` **`M-CORRECTED`**. Full account: `docs/synthetic-af-bank-followups-wave25-results.md`.
 
-> ### THE OWNER'S FINAL RESULTS TABLE COMES FIRST
+**Wave 26 priced the sensitivity pin and shipped nothing.** `RULE V26` **`V-CLEAN`** (after a `V-DRIFT` that found
+a **third** derivation-drift shape); the gate **deliberately skipped** and replaced by `Q26-V0`/`V3`/`V5`;
+`RULE Q26` **`Q-PIN-COSTED`**; `RULE L26` **could-not-look**. Full account:
+`docs/synthetic-af-bank-followups-wave26-results.md`.
+
+> ### THREE THINGS THE CHARTER SAID THAT ARE NO LONGER TRUE — CORRECTED
 >
-> Per dataset: **precision, recall, optimization time, score, sigma, exposure vs optimal, binning vs optimal,
-> `BrightnessSensitivity`** — built from a `golden eval` arm. **It is the only deliverable the owner has asked
-> for by name**, and everything below is a follow-up to work already banked. Schedule it first; wave 26 competes
-> with it for the remaining hours.
+> 1. **`N25-E` is DISCHARGED, not open.** It was listed here as priority 1 and *"the cheapest open question in
+>    the series"*. **It ran** — artifact `/mnt/d/hf_w25/n25e_score.txt`, published in wave 25 results §16.1:
+>    *"P2 moved 1 of 18 paired S1 cells. Wave 23's `13 of 17` is formally RETIRED as uncomparable."* Struck.
+> 2. **`P23`'s flat-direction arm is DISCHARGED**, by a strictly stronger instrument than the one it registered
+>    (F6's 2×2 **plus** a paired re-search under `--sensitivity-floor`). See [F83](followups.md). Struck.
+> 3. **The owner's final results table is DELIVERED** (`7e98915`, all 20 datasets). It is no longer "next".
 
-**Then, in priority order:**
+**What is genuinely open, priced, cheapest first:**
 
-| # | item | price | goal | why |
-|---|---|---|---|---|
-| **1** | **`N25-E`** — is wave 25's B14 BEFORE arm comparable to wave 23's `V23-G` S1 `13 of 17`? | **~4 m scoring, 0 TestApp** | 2 | Dropped on the clock in wave 25 (rung D2). **Inputs are on disk and fingerprinted** (wave 23's 38 reports, 38 of 38 byte-identical). Either P2 did not move S1 and the series **recovers a baseline it wrote off**, or it did and `13 of 17` is formally retired **with evidence**. Cheapest open question in the series |
-| **2** | **[F82](followups.md)** — the floor-not-sticky fix | ~45 m code + tests, **+ ~10 m 3-cell re-run + ~42 m gate** | 2 | `D01` is a named, diagnosed, reproducible miss with a bar already pre-registered against it. **Pre-register which of the two candidate fixes** (monotone floor vs requested-span bound) **before looking** |
-| **3** | **the `A4` truth-model gap** | ~20 m | 2 | The harness computes the cap boundary from the **requested** sweep, the product from the **fitted** span; they disagree on `D01` r1 by 2×, and `A4` compares against `WasCapped` alone so it now flags floored rounds. **Fix the assertion, not the product**, and keep it out of any arm carrying a product change |
-| **4** | **`lumos`'s zero-star frame** | ~10 m of `af-fit`/`review` | 1 | Declared dropped **in advance** by wave 25 §1.5, not under pressure |
-| **5** | **P23's flat-direction perturbation arm** | ~30 m (+ gate) | **3** | **Goal 3 has now had two consecutive waves of nothing.** This is the only item that changes that |
-| **6** | **F67's residual** | ~30 m + a rule | — | Pairs with #5 **only if** the [F62](followups.md) no-`BestJ`-across-factors landmine is pre-registered around |
+| # | item | price | goal | needs a binary? | why |
+|---|---|---|---|---|---|
+| **1** | **`PREDICTION P-D08` at `n = 3`** — score `seedA1/D01_ultrawide_40mm` and `seedA1/D16_esprit550_ha3` at `--sensitivity 10.0` | **~2 m, 2 `golden eval` cells** | **3** | **NO** | **The highest decision-value-per-minute item left.** Both are at-floor landings with sub-1.5 combined gates (0.2234, 0.1969) and `StarClippingMultiplier` **pinned at its own 0.25 floor**, and neither has ever been scored for precision at a raised sensitivity. If `D08`'s +0.034 replicates, [F83](followups.md)'s lead becomes a finding; if not, option (b) loses its only measured support. **Score against `*.truth.json` as well as the golden**, or [F31](followups.md)'s caveat applies to the replication too |
+| **2** | **the [F83](followups.md) DECISION** — (a) raise `DefaultSensitivityLower`, (b) a precision term on unlabelled runs, or (c) label the bank | **a decision, then ~42 m of baseline** | **3** | for (a)/(b) | The measurement is done and the three options are laid out with their evidence and prices. **What is missing is an owner's call**, not an arm. (a) is the option the evidence is most hostile to — F23 already measured a hard floor as worse than doing nothing |
+| **3** | **`lumos`'s zero-star frame** (`RULE L26`) | ~10 m **+ a diagnosis** | 1 | yes | Wave 26 returned **could-not-look**: `af-fit` produced no `af_fit_points.csv`. **The next attempt owes a diagnosis of the missing CSV before it re-runs the same command** |
+| **4** | **the `A4` truth-model gap** | ~20 m | 2 | yes (rebuilds TestApp) | The harness computes the cap boundary from the **requested** sweep, the product from the **fitted** span; they disagree on `D01` r1 by 2×, and `A4` compares against `WasCapped` alone so it now flags floored rounds. **Fix the assertion, not the product**, and keep it out of any arm carrying a product change |
+| **5** | **[F82](followups.md)** — the floor-not-sticky fix | ~45 m code + tests **+ ~10 m 3-cell re-run + ~42 m MANDATORY gate** | 2 | yes | **The fix choice is now PRE-REGISTERED: (1), the monotone floor** (wave 26 design §14), with the condition that would reverse it — if a later wave measures `SearchSpan` over `bestFit.Inputs` shrinking on **more than a single cell** while the requested sweep widens, (2) becomes correct. `n = 1` is not enough to move a bound four published rounds depend on |
+| **6** | **F67's residual** | ~30 m + a rule | — | yes | Pairs with nothing now. Needs the [F62](followups.md) no-`BestJ`-across-factors landmine pre-registered around |
+| **7** | **[F73](followups.md)'s code axis** | ~53 m + a second binary | — | yes | Wave 19's arm was a **NULL** arm (C#-identical trees). The real question — can an inert-believed code change move a landing at fixed `J`? — has never been run |
+
+**Blocked or fenced. Do not re-attempt:** `RULE F14` (§3), `RULE S16` (§3a) and `RULE D20` (§3b) are **permanent
+fences**. [F70](followups.md)(b′) was **rejected by the owner**. [F45](followups.md)(b) is behind the S16 fence
+with `N*` unreachable in `AutoFocusEngine`. [F59](followups.md) is **rejected on the merits**. The wide end of
+[F25](followups.md) is **unmeasured, not untriggered**, and remains so.
+
+**Is another wave worth it?** For the ~6-hour shape this charter assumes: **no** — what is left is one decision,
+one fix with a mandatory gate, and two probes, and **item 1 is the only one that does not need a binary.** For a
+**~30-minute** session: **yes, exactly one** — item 1, which settles whether the run's sharpest lead is real.
 
 > ### DO NOT RE-RUN A FULL PAIRED 20-CELL S1 ARM TO CHASE `D01`
 >
@@ -154,21 +192,40 @@ were both right), `RULE G25` **`G-PASS`**, `RULE W25` **`W-UNEXERCISED`**, `RULE
 > `SAME 13` by exact `repr()`. A second full arm buys a second `SAME 13` for ~2 h 40 m. The only cells that can
 > move are the three published controls plus whatever the 8-run `optimize` gate moves.
 
-> ### WHAT WAVE 25 MEASURED THAT CONSTRAINS THE NEXT ONE
+> ### WHAT WAVES 25 AND 26 MEASURED THAT CONSTRAINS THE NEXT ONE
 >
 > - **The pathology is RARE on this bank at S1 — and only there.** 0 of 13 blind cells; **3 of 8** `optimize`
 >   gate landings, including `mccomiskey`, a **real-bank** dataset. A rate from one population does not transfer
 >   to the other.
-> - **The wide end of [F25](followups.md) is UNMEASURED, not untriggered.** No clause in wave 25 touches it, and
->   `D05`/S2 remains published and unusable blind.
-> - **`13 of 17` is still formally uncomparable** because `N25-E` did not run. **No goal-2 accuracy rate may be
->   quoted until it does.**
+> - **The wide end of [F25](followups.md) is UNMEASURED, not untriggered.** No clause in wave 25 or 26 touches
+>   it, and `D05`/S2 remains published and unusable blind.
+> - **`13 of 17` is FORMALLY RETIRED, with evidence** — `N25-E` ran and P2 moved **1 of 18** paired S1 cells
+>   (wave 25 results §16.1). It is uncomparable, and **no goal-2 accuracy rate may be quoted from it.** Nothing
+>   has replaced it.
 > - **`terminal.stepBehavioral` is not arm-invariant on `D01`** (8.0 → 9.0 across arms, identical on the other
 >   17 cells). Any rule scoring against it must assert cross-arm equality per cell first and name failures.
 > - **`D05_tec140_1000mm` and `D19_cygnus_deep_shed` time out at `timeout 600` on EVERY S1 arm** — four in a row
 >   now. Structural, not flaky. Raising the timeout changes the instrument and breaks comparability.
 > - **An identifier boundary is not a word boundary.** `\b` cannot see `_`, and every marker, function and path
->   in this series is underscore-joined. [F80](followups.md) carries both demonstrated gaps.
+>   in this series is underscore-joined. [F80](followups.md) now carries **three** demonstrated gaps — prefix,
+>   suffix, and the **rule-letter enumeration** that missed `W25_BEFORE_READY`, wave 25's own interlock marker.
+>   **An alternation enumerating the values a field has TAKEN is a hardcoded list wearing a regex.**
+> - **`J` HAS NO PRECISION TERM ON THIS BANK** ([F83](followups.md)). Any clause that reads a `BestJ`, a
+>   `BaselineJ` or a `dJ` is reading a score with **no false-positive cost in it**, because the runs are
+>   unlabelled and `JRun` takes the `else` branch. This is not a caveat to add later — it changes what a `J`
+>   comparison is evidence *of*, and it applies to every wave from 5 onward.
+> - **A `J` from wave 18 and a `J` from wave 26 are the SAME QUANTITY.** `Q26-V3`: B15 reproduces wave 18's
+>   `FinalJ` on **8 of 8** landings produced on B1/B2, exactly, at all sixteen digits. **This is the first
+>   cross-binary objective comparison in the series** and it is what licenses quoting an old `J` as a reference
+>   scale. No gate clause has ever tested it.
+> - **A gate can be honestly SKIPPED, and wave 26 records the four conditions** (nothing built; the predecessor
+>   gate already answered what a re-gate asks; a re-gate does not reach the wave's actual risk; no clause in the
+>   verdict tree reads a gate landing) **and the three that reverse it** (any C# changes; a hash/BuildId
+>   mismatch; the arm's own instrument is non-deterministic). **It is only honest with a replacement control that
+>   is shown to REFUSE** — `Q26-V0`'s FAIL end was measured on B14, a real different published binary.
+> - **A checker's known-bad input expires the moment it works.** Wave 25's `V25` used *"the previous wave's
+>   root"*, then repaired that root. Wave 26 had to **pin** the known-bad root in source. *A regression fixture
+>   that is "whatever came before" has a shelf life of one wave.*
 
 ---
 

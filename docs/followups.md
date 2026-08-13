@@ -419,6 +419,198 @@ At clip 2 sensitivity barely matters; at clip 10 it is decisive. Raising clip *h
 `docs/optimizer-sensitivity-pinning-design.md` describes and a hint that a coordinate-wise search is the wrong
 shape for this space.
 
+> **WAVE 26 — the 2×2 was replicated on the synthetic bank and the DIAGONAL SIGNATURE DID NOT APPEAR.** `Q26-A`
+> ran F6's own ablation (sensitivity alone / clip alone / both) at the landed vector of all **8** at-floor
+> wave-18 landings. **0 of 8** show `dJ(both)` with the opposite sign to `dJ(sens)`. So this entry is **cited,
+> not extended**: F6's table stands on `mccomiskey`, a real-bank run, and the synthetic bank does not reproduce
+> its sign structure at these points. **What DOES corroborate F6 is the landings themselves** — see
+> [F83](#f83--j-carries-no-precision-term-on-an-unlabelled-run-so-a-sensitivity-pin-is-free-in-the-objective-by-construction)
+> §"where the two knobs meet": the three at-floor landings with a genuinely low combined gate are exactly the
+> three where the search **also** drove `StarClippingMultiplier` down, twice to the axis's own 0.25 floor.
+> Reproduce: `/mnt/d/hf_w26/q26_score.txt`; `docs/synthetic-af-bank-followups-wave26-results.md` §4.3, §7.
+
+### F83 — `J` carries no precision term on an unlabelled run, so a sensitivity pin is free in the objective by construction
+**Status:** Open · **structural, source-derived, zero compute** · found 2026-08-13, wave 26, pricing the sensitivity
+pin the owner asked to avoid
+
+**Every `optimize` result this project has produced on the synthetic AF bank was scored by an objective with no
+false-positive cost in it.** Not because a term is mis-tuned — because the branch that carries precision is not
+taken.
+
+`JRun` composes the objective two ways (`OptimizationObjective.cs:484-490`):
+
+```csharp
+if (effRecall.HasValue && effPrecision.HasValue) {
+    var sLabel = LabelScore(effRecall.Value, effPrecision.Value);
+    num = c.Wf * sFocus + c.Ws * sStars + c.Wc * sFit + c.Wl * sLabel;
+    den = c.Wf + c.Ws + c.Wc + c.Wl;
+} else {
+    num = c.Wf * sFocus + c.Ws * sStars + c.Wc * sFit;
+    den = c.Wf + c.Ws + c.Wc;
+}
+```
+
+`LabelScore = 0.5·recall + 0.5·precision` (`:426-428`) at `Wl = 0.25` (`:33`) is **the only place precision enters
+the weighted sum**, and it is reached only when the run carries labels. **The bank runs unlabelled** — wave 18's
+own aggregate summary prints `Labels: (none — unlabeled)` on line 4 of every dataset. So on this bank
+
+```
+J = (Wf·sFocus + Ws·sStars + Wc·sFit) / (Wf + Ws + Wc)     Wf = 0.55, Ws = 0.20, Wc = 0.25
+```
+
+and **`SStars` (`:400`) counts stars, not correct stars.**
+
+**The one false-positive term that exists ships OFF.** [F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)'s
+successor `SMarginalSnr` — whose own comment at `:519` calls it *"the objective's only false-positive cost"* — is
+gated on `MarginalSnrStrength`, shipped default **`0.0`** (`:238`), i.e. disabled, deliberately and with reasons
+(F31 voided the metric F23 was built against). The other multiplicative terms (`SDefocusPrecision`, `SFitGuard`,
+`SHfrOutlier`) all return exactly `1.0` at this baseline. **Nothing charges for a wrong detection.**
+
+**Consequence: driving `BrightnessSensitivity` to its floor buys stars for free.** More detections raise
+`sStars`; the gate that would have kept the junk out is the knob being lowered; and the score has no term that
+notices. **That is the mechanical cause of `RULE P23`'s "22 of 24 driven to the bound"** — P23 established that
+**0** pinned axis-instances were seeds sitting where they started and **22** were search outcomes, and had no
+mechanism for the walk. This is the mechanism, and it is arithmetic on the shipping source.
+
+**Scope, stated precisely.** This does not invalidate any published `J`: those are correct computations of the
+objective as composed. It invalidates a *reading* — any sentence of the form *"the optimizer chose this because
+it is better"* means **better in a score with no false-positive cost**, and that includes wave 18's 40 landings,
+`docs/synthetic-af-bank-results-table.md`, and every landing quoted in this series since wave 5.
+
+---
+
+#### `RULE P23`'s owed arm is DISCHARGED here, and the flat-direction hypothesis is REFUTED
+
+Wave 23 §5.2 registered the arm this finding owed: *"a one-axis-at-a-time perturbation of the landed vector,
+re-evaluating `J` at each bound ±1 step"*, to separate *"pinned because flat"* from *"pinned because the bound is
+genuinely optimal"*. **Wave 26 ran a strictly stronger instrument** — F6's 2×2 at a fixed vector, **plus** a
+paired re-search under `--sensitivity-floor`, which the one-axis form cannot reach — and the answer is
+unambiguous. (P23 itself has no entry in this register; it lives in
+`docs/synthetic-af-bank-followups-wave23-results.md` §5, and this section is its answer.)
+
+| clause | population | result |
+|---|---|---|
+| **`Q26-A`** — F6's 2×2 at the landed vector, `optimize --max-evals 1` | 8 at-floor landings of wave 18's 40 (20 seedA0 + 20 seedA1, 0 could-not-look) | **`A-RESPONSIVE`. 0 flat of 8.** `dJ(sens)` spans 0.00092 – 0.0494 |
+| **`Q26-B`** — paired re-search, `±--sensitivity-floor 10.0`, `--max-evals 250` | the 4 seedA0 datasets contributing an at-floor landing | **4 of 4 COSTED.** 0 lost the hard floor; **0 equal-or-better** |
+| **`RULE Q26`** | branch table applied as written | **`Q-PIN-COSTED`** |
+
+`Q26-B`, per dataset — `dJ = BestJ(unconstrained) − BestJ(constrained)`, against that run's **own** wave-18 search
+gain as a named reference scale, **no bar**:
+
+| dataset | unconstrained (sens) | constrained (sens) | `dJ` | its own search gain |
+|---|---|---|---|---|
+| `D08_c11_2800mm` | 0.9963959372017032 (0.0) | 0.9962920262241155 (**11.0**) | 0.000104 | 0.001221 |
+| `D10_rc16_3250mm_sparse` | 0.9934488063105885 (0.0) | 0.9741799265643882 (10.0) | **0.019269** | 0.036248 |
+| `D11_rc10_585_afbin2` | 0.9961036483632415 (0.0) | 0.9953022891499348 (10.0) | 0.000801 | 0.010117 |
+| `D12_c14_585_afbin2` | 0.9957418877445253 (0.0) | 0.9944025574491060 (10.0) | 0.001339 | 0.010079 |
+
+**So the pin is load-bearing in `J`'s terms — and `J`'s terms are the defect.** The two halves of this entry are
+one finding: forbidding the extreme costs measurable objective, and the objective it costs cannot see precision.
+`D08` is worth noting separately: the constrained search lands at **11.0**, *above* the floor it was given, which
+is what a genuine optimum above the bound looks like rather than a search pinned to a new wall.
+
+---
+
+#### At the landing, the pinned knob is PROVABLY INERT on 8 of 8 — and that is a different statement
+
+Read from the landings' own `ExposureRecommendation` block at zero compute. `GateIsProvablyInert` is `True`,
+`GateRejectedCount` is `0`, and per-frame `LowSensitivityRejections` is `0` on **every frame of all eight**.
+
+The mechanism is arithmetic: `EffectiveSensitivityGate = max(Sensitivity, PeakResponse × StarClippingMultiplier)`
+(`StarDetector.cs:1532-1533`, `:1552-1553`), so **when `Sensitivity` is 0 the `max` is always taken by the
+clip-derived term and the gate lands exactly on `InertSensitivityBound` by construction.** On the at-floor
+subpopulation the inert rate is **8 of 8 = 100 %**, which sharpens P23's pooled `9 of 40 = 0.2250`: *every*
+landing that pins sensitivity has a sensitivity knob that rejects nothing.
+
+**This does not contradict `Q26-A`, and the two must not be pooled.** `dJ(sens) > 0` is a statement about
+`Sensitivity = 10`, where the gate is **not** inert and does start rejecting; it says nothing about whether `0`
+was doing anything. Two points, two statements.
+
+#### Where the two knobs meet — F6's diagonal, visible in the landings
+
+Of the eight at-floor landings, the three whose effective gate sits below the source's *"provably inert at
+shipped defaults"* boundary of ~1.5 (`OptimizerVariable.cs:126-131`, 0.75 × 2.0) are **exactly** the three where
+the search **also** drove `StarClippingMultiplier` down:
+
+| landing | `StarClippingMultiplier` | `PeakResponse` | effective gate |
+|---|---|---|---|
+| `seedA0 / D08_c11_2800mm` | 0.75 | 0.75 | **0.5625** |
+| `seedA1 / D01_ultrawide_40mm` | **0.25 — the axis's own lower bound** | 0.89375 | **0.2234375** |
+| `seedA1 / D16_esprit550_ha3` | **0.25 — the axis's own lower bound** | 0.7875 | **0.196875** |
+
+On the other five, `Sensitivity = 0` is masked by a clip the search **raised** (2.0 – 3.375). `n = 3`, **reported,
+no bar** — but it is the cheapest available discriminator between at-floor landings that are cosmetic and ones
+that are behavioural, and it is why a floor on the Sensitivity axis alone cannot work: **the search reaches a low
+combined gate through the clip axis, which no sensitivity floor closes.** That is
+[F23](#f23--the-optimizer-objective-has-no-precision-term-so-it-trades-precision-away-for-marginal-recall)'s
+measured *"it loosens other gates to win the stars back, admitting junk through a different door"*, visible in
+the landings rather than in an arm.
+
+---
+
+#### What it costs in precision: `PREDICTION P-D08` CONFIRMED at `n = 1`, with caveats larger than the effect
+
+Pre-registered before the data (wave 26 design §7.4) from a **source boundary**, not from a number: of the four
+seedA0 at-floor gates, `D08`'s **0.5625 is the only one below ~1.5**, and `D08` is the **only precision miss in
+the owner's whole 20-dataset table** (0.966 against 1.000 everywhere else). The prediction: re-scoring the landed
+vector at the shipped `--sensitivity 10.0` raises `D08`'s precision, leaves the other three at 1.000,
+lowers `recall@all` on all four, and raises `REJECTED:LowSensitivity`. **All four held.**
+
+| dataset | precision | `recall@all` | **`recall@high`** | `FN:LowSensitivity` |
+|---|---|---|---|---|
+| `D08_c11_2800mm` | **0.966 → 1.000 (+0.034)** | 0.978 → 0.803 (−0.175) | 1.000 → 1.000 (**unchanged**) | None → 55 |
+| `D10_rc16_3250mm_sparse` | 1.000 → 1.000 | 0.965 → 0.730 (−0.235) | 1.000 → 1.000 (**unchanged**) | None → 28 |
+| `D11_rc10_585_afbin2` | 1.000 → 1.000 | 0.892 → 0.853 (−0.039) | 0.850 → 0.850 (**unchanged**) | None → 16 |
+| `D12_c14_585_afbin2` | 1.000 → 1.000 | 0.705 → 0.593 (−0.112) | 0.720 → 0.720 (**unchanged**) | None → 37 |
+
+**`n = 1` is a lead, not a law**, and three caveats keep it there:
+
+1. **Three of the four cells cannot falsify the prediction's second half** — 1.000 is the ceiling.
+2. **The precision instrument has almost no dynamic range here.** 19 of the owner's 20 datasets read exactly
+   1.000, and [F31](#f31--synthetic-bank-precision-is-not-exact-the-golden-omits-real-stars-and-they-score-as-false-positives)
+   warns in terms: *"all-1.000 means the metric is saturated again, not that the detector is perfect."*
+3. **`D08`'s 11 false positives sit exactly where F31 says the reference is incomplete** — **3 on frame `13672`
+   and 8 on frame `14328`, the two extreme wing frames, and 0 on all seven interior frames.** F31 measured the
+   mechanism on **this dataset by name**: *"`D08` holds 81 golden stars at focus and 9 at the extreme frame,
+   against 123–126 truth stars per frame throughout."* The base cell accepts 10 and 15 on frames whose golden
+   holds 9. **So the +0.034 may be real faint stars the golden omits rather than junk**, and separating the two
+   needs a re-score against each frame's own `*.truth.json` — F31's own method, **not run**.
+
+**What survives all three**, because it does not read the golden at all: the FN attribution. `REJECTED:LowSensitivity`
+is the *detector's* count of what the sensitivity gate rejected, and it goes None → 55 / 28 / 16 / 37.
+
+**And one thing nobody predicted, which bounds the whole trade: `recall@high` does not move on any of the four**,
+nor does `recall@high+med`. **Every star the pin buys is in the faint tier.** Same shape as the F23 calibration
+table at `OptimizationObjective.cs:180-195` (*"the bright tier is never at risk from this gate"*), reproduced on
+a different population at the landed vectors.
+
+---
+
+**Why it matters.** The owner's goal 3 is to **avoid** parameters pinned to extreme values. The measurement says
+the pin is not cosmetic in `J`, so simply forbidding it costs measurable objective — **but the objective it costs
+cannot see precision**, and at the landing the pinned knob rejects nothing. The decision is therefore an owner's
+call between three options, none of them measured, and this entry does not pick one:
+
+| option | evidence | price |
+|---|---|---|
+| **(a) raise `DefaultSensitivityLower`** (`OptimizerVariable.cs:145`, `:150`; shipped `0.0`) | one line, and exactly the shape of "avoid this region" — but **F23 already measured a hard floor at 6 as worse than doing nothing** (broke four healthy datasets, helped three), and the clip-axis escape above is why | 1 line + **a fresh 42 m baseline** (a floor change invalidates every landing in the bank) |
+| **(b) give `J` a precision term on unlabelled runs** | this entry is the mechanism; `SMarginalSnr` is already implemented, tested and flag-selectable at `--marginal-snr-strength` — but [F32](#f32--j-is-saturated-near-10-so-the-optimizer-trades-enormous-recall-for-numerically-trivial-gains) says `J` sits at 0.98–0.999 before the search starts, so a new term competes for an exhausted fourth decimal, and the term is **structurally escapable** (`D12` landed at 6.25, `D15` at 6.75, against a floor of 6.0) | **a coordinate-system move owing a fresh baseline** — [F62](#f62--σ_focus-is-anti-informative-when-an-outlier-rejection-is-what-changed-it-it-improves-by-up-to-88--while-the-distance-to-a-known-truth-improves-on-none) / [F59](#f59--the-settings-export-drops-every-knob-whose-setter-validates-so-pinned_settingsjson-has-been-missing-five-detector-knobs-since-wave-5)'s costing lesson: **42 m + re-derivation**, not the edit |
+| **(c) label the bank so the existing `Wl · sLabel` path activates** | **changes no product code** — the branch is already there and tested; it is the `else` at `:488` this bank takes. But it makes `J` depend on the golden, whose precision F31 shows is a **lower bound** that evaporates at the sweep wings | **unmeasured.** Needs a labelled `optimize` run, which nobody has performed |
+
+**Next step, and it is the cheapest decision-moving measurement left in the register: take `PREDICTION P-D08`
+from `n = 1` to `n = 3`.** The **seedA1** root carries two more at-floor landings with sub-1.5 combined gates —
+`D01_ultrawide_40mm` (0.2234) and `D16_esprit550_ha3` (0.1969), **both with `StarClippingMultiplier` pinned at
+its own 0.25 floor** — and neither has ever been scored for precision at a raised sensitivity. **Two
+`golden eval` cells, ~2 minutes, no binary, no gate.** If `D08`'s +0.034 replicates there the lead becomes a
+finding; if it does not, the co-occurrence is a coincidence and option (b) loses its only measured support.
+**Score it against `*.truth.json` as well as the golden**, or caveat 3 above applies to the replication too.
+
+Reproduce: `/mnt/d/hf_w26/q26_score.txt`; `/mnt/d/hf_w26/c_golden/D08_c11_2800mm__{base,sens}/attempt01/golden_eval.txt`;
+`/mnt/d/hf_w18/seedA0/D08_c11_2800mm/aggregate_summary.{json,txt}`;
+`OptimizationObjective.cs:33,238,400,426-428,484-490,519`; `OptimizerVariable.cs:126-131,145,150`;
+`docs/synthetic-af-bank-followups-wave26-results.md` §6–§9;
+`docs/synthetic-af-bank-followups-wave23-results.md` §5.2.
+
 ### F7 — Adaptive binarization is not uniformly good for the AF fit
 **Status:** Open · first observation under a correct C0
 
@@ -1990,6 +2182,38 @@ artifact of the render, and the affected population is not hypothetical.
 > the real bank is the *symptom*, not the cause. The synthetic bank is currently the only place the real defect
 > is known to exist.
 
+> ### `RULE L26` — THE `lumos` HALF IS STILL UNANSWERED, AND THE INSTRUMENT REFUSED RATHER THAN GUESSING (2026-08-13, wave 26)
+>
+> Correction (b) above splits `J = 0` into two defects that present identically. **Which one `lumos` is has been
+> open for eleven waves.** Wave 24 reproduced its `rc=3` and explained it as a **hard-floor FAIL**
+> (`bestJ = currentJ = 0`, *"at least one frame has < 3 stars under optimized params (min observed = 0)"*), which
+> narrows the question to exactly two answers:
+>
+> > Is the zero-star frame a property of the **FRAME** — no usable signal at any settings — or of the **PARAMETER
+> > VECTOR** — the optimizer's landing gates it out?
+>
+> **`af-fit` was the right instrument** (it applies no run detection binning — that is
+> [F67](#f67--af-fits-star-count-and-optimizes-are-not-the-same-number-so-the-control-built-on-their-equality-reports-could-not-look-on-exactly-the-datasets-where-the-intervention-bites-hardest)'s
+> whole mechanism — and reads the run's own detection result rather than an optimized snapshot). **It produced no
+> `af_fit_points.csv`.** The driver named the absence, wrote **0 rows**, wrote **no marker**, and the scorer
+> returned **COULD-NOT-LOOK**:
+>
+> ```
+> 2026-08-13T07:09:11Z    NAMED: af-fit produced no af_fit_points.csv
+> 2026-08-13T07:09:11Z  L26_ROWS 0
+> 2026-08-13T07:09:11Z  L26 REFUSED: no artifact.
+> ```
+>
+> **The refusal is the instrument working, not a failure.** `L26-A` counts rows whose `Stars` column is `0`; a
+> driver that had defaulted a missing file to 0 rows would have branched to **`L-FRAME`** — *"the run is unusable
+> and the gate question is closed"* — which is **the wrong answer produced by an absent measurement**, on the
+> side that closes the question. *"Could not look" needs its own state, and this is the case that shows why the
+> state must be reachable from a MISSING artifact and not only from an unreadable one.*
+>
+> **Still priced at ~10 m**, with one addition: the next attempt **owes a diagnosis of why `af-fit` emitted
+> nothing** before it re-runs the same command. Reproduce: `/mnt/d/hf_w26/w26_l.log`,
+> `/mnt/d/hf_w26/q26_score.txt`; `docs/synthetic-af-bank-followups-wave26-results.md` §10.
+
 **Next step.** Two parts, and the second is the substantive one.
 1. *Report it.* When a large fraction of accepted candidates are rejected by `MinHFR` specifically, say so and
    name the pixel-scale / focal-length combination. The counts are already collected — but **not where the
@@ -2890,6 +3114,26 @@ get their pre-wave frames preserved (`D:\hf_w7\oldframes`, as wave 6 did) and th
 on the NEW bank must re-run wave 5's φ arms on that bank rather than compare across it. That is
 [F41](#f41--a-prior-waves-control-arm-is-not-a-control-for-a-later-waves-binary) applied to frames instead of to
 binaries.
+
+> ### THE SATURATION IS NOT ONLY A RECALL PROBLEM — ON AN UNLABELLED RUN `J` HAS NO PRECISION TERM AT ALL (2026-08-13, wave 26)
+>
+> This entry's shape is *"the optimizer trades enormous recall for numerically trivial gains"*. Wave 26 measured
+> the same trade pointed at **precision**, and found the reason it is free rather than merely cheap:
+> **`JRun` composes without the `Wl · sLabel` term whenever a run carries no labels**
+> (`OptimizationObjective.cs:484-490`), and **the whole synthetic bank runs unlabelled**. So on this bank `J`
+> contains **no precision term at all** — not a small one competing for an exhausted fourth decimal, **none** —
+> and `SStars` counts stars rather than correct stars. A knob that admits false positives is free in `J` **by
+> construction**, not by scale.
+>
+> **The two findings compose rather than compete.** F32's saturation says any *new* term would have almost no
+> room; wave 26 says the term that already exists is **not being evaluated**, so the first question is not "how
+> big should a precision term be" but "why is the branch that carries one never taken on the population every
+> conclusion is drawn from". Measured consequence, `n = 1` and caveated: at `D08`'s at-floor landing, restoring
+> the shipped sensitivity moves precision **0.966 → 1.000** while `recall@all` falls 0.978 → 0.803 — and
+> **`recall@high` does not move at all**, on any of four datasets. Full account, with the
+> [F31](#f31--synthetic-bank-precision-is-not-exact-the-golden-omits-real-stars-and-they-score-as-false-positives)
+> caveat that may explain the whole +0.034:
+> [F83](#f83--j-carries-no-precision-term-on-an-unlabelled-run-so-a-sensitivity-pin-is-free-in-the-objective-by-construction).
 
 ### F33 — ~~The synthetic bank does not reproduce the real bank's optimizer failure mode~~ → it does now
 **Status:** Done (part 1 wave 3, part 2 wave 4) · found 2026-08-03 re-reading the wave-1 arms side by side
@@ -8008,6 +8252,79 @@ Reproduce: `/mnt/d/hf_w24/prov_w24.py:75,179,227,304`; `/mnt/d/hf_w24/gate_w24.s
 > Reproduce: `/mnt/d/hf_w25/verify_derivation_w25.py`, `/mnt/d/hf_w25/v25_failend.txt`,
 > `/mnt/d/hf_w25/v25_passend.txt`; `/mnt/d/hf_w25/CONTROLLER_DEVIATIONS.md` D1, D2, D8;
 > `docs/synthetic-af-bank-followups-wave25-results.md` §2.
+
+> ### A THIRD SHAPE — THE RULE LETTER — AND A CONTROL THAT EXITED ITS CALLER WHILE PRINTING PASS (2026-08-13, wave 26, RULE V26)
+>
+> **The underscore gap had a third instance, and the enumeration that hid it is the same defect this entry is
+> about.** Wave 25 closed the prefix and suffix forms; the pattern it shipped still read
+>
+> ```python
+> r"(?:\bw%d(?:_[a-z][a-z0-9_]*)?\b|\bW%d\b|\b[GBRD]%d(?:_[A-Z][A-Z0-9_]*)?\b|prov_w%d|hf_w%d|score_\w*_w%d|_w%d\b)"
+> ```
+>
+> — the uppercase alternation **enumerates the rule letters `[GBRD]`**, the ones waves 19–24 happened to use, and
+> the bare `\bW%d\b` arm has **no suffix arm at all**. Waves 21–25 used `W`, `N`, `M`, `V`, `P` and `S`. Measured
+> against wave 25's own pattern, not asserted:
+>
+> | token | a real artifact of wave 25? | wave 25's pattern |
+> |---|---|---|
+> | `G25_START` | yes | matches |
+> | `w25_layout_self_test` | yes | matches |
+> | **`W25_BEFORE_READY`** | **yes — wave 25's own arm interlock marker** | **MISS** |
+> | `g25_score.txt`, `v25_passend.txt`, `n25e_score.txt`, `p3c_score.txt` | yes, all four on disk | **MISS** |
+>
+> `W25_BEFORE_READY` is **the load-bearing class on a different letter** — a surviving `*_READY` marker is what
+> hangs the controller's waiter, which is exactly what `G24_START` would have done in wave 25. And `n25e_score`
+> adds a second requirement: a letter follows the digits with **no separator**, so an optional `_SUFFIX` is not
+> enough. The pattern is now matched by **SHAPE**, not by an enumeration of the letters that have been used:
+>
+> ```python
+> r"(?:\b[a-z]%d[a-z0-9_]*\b|\b[A-Z]%d(?:_[A-Z0-9][A-Z0-9_]*)?\b|prov_w%d|hf_w%d|score_\w*_w%d|_w%d\b)"
+> ```
+>
+> **Demonstrated in both directions**: all five shapes report, and wave 26's own affixed names (`Q26_START`,
+> `w26_layout_self_test`) do **not**, so it discriminates rather than merely firing. **The durable rule: an
+> alternation that enumerates the values a field has TAKEN is a hardcoded list wearing a regex, and it belongs
+> with this entry's "any ordinal or count must be COMPUTED, never typed."**
+>
+> **The FAIL end had to be PINNED, because a checker's known-bad input expires the moment it works.** Wave 25's
+> self-test used *"the previous wave's root"* as its known-bad input — then repaired all 21 findings, making
+> `/mnt/d/hf_w25` `V-CLEAN`. A wave-26 checker pointed there would have found nothing and reported **itself**
+> broken. The known-bad root is now **named in the source** (`/mnt/d/hf_w24`, in `ALLOW` with its reason).
+> *A regression fixture that is "whatever came before" has a shelf life of one wave.*
+>
+> ---
+>
+> **AND A NEW MEMBER OF THE "CONTROL THAT CANNOT FAIL" FAMILY: A SOURCED FILE SEES ITS PARENT'S `$1`.**
+>
+> `layout_w26.sh`'s trailing `--self-test` dispatcher **fired when the file was SOURCED.** `q26_arm_w26.sh
+> --self-test` sourced the layout; the layout's own dispatcher matched the **parent's** `$1`; `w26_layout_self_test`
+> ran; and **`exit "$?"` terminated the arm driver inside its own `source` line** — printing a clean passing
+> layout self-test and running **not one line** of the arm's own checks. **It looked exactly like a pass.** Fixed
+> with `[ "${BASH_SOURCE[0]}" = "$0" ]`.
+>
+> **This is wave 24's `[ now > "23:59" ]` in a new costume**, and it was found the same way: by **reading the
+> output** of the self-test rather than its exit code. The charter's *"READ LOGS, NOT EXIT CODES"* was written
+> for arms; it applies to instruments, and this is the second wave running in which an instrument's PASS was the
+> thing that needed reading.
+>
+> Two smaller ones from the same wave, recorded because each is a shape rather than an instance:
+>
+> 1. **A guard that greps its own file reported the defect it is made of.** The arm's F15 check (*"the
+>    bank-writing flag must appear on no invocation line"*) matched its own three lines on first run. Excluded by
+>    an inline marker — but *a checker whose pattern appears in its own source needs a self-exclusion, and the
+>    self-exclusion is itself a thing to demonstrate.*
+> 2. **`xargs` split a path on its space and the command still succeeded.** The plan's class-1 fingerprint reads
+>    `find "/mnt/d/Autofocus Bank" … | sort | xargs sha256sum`; `/mnt/d/Autofocus` and `Bank/…` became two
+>    arguments and it produced **20 landings instead of 42**. Both `find` and `sha256sum` exited 0 on the paths
+>    they could resolve. **It was caught only by the population assertion** (`wc -l` against the expected count),
+>    which is the same instrument that catches everything else in this family. *Assert the population size of
+>    every control, including the ones that "obviously" worked.*
+>
+> Reproduce: `/mnt/d/hf_w26/verify_derivation_w26.py` (self-test section `[4]`), `/mnt/d/hf_w26/layout_w26.sh`,
+> `/mnt/d/hf_w26/q26_arm_w26.sh`, `/mnt/d/hf_w26/fingerprints/bank_landing_BEFORE.txt` (42 rows);
+> `docs/synthetic-af-bank-followups-wave26-design.md` §4;
+> `docs/synthetic-af-bank-followups-wave26-results.md` §2.
 
 ### F9 — `bank-verify` cannot pin C0's detector knobs
 **Status:** Open
