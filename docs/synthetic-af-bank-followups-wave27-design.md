@@ -897,7 +897,7 @@ Every instrument lives in `/mnt/d/hf_w27/` with **LF endings**.
 | **S2 `precisionNull ≥ 0.25`** | **yes** — F31 measured 0.000–0.012 on a sound metric | **yes** — on a saturated reference a decorrelated catalogue still protects | F31's published control |
 | **S3 `chanceProtected ≥ 0.25`** | **yes** — sparse datasets must be ~0 | **yes** — `D18`'s conditional coverage exceeds its 0.47 marginal | §4.2 |
 | ~~`excess = (p_obs − p_null)/(1 − p_null)`~~ | — | **NO — identically 1 on 19 of 20 datasets** | **REJECTED at design time as unsatisfiable, §4.1.** An unsatisfiable clause is a FINDING; this one is recorded here rather than shipped and discovered |
-| `T27-V6` reproducibility | **yes — already measured**, `D06`/`D08` 20 of 20 byte-identical | **yes, and it is OWED and RUN** — `D06` at `--match-radius 6` must break byte-identity | ~6 s |
+| `RULE R27` reproducibility | **yes — MEASURED, `R-IDENTICAL`**, 20 cells / 420 files / 0 diffs | **yes** — the comparator is demonstrated failing in both directions in `repro_all_w27.sh`'s own self-test | **ran before pre-registration; declared as a deviation, §5.6a** |
 | `S27-1` route agreement (4 fields × 20 datasets) | yes | yes — a disagreement blocks the ship and is a finding about one route | |
 | `S27-2` mutants | yes | yes by construction | three named mutants |
 | `S27-4` byte-identity, 360 artifacts + 60 counts | yes — B15 and HEAD are C#-identical, so B16 = B15 + (A) exactly | yes — any moved byte or count blocks the ship | the strongest form available |

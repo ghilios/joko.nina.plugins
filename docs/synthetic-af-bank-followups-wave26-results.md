@@ -482,6 +482,15 @@ it. Three specific reasons to hold it there:
    stars the golden omits, rather than junk.** Distinguishing the two requires re-scoring against each frame's
    own `*.truth.json` — F31's own method — **which this wave did not run**.
 
+   > **ANNOTATION, wave 27, 2026-08-13 — this caveat is DISCHARGED, in this wave's favour. The historical text
+   > above is left exactly as written.** The distinguishing measurement did not need running: **[F31](followups.md)'s
+   > repair had already shipped on 2026-08-03** (`aaf26e8`), and B15 — the binary this wave used — carries it.
+   > These 11 false positives are the ones that **survived `TruthProtection.ExcludeProtected`**, so by
+   > construction **none has an `omitted`/`merged-into` truth star within the 12 px radius**. Wave 26's own
+   > follow-on table then confirmed it directly: **0 real** on both wing frames against "ALL REAL" on the seven
+   > interior frames. **The 11 are genuine junk and the `+0.034` is real.** The caveat as written was correct
+   > about the mechanism and wrong that the measurement was outstanding.
+
 **What survives all three caveats, and is not subject to any of them:** the FN attribution. `REJECTED:LowSensitivity`
 is the *detector's own* count of candidates the sensitivity gate rejected, independent of the golden's
 completeness, and it goes None → **55 / 28 / 16 / 37**. The gate at 10 demonstrably rejects, at the landing it
