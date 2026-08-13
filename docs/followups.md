@@ -429,6 +429,179 @@ shape for this space.
 > three where the search **also** drove `StarClippingMultiplier` down, twice to the axis's own 0.25 floor.
 > Reproduce: `/mnt/d/hf_w26/q26_score.txt`; `docs/synthetic-af-bank-followups-wave26-results.md` §4.3, §7.
 
+### F85 — A closed, shipped correction was re-measured as an open defect, because two fields share a name
+
+**Status:** **Done** (2026-08-13, wave 27) — the disclosure gap is fixed; the register contradiction is
+corrected in place · relates to [F31](#f31), [F68](#f68) part 1, [F79](#f79), [F84](#f84)
+
+`golden eval`'s `FP` and a Python re-derivation from the golden's `stars` list alone are **both** "false
+positives": **11** and **150** on the same detections. Wave 26 read the second and compared it against the
+first, concluding the owner's precision column was a lower bound when it was already truth-corrected. The 150
+decomposes as **50** excluded by the golden's own `unresolved` boxes + **89** excluded by `TruthProtection` +
+**11** surviving genuine wing-frame junk; its `137` ("within 12 px of ANY truth star") is a **third** quantity,
+neither of the other two. **The junk count is 11, not 13** — two of the "13" sit inside an `unresolved` box.
+
+**Proximate cause:** `GoldenEvalRunner` applied `TruthProtection` and never reported that it did, while
+`BankVerifyRunner` reported it in three places. A grep of the 20 published logs, `golden_eval.txt` and
+`golden_eval_frames.csv` for `scoringMode` / `protected` / `precisionNull` returned **zero hits**.
+
+**Independent confirmation of the 89:** `score_t27_w27.py --protection off` gives `D08` FP `11 → 100`
+(`/mnt/d/hf_w27/t27_v0_failend.txt`), and **350** across the population.
+
+**Remedy, shipped:** `TestApp/SynthBank/TruthDisclosure.cs` ports all four of `bank-verify`'s disclosures into
+`golden eval` — `scoringMode` + `protectedStars`, `precisionNull`, `truthViolations`, `scoredFraction` — plus a
+fifth, `protectedDetections` (protection *exercised*). Wording is shared between the two harnesses so they
+cannot drift apart. **`RULE S27-4` proves the change is report-only at byte level: 360 of 360 detection
+artifacts byte-identical, `TP`/`FP`/`FN` unchanged on 20 of 20, and 20 of 20 report sinks changed** (so the port
+is not inert). **Open sub-item:** `S27-1`'s route agreement was not adjudicated, and `protectedDetections` is
+single-routed — see wave 27 results §7.3 and §8.6.
+
+### F86 — The golden sidecars on disk carry the PRE-REPAIR policy in their own words
+
+**Status:** **Open — a named caveat, deliberately not fixed** (2026-08-13, wave 27) · relates to [F31](#f31),
+[F85](#f85)
+
+`GoldenFromTruth.cs:744-748` writes *"a detection here should count as a false positive"* into the `Reason`
+field of every `omitted` component, and that string is sitting in **all 180 `*.golden.json` in the bank**. The
+behaviour it describes was repaired on **2026-08-03** and the string was not, because it is a diagnostic field
+nothing reads programmatically. **It is the single most likely thing that actually misled wave 26.**
+
+Wave 27 fixes the two contradicting XML doc comments (`GoldenFromTruth.cs:34-36` *"a detector reporting
+something at its location should be scored as a false positive"* vs `:76-84` *"scoring a detection there as a
+false positive would be punishing a detector for something the reference itself cannot certify either way"*) and
+**deliberately does NOT regenerate the sidecars**, for three reasons in this order:
+
+1. regenerating 180 goldens collides with **fingerprint class 2 preservation** and would invalidate every
+   precision/recall number this series has published;
+2. changing only the generator string would make future sidecars disagree with the 180 on disk — a silent
+   divergence, the same class of defect being fixed;
+3. nothing reads `Reason` programmatically.
+
+**Anyone reading a `Reason` field in a `*.golden.json` must read this entry first.** The correct policy is:
+`omitted` and `unresolved` are both *visibility* judgements, visibility bears on **recall**, and a rendered star
+is not a false positive at any SNR.
+
+### F87 — A rule that describes itself must exclude itself from its own population, or it launders its own subject
+
+**Status:** **Done** (2026-08-13, wave 27) — closed with a both-ends self-test · a **fourth** gap in
+[F80](#f80)'s checker, and a **new class**, not the `_`-word-boundary family
+
+`verify_derivation_w27.py`'s `in_historical_block()` scanned backwards for any line *containing* a
+`HISTORICAL_BLOCKS` token and treated it as opening a historical literal — **but the line that DEFINES
+`HISTORICAL_BLOCKS` contains every one of those tokens**, so from that line to EOF the `V27-B` clause was
+switched **off**.
+
+**Evidence, both ends:** before the repair the checker reported **`V-CLEAN`, 0 unlicensed tokens** on its own
+file **while printing `=== RULE V26 ===` as its banner on a wave-27 root** (`/mnt/d/hf_w27/vdrift_w27_run1.txt`);
+after the repair it reported **32 findings on itself** (`vdrift_w27_run2.txt`, the pre-repair copy is preserved
+as `verify_derivation_w27.py.bak` and contains **69** literal `V26` occurrences), and **255** on the pinned
+`/mnt/d/hf_w26` fixture (`vdrift_selftest_FINAL.txt` `[5b]`). *(A "53 tokens" figure quoted during the wave was
+a `grep -c` of lines, a third quantity, and is withdrawn; a pre-repair "204" on the `hf_w26` fixture was read but
+its artifact was not kept, so it is testimony. **Neither is load-bearing** — the run1-versus-run2 pair proves the
+defect without any count.)*
+
+**The lesson, and it generalises past this checker:** the first three F80 gaps were a *pattern* being too narrow.
+This one is a *population* silently containing the instrument, so the instrument's own definition of what to look
+for became a licence to stop looking. **Any self-describing rule must state whether its own source is in its
+population, and prove the answer with a fixture.** Closed with self-test clause `[6]`, which demonstrates that a
+real historical block is exempt, that the file after it is not, and that the definition line opens nothing. Two
+FAIL fixtures are now pinned: `hf_w24` (kept) and `hf_w26` (added, not swapped).
+
+### F88 — `git diff --name-only <tree>` omits UNTRACKED files, so a two-binary provenance diff can miss a whole new source file
+
+**Status:** **Open — remedy known and applied once** (2026-08-13, wave 27) · belongs beside [F66](#f66)
+
+Wave 27's B16 adds `TestApp/SynthBank/TruthDisclosure.cs` — the entire substance of the change — and it was
+**untracked at build time**, so `binary_provenance_w27.txt`'s tracked diff lists 3 files and omits it.
+`Q27-V1`, which intersects the change set against the `optimize` gate's reachable set to decide whether a
+42-minute gate is owed, would have computed that intersection over an incomplete population.
+
+**Remedy, applied:** take the **union** of `git diff --name-only <tree> -- '*.cs'` and `git ls-files --others
+--exclude-standard -- '*.cs'`. `q27_v1.txt` does this and reports 5 files.
+
+**Same shape as [F66](#f66):** a provenance instrument reporting confidently on a population that silently
+excludes the thing under examination. Every future two-binary provenance step must take the union.
+
+### F89 — A mutation harness that restores with `cp -p` restores the pre-mutation MTIME, and MSBuild then skips the recompile
+
+**Status:** **Open — remedy known** (2026-08-13, wave 27, controller process finding; **no artifact**)
+
+`cp -p` preserves mtime. After a mutant is restored with it, MSBuild sees a source no newer than its object and
+**skips the rebuild**, so the next run silently re-measures the mutant. In wave 27 it made a correctly-restored
+tree look broken.
+
+**Remedy:** `touch` the file after every restore; keep the sha256 check, which guards content but says nothing
+about mtime. **Recorded honestly: this finding's evidence is the controller's account, not a file.** One mutant
+(`M-S3`) was subsequently re-verified with its run record kept (`s27_2_mutant_MS3.log`, 3 red of 19); `M-S1`,
+`M-S2a` and `M-S2b` remain testimony, and this defect is the likeliest reason their records were lost.
+
+### F90 — Reuse the computation, never the banner, or the artifact lies about which rule it evaluated
+
+**Status:** **Open — remedy known, one instance annotated** (2026-08-13, wave 27) · belongs with
+[F74](#f74)'s family, not [F80](#f80)'s
+
+`score_repro_w27.py` — the `RULE R27` comparator — was reused to perform wave 27's `S27-4` byte comparison. It
+emits its own rule name **unconditionally**, so `/mnt/d/hf_w27/s27_score.txt` ends
+`>>> RULE R27 = R-DIFFERS (40 files)` while `/mnt/d/hf_w27/repro_all_score.txt` ends
+`>>> RULE R27 = R-IDENTICAL`. **For a period the record carried two contradictory verdicts for the same rule
+name**, on two different populations, and a reader grepping `RULE R27 =` would have found the contradiction with
+no way to tell which was which.
+
+**This is sharper than F80's prose drift.** F80 is about *commentary* that stops describing the instrument.
+Here the **verdict line itself** — the one line a future reader greps — was correct for the code and wrong for
+the run.
+
+**Remedy:** a reusable scorer must take its rule label as an **argument** and assert it against the manifest it
+was handed, exactly as this series already computes every ordinal rather than typing it. **Fixed for wave 27 by
+annotation, not deletion**: `s27_score.txt` now opens with a banner saying its own verdict line must not be
+quoted and naming `s27_4_score.txt` as the scored clause, with the wrong line left in place at the foot so the
+record shows what happened.
+
+### F91 — A BEFORE/AFTER control whose two sweeps are built by different expressions reports a FALSE violation
+
+**Status:** **Done** (2026-08-13, wave 27) — caught by the population assertion, corrected, both readings kept ·
+[F74](#f74)'s shape in the BEFORE/AFTER direction
+
+Wave 27's first `T27-V4` AFTER sweep returned **`T27-V4 = VIOLATED`**. **Nothing on disk had changed.** The
+AFTER expression omitted the **20 `.log` files** that the BEFORE expression had captured, so it compared 780
+paths against a BEFORE list of 800 and reported the 20 absentees as moved. A fingerprint gate is the control
+that decides whether a wave's denominators moved under it; a false `VIOLATED` there forces `T-UNEVALUATED` on a
+wave whose population was in fact untouched.
+
+**The only reason it surfaced** is the standing rule that the **population size is asserted inside the file** —
+`BEFORE 800 / AFTER 780` is arithmetic, not a judgement call. The corrected sweep reads **`BEFORE 800 AFTER 800
+compared 800 … DIFFERING: 0 → T27-V4 = PRESERVED`**.
+
+**The rule, general:** *a BEFORE/AFTER control must build both populations from the SAME expression.* Two
+expressions intended to describe one population are two populations, and every difference the control reports is
+then unattributable — in either direction. Prefer one function, called twice, with the population size asserted
+equal before any hash is compared.
+
+### Amendments owed to existing entries
+
+* **[F31](#f31)** — append `RULE T27`'s verdict: **the repair it made is SOUND on 18 of the 19 blind datasets,
+  saturated on `D18_m24_deep_shed` alone (`precisionNull` 0.2820, `A_all` 0.2372, `A_protOnly` 0.1938), with
+  `D01_ultrawide_40mm` a named near-miss at 0.2182.** F31 is **not** reopened — the verdict is neither
+  `T-SATURATED` nor `T-CHANCE-DOMINATED`, so the density guard is not triggered. Also record that F31's null was
+  demonstrated on one dataset (`D09`) and is now generalised to 20, at four offsets, and that the shipped
+  single-offset control is **under-powered on 7 of them**.
+* **[F83](#f83)** — the decision proceeds on real numbers. **Caveat 3's `+0.034` must carry a factor label**: it
+  is `+0.034` at detection binning 1 and `+0.003` at binning 2, where `D08` reads `P=0.997 FP=1` (§4.3).
+* **[F62](#f62)** — append `RULE D27` = `D-MOVED`, 6 of 6: scoring at the optimizer's own detection-binning
+  factor moves `recall@all` by up to **+0.296** (`D14`) and by **−0.012** on `D15`. The no-`BestJ`-across-factors
+  landmine now has a measured magnitude on the recall side.
+* **[F21](#f21)** — add the measured `golden eval` rate (§10) so no future wave prices a golden-eval arm off the
+  `optimize` rate.
+* **[F80](#f80)** — cross-reference [F87](#f87) as the fourth gap and the first of a new class; and add the
+  reuse-direction case from wave 27 results §7.8, where a scorer re-aimed at a new population kept the original
+  rule's verdict banner, so `s27_score.txt` claims `RULE R27 = R-DIFFERS` while `repro_all_score.txt` claims
+  `RULE R27 = R-IDENTICAL`.
+* **`docs/synthetic-af-bank-results-table.md`** — annotate `D18`'s precision cell in place as **uninformative**
+  with its three statistics; annotate `D01` with the near-miss; add the `scoredFraction` column or at minimum
+  the six low rows of §3; re-state the seven `RULE D27` rows at both factors with each labelled.
+
+---
+
 ### F84 — The at-floor sensitivity datasets: what is actually owed, and what the evidence has already killed
 
 **Status:** **OPEN — a decision, not a defect** (2026-08-13, answering the owner's question after wave 26) ·
