@@ -516,7 +516,12 @@ The bank is measured out. Of the five items:
 | 2 — implement `(3′)` | **VOID**, by item 1, before any code was written. |
 | 3 — the `ACCEPTED-elsewhere` residual | **RESOLVED** as a scorer-side matching artifact. Wave 30 row 7 discharged. |
 | 4 — bound + rename `MaxDistortion` | **SHIPPED** (axis bound + label + tooltip). Persisted-key rename named as a debt. |
-| 5 — the `A4` truth-model gap | **FIXED**, harness-side, no gate owed — and my own first fix corrected before it shipped. |
+| 5 — the `A4` truth-model gap | **FIXED**, harness-side, no gate owed. Two failures were the assertion's own; **one survives and is real**. |
+
+**Three self-corrections, all made before the thing being corrected could mislead anyone.** The
+`MaxDistortion` coarse-grid justification (caught by a refuted prediction), the first A4 fix (caught by
+re-scoring real reports), and the A4 before/after table (caught by re-running instead of predicting). Each is
+recorded where the claim it replaces was made, in the commit that made it and in this document.
 
 **Three of the five closed by measurement rather than by construction**, which is the pattern the wave series was
 stopped for: the remaining questions were not answerable with another arm on this bank, and two of them turned
