@@ -144,6 +144,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// </summary>
         public const double DefaultSensitivityLower = 0.0;
 
+        /// <summary>
+        /// The searchable ceiling for <see cref="StarDetectorParams.MaxDistortion"/>, and the one bound in the
+        /// curated set that is GEOMETRIC rather than heuristic.
+        /// <para>
+        /// Despite its name, <c>MaxDistortion</c> is a <b>minimum fill ratio</b>: the gate computes
+        /// <c>fillRatio = (star pixels) / d²</c> for a bounding-box max dimension <c>d</c> and <b>rejects</b> when
+        /// <c>fillRatio &lt; MaxDistortion</c> (<c>StarDetector.cs</c>, the <c>TooDistorted</c> gate). Raising the
+        /// value makes the gate <b>stricter</b>, not looser.
+        /// </para>
+        /// <para>
+        /// A perfectly round star therefore tops out at the fill ratio of a disk inscribed in its own bounding
+        /// box — <c>π/4 ≈ 0.785</c>. Any threshold above that rejects <b>every</b> round star, so the top of the
+        /// old 1.0 ceiling was a region the search could reach and never use: the coarse grid samples
+        /// <c>Lower + t·(Upper − Lower)</c> inclusive of both bounds, so at the default four levels the old range
+        /// spent one of its four levels (1.0) on a setting that returns zero detections by construction.
+        /// </para>
+        /// </summary>
+        public const double MaxDistortionSearchUpper = Math.PI / 4.0;
+
         private static IReadOnlyList<OptimizerVariable> CreateCuratedSet(
             bool includeDefocusAxes, double sensitivityLower = DefaultSensitivityLower) {
             // --- Heuristic bounds (no hard UI validation range; chosen pragmatically). Edit here to retune. ---
@@ -173,7 +192,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     p => p.NoiseClippingMultiplier, (p, v) => p.NoiseClippingMultiplier = v),
                 Continuous(nameof(StarDetectorParams.PeakResponse), 0.1, 1.0, 0.05,
                     p => p.PeakResponse, (p, v) => p.PeakResponse = v),
-                Continuous(nameof(StarDetectorParams.MaxDistortion), 0.1, 1.0, 0.1,
+                // Upper is MaxDistortionSearchUpper (π/4), not 1.0: see that constant for why the top of the old
+                // range could be searched but never used. The lower bound stays heuristic.
+                Continuous(nameof(StarDetectorParams.MaxDistortion), 0.1, MaxDistortionSearchUpper, 0.1,
                     p => p.MaxDistortion, (p, v) => p.MaxDistortion = v),
                 Continuous(nameof(StarDetectorParams.MinHFR), MinHFRLower, MinHFRUpper, 0.25,
                     p => p.MinHFR, (p, v) => p.MinHFR = v),

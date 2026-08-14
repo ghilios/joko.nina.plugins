@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using System;
 using System.Linq;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
@@ -192,6 +193,63 @@ public class OptimizerVariableTests {
         Assert.That(set.Select(x => x.Name), Is.EquivalentTo(expected));
     }
 
+    // ---- MaxDistortion's searchable ceiling is GEOMETRY, not a tuning choice (F98) ----
+
+    /// <summary>
+    /// The axis ceiling has to be the fill ratio the detector's own metric assigns to a perfectly round star,
+    /// because the gate rejects when <c>(star pixels)/d² &lt; MaxDistortion</c>. Rasterise disks and confirm the
+    /// constant is that ratio rather than a number someone liked — the sequence converges to π/4 from below.
+    /// </summary>
+    [Test]
+    public void MaxDistortionSearchUpper_IsTheFillRatioOfARasterisedPerfectDisk() {
+        static double DiskFillRatio(int d) {
+            var r = d / 2.0;
+            var count = 0;
+            for (var y = 0; y < d; y++) {
+                for (var x = 0; x < d; x++) {
+                    var dx = x + 0.5 - r;
+                    var dy = y + 0.5 - r;
+                    if ((dx * dx) + (dy * dy) <= r * r) {
+                        count++;
+                    }
+                }
+            }
+            return count / (double)(d * d);
+        }
+
+        Assert.Multiple(() => {
+            Assert.That(DiskFillRatio(64), Is.EqualTo(OptimizerVariable.MaxDistortionSearchUpper).Within(0.01));
+            Assert.That(DiskFillRatio(512), Is.EqualTo(OptimizerVariable.MaxDistortionSearchUpper).Within(0.002));
+            // And it is genuinely below the old 1.0 ceiling, which is the whole point of the bound.
+            Assert.That(OptimizerVariable.MaxDistortionSearchUpper, Is.LessThan(1.0));
+        });
+    }
+
+    /// <summary>
+    /// The coarse grid samples <c>Lower + t·(Upper − Lower)</c> inclusive of BOTH bounds, so the ceiling is
+    /// itself evaluated. Under the old 1.0 upper the top level rejected every round star — one of this axis's
+    /// four levels spent on a setting that returns zero detections by construction.
+    /// </summary>
+    [Test]
+    public void MaxDistortionAxis_EveryCoarseGridLevel_IsSatisfiableByARoundStar() {
+        var v = OptimizerVariable.CreateCuratedSet().Single(x => x.Name == nameof(StarDetectorParams.MaxDistortion));
+        const int Levels = 4;   // StarDetectionOptimizer.CoarseGridLevels default
+        for (var i = 0; i < Levels; i++) {
+            var t = i / (double)(Levels - 1);
+            var value = v.Lower + (t * (v.Upper - v.Lower));
+            Assert.That(value, Is.LessThanOrEqualTo(Math.PI / 4.0),
+                $"coarse-grid level {i} of {Levels} sits above a perfect disk's fill ratio, so it rejects every round star");
+        }
+    }
+
+    [Test]
+    public void MaxDistortionAxis_WriteClampsAboveTheGeometricCeiling() {
+        var v = OptimizerVariable.CreateCuratedSet().Single(x => x.Name == nameof(StarDetectorParams.MaxDistortion));
+        var p = new StarDetectorParams();
+        v.Write(p, 1.0);
+        Assert.That(p.MaxDistortion, Is.EqualTo(Math.PI / 4.0).Within(1e-12));
+    }
+
     // ---- DefocusAwareGates combined switch (F3) ----
 
     [Test]
@@ -253,7 +311,7 @@ public class OptimizerVariableTests {
         Check(nameof(StarDetectorParams.StarClippingMultiplier), OptimizerVariableType.Continuous, 0.25, 10, 0.5);
         Check(nameof(StarDetectorParams.NoiseClippingMultiplier), OptimizerVariableType.Continuous, 1, 10, 0.5);
         Check(nameof(StarDetectorParams.PeakResponse), OptimizerVariableType.Continuous, 0.1, 1.0, 0.05);
-        Check(nameof(StarDetectorParams.MaxDistortion), OptimizerVariableType.Continuous, 0.1, 1.0, 0.1);
+        Check(nameof(StarDetectorParams.MaxDistortion), OptimizerVariableType.Continuous, 0.1, Math.PI / 4.0, 0.1);
         Check(nameof(StarDetectorParams.MinHFR), OptimizerVariableType.Continuous, 0.1, 5.0, 0.25);
         Check(nameof(StarDetectorParams.StarCenterTolerance), OptimizerVariableType.Continuous, 0.05, 1.0, 0.05);
         Check(nameof(StarDetectorParams.StructureLayers), OptimizerVariableType.Integer, 1, 8, 1);

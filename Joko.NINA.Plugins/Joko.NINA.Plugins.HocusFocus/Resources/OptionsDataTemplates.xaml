@@ -450,7 +450,7 @@
         . The noise level<Bold>n</Bold>
         is measured on the image actually used for star measurement, so this value is an honest multiple of the real noise and means the same thing regardless of noise-reduction settings. The default of 2 works well; if you find a large number of rejections due to low sensitivity, smaller values increase sensitivity</TextBlock>
     <TextBlock x:Key="StarPeakResponse_Tooltip" Text="The ratio of the star median relative to the star peak. It provides a measure of flatness, since median values close to the peak indicate low dispersion. Consider increasing if too many stars are rejected with &quot;Too Flat&quot;" />
-    <TextBlock x:Key="MaxDistortion_Tooltip" Text="The ratio of star pixels to the size of a perfect square bounding box. A perfect circule has a distortion of PI/4, which is approximately 0.7. The default value of 0.5 allows for some distortion and measurement error and should work for most cases." />
+    <TextBlock x:Key="MaxDistortion_Tooltip" Text="A MINIMUM fill ratio, despite the name: the ratio of star pixels to the area of the bounding box, where a candidate is rejected as Too Distorted when its fill ratio falls BELOW this value. Raising it makes the gate stricter, not looser. A perfectly round star fills PI/4, approximately 0.785, so values above that reject every round star. The default of 0.5 allows for some distortion and measurement error and should work for most cases." />
     <TextBlock x:Key="DefocusAwareGates_Tooltip" Text="When enabled, both the Max Distortion and Star Center Tolerance gates are relaxed for large candidates (a proxy for large defocus). At large defocus a star becomes a hollow donut (the central-obstruction shadow): it has a big bounding box with a low pixel fill-ratio (which the strict Max Distortion would wrongly reject as too distorted) and a wobbly intensity-weighted center (which the strict centering test would wrongly reject as not centered). Small candidates (near focus) keep the strict thresholds, so junk is still rejected. Off by default; enable it if you collect autofocus frames far from focus and find defocused donut stars being dropped. The three Defocus-Aware tuning values below take effect only while this is enabled." />
     <TextBlock x:Key="DefocusDistortionSizeReference_Tooltip" Text="Tuning knob for the Defocus-Aware Gates (only used while they are enabled). The candidate bounding-box size (in pixels, the larger of width/height) at or below which the strict gate thresholds still apply; larger candidates get the relaxed thresholds. Shared by both the distortion and centering relaxations. Lower it to relax smaller stars; raise it to keep more of the strict behavior. Default 30." />
     <TextBlock x:Key="DefocusDistortionMinFactor_Tooltip" Text="Tuning knob for the Defocus-Aware Gates (only used while they are enabled). The floor multiplier applied to Max Distortion for very large (very defocused) candidates — the most permissive the distortion gate ever becomes. Must be greater than 0 and at most 1. Smaller values accept more heavily-distorted donuts. Default 0.25." />
@@ -1574,7 +1574,7 @@
                 Grid.Row="18"
                 Grid.Column="0"
                 VerticalAlignment="Center"
-                Text="Max Distortion"
+                Text="Max Distortion (min fill ratio)"
                 ToolTip="{StaticResource MaxDistortion_Tooltip}" />
             <ninactrl:UnitTextBox
                 Grid.Row="18"
