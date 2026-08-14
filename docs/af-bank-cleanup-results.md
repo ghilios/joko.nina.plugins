@@ -3,6 +3,11 @@
 **Run window.** `T0 = 2026-08-14T00:00:31Z`, stop `T0 + 6 h = 2026-08-14T06:00:31Z` (the invoking message named no
 duration). PR #196 verified `MERGED` at `2026-08-13T22:56:58Z` before anything else ran.
 
+**The prompt's five items were complete and reported at 02:55Z, inside that window.** Everything under
+**SCOPE EXPANSION** below was authorised by the owner afterwards ("*I don't mind expanding scope. I want to get
+this done*") and runs past the original stop by permission, not by overrun. The sections above it are the run as
+the prompt scoped it.
+
 **Suite baseline, by COUNT out of the log (F37), re-established on `develop @ 2ebbd43` after the merge:**
 
 ```
@@ -549,10 +554,17 @@ RENDER_render_START 2026-08-14T04:13:13Z … synth-bank: 2 generated, 0 skipped,
 RENDER_verify_END   2026-08-14T04:13:56Z
 ```
 
-9 FITS + 9 `golden.json` + `synthetic_meta.json` per cell, `--verify` clean, 532 MB + 184 MB. **Both halves of
-the row that blocked this for twelve waves were wrong: the band, and the price.** `--dry-run` first (a habit
-worth keeping — it exercises the kernel-cap guard, which is what would actually have wasted render time);
-both cells came back `withinCap=YES` at 0.7 % utilization, identical to `D01`/`D02`/`D03`.
+9 FITS + 9 `golden.json` + `synthetic_meta.json` per cell, `--verify` clean, 532 MB + 184 MB. `--dry-run`
+first (a habit worth keeping — it exercises the kernel-cap guard, which is what would actually have wasted
+render time); both cells came back `withinCap=YES` at 0.7 % utilization, identical to `D01`/`D02`/`D03`.
+
+**Stated fairly, because the row's price deserves a fair reading.** Row 10 priced the item at *"≥ 1 h render"*
+**and** *"≥ 1 h compute"* (§12.1). **The compute half was about right** — this run's blind arm was 27 minutes
+for four `synth-validate` runs, and the table arm below adds more. **It is the RENDER half that was never
+grounded in a measurement:** wave 12 recorded *"Render + 15 optimizes: 13 m 51 s total"* for three datasets, so
+rendering was always a small fraction of any arm. Nobody re-derived the render price; it was inherited. So the
+row was not blocked by an hour of rendering — it was blocked by an unexamined number sitting next to an
+unfalsifiable check.
 
 ### And then the thing the whole series wanted: `c_blind` is no longer 0
 

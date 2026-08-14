@@ -941,8 +941,11 @@ rendered exhibits the transition** (2026-08-14, af-bank-cleanup run) · found 20
 >   `D01` it moved the step 3 → 2. So a fix is arguable on **severity**, never on rate — the position F82's
 >   decision document §7 clause 5 already reached, now with data instead of an argument.
 >
-> The render that made this possible cost **43 seconds**, against the ledger's "≥ 1 h". See the results doc for
-> why that row was unfalsifiable as written.
+> The render that made this possible cost **43 seconds**. Fairly: row 10 priced *"≥ 1 h render"* **and**
+> *"≥ 1 h compute"*, and the **compute** half was about right (this run's blind arm was 27 min for four runs).
+> It is the **render** half that was never measured — wave 12 recorded *"Render + 15 optimizes: 13 m 51 s"* for
+> three datasets. The row was blocked by an inherited number beside an unfalsifiable check, not by an hour of
+> work. See the results doc.
 
 Wave 26 pre-registered a reversal condition on its choice between F82's two fixes — *"if a later wave measures
 that `SearchSpan` … shrinks on more than a single cell while the requested sweep widens, then … (2) becomes
@@ -10215,7 +10218,9 @@ because what was being checked was not the claim. **Both halves of it were wrong
   The real hole is **5.75 → 19.39**, a single 3.38× jump containing exactly one dataset — `D01`, the burned
   one. *That*, and not rarity, is why [F97](#f97) measured `c_blind = 0`.
 - **The price.** Carried as **"≥ 1 h render"** for twelve waves. Rendering two datasets into the hole took
-  **43 seconds**, `--verify` clean.
+  **43 seconds**, `--verify` clean. The row's companion *"≥ 1 h compute"* was about right, so this is one
+  inherited half of a two-part price, not a wholesale error — but nobody re-derived it, and wave 12 had already
+  measured *"Render + 15 optimizes: 13 m 51 s"* for three datasets.
 
 **A render aimed at the row as written would have added cells the bank already had, at a plate scale that
 answers nothing** — and would have looked like progress.
