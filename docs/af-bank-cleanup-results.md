@@ -712,6 +712,60 @@ from 20 to 22 before it can emit — a one-line change owed to whoever next want
 
 ---
 
+## F49 / F51 — asked for as remaining work, and mostly already done
+
+**I got this wrong first and the correction is the point.** Asked what followups remained, I named F49 and F51
+as *"the highest-value cluster — the only entries with a real user hitting them on shipped defaults."* I had
+read their **`**Status:** Open`** lines and their opening paragraphs. I had not read their bodies.
+
+| entry | what the status said | what the body says |
+|---|---|---|
+| **F51** | `Open` | **all three parts (a)(b)(c) SHIPPED 2026-08-07 (wave 9)**, with a correction caught by an existing test |
+| **F49** | `Open` | **(a) SHIPPED wave 9**, **(c) SHIPPED wave 10**; only **(b)** — a *decision* — remained |
+
+Both status lines are now corrected, and **F51's residual is not F51's**: its own closing line redirects it to
+`F21`/F49(c), and F49(c) shipped the copy that quotes the exact convergence ratio plus a test asserting the cap
+releases.
+
+**This is [F106](followups.md)'s class — "a hand-carried debt ledger rots in BOTH directions" — rotting toward
+OVERSTATING what is left**, and it is the same failure as F112's row 10: a field that *looks* checkable, is read
+as authoritative, and is not maintained. A scan of all 113 entries finds **12 whose status says `Open` while
+their body says `SHIPPED`/`DONE`**. Two are fixed here. **The other ten are named, not bulk-edited**, because
+deciding what genuinely remains in each requires reading it — which is the mistake being corrected, not a
+licence to repeat it at scale:
+
+> `F18` `F25` `F53` `F55` `F58` `F63` `F69` `F70` `F79` `F80`
+
+Two of those (`F79`, `F80`) are already honest — their statuses say *"fix identified and priced; deliberately
+not shipped"* — so the flag is a false positive there, which is itself why a regex must not drive the edit.
+
+### F49(b), decided: **won't fix as asked**
+
+Full argument in **`docs/f49b-lever-choice-decision.md`**. F49(b) asked whether to expose a user-facing floor on
+the search's Sensitivity, or F32's keep fraction. **Neither faces the pathology.**
+
+The premise was re-verified at `HEAD`: `MinDetectionKeepFraction` still has **no XAML binding anywhere**, and
+the search's Sensitivity lower bound (`OptimizerVariable.DefaultSensitivityLower = 0.0`) is not user-exposed
+either — so it is true that today there is no lever.
+
+But F49's landing **kept 7× MORE stars than its seed** (834 → 5 766), and both candidates guard the *shedding*
+end:
+
+- **F32's keep fraction** *"rejects a candidate keeping less than φ of the SEED's accepted stars"* — it could
+  not have bound. It is also retired *"permanently"* as *"the wrong instrument"*. Exposing it would ship a
+  control whose honest tooltip is *"this does not apply to your situation."*
+- **A Sensitivity floor** is defeatable through the other half of F6's inseparable pair — this very run moved
+  `StarClippingMultiplier` 6.750 → 0.250 alongside the gate — and it would forbid a **real optimum**: F83 shows
+  `J` has no precision term on an unlabelled run and `sStars` rewards star count, and F84 measured **22 of 24**
+  pinned instances *driven* to the bound rather than never-moved. F84 says outright: *"Do NOT propose a floor on
+  the Sensitivity axis as the fix."*
+
+**The user's complaint is not "I cannot set a floor" — it is "I cannot tell whether this landing is good."** The
+number that would tell them does not exist on an unlabelled run, and that is **F83**, whose two exits (a
+precision term, or labelling the bank) are now also F49's. **F49(b) resolves into F83 and F49 is closed.**
+
+---
+
 ## What was NOT run
 
 - **`(3′)`, and its 42 m gate** — voided by `V-0`. Not a debt: there is nothing left to ship for F82 in that

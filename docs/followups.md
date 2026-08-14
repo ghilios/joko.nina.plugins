@@ -1743,7 +1743,15 @@ under-lists by an order of magnitude at defocus.**
 
 ### F83 — `J` carries no precision term on an unlabelled run, so a sensitivity pin is free in the objective by construction
 **Status:** Open · **structural, source-derived, zero compute** · found 2026-08-13, wave 26, pricing the sensitivity
-pin the owner asked to avoid
+pin the owner asked to avoid · **[F49](#f49)(b) RESOLVES INTO THIS ENTRY (2026-08-14)**
+
+> **F49(b) asked which knob to expose to a user whose landing floored the gate; the answer is that the knob is
+> not the missing piece — this term is** (`docs/f49b-lever-choice-decision.md`). The user-visible symptom of the
+> missing precision term is a wizard landing the user **cannot evaluate**: on an unlabelled run precision is
+> unmeasured, so `J` cannot charge for it and the UI cannot report it. A floor is not a substitute for the term —
+> it forbids the answer the objective prefers while leaving the objective unchanged, so the search sits on the
+> floor and the landing is still the best point `J` can see. **This entry's two exits (a precision term on
+> unlabelled runs, owing a fresh baseline; or labelling the bank to activate `Wl·sLabel`) are now also F49's.**
 
 **Every `optimize` result this project has produced on the synthetic AF bank was scored by an objective with no
 false-positive cost in it.** Not because a term is mis-tuned — because the branch that carries precision is not
@@ -4298,7 +4306,11 @@ precision figure rather than being something a reader has to think to ask for.
 ship.** R1(c) fails catastrophically (σ_focus x2000 worse on `vsn07`), R3 fails on the newly-covered population,
 and R2 INVERTS wave 6 — restarts recover 228 % of the floor's gain, so the floor is not a distinct mechanism.
 `MinDetectionKeepFraction` stays default OFF permanently. **The greedy trap itself is confirmed and stands**; the
-floor is simply the wrong instrument for it · found 2026-08-03 re-reading the wave-1 real-bank control arm
+floor is simply the wrong instrument for it — **and it was asked again by [F49](#f49)(b) on 2026-08-14 and
+refused again for a NEW reason: the motivating case is on the ADMISSION end.** F49's landing kept **7× more**
+stars than its seed, while this constraint *"rejects a candidate keeping less than φ of the SEED's accepted
+stars"* — so it could not have bound there at all. Exposing it would put a control on the options page whose
+honest tooltip is *"this does not apply to your situation"* · found 2026-08-03 re-reading the wave-1 real-bank control arm
 
 The objective's landings are not close calls. Across the 17 scorable real-bank runs, `optimize --per-run` gives
 up a **median 0.243 of recall@SNR≥12** to gain a **median ΔJ of +0.0125** — and the worst cases are far starker
@@ -6133,7 +6145,9 @@ Part (b) — state the statistic over the cells that can move — is now a stand
 Reproduce: `D:\hf_w8\f48_rescore.py`.
 
 ### F51 — "Capture a new sweep and optimize" is gated on the EXPOSURE recommendation, so it hides exactly when the run needs re-running — and it would not carry the new step size anyway
-**Status:** Open · found 2026-08-06 (wave 8) from the same field session as
+**Status:** **CLOSED 2026-08-14 — all three parts (a)(b)(c) SHIPPED wave 9.** The residual named at the foot of
+this entry is **not F51's** and is carried by [F21](#f21)/F49(c), not here · found 2026-08-06 (wave 8) from the
+same field session as
 [F49](#f49--the-star-signal-block-fires-on-a-floored-gate-but-every-remedy-it-owns-is-an-exposure-remedy-so-a-rich-well-exposed-field-gets-a-diagnosis-with-no-instruction) ·
 mechanism confirmed in source
 
@@ -9289,8 +9303,17 @@ comes back", which is what wave 8 did by hand. Until then, treat every FN-by-gat
 Reproduce: `D:\hf_w8\p1\knob_sweep.sh` (the `p1_minbox*` arms).
 
 ### F49 — The Star signal block fires on a floored gate but every remedy it owns is an EXPOSURE remedy, so a rich, well-exposed field gets a diagnosis with no instruction
-**Status:** Open · found 2026-08-06 (wave 8) from a **field report on the shipped `Default` profile**, not from the
-bank · mechanism confirmed in source
+**Status:** **CLOSED 2026-08-14 — (a) SHIPPED wave 9, (c) SHIPPED wave 10, (b) DECIDED: won't fix as asked**
+(`docs/f49b-lever-choice-decision.md`) · found 2026-08-06 (wave 8) from a **field report on the shipped
+`Default` profile**, not from the bank · mechanism confirmed in source
+
+> **The status line above was WRONG until 2026-08-14 and this is what it said: _"Open · found 2026-08-06 …"_,
+> with no hint that two of its three parts had shipped a week earlier.** A reader scanning statuses — which is
+> how this register is read — would have priced F49 as untouched work. That is [F106](#f106)'s class exactly
+> ("a hand-carried debt ledger rots in BOTH directions"), and it rotted toward OVERSTATING what was left.
+> **11 other open-status entries carry `SHIPPED`/`DONE` in their bodies**; F49 and F51 are the two audited and
+> corrected here, and the rest are named in `docs/af-bank-cleanup-results.md` rather than bulk-edited on a
+> regex, since deciding what is genuinely left requires reading each one.
 
 The user ran the optimization wizard twice on their own rig. The second landing: **Sensitivity 15.667 → 0.000**,
 **StarClippingMultiplier 6.750 → 0.250**, stars per frame **834 → 5766** (≈ 7×), σ_focus 6.12 → 0.55. The Star
@@ -9389,10 +9412,16 @@ wide side, and the user experienced it as a runaway rather than as convergence.
 > geometric until the sweep contains the band, and their runs 3 and 4 asked +3 % and +5 %. A unit test replays
 > the sequence and asserts the cap releases.
 
-**Next step.** Three separable pieces. **(a)** ~~Give the floored-gate + `ExposureIsNotTheLimit` state a remedy of
-its own~~ — **DONE**; the honest one names the gate, not the exposure. **(b)** Decide
-whether a user-facing floor on the search's Sensitivity (or F32's keep fraction, exposed) is the right lever, since
-today there is none. **(c)** ~~When the step recommendation is capped by the sweep width, say what it is converging TOWARD~~ —
+**Next step — NONE; the entry is closed.** **(a)** ~~Give the floored-gate + `ExposureIsNotTheLimit` state a
+remedy of its own~~ — **DONE**; the honest one names the gate, not the exposure. **(b)** ~~Decide whether a
+user-facing floor on the search's Sensitivity (or F32's keep fraction, exposed) is the right lever~~ —
+**DECIDED 2026-08-14: WON'T FIX AS ASKED** (`docs/f49b-lever-choice-decision.md`). **Neither candidate faces the
+pathology.** This landing kept **7× MORE** stars than its seed, and both levers guard the *shedding* end:
+[F32](#f32)'s keep fraction *"rejects a candidate keeping less than φ of the SEED's accepted stars"* and is
+retired *"permanently"* as *"the wrong instrument"*; a Sensitivity floor is defeatable via the other half of
+[F6](#f6)'s inseparable pair (this very run moved StarClip 6.750 → 0.250 alongside it) and would forbid a
+**real optimum** of an objective that cannot see precision ([F83](#f83), [F84](#f84): 22 of 24 pinned instances
+DRIVEN to the bound). **The missing piece is F83's precision term, not a knob** — F49(b) resolves into F83. **(c)** ~~When the step recommendation is capped by the sweep width, say what it is converging TOWARD~~ —
 **DONE, see above**, and with a measured range and an exact ratio rather than only a sentence.
 Reproduce: field report, `Default` profile, 2026-08-06; wizard screenshot in the wave-8 thread.
 
