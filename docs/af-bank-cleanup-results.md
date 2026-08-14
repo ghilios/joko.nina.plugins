@@ -11,7 +11,11 @@ Passed!  - Failed: 0, Passed: 4039, Skipped: 0, Total: 4039, Duration: 5 m 52 s
 
 **4039 survived the merge**, so 4039 is this run's baseline and every count below is relative to it.
 
-**Branch:** `ghilios/af-bank-cleanup`, one branch and one PR, base `2ebbd43`.
+**Final suite: 4052 = 4039 + 3 + 10, zero failures, zero skips.** CI agrees, read out of the run log rather
+than off the tick — `gh run view 31761696772 --log` →
+`Passed! - Failed: 0, Passed: 4052, Skipped: 0, Total: 4052`, run conclusion **success**.
+
+**Branch:** `ghilios/af-bank-cleanup`, one branch and one PR (**#200**), base `2ebbd43`.
 
 ---
 
@@ -339,21 +343,40 @@ verdict. Both are pinned by tests.
 **No product file is touched**, deliberately — so this change carries **no `optimize` gate** and cannot be
 confused with a behaviour change. It is committed separately from item 4 for the same reason.
 
-### What A4 actually said on real reports, before and after
+### What A4 actually says on real reports, before and after — MEASURED, not predicted
 
-Read out of the V-0 arm's own reports — this is the fix's motivating evidence, not a constructed fixture:
+The three published cells re-run on the **new binary** (`/mnt/d/hf_ship1/a4_recheck.sh`, `a4/`, TestApp.dll
+`a1dca0ae…`), same pinned inputs, same no-flag configuration wave 25 published. `fittedSearchSpan` is read out
+of the new reports rather than inferred:
 
-| cell | round | branch | old A4 | old boundary | new A4 | why |
-|---|---|---|---|---|---|---|
-| `D01` | r1 | capped | **FAIL** | 18.0 (requested) | **PASS** | fitted boundary is 9.0; truth 10.4 **is** above it |
-| `D01` | r3 | capped | **FAIL** | 18.0 | **PASS** | same |
-| `D02` | r1 | capped | **FAIL** | 18.0 | **PASS** | same |
-| `D03` | r0 | floored | **FAIL** | 24.0 | **N/A** | the cap predicate does not describe a floored round |
-| `D01` | r0 | floored | PASS | 12.0 | **N/A** | exempt in the other direction too |
-| `D02` | r0 | floored | PASS | 12.0 | **N/A** | " |
-| `D03` | r1 | capped | PASS | 42.0 | **PASS** | fitted == requested; unchanged |
+| cell | round | branch | fitted span | old A4 (boundary) | **new A4 (boundary)** |
+|---|---|---|---|---|---|
+| `D01` | r0 | floored | 16.0 | PASS (12.0) | **N/A** |
+| `D01` | r1 | capped | **12.0** | **FAIL** (18.0) | **PASS** (9.0, ratio 1.15) |
+| `D02` | r0 | floored | 16.0 | PASS (12.0) | **N/A** |
+| `D02` | r1 | capped | **24.0** | **FAIL** (18.0) | **FAIL** (18.0, ratio 0.47) |
+| `D03` | r0 | floored | 32.0 | **FAIL** (24.0) | **N/A** |
+| `D03` | r1 | capped | 56.0 | PASS (42.0) | **PASS** (42.0, ratio 1.10) |
 
-**Four of the ten A4 verdicts on these three cells were failures, and none of them was a product defect.**
+**Three of six A4 verdicts were failures; after the repair, one is.** Two were assertion artifacts. The
+survivor is the point.
+
+> **A second correction to my own write-up, and this one the re-run caught.** I had listed `D02` r1 as
+> FAIL → PASS, by assuming its fitted span matched `D01` r1's. **It does not: `D02` r1's fitted span is 24.0,
+> exactly its requested span**, so the boundary is 18.0 under either rule and the verdict is unchanged. It was
+> derivable from the published report all along — `halfWidth 18.0` on a capped round inverts to
+> `18.0 / 0.75 = 24.0` — and I did not derive it. I had also listed `D01` r3, whose fitted span is **not**
+> recoverable from a B15 report at all (it is capped *and* detect-bounded, so `halfWidth` is the detect bound,
+> not `maxHalfWidth`). Re-running with the new binary replaced both guesses with measurements.
+
+**`D02` r1's surviving FAIL is a real signal, not residual noise.** The round was capped — the fitted crossing
+exceeded `maxHalfWidth = 18.0` — while the analytic truth half-width is **8.4**. The model wanted to extrapolate
+past twice the truth. That is a fit-quality observation about `D02`'s round 1, and it is exactly the kind of
+thing A4 exists to catch; it was previously buried among two failures the assertion was manufacturing itself.
+
+It also demonstrates the property the fix most needed: **the repaired A4 still fails when it should.** A repair
+that made every round pass would have been the easier bug to ship, and this is the real-data evidence that it
+was not shipped.
 
 ### Shown RED against three named mutants
 
@@ -524,6 +547,8 @@ Everything below is on disk and re-runnable.
 | gate driver, both arms | `/mnt/d/hf_ship1/gate_ship1.sh`, `gate_branch.log`, `gate_base.log` |
 | gate scorer | `/mnt/d/hf_ship1/score_gate_ship1.py` |
 | B17 provenance (dll sha256, two-binary diff) | `/mnt/d/hf_ship1/binary_provenance_ship1.txt` |
+| A4 re-check on the new binary (measured verdicts) | `/mnt/d/hf_ship1/a4_recheck.sh`, `a4_recheck.log`, `a4/` |
+| the base gate binary, built and not run | `/mnt/d/hf_ship1/exe_base` (`TestApp.dll 617513d9…`) |
 | mutants | `mutant_M-OLD-CEILING.sh`, `mutant_A4.sh` (job tmp dir) |
 
 **One incidental confirmation of [F66](followups.md), measured rather than quoted:** B17's `TestApp.exe` hashes

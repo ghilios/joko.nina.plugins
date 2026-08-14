@@ -2422,13 +2422,18 @@ the cap boundary from the **requested** sweep and reports
 `"WasCapped=True but truth predicts False (halfWidth=10.4 vs cap boundary 18, ratio 0.58)"` — **18** against the
 product's **9**.
 
-> **`A4` ITSELF WAS REPAIRED, 2026-08-14 (af-bank-cleanup run), and this quoted FAIL is one of the four it was
-> producing on its own error.** It now builds the boundary from the **fitted** span, so `D01` r1's boundary is
-> 9.0 and truth 10.4 *is* above it — **FAIL → PASS**, three times (`D01` r1, `D01` r3, `D02` r1). And it no
-> longer asserts the cap predicate on **band-floored** rounds at all: the cap clamps *down* and the floor raises
-> *up*, so "truth above the boundary" predicts the cap and says nothing about the floor — `D03` r0's **FAIL**
-> becomes a named `NotApplicable`. **Four of ten A4 verdicts on these three cells were failures and none was a
-> product defect.** Harness-only; no product file touched; see `docs/af-bank-cleanup-results.md`.
+> **`A4` ITSELF WAS REPAIRED, 2026-08-14 (af-bank-cleanup run), and this quoted FAIL is one it was producing on
+> its own error.** It now builds the boundary from the **fitted** span, so `D01` r1's boundary is 9.0 and truth
+> 10.4 *is* above it — **FAIL → PASS**. And it no longer asserts the cap predicate on **band-floored** rounds at
+> all: the cap clamps *down* and the floor raises *up*, so "truth above the boundary" predicts the cap and says
+> nothing about the floor — `D03` r0's **FAIL** becomes a named `NotApplicable`.
+>
+> **Measured by re-running the three cells on the new binary: 3 of 6 A4 verdicts were failures, and 1 remains.**
+> The survivor is `D02` r1, and it is a **real** signal rather than an artifact — its fitted span is 24.0
+> (identical to its requested span, so no rule change touches it), it was capped because the fit wanted to
+> extrapolate past `maxHalfWidth = 18.0`, and the analytic truth half-width is **8.4**. An over-extrapolating
+> fit, previously buried among two failures the assertion was manufacturing itself. Harness-only; no product
+> file touched; see `docs/af-bank-cleanup-results.md`.
 
 And the corroboration identity every floored round satisfies
 (`halfWidth == 1.5 × offsetSteps × bootstrapStep`, 3 of 3 on the floored rounds) is **exactly the identity
