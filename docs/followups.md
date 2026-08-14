@@ -644,7 +644,41 @@ partitioned once, printed the difference, and **the five exact balances are them
 ### F106 — A hand-carried debt ledger rots in BOTH directions, and the rot is measured: `P-D08` was published seven hours before the wave that listed it as owed
 
 **Status:** Open — the class is structural · found 2026-08-13, wave 30, `RULE W30-D` = **`D-STALE`** ·
-`/mnt/d/hf_w30/w30d_score.txt`
+`/mnt/d/hf_w30/w30d_score.txt` · **MEASURED IN THE REGISTER ITSELF 2026-08-14, and a cheap detector now exists**
+
+> #### The same rot lives in this file's OWN `**Status:**` lines — 5 of 113, audited and fixed (2026-08-14)
+>
+> `W30-D` measured the rot in a *debt ledger*. It is also in the register's **status field**, and there it is
+> worse, because a status line is what a reader uses to decide what to work on.
+>
+> **Audited all 113 entries.** Twelve had a status saying `Open` while the body said `SHIPPED`/`DONE`. Reading
+> each: **five were genuinely stale** ([F25](#f25), [F53](#f53), [F58](#f58), [F79](#f79), [F80](#f80)),
+> **[F69](#f69) opened with the word "Open" in a sentence that then declared it CLOSED**, **[F49](#f49) and
+> [F51](#f51)** were fixed separately (F51 had shipped **all three** of its parts a week earlier), and **four
+> were false positives** whose statuses already disclosed what shipped (F18, F55, F70) or whose `SHIPPED`
+> referred to a *different* change's default (F63).
+>
+> **[F79](#f79) is the sharpest case: its status said *"deliberately **not** shipped in wave 23"* while its own
+> body said *"SHIPPED IN WAVE 23."*** Both written in the same wave, neither reconciled.
+>
+> **The cost was real and it was paid twice in one session:** F49/F51 were proposed as the next work to do when
+> their implementations were already a week old, and then — *in the message proposing this very audit* — F79 and
+> F80 were described as "already honest" **on the strength of their status lines**. The failure is not
+> inattention to a field; it is that **a status reads as an authority and a body reads as history, and nobody
+> re-reads history.**
+>
+> **The detector, which is the durable part.** Key on the entry's *own* parts shipping — a sub-heading declaring
+> a ship, or a struck-through part marked `DONE` — never on the word "shipped" appearing anywhere in the prose:
+>
+> ```python
+> own = re.findall(r'(?m)^>?\s*#{2,4} .*\bSHIPPED\b.*$', body) \
+>     + re.findall(r'~~[^~]{5,90}~~\s*[—-]+\s*\*\*DONE', body)
+> flag = own and not re.search(r'SHIPPED|DONE|CLOSED', status_block)
+> ```
+>
+> A looser scan (any "shipped" in the body) returns **23** candidates on this register, almost all noise —
+> *"the shipped `Default` profile"*, *"the SHIPPED default is 1"*. This one returned the **5** that were real,
+> and returns **0** now. **Re-run it before trusting a status field to price work.**
 
 `RULE W30-D` parsed wave 29's §11 *"WHAT WAS NOT RUN"* table out of the committed document (sha256 re-asserted
 at scoring time), resolved each of **14** rows to exactly one predicate with a declared **scope**, and searched
@@ -2138,7 +2172,12 @@ stars over the gate on the MEDIAN frame, which on these fields implies ≥ `NHar
 exercise this entry has to be built deliberately — starved on purpose — or borrowed from the real bank.
 
 ### F25 — From a far-too-wide sweep the step recommender widens it further, instead of recovering
-**Status:** Open · found 2026-08-03 running scenario S2 (step ×4) on the synthetic AF bank
+**Status:** Open — **the NARROW half of the owed gate SHIPPED (wave 25, P4); the WIDE half, which is this
+entry's own direction, is UNMEASURED rather than untriggered** · found 2026-08-03 running scenario S2 (step ×4)
+on the synthetic AF bank
+
+> **Status corrected 2026-08-14**: it read a bare *"Open"* and did not mention that half its remedy had shipped,
+> so the entry priced as untouched work. `D05_tec140_1000mm`/S2 remains the published wide-end case.
 
 When the sweep is so wide that the hyperbola fit degenerates, `StepSizeRecommender` responds by asking for a
 **wider** sweep still. There is nothing that recognises "this fit is garbage, retreat".
@@ -7227,7 +7266,8 @@ verified sha-identical. *Three cases recovered from a could-not-look list are wo
 shown to fail on a defect, which is the same bar F66 sets for a gate.*
 
 ### F69 — F39(b)'s flag NAMES and its own COMMENT state the opposite of its default, and that cost a pre-registered rule its verdict
-**Status:** Open · found 2026-08-10 (wave 17) while deciding
+**Status:** **CLOSED 2026-08-11 (wave 21)** — see the inline note below, which this line used to contradict by
+opening with "Open" · found 2026-08-10 (wave 17) while deciding
 [F67](#f67--af-fits-star-count-and-optimizes-are-not-the-same-number-so-the-control-built-on-their-equality-reports-could-not-look-on-exactly-the-datasets-where-the-intervention-bites-hardest)(c)
 · **CLOSED 2026-08-11 (wave 21): (b) and (c) shipped in wave 20, (a) shipped in wave 21 — and (a) turned out to
 be THREE copies across TWO files, not the one this entry named. See the wave-21 block at the end of this
@@ -8576,7 +8616,10 @@ worth stating in any write-up that describes `pinned_settings.json` as a full sn
 **Status:** Open · found 2026-08-08 (wave 11) **at zero compute, out of logs wave 9 left on disk** ·
 **this is the MECHANISM behind [F55](#f55--optimize-is-not-reproducible-when-several-instances-run-at-once-and-the-seed-evaluation-is-what-moves)
 and [F57](#f57--a---settings-pinned-arm-is-not-pinned-the-active-nina-profile-moves-baselinej-by-0014-and-every-cross-wave-comparison-inherits-it),
-which are one defect seen from two directions**
+which are one defect seen from two directions** · **(d) DONE 2026-08-09** — the four other harness runners
+carrying the same defect were fixed
+
+> **Status corrected 2026-08-14**: (d) had shipped and the status did not say so.
 
 Wave 10 established that the active NINA profile moves `BaselineJ` and left *which quantity* (F57(c)) and *the
 nondeterminism's trigger rate* (F55(b)) open. Both close on the same reading, and **no optimization had to be run
@@ -9254,8 +9297,11 @@ answer is worse than no normalization.
 Reproduce: `D:\hf_w9\wing\ctl_nobin.log` vs `D:\hf_w9\wing\opt_0.5_D02_rich_135mm.log`.
 
 ### F53 — Wave 8's arm X does not reproduce from wave 8's own `exe`, because the arm ran on an EARLIER build of it
-**Status:** Open · found 2026-08-07 (wave 9) re-running arm X's exact command to build the wing instrument ·
-**the reproduce line is stale, and nothing in the artifact says so**
+**Status:** **(a) SHIPPED wave 10** — the build is stamped into the run · **open as (b)**, the standing rule
+that a `D:\hf_w*\exe` reproduce line is not a build identity · found 2026-08-07 (wave 9) re-running arm X's
+exact command to build the wing instrument · **the reproduce line is stale, and nothing in the artifact says so**
+
+> **Status corrected 2026-08-14**: it read a bare *"Open"* with no mention that (a) had shipped.
 
 Wave 8's F19 arm X is recorded with `Reproduce: D:\hf_w8\armX\arm_x.sh`, which invokes
 `D:\hf_w8\exe\TestApp.exe`. **Running that script's exact command on that exact binary today does not reproduce
@@ -9482,8 +9528,15 @@ Reproduce: field report, `Default` profile, 2026-08-06; wizard screenshot in the
 ## Harness / tooling
 
 ### F79 — A single non-ASCII byte in a redirected log makes `grep` report ZERO matches for strings elsewhere in the file
-**Status:** Open (fix identified and priced; deliberately **not** shipped in wave 23) · found 2026-08-12, wave 23,
-when the gate driver and its scorer disagreed 0-of-8 against 8-of-8 over the same eight files
+**Status:** **SHIPPED in wave 23** (the ASCII guard + `TestAppOutputAsciiTests`); **open only as a standing
+discipline entry** — a redirected log is not a searchable artifact unless something asserts it is ·
+found 2026-08-12, wave 23, when the gate driver and its scorer disagreed 0-of-8 against 8-of-8 over the same
+eight files
+
+> **Status corrected 2026-08-14.** It previously read *"Open (fix identified and priced; deliberately **not**
+> shipped in wave 23)"* — which its **own body contradicts** two screens further down: *"SHIPPED IN WAVE 23 — and
+> BOTH options above were UNDER-SCOPED by the same defect they describe."* The status was written when the fix
+> was deferred and never updated when it landed in the same wave.
 
 The register already records that *"a Unicode character in a redirected log arrives as the single byte `0x1A` on
 this machine's console code page."* **That is one of two failure modes, and it is the harmless one.** This is the
@@ -9647,8 +9700,12 @@ Reproduce: `python3 -c "d=open('/mnt/d/hf_w23/gate/toml999.log','rb').read(); pr
 `grep -c` vs `grep -ac` on the same file; `docs/synthetic-af-bank-followups-wave23-results.md` §2.
 
 ### F80 — Instruments derived by textual substitution keep their predecessor's prose, and it silently stops describing them
-**Status:** Open (remedy specified and priced) · found 2026-08-12, wave 24, when a scorer refused its own PASS end
-because a `sed` line renamed the paths but not the module
+**Status:** **The `--verify-derivation` pre-flight SHIPPED (wave 25, `RULE V25`) and works**; **open as the
+CLASS**, which the pre-flight narrowed rather than closed — it had the same blind spot twice (`\b` cannot see
+`_`) · found 2026-08-12, wave 24, when a scorer refused its own PASS end because a `sed` line renamed the paths
+but not the module
+
+> **Status corrected 2026-08-14**: it read *"Open (remedy specified and priced)"* after the remedy had shipped.
 
 Every wave in this series carries its measurement instruments forward by `sed`-ing the previous wave's copies —
 deliberately, and for a good reason: *editing an instrument mid-series is how it stops being the same instrument,*

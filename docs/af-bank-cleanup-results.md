@@ -739,6 +739,44 @@ licence to repeat it at scale:
 Two of those (`F79`, `F80`) are already honest — their statuses say *"fix identified and priced; deliberately
 not shipped"* — so the flag is a false positive there, which is itself why a regex must not drive the edit.
 
+### The full audit of the twelve — and I made the same mistake again, one message later
+
+All twelve were read. **Five were genuinely stale, four were false positives, one was internally
+contradictory, and two were F49/F51.** After the corrections, a scan for *"an entry whose own part shipped while
+its status says nothing about it"* returns **zero**.
+
+| entry | status said | reality | action |
+|---|---|---|---|
+| **F79** | *"deliberately **not** shipped in wave 23"* | its own body: ***"SHIPPED IN WAVE 23"*** | **corrected** — status directly contradicted the entry |
+| **F80** | *"remedy specified and priced"* | the `--verify-derivation` pre-flight **shipped** (wave 25) | **corrected** — open as the *class*, not the remedy |
+| **F25** | bare *"Open"* | the **narrow half** of its gate shipped (wave 25, P4) | **corrected** — the wide half really is unmeasured |
+| **F53** | bare *"Open"* | **(a) shipped** wave 10 | **corrected** — open as (b), a standing rule |
+| **F58** | mechanism only | **(d) DONE** 2026-08-09 | **corrected** |
+| **F69** | *"**Open** · … · **CLOSED** 2026-08-11"* | closed | **corrected** — it opened with the word it then contradicted |
+| F18, F55, F70 | already disclose what shipped, in the status | accurate | no change |
+| F63 | bare *"Open"* | the `SHIPPED` in its body refers to *another* change's default, not F63's own work | no change — **true false positive** |
+
+**The part worth writing down: I repeated the exact error while reporting on it.** In the message proposing this
+audit I wrote that *"two of those (F79, F80) are already honest — their statuses say 'fix identified and priced;
+deliberately not shipped'"*. **I had read their status lines and taken them at face value** — the identical
+mistake that produced the F49/F51 misdirection two messages earlier. F79 was the *worst* case in the set: its
+status and its own body contradict each other outright.
+
+**So the mechanism is not carelessness about one field; it is that a status line reads as an authority and a
+body reads as history, and nobody re-reads history.** That is why the fix here is not "be more careful" but the
+scan itself, which is now cheap to re-run:
+
+```python
+# an entry whose OWN part shipped, while its status stays silent about it
+own = re.findall(r'(?m)^>?\s*#{2,4} .*\bSHIPPED\b.*$', body) \
+    + re.findall(r'~~[^~]{5,90}~~\s*[—-]+\s*\*\*DONE', body)
+flag = own and not re.search(r'SHIPPED|DONE|CLOSED', status_block)
+```
+
+It keys on the entry's **own** parts — a sub-heading declaring a ship, or a struck-through part marked `DONE` —
+so it does not fire on prose like *"the shipped `Default` profile"*. A looser scan over the same register
+returns 23 candidates, almost all noise; this one returns the 5 that were real and now returns **0**.
+
 ### F49(b), decided: **won't fix as asked**
 
 Full argument in **`docs/f49b-lever-choice-decision.md`**. F49(b) asked whether to expose a user-facing floor on
