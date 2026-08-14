@@ -377,6 +377,42 @@
       "optimalFocuserPosition": 8000,
       "focuserStepSizeMicrons": 3.469548,
       "datasetSeed": 20
+    },
+    {
+      "id": "D21_widefield_60mm",
+      "description": "60mm f/4.0 astrograph, unobstructed, IMX571 bin1 -- 12.93 arcsec/px. FILLS THE WIDE-FIELD COVERAGE HOLE. The bank's plate scales jump 3.38x from D02 (5.745) straight to D01 (19.389), and D01 is BURNED (F97), which is the mechanical reason c_blind = 0 for F82: there is no BLIND wide-field cell. D21 and D22 land at 12.93 and 7.76, splitting that jump into ~1.5x steps. Monoceros Milky Way, chosen because its nearest existing bank field is 21.3 deg away (D03) while this rig's FOV radius is 13.2 deg -- so it CONTAINS no existing dataset. D01/D02/D03 are the burned cells and the whole point of D21/D22 is a population uncorrelated with them; an earlier draft sat 0.3 deg from D03 and would have swallowed its field whole. Capped at mag<=10.5 like D01 because the ~26.6deg diagonal FOV makes the catalog query expensive (design risk R5).",
+      "focalLengthMm": 60.0,
+      "focalRatio": 4.0,
+      "centralObstructionFraction": 0.0,
+      "sensorModel": "IMX571",
+      "captureBinning": 1,
+      "raDegrees": 105.0,
+      "decDegrees": -5.0,
+      "rotationDegrees": 0.0,
+      "limitingMagnitude": 10.5,
+      "skyBrightnessMagPerArcsec2": 21.0,
+      "seeingArcsec": 2.5,
+      "optimalFocuserPosition": 6000,
+      "focuserStepSizeMicrons": 2.707200,
+      "datasetSeed": 21
+    },
+    {
+      "id": "D22_widefield_100mm",
+      "description": "100mm f/5.6 astrograph, unobstructed, IMX533 bin1 -- 7.76 arcsec/px, the second of the two cells filling the D02->D01 wide-field hole (see D21). Square 9MP sensor gives a ~9.1deg diagonal FOV, tractable enough for a mag<=12.0 catalog query. Aquila Milky Way, 17.2 deg from its nearest existing field (D04) against a 4.6 deg FOV radius -- again containing no existing dataset, and distinct from D21's Monoceros.",
+      "focalLengthMm": 100.0,
+      "focalRatio": 5.6,
+      "centralObstructionFraction": 0.0,
+      "sensorModel": "IMX533",
+      "captureBinning": 1,
+      "raDegrees": 285.0,
+      "decDegrees": -5.0,
+      "rotationDegrees": 0.0,
+      "limitingMagnitude": 12.0,
+      "skyBrightnessMagPerArcsec2": 21.0,
+      "seeingArcsec": 2.5,
+      "optimalFocuserPosition": 6000,
+      "focuserStepSizeMicrons": 3.790080,
+      "datasetSeed": 22
     }
   ]
 }

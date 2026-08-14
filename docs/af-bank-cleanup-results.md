@@ -490,6 +490,105 @@ difference. The binary is on disk if a later run wants it.
 
 ---
 
+## SCOPE EXPANSION (owner-authorised, after the first report)
+
+### The twelve-wave coverage-hole row is FALSE, and its own search path could never have caught that
+
+Wave 30 §10 **row 10** reads: *"new datasets between 1.4 and 19.4 ″/px … `ls -d /mnt/d/SyntheticAutofocusBank/D*`
+→ **20, none in the band** … OPEN, twelve waves."*
+
+**Seven of the twenty are in that band.** Computed (`/mnt/d/hf_ship1/coverage_band.py`) as
+`206.265 × pixelSizeMicrons × captureBinning / focalLengthMm`, with pixel sizes read out of
+`SensorRegistry.cs` rather than from memory:
+
+| ″/px | dataset |
+|---|---|
+| 19.389 | `D01_ultrawide_40mm` |
+| 5.745 | `D02_rich_135mm` |
+| 3.102 | `D03_redcat_250mm` |
+| 1.410 | `D04` / `D16` / `D18` / `D20` (550 mm, IMX571) |
+
+**The row's search path counts directories.** `ls -d D*` returns 20 whatever the plate scales are; it cannot
+evaluate the predicate it is attached to. Wave 30 §10's whole point was that *"every row below carries a literal
+search path that returns the answer"* — this row carries one that returns a **different** answer, and being
+checkable-looking is what let it ride for twelve waves.
+
+### The real hole, and it is a different band
+
+| ratio gap | from | to |
+|---|---|---|
+| **× 3.38** | 19.389 (`D01`) | 5.745 (`D02`) |
+| × 2.20 | 3.102 (`D03`) | 1.410 (`D20`) |
+| × 1.85 | 5.745 (`D02`) | 3.102 (`D03`) |
+
+**Exactly one dataset sits above 5.75 ″/px, and it is `D01` — the cell F97 records as burned.** That is the
+mechanical reason `c_blind = 0`: not that wide-field data is missing, but that *all* of it is one burned cell.
+So a blind wide-field population needs **≈ 5.7 – 19.4 ″/px**, not "1.4 – 19.4", which is covered seven times
+over. **A render aimed at the row as written would have added cells the bank already had.**
+
+### Two datasets added to close it
+
+Appended to the checked-in spec (`TestApp/SynthBank/synthetic-bank-spec.json`), with fresh `datasetSeed`s so
+the existing twenty are untouched:
+
+| new | rig | ″/px | field |
+|---|---|---|---|
+| `D21_widefield_60mm` | 60 mm f/4.0, IMX571 bin1 | **12.926** | Orion belt/sword |
+| `D22_widefield_100mm` | 100 mm f/5.6, IMX533 bin1 | **7.756** | Perseus/Auriga |
+
+Fields are chosen so that **neither new cell CONTAINS any existing dataset**: `D21`'s nearest is 21.3° away
+against a 13.2° FOV radius, `D22`'s is 17.2° against 4.6°. An earlier draft put `D21` in Orion **0.3° from
+`D03`** — a 26.5° field that would have swallowed a burned cell whole, which is precisely the correlation the
+new cells exist to avoid. Caught by computing separations rather than eyeballing constellations. The wide-field
+ladder becomes 19.389 → 12.926 → 7.756 → 5.745, every step ≤ 1.67×.
+
+### The render cost 43 seconds, not "≥ 1 h"
+
+```
+RENDER_render_START 2026-08-14T04:13:13Z … synth-bank: 2 generated, 0 skipped, 0 failed
+RENDER_verify_END   2026-08-14T04:13:56Z
+```
+
+9 FITS + 9 `golden.json` + `synthetic_meta.json` per cell, `--verify` clean, 532 MB + 184 MB. **Both halves of
+the row that blocked this for twelve waves were wrong: the band, and the price.** `--dry-run` first (a habit
+worth keeping — it exercises the kernel-cap guard, which is what would actually have wasted render time);
+both cells came back `withinCap=YES` at 0.7 % utilization, identical to `D01`/`D02`/`D03`.
+
+### And then the thing the whole series wanted: `c_blind` is no longer 0
+
+Pre-registered before the arm ran (`/mnt/d/hf_ship1/blind_widefield_prereg.txt`), because these are the first
+genuinely blind wide-field cells the series has had.
+
+| arm | cell | r | requested | **fitted** | `halfWidth` | step | branch | detect-bound |
+|---|---|---|---|---|---|---|---|---|
+| off | `D21` | 2 | 40.0 | **30.0** | 22.5 | 6 | capped | — |
+| on | `D21` | 2 | 40.0 | **30.0** | **19.384** | 6 | capped | **binds** |
+| off/on | `D22` | 0–2 | 16/24/40 | 16/24/40 | — | 3/5/9 | — | — |
+
+**`P1` CONFIRMED.** `D21` r2 requested a span of 40.0 and the fit came back spanning **30.0** — the sweep was
+widened and the outer frames stopped yielding usable HFR points. **That is F82's shrink-while-widening
+transition, on a cell nothing has ever been tuned against.** [F97](followups.md)'s `c_blind = 0` was an artifact
+of the coverage hole, not a fact about rarity: the very first blind wide-field cell rendered exhibits it.
+
+**`P2` CONFIRMED.** On the one round where the product's detectability bound binds, `maxUsefulHalfSpan = 19.384`
+against a requested-span floor of **30.0** — F18 clamps **below** F81's floor, exactly as on `D01` r1 and `D02`
+r1. **The F18-vs-F81 ordering conflict reproduces off `D01`**, which is what F82's re-scoped entry needed and
+could not previously get.
+
+**`P3` CONFIRMED, but narrowly, and the narrowness matters.** The arms differ on `D21` r2 — `halfWidth` 22.5 vs
+19.384 — but **the recommended step is 6 either way** (`round(22.5/3.5) = round(19.384/3.5) = 6`). On `D01` the
+same conflict moved the step (3 → 2). So the ordering conflict is **real and general, while its consequence is
+not**: it changes the half-width on both cells and the recommended step on only one. Any fix must be argued on
+severity, not rate — which is exactly where the F82 decision document's §7 clause 5 already landed.
+
+`D22` shows neither: fitted == requested on all three rounds, no detect bound. **1 of 2.**
+
+**What this burns:** `D21`/`D22` are no longer blind *for the F82 / F18-vs-F81 question*. They remain blind for
+recall, precision, exposure and binning, none of which this arm read as a thresholded quantity. Recorded so a
+later reader does not have to reconstruct it.
+
+---
+
 ## What was NOT run
 
 - **`(3′)`, and its 42 m gate** — voided by `V-0`. Not a debt: there is nothing left to ship for F82 in that

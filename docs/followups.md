@@ -917,8 +917,32 @@ which held, and stands.
 
 ### F97 — F82's shrink-while-widening transition occurs on exactly ONE cell in the bank, and on ZERO of the fifteen that were blind
 
-**Status:** Open (measured; F82's fix choice unchanged) · found 2026-08-13, wave 29, `RULE W29-R` =
-**`R-STANDS`** · `/mnt/d/hf_w29/w29r_score.txt`
+**Status:** **`c_blind = 0` IS SUPERSEDED — it was a COVERAGE artifact, and the first blind wide-field cell ever
+rendered exhibits the transition** (2026-08-14, af-bank-cleanup run) · found 2026-08-13, wave 29, `RULE W29-R` =
+**`R-STANDS`** · `/mnt/d/hf_w29/w29r_score.txt`, `docs/af-bank-cleanup-results.md`,
+`/mnt/d/hf_ship1/blind_widefield_prereg.txt`
+
+> #### `c_blind >= 1` (2026-08-14). The zero measured the BANK, not the defect.
+>
+> The bank had exactly **one** cell above 5.75 ″/px — `D01`, which is burned — so "zero blind cells exhibit it"
+> was guaranteed by the dataset list before any measurement ran. Two wide-field cells were rendered into that
+> hole (`D21_widefield_60mm` 12.926 ″/px, `D22_widefield_100mm` 7.756 ″/px; fields 21.3° and 17.2° from the
+> nearest existing dataset, containing none of them) and scored against a **pre-registration written first**.
+>
+> **`D21` r2: requested span 40.0, fitted span 30.0.** The sweep widened and the fit lost its outer points —
+> F82's transition, on a cell nothing has ever been tuned against. `D22` does not show it. **1 of 2.**
+>
+> Two consequences, and they pull in opposite directions, which is why both are stated:
+> - **F82's rarity claim is weaker than `c = 1 of 18` suggested.** That denominator was dominated by cells at
+>   plate scales where the mechanism cannot occur. On the population where it *can* — wide field, oversampled —
+>   the first two cells give 1 of 2.
+> - **Its consequence is still not general.** On `D21` the F18-vs-F81 conflict changes the half-width
+>   (22.5 → 19.384 when the detect bound is supplied) but **not the recommended step** (6 either way), where on
+>   `D01` it moved the step 3 → 2. So a fix is arguable on **severity**, never on rate — the position F82's
+>   decision document §7 clause 5 already reached, now with data instead of an argument.
+>
+> The render that made this possible cost **43 seconds**, against the ledger's "≥ 1 h". See the results doc for
+> why that row was unfalsifiable as written.
 
 Wave 26 pre-registered a reversal condition on its choice between F82's two fixes — *"if a later wave measures
 that `SearchSpan` … shrinks on more than a single cell while the requested sweep widens, then … (2) becomes
@@ -2321,8 +2345,18 @@ conflict** · found 2026-08-13, wave 25, on the one labelled control that missed
 >
 > **The live entry is now the ordering conflict, and it is a different question from the one F82 asks.** On a
 > shallow, star-poor sweep F18's *measured* detectability bound and F81's *band* floor disagree about which way
-> to move, and F18 wins by being applied last. Deciding that needs the blind wide-field population the bank does
-> not have (`c_blind = 0`, [F97](#f97)), i.e. the 1.4–19.4 ″/px render — **it is not decidable on this bank.**
+> to move, and F18 wins by being applied last.
+>
+> **UPDATE, 2026-08-14 — this IS now decidable on this bank, and the conflict REPRODUCES on blind data.** The
+> blocker was `c_blind = 0`, which [F97](#f97) now records as a **coverage artifact**: the bank had one cell
+> above 5.75 ″/px and it was burned. Two wide-field cells were rendered (43 s, not the "≥ 1 h" the ledger
+> carried) and pre-registered. `D21` r2 shows the shrink (requested 40.0, fitted 30.0), and with the product's
+> detectability bound supplied it clamps to **19.384 against a requested-span floor of 30.0** — F18 below F81,
+> off `D01`, on a cell nothing was tuned against.
+>
+> **But the step does not move** (6 either way), where on `D01` it went 3 → 2. So the ordering conflict is
+> **general in mechanism and not in consequence**, and any remedy must be argued on severity — an unbounded
+> stall costing sky — never on rate.
 
 > #### THE FIX CHOICE IS DECIDED, 2026-08-13 — and wave 26's pre-registered fix (1) is **REFUTED**
 >
@@ -10159,6 +10193,37 @@ is not repeatedly investigated.
 ---
 
 ## Process
+
+### F112 — A ledger row carried a checkable-looking search path that could not evaluate its own predicate, and it hid a false claim AND a 100x-wrong price for twelve waves
+
+**Status:** **Closed by doing the thing the row was blocking** (2026-08-14, af-bank-cleanup run) ·
+`docs/af-bank-cleanup-results.md`, `/mnt/d/hf_ship1/coverage_band.py`
+
+Wave 30 §10 was built on a good rule — *"every row below carries a literal search path that returns the
+answer"* — after `RULE W30-D` showed that inherited prose rots. **Row 10 carried a path that returns a
+different answer than the one its claim needs:**
+
+| the claim | the path | what the path actually returns |
+|---|---|---|
+| "new datasets between 1.4 and 19.4 ″/px … **20, none in the band**" | `ls -d /mnt/d/SyntheticAutofocusBank/D*` | a **count of directories** |
+
+`ls` cannot compute a plate scale. The row looked checkable, was checked repeatedly, and passed every time —
+because what was being checked was not the claim. **Both halves of it were wrong:**
+
+- **The band.** `206.265 × pixelSize × binning / focalLength`, with pixel sizes read from `SensorRegistry.cs`:
+  **seven of the twenty are inside [1.4, 19.4]** — `D01` 19.389, `D02` 5.745, `D03` 3.102, and four at 1.410.
+  The real hole is **5.75 → 19.39**, a single 3.38× jump containing exactly one dataset — `D01`, the burned
+  one. *That*, and not rarity, is why [F97](#f97) measured `c_blind = 0`.
+- **The price.** Carried as **"≥ 1 h render"** for twelve waves. Rendering two datasets into the hole took
+  **43 seconds**, `--verify` clean.
+
+**A render aimed at the row as written would have added cells the bank already had, at a plate scale that
+answers nothing** — and would have looked like progress.
+
+**The rule this refines, rather than replaces.** A search path must be able to **return the claim's own
+quantity**, not merely run without error beside it. The tell is cheap: if the claim contains a number with a
+unit, the path must print that number in that unit. `ls | wc -l` answers "how many directories", so it can only
+support a claim about how many directories there are. **A path that cannot fail the claim is not a check.**
 
 ### F75 — The wave held TWO standards for its two interlocks: one driver-written and explicitly protected from hand-writing, the other specified as a controller `printf`
 **Status:** **open** · found 2026-08-11 (wave 21) when the arm aborted on a marker nothing in `*.sh`/`*.py` writes · **one-line repair, named below**
