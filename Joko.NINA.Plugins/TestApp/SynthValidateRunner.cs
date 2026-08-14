@@ -798,6 +798,10 @@ namespace TestApp.SynthBank {
                 DetectHalfWidth = stepRec.DetectHalfWidth, MaxUsefulHalfSpan = stepRec.MaxUsefulHalfSpan,
                 WasDetectBounded = stepRec.WasDetectBounded,
                 SampledHfrRange = stepRec.SampledHfrRange, CappedGrowthRatio = stepRec.CappedGrowthRatio,
+                // The span the product's own bound was computed from. Mirrors StepSizeRecommender.SearchSpan,
+                // which is private -- so it is recomputed here from the same array rather than exposed, keeping
+                // this an assertion-side record and the product untouched.
+                FittedSearchSpan = FittedSearchSpanOf(bestFit),
                 // P1: non-null exactly when the recommender HELD the current step instead of measuring one.
                 DegenerateReason = stepRec.DegenerateReason
             };
@@ -934,17 +938,27 @@ namespace TestApp.SynthBank {
             // not a FAIL; far from the boundary it is a genuine invariant violation.
             {
                 var truthHalfWidth = Math.Sqrt(8.0) * model.HfrMinPixels / model.KappaPixelsPerStep;
-                var sampledHalfSpan = defaults.OffsetSteps * round.Bootstrap.StepSize;
-                var capBoundary = StepSizeRecommender.MaxHalfWidthSampledHalfSpanMultiple * sampledHalfSpan;
-                var predictedCapped = capBoundary > 0 && truthHalfWidth > capBoundary;
-                var actualCapped = round.StepRecommendation.WasCapped;
-                var ratio = capBoundary > 0 ? truthHalfWidth / capBoundary : double.PositiveInfinity;
-                if (predictedCapped == actualCapped) {
-                    findings.Add(Pass("A4", $"WasCapped={actualCapped} matches truth (halfWidth={truthHalfWidth:0.#} vs cap boundary {capBoundary:0.#}, ratio {ratio:0.00})"));
-                } else if (Math.Abs(ratio - 1.0) < 0.15) {
-                    findings.Add(Flag("A4", $"WasCapped={actualCapped} but truth predicts {predictedCapped} -- near the cap boundary (ratio {ratio:0.00}), noise-sensitive on a real fit"));
+
+                // The whole decision lives in CapSemantics.Evaluate so it can be unit-tested without the runner;
+                // see that type for why the boundary comes from the FITTED span and why BOTH bounding branches
+                // count. Reports written before fittedSearchSpan existed carry NaN and fall back to the requested
+                // sweep, which is exactly the historical boundary, so old artifacts re-score identically.
+                var cap = CapSemantics.Evaluate(
+                    truthHalfWidth,
+                    round.StepRecommendation.FittedSearchSpan,
+                    defaults.OffsetSteps,
+                    round.Bootstrap.StepSize,
+                    round.StepRecommendation.WasCapped,
+                    round.StepRecommendation.WasBandFloored);
+
+                var detail = $"bounded={cap.ActualBounded} ({cap.Branch}), halfWidth={truthHalfWidth:0.#} vs "
+                    + $"{cap.SpanSource} cap boundary {cap.CapBoundary:0.#}, ratio {cap.Ratio:0.00}";
+                if (cap.Verdict == CapSemanticsVerdict.Pass) {
+                    findings.Add(Pass("A4", $"matches truth -- {detail}"));
+                } else if (cap.Verdict == CapSemanticsVerdict.Flag) {
+                    findings.Add(Flag("A4", $"truth predicts {cap.PredictedBounded} -- near the cap boundary, noise-sensitive on a real fit; {detail}"));
                 } else {
-                    findings.Add(Fail("A4", $"WasCapped={actualCapped} but truth predicts {predictedCapped} (halfWidth={truthHalfWidth:0.#} vs cap boundary {capBoundary:0.#}, ratio {ratio:0.00})"));
+                    findings.Add(Fail("A4", $"truth predicts {cap.PredictedBounded} -- {detail}"));
                 }
             }
 
@@ -1282,6 +1296,34 @@ namespace TestApp.SynthBank {
                 }
                 return (int)hash;
             }
+        }
+
+        /// <summary>
+        /// The sampled-X span of the points that survived into the fit — <c>max(x) − min(x)</c> over
+        /// <c>bestFit.Inputs</c>. Deliberately mirrors <c>StepSizeRecommender.SearchSpan</c>, which is private, so
+        /// that <c>A4</c> can rebuild the product's cap boundary from the same quantity the product used.
+        /// <para>
+        /// It does NOT reproduce that method's degenerate fallback (a span keyed off the step size when the inputs
+        /// are empty). Here the honest answer for "what span was sampled" is <c>NaN</c>, and <c>A4</c> falls back
+        /// to the requested sweep — its historical behaviour — rather than asserting against a synthetic number.
+        /// </para>
+        /// </summary>
+        private static double FittedSearchSpanOf(AlglibHyperbolicFitting bestFit) {
+            var inputs = bestFit?.Inputs;
+            if (inputs == null || inputs.Length == 0) {
+                return double.NaN;
+            }
+            double minX = double.PositiveInfinity, maxX = double.NegativeInfinity;
+            foreach (var row in inputs) {
+                if (row == null || row.Length == 0) {
+                    continue;
+                }
+                var x = row[0];
+                if (x < minX) { minX = x; }
+                if (x > maxX) { maxX = x; }
+            }
+            var span = maxX - minX;
+            return span > 0.0 ? span : double.NaN;
         }
 
         private static bool IsInsideOrEqual(string candidate, string root) {

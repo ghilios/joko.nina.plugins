@@ -41,6 +41,10 @@
     <Compile Include="..\TestApp\SynthBank\TruthDisclosure.cs" Link="Golden\TruthDisclosure.cs" />
     <Compile Include="..\TestApp\SynthBank\ConvergenceBand.cs" Link="Bank\ConvergenceBand.cs" />
     <Compile Include="..\TestApp\SynthBank\ExposureClamp.cs" Link="Bank\ExposureClamp.cs" />
+    <!-- A4's cap-semantics rule. SynthValidateRunner renders frames and runs the optimizer and cannot be linked,
+         so the whole decision lives in this one pure file, which the runner only calls. Same shape as
+         TruthDisclosure above, and what makes the A4 mutants reachable from a unit test. -->
+    <Compile Include="..\TestApp\SynthBank\CapSemantics.cs" Link="Bank\CapSemantics.cs" />
     <!-- W24 P3: the synth-validate report SCHEMA (pure POCOs + Newtonsoft attributes, no NINA/OpenCV coupling), so
          SynthValidationReportSchemaTests can assert the JSON names every scorer reads by. -->
     <Compile Include="..\TestApp\SynthValidationReport.cs" Link="Bank\SynthValidationReport.cs" />

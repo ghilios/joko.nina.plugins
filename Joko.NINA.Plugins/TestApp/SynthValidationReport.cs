@@ -90,6 +90,15 @@ namespace TestApp.SynthBank {
         [JsonProperty("sampledHfrRange")] public double SampledHfrRange { get; set; } = double.NaN;
         [JsonProperty("cappedGrowthRatio")] public double CappedGrowthRatio { get; set; } = double.NaN;
 
+        // The span the recommender's bound was ACTUALLY computed from: max(x) - min(x) over the points that
+        // survived into the fit. It is NOT the requested sweep. RunEvaluationData drops a position whose pooled
+        // HFR is non-finite, keeps recovery positions out of the un-weighted path entirely, and SelectBestModel
+        // removes consensus outliers -- so a round can request 2*offsetSteps*stepSize and fit far less. A4 used to
+        // rebuild the cap boundary from the REQUESTED sweep while the product built it from this, which on
+        // D01 r1 is a factor of two (requested 24.0, fitted 12.0). Recorded so the assertion can compare like
+        // with like instead of re-deriving a quantity it does not have. NaN on reports written before this field.
+        [JsonProperty("fittedSearchSpan")] public double FittedSearchSpan { get; set; } = double.NaN;
+
         // P1. Non-null exactly when the recommender could NOT measure a step size and held the current one --
         // "no-fit", "non-finite-vertex" or "half-width-unresolved". Without it a held step and a measured step
         // that happens to agree are byte-identical in this report, which is how a whole wave of trajectories
