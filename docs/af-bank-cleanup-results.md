@@ -599,6 +599,45 @@ severity, not rate — which is exactly where the F82 decision document's §7 cl
 recall, precision, exposure and binning, none of which this arm read as a thresholded quantity. Recorded so a
 later reader does not have to reconstruct it.
 
+### The `K` column — paid, and it refused first, which is the good outcome
+
+Wave 30 §10 **row 3** withdrew the results-table `K` column after three unpaid waves, noting *"`kcol_w30.py`
+stays on disk (self-test `21 of 21`); any later ship can run it in ~2 m."* **This is a later ship.** Self-test
+re-run: `SELFTEST W30K 21 of 21`. Then the real pass:
+
+```
+K-0 datasets in the bank   candidates: 22   findings: 2   pre-registered population 20
+>>> RULE W30-K = K-UNEVALUATED   (K-0 False, K-1 True)
+    "the bank carries 22 dataset(s) against a pre-registered 20 … NO COLUMN IS EMITTED --
+     a short column pasted into the results table would silently drop rows."
+```
+
+**It refused because I had just added two datasets, and refusing was correct.** A scorer with a pinned
+population noticed that the population moved and declined to emit a 20-row column for a 22-row bank. That is
+the discipline this series spent thirty waves building, catching a change made ten minutes earlier by the same
+run — and it is worth more than the column.
+
+The floors themselves read cleanly on all 22 (`K-1`: 22 candidates, **0 unreadable**), so the content is
+available even though the pinned rule declines to publish it:
+
+| ″/px | dataset | `hfrMin` | `hfrMinEffective` | **K** |
+|---|---|---|---|---|
+| 19.389 | `D01_ultrawide_40mm` | 0.2307 | 0.7 | **0.700** |
+| **12.926** | **`D21_widefield_60mm`** | 0.3310 | 0.7 | **0.700** |
+| **7.756** | **`D22_widefield_100mm`** | 0.4727 | 0.7 | **0.700** |
+| 5.745 | `D02_rich_135mm` | 0.2800 | 0.7 | **0.700** |
+| 3.102 | `D03_redcat_250mm` | 0.5766 | 0.7 | **0.700** |
+| 1.410 | `D04`/`D18`/`D20` | 1.038 | 1.038 | 1.038 |
+| … | (long focal length) | native | native | 1.08 – 10.20 |
+
+**The five datasets the generator floors at K = 0.700 are exactly the five at ≥ 3.1 ″/px** — and the two new
+cells are two of them. That is the "severely oversampled R2" class the spec describes, and it **corroborates
+the assumption `P1` rested on**: `D21`/`D22` really are in `D01`'s regime, measured rather than asserted from
+their focal lengths. It is also why `D21` reproduced the shrink and `D22` did not have to.
+
+**Row 3 is discharged**, with the honest note that `kcol_w30.py` needs its pre-registered population updated
+from 20 to 22 before it can emit — a one-line change owed to whoever next wants the column in the table.
+
 ---
 
 ## What was NOT run
