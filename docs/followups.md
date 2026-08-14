@@ -406,6 +406,15 @@ worse than it needs to be. Worth understanding before anyone "optimises" the don
 ### F6 — Sensitivity and star-clip act only in combination
 **Status:** Open · explains the documented plateau
 
+> **2026-08-14 — this pair is now the named mechanism defeating THREE distinct remedies**, which is worth
+> stating once rather than re-deriving each time. `EffectiveSensitivityGate = max(Sensitivity, PeakResponse ×
+> StarClippingMultiplier)`, so the search reaches any admission threshold it wants through whichever member is
+> cheaper: **(1)** a hard floor on the Sensitivity axis ([F49](#f49)(b), [F84](#f84)); **(2)** `SMarginalSnr`'s
+> accepted-SNR statistic, whose support is left-censored at that same gate ([F83](#f83)); **(3)** F49(b)'s
+> lever question generally. **General form: any signal whose range is bounded by a searchable gate can be
+> lifted out of its own range by the search** — so a successor must key on something no knob controls
+> (the frame's own noise/structure statistics, or cross-frame consistency).
+
 One-at-a-time ablation on `mccomiskey` σ_focus (adaptive on, donut on, NC 4):
 
 | | `clip 2` | `clip 10` |
@@ -1743,7 +1752,42 @@ under-lists by an order of magnitude at defocus.**
 
 ### F83 — `J` carries no precision term on an unlabelled run, so a sensitivity pin is free in the objective by construction
 **Status:** Open · **structural, source-derived, zero compute** · found 2026-08-13, wave 26, pricing the sensitivity
-pin the owner asked to avoid · **[F49](#f49)(b) RESOLVES INTO THIS ENTRY (2026-08-14)**
+pin the owner asked to avoid · **[F49](#f49)(b) RESOLVES INTO THIS ENTRY (2026-08-14)** · **BOTH EXITS RE-SCOPED
+2026-08-14** — `docs/f83-precision-term-design.md`
+
+> #### The two exits this entry names are not what they look like (2026-08-14)
+>
+> **Exit 2, "label the bank to activate `Wl·sLabel`", is REFUTED.** `ComputeLabelScores` (`:1022-1043`) sets
+> **`precision = 1.0` whenever the `ShouldReject` list is empty**, and precision in that schema is not
+> `TP/(TP+FP)` — it is *"what fraction of a curated list of junk locations did you avoid"*, a **recall of
+> rejections**. The bank's `*.golden.json` sidecars are **positive-only**, and the complement of a complete
+> golden set is the rest of the frame, not a box list. So a "labelled" bank run yields
+> `sLabel = 0.5·recall + 0.5·1.0` at `Wl = 0.25` — **a recall term wearing a precision term's name, pointing the
+> wrong way.** Labels also come from `StarReviewVM`, a **human** review flow, which is the wrong instrument for a
+> synthetic bank whose truth is already exact.
+>
+> **Exit 1 already exists and already ships: `SMarginalSnr`**, off at `MarginalSnrStrength = 0.0`. Its source
+> names two preconditions for revival, and **the first is already met:**
+>
+> 1. *"fix the metric (score against truth)"* — **SATISFIED SINCE 2026-08-03.** `TruthProtection` shipped
+>    (`aaf26e8`) and [F85](#f85) records that precision is truth-corrected with 1.000 a **ceiling**. **This entry
+>    was written 2026-08-13 citing [F31](#f31)'s void as current, in the same wave that recorded its repair.**
+>    F106's class again: a shipped, tested term left switched off on a reason that had expired ten days earlier,
+>    because the two facts sit ~1 500 lines apart and neither points at the other.
+> 2. *"the term is structurally escapable … any successor needs a signal the search cannot lift"* — **NOT met,
+>    and it is the real blocker.** The accepted-SNR sample is **left-censored at the effective gate**
+>    `max(Sensitivity, PeakResponse × StarClippingMultiplier)`, so the search can hold `Sensitivity = 0` while
+>    keeping the clip-derived term ≥ `MarginalSnrFloor = 6.0`; the marginal fraction is then identically 0 and
+>    the penalty is exactly 1.0. `D12` (1.0 × 6.25) and `D15` (1.0 × 6.75) already sit there.
+>
+> **The unifying result:** this is the SAME escape that defeats a Sensitivity floor ([F49](#f49)(b), [F6](#f6),
+> [F84](#f84)). **Any signal whose range is bounded by a searchable gate can be lifted out of its own range by
+> the search.** The design doc's §5 tests the candidates against that and finds two survivors — an image-side
+> statistic, and **cross-frame consistency** (a real star repeats across the sweep; noise does not), which is not
+> in this register today and is the strongest of them.
+>
+> **Do NOT simply enable the strength and re-baseline** — the design doc's step 1 is a cheap paired arm whose
+> statistic is the LANDED `PeakResponse × StarClippingMultiplier`, not `BestJ`, with the escape pre-registered.
 
 > **F49(b) asked which knob to expose to a user whose landing floored the gate; the answer is that the knob is
 > not the missing piece — this term is** (`docs/f49b-lever-choice-decision.md`). The user-visible symptom of the
@@ -2738,7 +2782,15 @@ update ORDERING, downstream of [F22](#f22--detection-binning-is-a-hard-threshold
 not the recommender's arithmetic. Untouched, and the guard above is still owed.
 
 ### F23 — ~~The optimizer objective has no precision term, so it trades precision away for marginal recall~~
-**Status:** **Won't fix as written** (2026-08-03, wave 2 — evidence base void; the real effect is ~1/5 the size and the axis is recall, see F32/F33) · found 2026-08-02
+**Status:** **Won't fix as written** (2026-08-03, wave 2 — evidence base void; the real effect is ~1/5 the size and the axis is recall, see F32/F33) · **the successor term's blocker CHANGED 2026-08-14** — `docs/f83-precision-term-design.md`
+
+> **`SMarginalSnr`, this entry's successor, is off on a reason that has EXPIRED.** It ships at
+> `MarginalSnrStrength = 0.0` because the metric this entry was built against was void ([F31](#f31)).
+> `TruthProtection` shipped 2026-08-03 and [F85](#f85) records precision as truth-corrected — so the *"fix the
+> metric"* precondition in `OptimizationObjective.cs:233` is **satisfied**. **The live objection is
+> escapability, not the metric:** the statistic is left-censored at `max(Sensitivity, PeakResponse ×
+> StarClippingMultiplier)`, so the search lifts its support past `MarginalSnrFloor` and the penalty returns 1.0.
+> See [F83](#f83). · found 2026-08-02
 
 The objective `J` rewards star count and fit quality. Nothing in it penalises a false positive — and
 nothing could have, because until this bank existed precision was only ever a *lower bound* on real data
