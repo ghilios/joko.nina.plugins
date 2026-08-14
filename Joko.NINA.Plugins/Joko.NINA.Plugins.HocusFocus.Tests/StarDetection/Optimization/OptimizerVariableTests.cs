@@ -226,19 +226,21 @@ public class OptimizerVariableTests {
     }
 
     /// <summary>
-    /// The coarse grid samples <c>Lower + t·(Upper − Lower)</c> inclusive of BOTH bounds, so the ceiling is
-    /// itself evaluated. Under the old 1.0 upper the top level rejected every round star — one of this axis's
-    /// four levels spent on a setting that returns zero detections by construction.
+    /// The bound's actual job: no value the search can REACH on this axis rejects every round star. This axis is
+    /// not coarse-gridded (Phase A grids only Sensitivity × StarClippingMultiplier), so the pattern search is the
+    /// only thing that moves it — and every proposal goes through <c>Quantize</c>, which clamps to
+    /// <c>[Lower, Upper]</c>. Walking the axis in <c>InitialStep</c> increments from the seed must therefore
+    /// never land in the dead band, however far up it walks.
     /// </summary>
     [Test]
-    public void MaxDistortionAxis_EveryCoarseGridLevel_IsSatisfiableByARoundStar() {
+    public void MaxDistortionAxis_NoReachableValue_RejectsEveryRoundStar() {
         var v = OptimizerVariable.CreateCuratedSet().Single(x => x.Name == nameof(StarDetectorParams.MaxDistortion));
-        const int Levels = 4;   // StarDetectionOptimizer.CoarseGridLevels default
-        for (var i = 0; i < Levels; i++) {
-            var t = i / (double)(Levels - 1);
-            var value = v.Lower + (t * (v.Upper - v.Lower));
-            Assert.That(value, Is.LessThanOrEqualTo(Math.PI / 4.0),
-                $"coarse-grid level {i} of {Levels} sits above a perfect disk's fill ratio, so it rejects every round star");
+        var p = new StarDetectorParams();
+        // Walk well past the old 1.0 ceiling, in the axis's own step, exactly as an ascending pattern search would.
+        for (var proposal = v.Lower; proposal <= 2.0; proposal += v.InitialStep) {
+            v.Write(p, proposal);
+            Assert.That(p.MaxDistortion, Is.LessThanOrEqualTo(Math.PI / 4.0),
+                $"proposal {proposal} was stored as {p.MaxDistortion}, which rejects every round star");
         }
     }
 
