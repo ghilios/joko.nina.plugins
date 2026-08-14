@@ -627,6 +627,50 @@ exemption's evidence remains what it was: the three burned cells (where it conve
 `D01`/`D02` r0's PASSes into N/A) plus two unit tests and two mutants. **Reporting this as an unqualified
 "do-no-harm holds" would overstate it by half**, which is why the split is written out.
 
+### What the two new cells measure — and the wide-field recall story is NOT a clean gradient
+
+`optimize --per-run --max-evals 250` then `golden eval --params optimized`, both pinned to the same settings and
+profile as every other arm. Four steps, **5 m 45 s total** (`/mnt/d/hf_ship1/wf_driver.log`).
+
+> **[F22](followups.md) FENCE, inline and mandatory.** `D21` and `D22` have native `hfrMin` of **0.331 px** and
+> **0.473 px** — both far below the ~1.1 px point where the detector's measured HFR over-reads badly, the same
+> regime that fences `D01`. **No recall count below may be quoted as a recall figure for a user.** The frame in
+> which they may be read is **goal 3** — *is a landed knob sitting at an extreme against the physics?*
+
+| ″/px | dataset | prec | `recall@high` | `recall@all` | `BestJ` (from Baseline) | σ Best (from Baseline) | Sensitivity |
+|---|---|---|---|---|---|---|---|
+| 19.389 | `D01_ultrawide_40mm` | 1.000 | 0.183 | 0.123 | 0.994825 (0.000000) | 0.1514 (0.6145) | 36.333 |
+| **12.926** | **`D21_widefield_60mm`** | **1.000** | **0.103** | **0.061** | 0.993161 (0.000000) | 0.2084 (0.6122) | 35.333 |
+| **7.756** | **`D22_widefield_100mm`** | **1.000** | **0.235** | **0.079** | 0.995044 (0.000000) | 0.1468 (0.7701) | 34.583 |
+| 5.745 | `D02_rich_135mm` | 1.000 | 0.446 | 0.377 | 0.996558 (0.000000) | 0.0991 (0.2321) | 33.333 |
+| 3.102 | `D03_redcat_250mm` | 1.000 | 0.365 | 0.238 | 0.995494 (0.712458) | 0.2698 (1.2397) | 31.583 |
+
+**Three readings, in increasing order of confidence.**
+
+1. **Precision is 1.000 with `FP = 0` on both new cells**, matching 19 of the existing 20. Nothing about the
+   wide-field regime costs precision.
+2. **`recall@high` is NOT monotone in plate scale.** 0.183 → **0.103** → 0.235 → 0.446 → 0.365. `D21` at
+   12.9 ″/px is the **worst** of the wide-field set — worse than `D01` at 19.4. So the table's implied reading,
+   that recall degrades smoothly as the plate scale coarsens, does not survive two new points. **Confounded and
+   labelled as such:** these cells differ in field, limiting magnitude (10.5 / 12.0) and f-ratio as well as in
+   plate scale, so this refutes the *clean gradient*, it does not establish a new law.
+3. **Every one of the five has `BaselineJ = 0.000000` except `D03`.** On wide-field rigs the *default* detection
+   settings score **zero**, and the optimizer recovers to 0.993–0.995. That is the strongest goal-1 statement in
+   the set and the two new cells reproduce it independently.
+
+**And a goal-3 reading that lands squarely on this PR's own change:** the landed `MaxDistortion` on the new
+cells is **0.20** and **0.40** — both far below the π/4 ceiling item 4 introduced, and `D21`'s is near the
+axis's *bottom*. Every landed value now known across the bank spans **0.1 – 0.6**. **Two fresh datapoints,
+gathered after the bound shipped, confirm it removes nothing the search uses**, and that the pressure on that
+axis is downward.
+
+**Not pasted into `docs/synthetic-af-bank-results-table.md`, deliberately.** That table's header pins its
+provenance — *"Optimize columns from wave 18's pinned seedA0 arm … on B15 (BuildId d79dae73); all 20 verified
+against each log's own snapshot-source line."* These rows come from a **different binary and a different
+optimize arm**, so pasting them in would quietly break the claim the header makes. Adding them properly means
+re-running them under the table's own conventions — named here as the owed work, in the same spirit as the `K`
+column refusing rather than emitting a short column.
+
 ### The `K` column — paid, and it refused first, which is the good outcome
 
 Wave 30 §10 **row 3** withdrew the results-table `K` column after three unpaid waves, noting *"`kcol_w30.py`
