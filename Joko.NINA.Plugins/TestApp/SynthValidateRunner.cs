@@ -951,9 +951,12 @@ namespace TestApp.SynthBank {
                     round.StepRecommendation.WasCapped,
                     round.StepRecommendation.WasBandFloored);
 
-                var detail = $"bounded={cap.ActualBounded} ({cap.Branch}), halfWidth={truthHalfWidth:0.#} vs "
+                var detail = $"WasCapped={cap.ActualBounded} ({cap.Branch}), halfWidth={truthHalfWidth:0.#} vs "
                     + $"{cap.SpanSource} cap boundary {cap.CapBoundary:0.#}, ratio {cap.Ratio:0.00}";
-                if (cap.Verdict == CapSemanticsVerdict.Pass) {
+                if (cap.Verdict == CapSemanticsVerdict.NotApplicable) {
+                    findings.Add(NotApplicable("A4", "the band floor fired, and the floor bounds UPWARD where the cap "
+                        + $"bounds DOWNWARD -- the cap predicate does not describe this round; {detail}"));
+                } else if (cap.Verdict == CapSemanticsVerdict.Pass) {
                     findings.Add(Pass("A4", $"matches truth -- {detail}"));
                 } else if (cap.Verdict == CapSemanticsVerdict.Flag) {
                     findings.Add(Flag("A4", $"truth predicts {cap.PredictedBounded} -- near the cap boundary, noise-sensitive on a real fit; {detail}"));
@@ -1193,6 +1196,10 @@ namespace TestApp.SynthBank {
         private static AssertionFinding Pass(string id, string detail) => new AssertionFinding { Id = id, Verdict = SynthValidationVerdict.Pass, Detail = detail };
         private static AssertionFinding Flag(string id, string detail) => new AssertionFinding { Id = id, Verdict = SynthValidationVerdict.Flag, Detail = detail };
         private static AssertionFinding Fail(string id, string detail) => new AssertionFinding { Id = id, Verdict = SynthValidationVerdict.Fail, Detail = detail };
+
+        /// <summary>The assertion's predicate does not describe this round. Emitted rather than omitted so the
+        /// exemption is NAMED instead of quietly shrinking the denominator.</summary>
+        private static AssertionFinding NotApplicable(string id, string detail) => new AssertionFinding { Id = id, Verdict = SynthValidationVerdict.NotApplicable, Detail = detail };
 
         private static SynthValidationVerdict Worst(IEnumerable<AssertionFinding> findings) {
             var v = SynthValidationVerdict.Pass;

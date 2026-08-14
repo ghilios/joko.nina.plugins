@@ -95,27 +95,47 @@ public class CapSemanticsTests {
         }
     }
 
-    // ---- BOTH bounding branches count, not just the cap ----
+    // ---- a band-floored round is EXEMPT, because the cap predicate does not describe it ----
 
     /// <summary>
-    /// The band floor clamps the half-width to the SAME maxHalfWidth the cap would have, so a truth curve that
-    /// says "this round had to be bounded" is satisfied by the floor. Reading <c>WasCapped</c> alone made every
-    /// floored round a FAIL — and the floor fires exactly on the shape that flips the branch without changing
-    /// the resulting half-width.
+    /// D03 r0's shape: the floor fired and truth (46.1) sits well ABOVE the boundary (24.0). The old rule read
+    /// that as "should have been capped, wasn't" and FAILED a round the floor had handled exactly as F81
+    /// designed. The cap clamps DOWN, the floor raises UP; "truth is above the boundary" predicts the cap and
+    /// says nothing about the floor.
     /// </summary>
     [Test]
-    public void Evaluate_ABandFlooredRound_CountsAsBounded() {
+    public void Evaluate_ABandFlooredRound_TruthAboveTheBoundary_IsNotApplicable() {
         var r = CapSemantics.Evaluate(
-            truthHalfWidth: 30.0, fittedSearchSpan: 16.0,
-            requestedOffsetSteps: 4, requestedStepSize: 2.0,
+            truthHalfWidth: 46.1, fittedSearchSpan: 32.0,
+            requestedOffsetSteps: 4, requestedStepSize: 4.0,
             wasCapped: false, wasBandFloored: true);
 
         Assert.Multiple(() => {
-            Assert.That(r.CapBoundary, Is.EqualTo(Mult * 0.5 * 16.0).Within(1e-12));   // 12.0
-            Assert.That(r.PredictedBounded, Is.True, "truth 30.0 is well above the 12.0 boundary");
-            Assert.That(r.ActualBounded, Is.True, "the floor bounded it, even though WasCapped is false");
+            Assert.That(r.CapBoundary, Is.EqualTo(Mult * 0.5 * 32.0).Within(1e-12));   // 24.0
+            Assert.That(r.PredictedBounded, Is.True, "truth 46.1 is above the 24.0 boundary");
             Assert.That(r.Branch, Is.EqualTo("band-floored"));
-            Assert.That(r.Verdict, Is.EqualTo(CapSemanticsVerdict.Pass));
+            Assert.That(r.Verdict, Is.EqualTo(CapSemanticsVerdict.NotApplicable));
+        });
+    }
+
+    /// <summary>
+    /// The mirror, and the reason "floored counts as bounded" was rejected: D01 r0 (ratio 0.87) and D02 r0
+    /// (ratio 0.70) are floored rounds whose truth sits BELOW the boundary. Under that alternative they would
+    /// have dropped PASS to FLAG and PASS to FAIL respectively, on rounds where the recommender did nothing
+    /// wrong. Exemption is the verdict that is right in BOTH directions.
+    /// </summary>
+    [Test]
+    public void Evaluate_ABandFlooredRound_TruthBelowTheBoundary_IsAlsoNotApplicable() {
+        // D01 r0: truth 10.4, fitted span 16.0 -> boundary 12.0, ratio 0.87
+        var d01 = CapSemantics.Evaluate(10.4, 16.0, 4, 2.0, wasCapped: false, wasBandFloored: true);
+        // D02 r0: truth 8.4, fitted span 16.0 -> boundary 12.0, ratio 0.70
+        var d02 = CapSemantics.Evaluate(8.4, 16.0, 4, 2.0, wasCapped: false, wasBandFloored: true);
+
+        Assert.Multiple(() => {
+            Assert.That(d01.PredictedBounded, Is.False);
+            Assert.That(d01.Verdict, Is.EqualTo(CapSemanticsVerdict.NotApplicable));
+            Assert.That(d02.PredictedBounded, Is.False);
+            Assert.That(d02.Verdict, Is.EqualTo(CapSemanticsVerdict.NotApplicable));
         });
     }
 

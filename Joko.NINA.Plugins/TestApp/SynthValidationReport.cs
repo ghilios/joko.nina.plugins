@@ -25,7 +25,14 @@ namespace TestApp.SynthBank {
     /// code. <see cref="Flag"/> is a recorded-but-non-fatal finding (e.g. an F18-attributable step_behavioral vs
     /// step_theory divergence, or an at-floor exposure miss per the "F8 discipline" note).
     /// </summary>
-    public enum SynthValidationVerdict { Pass, Flag, Fail }
+    /// <para>
+    /// <see cref="NotApplicable"/> is appended LAST so Pass/Flag/Fail keep their existing ordinals 0/1/2 and no
+    /// artifact written before it existed changes meaning. It says the assertion's predicate does not describe
+    /// this round at all — which is different from passing, and is emitted rather than silently dropped so the
+    /// exemption is NAMED instead of shrinking a denominator. <see cref="Pass"/>-only filters treat it as
+    /// non-Pass, so it appears in the report's findings list.
+    /// </para>
+    public enum SynthValidationVerdict { Pass, Flag, Fail, NotApplicable }
 
     /// <summary>One A1-A7 (or scenario-specific) assertion instance, attached either to a round or to a scenario's
     /// terminal block.</summary>
