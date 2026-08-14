@@ -599,6 +599,34 @@ severity, not rate — which is exactly where the F82 decision document's §7 cl
 recall, precision, exposure and binning, none of which this arm read as a thresholded quantity. Recorded so a
 later reader does not have to reconstruct it.
 
+### A4 do-no-harm on the seventeen NON-burned cells — holds, and half of it was never exercised
+
+The A4 repair was measured on `D01`/`D02`/`D03`, which are exactly the cells it was designed against
+(F14 / `S16` / `D20`). This arm runs the **other seventeen** S1 cells on the new binary and compares A4's
+verdicts against wave 25's published ones, round by round. Prediction fixed before it ran: *a verdict changes
+if and only if the round is band-floored (→ N/A), or capped with fitted ≠ requested (the boundary moves).*
+
+```
+A4_DONOHARM_END 2026-08-14T06:13:02Z   manifest rows: 15 of 17
+  rounds compared: 31      verdicts changed: 0      UNEXPLAINED (refuting): 0
+  verdict mix BEFORE: {PASS: 31}       AFTER: {PASS: 31}
+```
+
+**Population, stated rather than shrunk.** `D05_tec140_1000mm` and `D19_cygnus_deep_shed` both hit the 900 s
+timeout, got **no manifest row, and are NAMED** — and they are precisely the two cells wave 23 lost to
+`timeout 600` and wave 25's driver carried as *"the two NAMED timeout risks"*. A reproduction of a known risk,
+not a new failure.
+
+**The result, and the honest half of it.** All 31 rounds are **`capped` with `fitted == requested`** — so the
+boundary is identical under either rule and the repair is confirmed **inert on 31 rounds it could have moved
+and did not**. That is a real do-no-harm measurement for the **fitted-span** half.
+
+**It is not one for the exemption half.** The population contains **zero band-floored rounds**, so the branch
+that turns a floored round into `NotApplicable` was never entered. This arm says nothing about it. The
+exemption's evidence remains what it was: the three burned cells (where it converts `D03` r0's FAIL and
+`D01`/`D02` r0's PASSes into N/A) plus two unit tests and two mutants. **Reporting this as an unqualified
+"do-no-harm holds" would overstate it by half**, which is why the split is written out.
+
 ### The `K` column — paid, and it refused first, which is the good outcome
 
 Wave 30 §10 **row 3** withdrew the results-table `K` column after three unpaid waves, noting *"`kcol_w30.py`
