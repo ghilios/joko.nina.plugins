@@ -431,8 +431,34 @@ shape for this space.
 
 ### F110 — F82's entire evidence was taken with the detectability bound OFF, while the product supplies it unconditionally
 
-**Status:** **Open — source-derived, zero compute, and it can VOID F82's fix decision** (2026-08-13, found while
-deciding F82's fix) · bounds [F82](#f82) · a validity precondition, not a defect in the fix
+**Status:** **CLOSED — `V-0` was RUN, and it FIRED. F82's fix decision is VOID** (2026-08-14, af-bank-cleanup
+run) · bounds [F82](#f82) · a validity precondition, not a defect in the fix ·
+`docs/af-bank-cleanup-results.md`, `/mnt/d/hf_ship1/v0_arm.log`
+
+> #### `V-0` RAN, ON THE PRODUCT'S CONFIGURATION, AND THE RISK BELOW WAS REAL
+>
+> `D01`/S1 re-run on B15 with `--step-detect-bound`, alongside a no-flag control on the **same binary** that
+> reproduces wave 25's published report bit-identically (`halfWidth` 12.0 / 9.0, steps 3 / 3,
+> `sampledHfrRange` to all 16 printed digits) — so the delta is the flag's.
+>
+> | cell | round | requested span | `(3′)` floor | detect bound | `halfWidth` | step ON | step OFF |
+> |---|---|---|---|---|---|---|---|
+> | `D01` | r1 | 24.0 | **18.00** | **binds**, `maxUsefulHalfSpan = 7.789` | **7.789** | **2** | 3 |
+> | `D02` | r1 | 24.0 | **18.00** | **binds**, `maxUsefulHalfSpan = 15.130` | **15.130** | **4** | 5 |
+> | `D03` | r1 | 56.0 | 42.00 | does not bind (`NaN`) | 42.0 | 12 | 12 |
+>
+> **`D01` r1 — the exact round `(3′)` was designed to move 3 → 5 — is clamped to 7.789, which is 10.2 BELOW
+> `(3′)`'s floor of 18.0.** `Recommend` applies the F18 bound last (`:368-379`, *"Only ever tightens"*), after
+> both cap and floor, and `(3′)` does not touch `searchSpan` and so does not move `minHalfWidth`. So `(3′)`
+> would raise `maxHalfWidth` to 18.0 and have it clamped straight back to 7.789: **zero recommended steps
+> change.** Inert on all three published cells — twice by the detect bound, once because the round already sits
+> exactly on the floor.
+>
+> **Two things the arm found that were not asked of it.** (a) In the product's configuration `D01` does not
+> stall at all: it goes **3 → 2 → 3 → 3** over four rounds — an *oscillation*, not the monotone stall F82
+> describes, so F82's published two-round table is itself a harness artifact. (b) The detect bound moves the
+> step in the **opposite** direction from `(3′)` on both `D01` and `D02`. Whatever the right answer is for a
+> shallow star-poor sweep, `(3′)` was pushing against F18, not with it.
 
 `--step-detect-bound` is **opt-in** in the harness (`TestApp/SynthValidateRunner.cs:783-793`), and `D01`'s
 published rounds carry **`maxUsefulHalfSpan: NaN`** — the bound was never applied to any cell of the evidence
@@ -452,6 +478,59 @@ inert there and the fix decision is void. That is why the decision document make
 exists is not establishing that the product path was measured.* A harness flag that defaults off, against a
 product that supplies the value unconditionally, is a silent divergence between the thing measured and the thing
 shipped — and nothing in this series' controls looks for one.
+
+### F111 — `ACCEPTED-elsewhere` is a 1:1-matching consequence of golden crowding, not a detector defect, and the FN attribution uses a far looser predicate than the matcher
+
+**Status:** **Closed — resolved from artifacts already on disk, zero TestApp minutes** · 2026-08-14,
+af-bank-cleanup run · discharges wave 30 §10 **row 7** ("precision at the opened `MaxDistortion` settings",
+`OWED by any ship that lowers MaxDistortion`) · `docs/af-bank-cleanup-results.md`,
+`/mnt/d/hf_ship1/item3_accepted_elsewhere.py`, `item3b_resolve.py`, `item3c_far.py`
+
+Wave 30 §4.5 recorded that **23–25 % of the distortion gate's acceptances were `ACCEPTED-elsewhere`** — two to
+five times the sensitivity gate's share — and correctly called it *"a signal, not a measurement"*. This entry
+measures it.
+
+**The two numbers come from two different predicates, and that is most of the story.**
+
+| | predicate | source |
+|---|---|---|
+| the **matcher** (decides TP/FN) | `centerIn(D.center, G.box) OR dist ≤ 12 px`, then greedy 1:1 by IoU desc / distance asc | `GoldenGeometry.cs:202-256`, mode `Center` |
+| the **FN attribution** (prints `ACCEPTED-elsewhere`) | `IoU(G.box, D.box) > 0.0` — **any** overlap at all | `BoxMatcher.cs:96-150` via `GoldenEvalRunner.cs:355-360` |
+
+So a golden star can be labelled `ACCEPTED-elsewhere` while being unmatchable to every accepted detection on
+the frame. **That hypothesis was tested and is mostly WRONG, and is recorded as such: only 3–7 % are such
+grazes.** The dominant mechanism is the other one.
+
+**The measurement** (self-test first: an offline rebuild of the matcher reproduces the run's own per-frame
+`TP`/`FN`/`accepted` on every frame of all seven cells, and the published `ACCEPTED-elsewhere` totals exactly —
+1740 / 3141 / 3333 / 3417 / 1869 / 1769 / 1740):
+
+| cell | gate | AE | graze | competing | `d(G,G′) ≤ 12 px` | `> 12 px` |
+|---|---|---|---|---|---|---|
+| `M0` | baseline 0.5 | 1 740 | 3.2 % | 1 685 | **98.5 %** | 1.5 % |
+| `M1` | `MaxDistortion` 0.3 | 3 141 | 5.4 % | 2 972 | **93.9 %** | 6.1 % |
+| `M4` | `MaxDistortion` 0.2 | 3 333 | 6.8 % | 3 105 | **93.2 %** | 6.8 % |
+| `M2` | `Sensitivity` 32.333 | 1 869 | 3.0 % | 1 813 | 98.6 % | 1.4 % |
+| `L3` | `Sensitivity` 35.333 | 1 769 | 3.1 % | 1 714 | 98.5 % | 1.5 % |
+
+`d(G,G′)` is the distance to the golden star that actually won the detection. **In 93–99 % of competing cases
+the two golden stars are themselves closer together than the match radius** (median 7–8 px against a 12 px
+radius; the median **winning detection box** contains **exactly 2.0 golden centres**). A greedy 1:1 matcher **cannot** pair
+both, whatever the detector does — the loser is a false negative by construction of the **scorer**.
+
+**The distortion-linked component is real, bounded, and costs recall rather than precision.** The `> 12 px`
+bucket rises 4× (1.4–1.5 % → 6.1–6.8 %; 25 → 210 stars), but **100 % of those cases have `d(G,G′) ≤ 2R = 24 px`**
+(max 22.8 px at `M4`) with **no tail**, and their winning detections are larger than typical (median box area
+513 px² vs 182 px²). That is one relaxed-gate blob spanning a close pair — blending — bounded at twice the
+match radius by construction, and it cannot manufacture a false positive. Consistent with the direct
+measurement wave 30 already had and did not connect to this: precision **1.000, `FP = 0`** at `MaxDistortion`
+0.5 / 0.3 / 0.2 (`/mnt/d/hf_w30/row7_precision_rescore.txt`).
+
+**Consequence:** the `ACCEPTED-elsewhere` share is **not** evidence of a precision risk from opening
+`MaxDistortion`, and there is no precision number left to go and get. Wave 30's row 7 is discharged rather than
+carried. **The general lesson:** when a diagnostic column and the statistic it is meant to explain are computed
+by *different predicates*, the column measures the predicate gap before it measures anything about the product —
+so check the two predicates before reading the column as a signal.
 
 ### F104 — `D01`'s two candidate gates release 36 660 high-tier candidates and re-capture takes 92 %: the joint is material and ADDITIVE, so F99's joint-recovery claim is refuted at a pre-registered bar
 
@@ -820,6 +899,15 @@ waves 20–29 that quotes `stepBehavioral` as truth, is a self-consistency check
 harness cannot tell. **The remedy is a spec-derived truth model** — backlog item 4's `A4` gap, priced at 20 m
 of code **+ 42 m of gate** because it rebuilds `TestApp`.
 
+> **`A4`'s own arithmetic was repaired on 2026-08-14 (af-bank-cleanup run) and THAT DOES NOT CLOSE THIS ENTRY.**
+> Two different problems live near each other and should not be confused. `A4` was rebuilding the cap boundary
+> from the **requested** sweep while the product used the **fitted** span, and was asserting the cap predicate
+> on band-floored rounds; both are repaired, harness-side, and no product file was touched — so the 42 m gate
+> that a truth-model rebuild would owe was **not** owed by that repair. But `A4` compares against an **analytic
+> truth curve** (`sqrt(8)·HfrMin/Kappa`), which was never the fixed point; the fixed point is `A3`'s
+> `stepBehavioral`. **This entry is about `A3`'s bar and is untouched.** If anything the repair sharpens it: `A4`
+> is now a working independent instrument, which makes it clearer that `A3` still has none.
+
 **Note on scope.** Design §14 pre-registered F96 as a two-part entry — the truth-model coupling **and** "F82's
 fix has no product carrier" — to be **withdrawn in place** on `S-CARRIER-EXISTS`. The verdict was
 `S-CARRIER-EXISTS`, so **the carrier half is withdrawn and is not registered.** The coupling half is `S-a`,
@@ -860,8 +948,41 @@ formerly-blind cells' `halfWidth`/`bootstrap`/implied-span values are now read. 
 
 ### F98 — `MaxDistortion` is a MINIMUM fill-ratio despite its name, and 0.9 is above the ~0.79 ceiling of a perfect disk, so a whole arm cell was dead before it ran
 
-**Status:** Open — **candidate goal-3 product finding** · found 2026-08-13, wave 29, `RULE W29-L` =
-**`L-UNEVALUATED`** · `/mnt/d/hf_w29/w29l_score.txt`, `/mnt/d/hf_w29/l/out/L{0,2,4}.log`
+**Status:** **FIXED (axis bound + label), 2026-08-14, af-bank-cleanup run** · found 2026-08-13, wave 29,
+`RULE W29-L` = **`L-UNEVALUATED`** · `/mnt/d/hf_w29/w29l_score.txt`, `/mnt/d/hf_w29/l/out/L{0,2,4}.log` ·
+`docs/af-bank-cleanup-results.md`
+
+> #### SHIPPED: the axis is bounded at π/4, and the label now states the direction (2026-08-14)
+>
+> Shipped as `OptimizerVariable.MaxDistortionSearchUpper = Math.PI / 4.0`, documented as the one bound in the
+> curated set that is **geometric rather than heuristic**, and pinned by a test that rasterises disks and
+> confirms the constant *is* that fill ratio rather than a number someone liked.
+>
+> **What the bound does, corrected mid-run against the source — my first justification was WRONG and the wrong
+> version is stated here so the correction is legible.** I first wrote that the saving was a coarse-grid level:
+> *"the coarse grid samples `Lower + t·(Upper − Lower)` inclusive of both bounds at `CoarseGridLevels = 4`, so
+> the old four levels were 0.1 / 0.4 / 0.7 / 1.0 and one of them was spent on a guaranteed-empty setting."*
+> **`MaxDistortion` is not coarse-gridded at all.** `StarDetectionOptimizer`'s Phase A grids **only**
+> Sensitivity × StarClippingMultiplier (`:764-789`) and holds every other variable at the incumbent; `GridValue`
+> is called on exactly those two axes. The false claim was caught because it produced a **prediction that the
+> gate then refuted** — see below.
+>
+> **The true mechanism is narrower and still worth the change.** `MaxDistortion` moves only under the pattern
+> search, whose proposals are clamped by `Quantize` to `[Lower, Upper]`. The old ceiling left roughly the
+> **top 21 % of the axis reachable** while returning zero detections by construction — the collapse this entry
+> measured at 0.9. The bound makes that band unreachable: a **guard against a pathological upward excursion**,
+> expected to be **inert** on any run that never walks up there.
+>
+> **The rename is HALF done, and the half not done is named.** The knob is user-visible **and** persisted
+> (key `"MaxDistortion"`, `StarDetectionOptions.cs:276,764`), reaching 11 C# files, the replay snapshot, the
+> diff, `OptimizedStarDetectionSettings`, `TestApp` and ~12 places in the manual — **renaming the key is a
+> settings migration and was not done**, because doing it under a stop clock risks silently resetting every
+> user's tuned value. What was done is the half a user reads: the label is now
+> *"Max Distortion (min fill ratio)"* and the tooltip leads with *"A MINIMUM fill ratio, despite the name …
+> raising it makes the gate stricter, not looser"*, plus the π/4 ceiling. It also repairs two errors the
+> tooltip carried since it was written: `"circule"`, and *"PI/4, which is approximately 0.7"* — it is 0.785,
+> and the understatement was most of a coarse-grid step. The control already existed, so `CLAUDE.md`'s
+> options-owe-XAML invariant was already satisfied. **The persisted-key rename remains open as a named debt.**
 
 `StarDetector.cs:1804` rejects a candidate as `TooDistorted` when `fillRatio < effectiveMaxDistortion`. The
 parameter is a **lower bound on bounding-box fill ratio**; **raising it tightens the gate.** The file's own
@@ -2182,8 +2303,26 @@ Reproduce: `StepSizeRecommender.cs` (the `BandDemonstrablyUnsampled` guard, the 
 `docs/synthetic-af-bank-followups-wave25-results.md` §3.1, §7, §10.1.
 
 ### F82 — The half-width floor is not sticky across rounds, and the cap recomputed from a shrunken fit pulls it back down
-**Status:** Open (diagnosed to a line, two candidate fixes, priced) · found 2026-08-13, wave 25, on the one
-labelled control that missed its pre-registered bar · **SCOPE AND GENERALITY MEASURED, wave 29 — see below**
+**Status:** **RE-SCOPED, 2026-08-14 — the fix decision below is VOID; the live entry is the F18-vs-F81 ordering
+conflict** · found 2026-08-13, wave 25, on the one labelled control that missed its pre-registered bar ·
+**SCOPE AND GENERALITY MEASURED, wave 29 — see below** · `docs/af-bank-cleanup-results.md`
+
+> #### THE `(3′)` DECISION IS VOID — `V-0` FIRED, exactly as it was written to (2026-08-14)
+>
+> **Do not implement `(3′)`.** [F110](#f110) carries the measurement: in the configuration the product actually
+> runs, F18's detectability bound clamps `D01` r1 to `halfWidth = 7.789`, far below `(3′)`'s requested-span
+> floor of 18.0, and the F18 bound is applied **after** both the cap and the floor and **only ever tightens**.
+> `(3′)` therefore changes **zero recommended steps** on `D01` — and is inert on `D02`/`D03` too. The
+> pre-registered void condition in `docs/f82-fix-choice-decision.md` §6 (`V-0`) and §7 clause 1 is met.
+>
+> **What the decision document nevertheless settled, and which stands:** fix (1), the monotone floor, is
+> **refuted** by arithmetic on F82's own table (see below). So the register no longer records a remedy that does
+> nothing — which §7's "case for doing nothing" identified as the minimum obligation, discharged either way.
+>
+> **The live entry is now the ordering conflict, and it is a different question from the one F82 asks.** On a
+> shallow, star-poor sweep F18's *measured* detectability bound and F81's *band* floor disagree about which way
+> to move, and F18 wins by being applied last. Deciding that needs the blind wide-field population the bank does
+> not have (`c_blind = 0`, [F97](#f97)), i.e. the 1.4–19.4 ″/px render — **it is not decidable on this bank.**
 
 > #### THE FIX CHOICE IS DECIDED, 2026-08-13 — and wave 26's pre-registered fix (1) is **REFUTED**
 >
@@ -2281,7 +2420,17 @@ bound that is supposed to reward widening penalises it on exactly the star-poor 
 **A second instrument measures the same divergence from the other side.** The harness's `A4` assertion computes
 the cap boundary from the **requested** sweep and reports
 `"WasCapped=True but truth predicts False (halfWidth=10.4 vs cap boundary 18, ratio 0.58)"` — **18** against the
-product's **9**. And the corroboration identity every floored round satisfies
+product's **9**.
+
+> **`A4` ITSELF WAS REPAIRED, 2026-08-14 (af-bank-cleanup run), and this quoted FAIL is one of the four it was
+> producing on its own error.** It now builds the boundary from the **fitted** span, so `D01` r1's boundary is
+> 9.0 and truth 10.4 *is* above it — **FAIL → PASS**, three times (`D01` r1, `D01` r3, `D02` r1). And it no
+> longer asserts the cap predicate on **band-floored** rounds at all: the cap clamps *down* and the floor raises
+> *up*, so "truth above the boundary" predicts the cap and says nothing about the floor — `D03` r0's **FAIL**
+> becomes a named `NotApplicable`. **Four of ten A4 verdicts on these three cells were failures and none was a
+> product defect.** Harness-only; no product file touched; see `docs/af-bank-cleanup-results.md`.
+
+And the corroboration identity every floored round satisfies
 (`halfWidth == 1.5 × offsetSteps × bootstrapStep`, 3 of 3 on the floored rounds) is **exactly the identity
 `D01` r1 fails**: `1.5 × 4 × 3 = 18 ≠ 9.0`.
 
