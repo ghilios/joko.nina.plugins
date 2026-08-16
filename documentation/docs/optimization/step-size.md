@@ -62,7 +62,9 @@ that many points on each side of the estimated minimum lands neatly inside the f
     when the curve genuinely supports one.
 
 !!! tip "How to use the recommendation"
-    Treat it as a starting point for your profile's **Auto Focus Step Size** on the same rig and filter.
+    Treat it as a starting point for your profile's **Auto Focus Step Size** on the same rig and filter. With
+    [per-filter star detection](../settings/index.md#auto-focus-sweep-for-one-filter) enabled, Accept writes it
+    to the target filter's own sweep override instead of the profile, so each filter keeps its own.
     Because the band width depends on focal ratio, pixel scale, and the focuser's steps-per-unit-travel,
     the right step differs between setups, which is exactly why deriving it from a measured curve beats a
     fixed guess. The step size also feeds back into the objective: \(S_{\text{focus}}\) normalizes focus

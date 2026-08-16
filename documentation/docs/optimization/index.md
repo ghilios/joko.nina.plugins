@@ -142,13 +142,19 @@ page adds a **Target filter** dropdown for both sources, defaulting to the filte
 wheel. The whole run is about that one filter: the baseline and the **"Start from my current
 settings"** seed come from its settings set, the filter and gain readouts on the start page show the
 target filter (not the profile's designated autofocus filter), and **Accept** writes the winning
-settings into the target filter's set. The Star Detector options switch to the filter you just
+settings into the target filter's set, including the recommended **step size and offset steps**, which go to
+that filter's sweep override rather than to the profile. Optimizing one filter therefore no longer overwrites
+the sweep every other filter uses. (A live sweep's exposure is still written to the profile.) The checkbox
+names the filter it will write to, and the step size and offset steps shown on the confirmation page are the
+ones that filter will actually sweep at, marked as an override where one is set. The Star Detector options switch to the filter you just
 optimized, so what you see there afterward is what the run produced.
 
 A target filter must be selected before the run can start. A live run additionally requires the
 filter wheel connected: **Start** moves the wheel to the target filter and sweeps on exactly that
-filter, using its per-filter autofocus binning, gain, and offset. Exposure is still whatever you set
-on this page. The usual switch to the profile's designated autofocus filter is skipped, and the
+filter, using its per-filter autofocus binning, gain, and offset, and at that filter's own sweep step size
+and offset steps if you have set them (see
+[auto-focus sweep for one filter](../settings/index.md#auto-focus-sweep-for-one-filter)). Exposure is still
+whatever you set on this page. The usual switch to the profile's designated autofocus filter is skipped, and the
 wheel stays on the target when the sweep finishes. A replay needs no equipment, so you can work
 through your saved runs and optimize each filter in turn without connecting anything.
 
