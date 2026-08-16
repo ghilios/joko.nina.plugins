@@ -146,6 +146,26 @@ public class InspectorVMAutomaticAdjustmentTests {
             Is.False);
     }
 
+    // The generation counter only advances when an analysis COMPLETES, so mid-sweep it still reports the
+    // previous measurement as fresh -- without this term the adapter could be moved out from under a run.
+    [Test]
+    public void CanExecuteAutomaticAdjustment_AnalysisRunning_ReturnsFalse() {
+        Assert.That(InspectorVM.CanExecuteAutomaticAdjustment(
+            serviceConnected: true, controllerAvailable: true, deviceLinked: true, calibrationIsReliable: true,
+            hasNumericGuidance: true, isOperationActive: false, currentGeneration: 1, lastExecutedGeneration: 0,
+            analysisRunning: true),
+            Is.False);
+    }
+
+    [Test]
+    public void CanExecuteAutomaticAdjustment_AnalysisNotRunning_KeepsTheOtherGatesDeciding() {
+        Assert.That(InspectorVM.CanExecuteAutomaticAdjustment(
+            serviceConnected: true, controllerAvailable: true, deviceLinked: true, calibrationIsReliable: true,
+            hasNumericGuidance: true, isOperationActive: false, currentGeneration: 1, lastExecutedGeneration: 0,
+            analysisRunning: false),
+            Is.True);
+    }
+
     #endregion
 
     #region BuildPerScrewTargets
@@ -518,9 +538,17 @@ public class InspectorVMAutomaticAdjustmentTests {
             return Task.FromResult(ConfirmAnswers.Count > 0 && ConfirmAnswers.Dequeue());
         }
 
+        /// <summary>
+        /// The preview the real approval dialog would have rendered, captured by invoking the replanner the same
+        /// way it does. Lets a test observe WHICH sensor model the plan was computed from without reaching into
+        /// the VM's private plan-building.
+        /// </summary>
+        public TiltDevicePlanPreview CapturedPreview { get; private set; }
+
         private Task<TiltDeviceAdjustmentChoice> ShowPromptAsync(
             Func<bool, bool, TiltDevicePlanPreview> replanner, bool screwInwardCurvatureSignIsMeasured, string pitchMismatchWarning, bool positionsUnknown, double unitMicrons) {
             ShowPromptCallCount++;
+            CapturedPreview = replanner?.Invoke(true, true);
             return Task.FromResult(NextChoice);
         }
 
@@ -560,6 +588,10 @@ public class InspectorVMAutomaticAdjustmentTests {
                 focuserSizeMicrons: 1.0, finalFocusPosition: 0.0, tiltEffectMicrons: 0.0,
                 curvatureEffectMicrons: 0.0, autoFocusOffset: 0.0, tiltPlaneModel: null,
                 sensorModel: paraboloid);
+            // The line above drives the DISPLAY (guidance rebuilds from it). Automatic Adjustment plans from the
+            // latest MEASURED model instead, which only a completed analysis writes -- so stand in for that here,
+            // or every flow test would plan from a null model.
+            vm.SensorModel.LatestSensorModelForTest = paraboloid;
             Bundle.TiltAdapterOptions.PropertyChanged += Raise.Event<PropertyChangedEventHandler>(
                 Bundle.TiltAdapterOptions, new PropertyChangedEventArgs(nameof(ITiltAdapterOptions.IsCalibrated)));
         }
@@ -811,6 +843,51 @@ public class InspectorVMAutomaticAdjustmentTests {
 
         vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         Assert.That(fx.ReRunCallCount, Is.EqualTo(0));
+    }
+
+    // --- Plans come from the newest MEASUREMENT, never from the history selection ---------------------------
+
+    // Selecting a row in the history grid rewrites SensorModel.DisplayedSensorModel with that past run's fit,
+    // but leaves the measurement-generation gate reporting "fresh". Planning from the displayed model therefore
+    // let a user complete a run, click an old row, and drive the device from a stale measurement. Both fixtures
+    // below share one latest measurement; only the history selection differs, so an identical plan is the proof
+    // the selection has no influence.
+    [Test]
+    public void AutomaticAdjustment_WithAnOldHistoryRowSelected_PlansFromTheNewestRun() {
+        var baseline = new AdjustmentFixture();
+        var baselineVm = baseline.BuildVM();
+        baseline.SeedValidModel(baselineVm, gx: 0.001, gy: 0.0);
+        baselineVm.MeasurementGenerationForTest = 1;
+        baseline.ConnectAsync().GetAwaiter().GetResult();
+        baseline.NextChoice = TiltDeviceAdjustmentChoice.Cancelled;
+        baselineVm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.SeedValidModel(vm, gx: 0.001, gy: 0.0);
+        vm.MeasurementGenerationForTest = 1;
+        fx.ConnectAsync().GetAwaiter().GetResult();
+        // The user clicks a far-more-tilted OLD run to look at it. Display follows; the measurement does not.
+        vm.SensorModel.SelectedTiltHistoryModel = new SensorParaboloidTiltHistoryModel(
+            historyId: 99, imageSize: new System.Drawing.Size(1000, 1000), pixelSizeMicrons: 4.0, fRatio: 5.0,
+            focuserSizeMicrons: 1.0, finalFocusPosition: 0.0, tiltEffectMicrons: 0.0,
+            curvatureEffectMicrons: 0.0, autoFocusOffset: 0.0, tiltPlaneModel: null,
+            sensorModel: new SensorParaboloidModel(x0: 0, y0: 0, z0: 0, gx: 0.05, gy: 0.0, k: 0.0));
+        fx.NextChoice = TiltDeviceAdjustmentChoice.Cancelled;
+        vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        Assert.Multiple(() => {
+            Assert.That(vm.SensorModel.DisplayedSensorModel.Gx, Is.EqualTo(0.05).Within(1e-12),
+                "precondition: the DISPLAY must follow the history selection");
+            Assert.That(vm.SensorModel.LatestSensorModel.Gx, Is.EqualTo(0.001).Within(1e-12),
+                "precondition: the latest MEASUREMENT must be untouched by the selection");
+            Assert.That(baseline.CapturedPreview, Is.Not.Null);
+            Assert.That(fx.CapturedPreview, Is.Not.Null);
+            Assert.That(
+                fx.CapturedPreview.Plan.Moves.Sum(m => Math.Abs(m.Steps)),
+                Is.EqualTo(baseline.CapturedPreview.Plan.Moves.Sum(m => Math.Abs(m.Steps))),
+                "the plan must be computed from the newest measurement, not from the selected history row");
+        });
     }
 
     // --- Worsening check ------------------------------------------------------------------------------------

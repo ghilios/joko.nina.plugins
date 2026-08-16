@@ -148,6 +148,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     ct: ct);
 
                 DisplayedSensorModel = solution;
+                LatestSensorModel = solution;
                 SensorModelResult.Update(
                     solution,
                     imageSize,
@@ -1526,12 +1527,47 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
         private SensorParaboloidModel displayedSensorModel;
 
+        /// <summary>
+        /// The model currently on screen. Follows <see cref="SelectedTiltHistoryModel"/>, so selecting a past
+        /// run in the history grid rewrites this with that run's fit — which is the point, for display.
+        /// <b>Never plan a device move from this.</b> Use <see cref="LatestSensorModel"/>.
+        /// </summary>
         public SensorParaboloidModel DisplayedSensorModel {
             get => displayedSensorModel;
             private set {
                 displayedSensorModel = value;
                 RaisePropertyChanged();
             }
+        }
+
+        private SensorParaboloidModel latestSensorModel;
+
+        /// <summary>
+        /// The most recently MEASURED model — written only by <see cref="UpdateModel"/>, never by the history
+        /// selection. This is the one that describes the sensor as it is right now, so it is what anything
+        /// driving the adapter must plan from.
+        ///
+        /// <para>The distinction is load-bearing. <see cref="SelectedTiltHistoryModel"/>'s setter rewrites
+        /// <see cref="DisplayedSensorModel"/> with a past run's fit while the measurement-generation gate still
+        /// reports "fresh", so planning from the displayed model let a user complete a run, click an old
+        /// history row, and drive the device from a stale measurement.</para>
+        /// </summary>
+        public SensorParaboloidModel LatestSensorModel {
+            get => latestSensorModel;
+            private set {
+                latestSensorModel = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        /// <summary>
+        /// Test seam, mirroring <c>InspectorVM.MeasurementGenerationForTest</c>: <see cref="UpdateModel"/> needs a
+        /// full registration-and-fit result that is impractical to construct in a unit test, so tests stand in
+        /// for "an analysis completed" by writing the model it would have produced.
+        /// </summary>
+        internal SensorParaboloidModel LatestSensorModelForTest {
+            get => LatestSensorModel;
+            set => LatestSensorModel = value;
         }
 
         public void Reset() {
@@ -1541,6 +1577,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public void Clear() {
             SensorModelResult.Reset();
             SensorTiltHistoryModels.Clear();
+            LatestSensorModel = null;
             this.ModelLoaded = false;
         }
 

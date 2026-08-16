@@ -1682,6 +1682,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 ClearAnalysesCommand?.NotifyCanExecuteChanged();
                 SlewToZenithEastCommand?.NotifyCanExecuteChanged();
                 SlewToZenithWestCommand?.NotifyCanExecuteChanged();
+                // Automatic Adjustment is analysis-gated too: its measurement-generation counter only advances
+                // when a run COMPLETES, so without this the button stays live for the whole duration of a sweep.
+                AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
             });
         }
 
@@ -2170,6 +2173,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// correspondence) yet still be noise-dominated (measurement noise rivaling the screw-move signal) —
         /// both must hold before automation may run unattended.
         /// </summary>
+        /// <remarks>
+        /// <paramref name="analysisRunning"/> is optional so the existing pure-helper call sites keep compiling.
+        /// It closes a gap the generation counter does not cover: the counter only advances when an analysis
+        /// COMPLETES, so between "sweep started" and "sweep finished" the gate still saw the previous
+        /// measurement as fresh and would happily move the adapter out from under the run in progress.
+        /// </remarks>
         internal static bool CanExecuteAutomaticAdjustment(
             bool serviceConnected,
             bool controllerAvailable,
@@ -2178,13 +2187,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             bool hasNumericGuidance,
             bool isOperationActive,
             int currentGeneration,
-            int lastExecutedGeneration) {
+            int lastExecutedGeneration,
+            bool analysisRunning = false) {
             return serviceConnected
                 && controllerAvailable
                 && deviceLinked
                 && calibrationIsReliable
                 && hasNumericGuidance
                 && !isOperationActive
+                && !analysisRunning
                 && currentGeneration > lastExecutedGeneration;
         }
 
@@ -2198,7 +2209,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 hasNumericGuidance: TiltGuidance?.HasNumericGuidance ?? false,
                 isOperationActive: service?.IsOperationActive ?? false,
                 currentGeneration: measurementGeneration,
-                lastExecutedGeneration: lastExecutedMeasurementGeneration);
+                lastExecutedGeneration: lastExecutedMeasurementGeneration,
+                analysisRunning: AnalysisRunning());
         }
 
         /// <summary>Dimensionless tilt magnitude sqrt(Gx² + Gy²) — used for the before/after worsening check.</summary>
@@ -2294,7 +2306,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return;
             }
 
-            var model = SensorModel?.DisplayedSensorModel;
+            // LatestSensorModel, NOT DisplayedSensorModel: selecting a row in the history grid rewrites the
+            // displayed model with that past run's fit, while the measurement-generation gate still reports
+            // "fresh" — so planning from the display let a completed run + a history click drive the device
+            // from a stale measurement. Only the newest measurement describes the sensor as it is now.
+            var model = SensorModel?.LatestSensorModel;
             if (model == null) {
                 Notification.ShowError("No fitted sensor model is available for Automatic Adjustment.");
                 return;
@@ -2408,7 +2424,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return;
                 }
 
-                var afterModel = SensorModel?.DisplayedSensorModel;
+                var afterModel = SensorModel?.LatestSensorModel;
                 double afterTiltMagnitude = TiltMagnitude(afterModel);
                 if (TiltWorsened(beforeTiltMagnitude, afterTiltMagnitude)) {
                     Notification.ShowError(
