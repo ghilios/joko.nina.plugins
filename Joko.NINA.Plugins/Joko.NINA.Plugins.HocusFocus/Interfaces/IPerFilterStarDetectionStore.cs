@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter;
 using System;
 using System.Collections.Generic;
 
@@ -33,6 +34,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         StarDetectionSettingsSnapshot GetOrSeedSnapshot(string filterName);
 
         void UpsertSnapshot(string filterName, StarDetectionSettingsSnapshot snapshot);
+
+        /// <summary>
+        /// Raised when one filter's sweep geometry changes. Separate from <see cref="SnapshotChanged"/> because
+        /// the edit binder answers that one by reloading the whole detection buffer.
+        /// </summary>
+        event EventHandler<PerFilterSnapshotChangedEventArgs> SweepGeometryChanged;
+
+        /// <summary>
+        /// One filter's auto-focus sweep-geometry override — always a fresh instance, never null, and this read
+        /// NEVER writes (unlike <see cref="GetOrSeedSnapshot"/>: geometry has a live fallback in the profile, so
+        /// there is nothing to seed, and the auto-focus engine calls this on its run path).
+        /// </summary>
+        PerFilterSweepGeometry GetSweepGeometry(string filterName);
+
+        /// <summary>Replaces one filter's sweep-geometry override; null clears it.</summary>
+        void SetSweepGeometry(string filterName, PerFilterSweepGeometry geometry);
 
         IReadOnlyList<string> GetKnownFilterNames();
     }
