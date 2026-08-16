@@ -95,7 +95,7 @@ Filters often want different sweeps as well as different detection: a narrowband
 - **Step Size**: focuser steps between auto-focus points. Overrides **Auto Focus Step Size** in NINA's Options → Focuser.
 - **Initial Offset Steps**: points on each side of the sweep's starting position. Overrides **Auto Focus Initial Offset Steps**.
 
-Leave a box **blank** to use the profile value. A blank box shows that value dimmed, as `profile: 100`, so you can see what it resolves to; clear a box to go back to inheriting. The two resolve independently, so you can pin the step size for a filter and still inherit however many points the profile sweeps.
+Leave a box **blank** to use the profile value. A blank box shows that value dimmed, so you can see what it resolves to; clear a box to go back to inheriting. The two resolve independently, so you can pin the step size for a filter and still inherit however many points the profile sweeps.
 
 These are the numbers the [Optimization Wizard](../optimization/index.md) recommends. With per-filter star detection on, its **Apply these auto-focus settings** checkbox writes them here, into the target filter's set, rather than to the profile, so optimizing Ha and then L no longer overwrites Ha's sweep. A live sweep's exposure goes to the same filter, into NINA's own per-filter **Auto Focus Exposure Time** in the filter wheel settings. **Copy Settings From** carries them along with the detection settings. **Export** and **Import** do not, since a step size describes a particular focuser rather than a filter.
 

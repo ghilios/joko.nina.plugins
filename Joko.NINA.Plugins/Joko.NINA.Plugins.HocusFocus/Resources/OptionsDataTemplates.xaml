@@ -2512,7 +2512,7 @@
                       NO validation rule on either box: rules run on the RAW text before the converter and would
                       reject the deliberately blank "inherit" state, exactly as documented on the Camera Simulator's
                       Focuser Step Size row. Out-of-range input is coerced in the binder's setter instead.
-                      The dimmed "profile: N" hint is drawn as an overlaid TextBlock rather than via HintTextBox:
+                      The dimmed inherited-value hint is drawn as an overlaid TextBlock rather than via HintTextBox:
                       that control's hint opacity is not settable in the NINA version this plugin builds against,
                       and its 0.4 default (fine for a static "(AutoFocus)" label) is too faint for a number the
                       user is meant to read and compare a typed value against. 0.6 matches the de-emphasis used for
@@ -2559,7 +2559,7 @@
                         Foreground="{StaticResource PrimaryBrush}"
                         IsHitTestVisible="False"
                         Opacity="0.6"
-                        Text="{Binding PerFilterEditBinder.ProfileSweepStepSize, StringFormat=profile: {0}, Mode=OneWay}"
+                        Text="{Binding PerFilterEditBinder.ProfileSweepStepSize, Mode=OneWay}"
                         ToolTip="{StaticResource PerFilterSweepStepSize_Tooltip}"
                         Visibility="{Binding PerFilterEditBinder.SweepStepSizeInherits, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 </Grid>
@@ -2596,7 +2596,7 @@
                         Foreground="{StaticResource PrimaryBrush}"
                         IsHitTestVisible="False"
                         Opacity="0.6"
-                        Text="{Binding PerFilterEditBinder.ProfileSweepOffsetSteps, StringFormat=profile: {0}, Mode=OneWay}"
+                        Text="{Binding PerFilterEditBinder.ProfileSweepOffsetSteps, Mode=OneWay}"
                         ToolTip="{StaticResource PerFilterSweepOffsetSteps_Tooltip}"
                         Visibility="{Binding PerFilterEditBinder.SweepOffsetStepsInherits, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 </Grid>

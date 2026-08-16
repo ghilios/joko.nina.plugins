@@ -114,7 +114,7 @@ Three rows in the existing per-filter grid, gated by the same `ShowOnPerFilterEn
 "why are focuser numbers on the star-detection page" objection in place, which beats moving them somewhere the
 per-filter visibility plumbing does not reach.
 
-**Blank = inherit**, with the profile value shown as a dimmed `profile: N` hint. The hint is an overlaid
+**Blank = inherit**, with the profile value shown as a dimmed hint (the number alone; dimming is what marks it as inherited rather than typed). The hint is an overlaid
 `TextBlock` at `Opacity="0.6"` rather than `HintTextBox`'s own hint: that control's `HintTextOpacity` is not
 settable in the NINA version this plugin builds against (3.2.0.2001-beta), and its 0.4 default — fine for a static
 `"(AutoFocus)"` label — is too faint for a number the user is meant to read and compare a typed value against.

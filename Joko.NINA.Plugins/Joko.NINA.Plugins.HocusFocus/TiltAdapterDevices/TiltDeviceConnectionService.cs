@@ -103,7 +103,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
         /// Deliberately NOT configurable: a short value would faithfully recreate the yanked-without-warning
         /// failure this design exists to remove.
         /// </summary>
-        public static readonly TimeSpan IdleDisconnectGrace = TimeSpan.FromSeconds(60);
+        public static readonly TimeSpan IdleDisconnectGrace = TimeSpan.FromSeconds(10);
 
         private readonly IProfileService profileService;
         private readonly ITiltAdapterOptions options;
