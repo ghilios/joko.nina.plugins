@@ -215,7 +215,10 @@ namespace NINA.Joko.Plugins.HocusFocus {
                     starAnnotatorSelector,
                     AutoFocusOptions,
                     StarAnnotatorOptions,
-                    AlglibAPI);
+                    AlglibAPI,
+                    // Lets the engine resolve a per-filter sweep-geometry override for the filter a run will
+                    // actually expose through. Constructed above, so it is non-null by the time this runs.
+                    PerFilterStarDetection);
             }
 
             options.AddImagePattern(fwhmImagePattern);

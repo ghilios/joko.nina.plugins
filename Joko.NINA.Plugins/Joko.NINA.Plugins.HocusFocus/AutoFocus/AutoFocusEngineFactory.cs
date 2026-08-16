@@ -33,6 +33,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IStarAnnotatorOptions starAnnotatorOptions;
         private readonly IAlglibAPI alglibAPI;
+        private readonly IPerFilterStarDetectionStore perFilterStore;
 
         public AutoFocusEngineFactory(
             IProfileService profileService,
@@ -46,7 +47,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
             IAutoFocusOptions autoFocusOptions,
             IStarAnnotatorOptions starAnnotatorOptions,
-            IAlglibAPI alglibAPI) {
+            IAlglibAPI alglibAPI,
+            IPerFilterStarDetectionStore perFilterStore = null) {
+            this.perFilterStore = perFilterStore;
             this.profileService = profileService;
             this.cameraMediator = cameraMediator;
             this.filterWheelMediator = filterWheelMediator;
@@ -74,7 +77,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 starAnnotatorSelector,
                 autoFocusOptions,
                 starAnnotatorOptions,
-                alglibAPI);
+                alglibAPI,
+                perFilterStore);
         }
     }
 }

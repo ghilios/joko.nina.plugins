@@ -61,6 +61,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IAutoFocusOptions autoFocusOptions;
         private readonly IStarAnnotatorOptions starAnnotatorOptions;
         private readonly IAlglibAPI alglibAPI;
+        // Null in tests and in hosts without per-filter settings; a null store means "feature off", which is the
+        // same code path as the feature being disabled.
+        private readonly IPerFilterStarDetectionStore perFilterStore;
 
         public AutoFocusEngine(
             IProfileService profileService,
@@ -74,7 +77,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IPluggableBehaviorSelector<IStarAnnotator> starAnnotatorSelector,
             IAutoFocusOptions autoFocusOptions,
             IStarAnnotatorOptions starAnnotatorOptions,
-            IAlglibAPI alglibAPI) {
+            IAlglibAPI alglibAPI,
+            IPerFilterStarDetectionStore perFilterStore = null) {
+            this.perFilterStore = perFilterStore;
             this.profileService = profileService;
             this.cameraMediator = cameraMediator;
             this.filterWheelMediator = filterWheelMediator;
@@ -1605,6 +1610,20 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IProgress<ApplicationStatus> progress,
             bool forRerun = false) {
             var autofocusFilter = forRerun ? imagingFilter : await SetAutofocusFilter(options, imagingFilter, token, progress);
+
+            // Warn, never re-resolve. Re-resolving here would overwrite the geometry AFTER the caller's relative
+            // transforms (signal amplification, focus recovery) have already scaled it -- see GetOptions. The only
+            // realistic way to reach this is a ChangeFilter failure inside SetAutofocusFilter (warned separately)
+            // or a wheel that moved between GetOptions and here, so a log line is the right cost.
+            if (!forRerun
+                && !string.IsNullOrEmpty(options.SweepGeometryFilterName)
+                && !string.Equals(options.SweepGeometryFilterName, autofocusFilter?.Name, StringComparison.Ordinal)) {
+                Logger.Warning(
+                    $"Sweep geometry was resolved for filter '{options.SweepGeometryFilterName}' but this run will expose through " +
+                    $"'{autofocusFilter?.Name}'. Using the already-resolved geometry (step {options.AutoFocusStepSize}, " +
+                    $"offset {options.AutoFocusInitialOffsetSteps}).");
+            }
+
             return new AutoFocusState(
                 options,
                 autofocusFilter,
@@ -2967,8 +2986,25 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             Failed?.Invoke(this, GetFailedEventArgs(state, temperature, duration));
         }
 
-        public AutoFocusEngineOptions GetOptions(SavedAutoFocusAttempt savedAttempt = null) {
+        /// <summary>
+        /// Builds the options for a run. <paramref name="imagingFilter"/> and <paramref name="useExactImagingFilter"/>
+        /// key the per-filter sweep-geometry lookup; both are optional, and with no filter supplied the resolver
+        /// falls back to whatever the wheel currently reports (the same thing per-filter DETECTION keys on).
+        ///
+        /// <para>Geometry is resolved HERE, and deliberately not later in <c>InitializeState</c>, because callers
+        /// apply <b>relative</b> transforms to these two numbers after this returns —
+        /// <c>InspectorVM.ApplySignalAmplification</c> divides the step size and multiplies the offset,
+        /// <c>StarDetectionOptimizerWizardVM.ApplyFocusRecovery</c> widens the offset. Resolving after those ran
+        /// would silently discard them; resolving before them means every transform composes on the right base.</para>
+        /// </summary>
+        public AutoFocusEngineOptions GetOptions(
+            SavedAutoFocusAttempt savedAttempt = null,
+            FilterInfo imagingFilter = null,
+            bool useExactImagingFilter = false) {
+            var (sweepStepSize, sweepOffsetSteps, geometryFilterName) =
+                ResolveSweepGeometry(savedAttempt, imagingFilter, useExactImagingFilter);
             return new AutoFocusEngineOptions() {
+                SweepGeometryFilterName = geometryFilterName,
                 DebayerImage = profileService.ActiveProfile.ImageSettings.DebayerImage,
                 NumberOfAFStars = profileService.ActiveProfile.FocuserSettings.AutoFocusUseBrightestStars,
                 TotalNumberOfAttempts = profileService.ActiveProfile.FocuserSettings.AutoFocusTotalNumberOfAttempts,
@@ -2981,8 +3017,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 SavePath = autoFocusOptions.SavePath,
                 HFRImprovementThreshold = autoFocusOptions.HFRImprovementThreshold,
                 AutoFocusTimeout = TimeSpan.FromSeconds(autoFocusOptions.AutoFocusTimeoutSeconds),
-                AutoFocusInitialOffsetSteps = profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps,
-                AutoFocusStepSize = ((savedAttempt?.StepSize != null) && (savedAttempt?.StepSize > 0)) ? savedAttempt.StepSize.Value : profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize,
+                AutoFocusInitialOffsetSteps = sweepOffsetSteps,
+                AutoFocusStepSize = ((savedAttempt?.StepSize != null) && (savedAttempt?.StepSize > 0)) ? savedAttempt.StepSize.Value : sweepStepSize,
                 FocuserOffset = autoFocusOptions.FocuserOffset,
                 MaxBlindStepsPerDirection = autoFocusOptions.MaxBlindStepsPerDirection,
                 MaxOutlierRejections = autoFocusOptions.MaxOutlierRejections,
@@ -2995,6 +3031,45 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // no persisted option or UI. Nothing consumes it yet at this checkpoint.
                 SymmetricFocusWindowEnabled = true,
             };
+        }
+
+        /// <summary>
+        /// The sweep geometry this run should use, plus the filter name it was keyed on (null when no per-filter
+        /// lookup happened). Precedence: replay carve-out, then the resolved filter's override, then the profile.
+        /// </summary>
+        private (int StepSize, int OffsetSteps, string FilterName) ResolveSweepGeometry(
+            SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, bool useExactImagingFilter) {
+            var focuserSettings = profileService.ActiveProfile.FocuserSettings;
+            var profileGeometry = (focuserSettings.AutoFocusStepSize, focuserSettings.AutoFocusInitialOffsetSteps, (string)null);
+
+            // Replay never takes live geometry: the step size is re-derived from the saved frames and the offset
+            // comes from the capture-time snapshot. Keying either off whichever filter happens to be in the wheel
+            // tonight is exactly the stale-value bug that carve-out exists to prevent.
+            if (savedAttempt != null || perFilterStore?.Enabled != true) {
+                return profileGeometry;
+            }
+
+            // No filter handed in => ask the wheel, the same way per-filter DETECTION keys off the capture-time
+            // filter recorded in image metadata.
+            var candidate = imagingFilter ?? filterWheelMediator?.GetInfo()?.SelectedFilter;
+            var filterName = AutoFocusFilterResolver.ResolveName(profileService.ActiveProfile, candidate, useExactImagingFilter);
+            if (string.IsNullOrWhiteSpace(filterName)) {
+                // Unlike detection -- which throws PerFilterSettingsUnavailableException because it has no fallback
+                // -- geometry has a correct one, and failing an auto-focus run over a sweep SPACING would be a
+                // regression. The owned entry points already refuse up front when the wheel is down; this path is
+                // reached by NINA's own auto-focus and the headless harness.
+                Logger.Debug("Per-filter sweep geometry: no filter could be resolved; using the profile values.");
+                return profileGeometry;
+            }
+
+            var geometry = perFilterStore.GetSweepGeometry(filterName);
+            if (geometry == null) {
+                return profileGeometry;
+            }
+            return (
+                geometry.HasStepSize ? geometry.StepSize : focuserSettings.AutoFocusStepSize,
+                geometry.HasOffsetSteps ? geometry.InitialOffsetSteps : focuserSettings.AutoFocusInitialOffsetSteps,
+                filterName);
         }
 
         private static readonly Regex ATTEMPT_REGEX = new Regex(@"^attempt(?<ATTEMPT>\d+)$", RegexOptions.Compiled);
