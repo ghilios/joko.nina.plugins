@@ -2970,6 +2970,18 @@
                         </TextBlock>
                         <!--  Calibrated guidance branch  -->
                         <StackPanel Visibility="{Binding HasTiltAdapterCalibration, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <!--  Selecting an old history row switches this whole table to that run's
+                                  flatten-from-there numbers, which reads far too easily as "how to get back
+                                  there". Say so, right above the numbers it is about.  -->
+                            <TextBlock
+                                MaxWidth="520"
+                                Margin="5,4,5,2"
+                                HorizontalAlignment="Left"
+                                FontStyle="Italic"
+                                Foreground="{StaticResource NotificationWarningBrush}"
+                                Text="{Binding ViewingPastRunNotice}"
+                                TextWrapping="Wrap"
+                                Visibility="{Binding HasViewingPastRunNotice, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             <!--  Direction legend: ⬆/⬇ = adapter motion, ⟳/⟲ = screw rotation. First
                                   element so the conventions are read before the table.  -->
                             <TextBlock
@@ -3814,7 +3826,7 @@
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             FontWeight="DemiBold"
-                            Text="Tilt Adjustment History" />
+                            Text="Tilt Plane Runs" />
                         <DataGrid
                             Grid.Row="1"
                             Margin="10"
@@ -4008,6 +4020,7 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -4018,7 +4031,7 @@
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             FontWeight="DemiBold"
-                            Text="Tilt Adjustment History" />
+                            Text="Sensor Model Runs" />
                         <DataGrid
                             Grid.Row="1"
                             Margin="10"
@@ -4033,6 +4046,23 @@
                                     Width="Auto"
                                     Binding="{Binding HistoryId}"
                                     Header="Id" />
+                                <!--  Three columns that make a row identifiable enough to pick "the run before I
+                                      broke it": when it was measured, whether an adjustment was applied AFTER it
+                                      (so the adapter no longer matches it), and whether motor positions were
+                                      recorded (so one-click return is available). Session-scoped history, so the
+                                      time needs no date.  -->
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding CapturedAtDisplay}"
+                                    Header="Time" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding AdjustmentAppliedDisplay}"
+                                    Header="Adjusted" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding PositionsRecordedDisplay}"
+                                    Header="Pos" />
                                 <DataGridTextColumn
                                     Width="Auto"
                                     Binding="{Binding Path=TiltPlaneModel.TopLeft.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
@@ -4063,6 +4093,63 @@
                                     Header="Auto Focus Offset" />
                             </DataGrid.Columns>
                         </DataGrid>
+                        <!--  "Return to this run": a read-only PREVIEW of what returning the adapter to the
+                              selected run would send, plus the single control that actually moves hardware.
+                              Selecting a row stays view-only; nothing here acts on selection alone. Deliberately
+                              one button below the grid rather than a button per row, because the grid is dense
+                              and a device-driving control per row invites misclicks.  -->
+                        <Border
+                            Grid.Row="2"
+                            Margin="10,0,10,10"
+                            Padding="6"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="3"
+                            Visibility="{Binding RunReturn.IsVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <StackPanel>
+                                <TextBlock FontWeight="Bold" Text="{Binding RunReturn.Header}" TextWrapping="Wrap" />
+                                <TextBlock
+                                    MaxWidth="520"
+                                    Margin="0,3,0,0"
+                                    HorizontalAlignment="Left"
+                                    Text="{Binding RunReturn.BodyText}"
+                                    TextWrapping="Wrap" />
+                                <ItemsControl Margin="0,4,0,0" ItemsSource="{Binding RunReturn.MotionLines}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Margin="0,1,0,0" controls:IconizedText.Text="{Binding}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Border
+                                    Margin="0,6,0,0"
+                                    Padding="5"
+                                    BorderBrush="{StaticResource NotificationWarningBrush}"
+                                    BorderThickness="1"
+                                    Visibility="{Binding RunReturn.HasWarning, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                    <TextBlock MaxWidth="500" Text="{Binding RunReturn.WarningText}" TextWrapping="Wrap" />
+                                </Border>
+                                <TextBlock
+                                    MaxWidth="520"
+                                    Margin="0,4,0,0"
+                                    HorizontalAlignment="Left"
+                                    FontStyle="Italic"
+                                    Text="{Binding RunReturn.CaveatText}"
+                                    TextWrapping="Wrap"
+                                    Visibility="{Binding RunReturn.HasCaveat, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                                <Button
+                                    Margin="0,6,0,0"
+                                    HorizontalAlignment="Left"
+                                    Command="{Binding ReturnToRunCommand}"
+                                    ToolTip="Sends relative moves to bring each motor to the position recorded at this run, with the same approval, journaling and position publishing as Automatic Adjustment."
+                                    Visibility="{Binding RunReturn.ShowDriveButton, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                    <TextBlock
+                                        Margin="10,5,10,5"
+                                        Foreground="{StaticResource ButtonForegroundBrush}"
+                                        Text="{Binding RunReturn.DriveButtonText}" />
+                                </Button>
+                            </StackPanel>
+                        </Border>
                     </Grid>
                 </Expander>
 

@@ -845,6 +845,67 @@ public class InspectorVMAutomaticAdjustmentTests {
         Assert.That(fx.ReRunCallCount, Is.EqualTo(0));
     }
 
+    // --- Adapter state recorded with each run --------------------------------------------------------------
+    //
+    // Reads the SERVICE's positions rather than the controller's, because that is the number the panel shows and
+    // the one kept correct during an adjustment lease (when the poll is suspended and only the post-move
+    // publishes advance it).
+
+    [Test]
+    public void CaptureAdapterState_NoDeviceConnected_RecordsAnUnknownSnapshotThatStillHasATimestamp() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+
+        var snapshot = vm.CaptureAdapterStateForTest();
+
+        Assert.Multiple(() => {
+            Assert.That(snapshot, Is.Not.Null);
+            Assert.That(snapshot.HasPositions, Is.False);
+            Assert.That(snapshot.PositionsKnown, Is.False);
+            Assert.That(snapshot.CapturedUtc, Is.Not.EqualTo(default(DateTime)));
+        });
+    }
+
+    [Test]
+    public void CaptureAdapterState_PositionsUnknown_MarksNotKnown() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.ConnectAsync().GetAwaiter().GetResult();
+
+        var snapshot = vm.CaptureAdapterStateForTest();
+
+        Assert.Multiple(() => {
+            Assert.That(snapshot.PositionsKnown, Is.False, "the fixture's controller reports Unknown positions");
+            Assert.That(snapshot.DevicePresetName, Is.EqualTo(AdjustmentFixture.PresetName),
+                "the preset is recorded even without positions, so a later snapshot cannot be misattributed");
+        });
+    }
+
+    [Test]
+    public void AdapterStateSnapshot_CopiesThePositionsItWasGiven() {
+        // The service hands out its live list, which the next poll replaces.
+        var live = new List<int> { 1, 2, 3, 4 };
+        var snapshot = new TiltAdapterStateSnapshot(DateTime.UtcNow, live, positionsKnown: true, devicePresetName: "p");
+
+        live[0] = 999;
+
+        Assert.That(snapshot.PerMotorSteps[0], Is.EqualTo(1));
+    }
+
+    [Test]
+    public void SensorParaboloidTiltHistoryModel_DefaultsToNoAdapterState() {
+        var run = new SensorParaboloidTiltHistoryModel(
+            historyId: 1, imageSize: new System.Drawing.Size(10, 10), pixelSizeMicrons: 1, fRatio: 5,
+            focuserSizeMicrons: 1, finalFocusPosition: 0, tiltEffectMicrons: 0, curvatureEffectMicrons: 0,
+            autoFocusOffset: 0, tiltPlaneModel: null, sensorModel: null);
+
+        Assert.Multiple(() => {
+            Assert.That(run.AdapterState, Is.Null, "an optional trailing parameter keeps every existing caller working");
+            Assert.That(run.PositionsRecordedDisplay, Is.EqualTo("—"));
+            Assert.That(run.AdjustmentAppliedDisplay, Is.Empty);
+        });
+    }
+
     // --- Plans come from the newest MEASUREMENT, never from the history selection ---------------------------
 
     // Selecting a row in the history grid rewrites SensorModel.DisplayedSensorModel with that past run's fit,

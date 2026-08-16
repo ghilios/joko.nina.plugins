@@ -70,7 +70,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             double curvatureEffectMicrons,
             double autoFocusOffset,
             TiltPlaneModel tiltPlaneModel,
-            SensorParaboloidModel sensorModel) {
+            SensorParaboloidModel sensorModel,
+            TiltAdapterStateSnapshot adapterState = null) {
+            AdapterState = adapterState;
             HistoryId = historyId;
             ImageSize = imageSize;
             PixelSizeMicrons = pixelSizeMicrons;
@@ -95,6 +97,32 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public double AutoFocusOffset { get; private set; }
         public TiltPlaneModel TiltPlaneModel { get; private set; }
         public SensorParaboloidModel SensorModel { get; private set; }
+
+        /// <summary>
+        /// What the tilt adapter looked like when this run was measured. Null for runs measured with no device
+        /// connected, and for every run made before this was recorded.
+        ///
+        /// <para>Passed IN rather than read here: sampling it inside <c>UpdateModel</c> would put a device
+        /// dependency into a math class, and would take the sample at an unpredictable moment relative to the
+        /// fit rather than at a defined point in the analysis.</para>
+        /// </summary>
+        public TiltAdapterStateSnapshot AdapterState { get; private set; }
+
+        /// <summary>
+        /// Set once an adjustment computed FROM this run has actually sent a move, i.e. the adapter has been
+        /// moved away from the state this measurement describes. Marks the rows worth returning to.
+        /// </summary>
+        public bool AdjustmentAppliedAfterwards { get; set; }
+
+        /// <summary>Local capture time for the grid's Time column; falls back to nothing when unrecorded.</summary>
+        public string CapturedAtDisplay =>
+            AdapterState == null ? string.Empty : AdapterState.CapturedUtc.ToLocalTime().ToString("HH:mm:ss");
+
+        /// <summary>"✓" when this run can be returned to by driving the motors, "—" otherwise.</summary>
+        public string PositionsRecordedDisplay => AdapterState?.HasPositions == true ? "✓" : "—";
+
+        /// <summary>"⚙" when an adjustment was applied after this run.</summary>
+        public string AdjustmentAppliedDisplay => AdjustmentAppliedAfterwards ? "⚙" : string.Empty;
     }
 
     public class SensorModel : BaseINPC {
@@ -124,7 +152,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             double finalFocusPosition,
             int stepSize,
             IProgress<ApplicationStatus> progress,
-            CancellationToken ct) {
+            CancellationToken ct,
+            TiltAdapterStateSnapshot adapterState = null) {
             if (allDetectedStars.Count == 0) {
                 throw new ArgumentException("Cannot update sensor model. No detected stars provided");
             }
@@ -162,6 +191,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
                 var historyId = Interlocked.Increment(ref nextHistoryId);
                 SensorTiltHistoryModels.Insert(0, new SensorParaboloidTiltHistoryModel(
+                    adapterState: adapterState,
                     historyId: historyId,
                     pixelSizeMicrons: pixelSize,
                     fRatio: fRatio,
