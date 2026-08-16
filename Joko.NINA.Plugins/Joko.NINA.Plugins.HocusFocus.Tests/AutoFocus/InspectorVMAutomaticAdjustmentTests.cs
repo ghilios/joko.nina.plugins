@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -964,17 +964,127 @@ public class InspectorVMAutomaticAdjustmentTests {
         var plan = new TiltAdapterMovePlan(new[] { move }, new double[4], 0, 10);
         fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, plan);
         fx.ConfirmAnswers.Enqueue(true); // accept the re-run
-        fx.ConfirmAnswers.Enqueue(true); // accept the worsening-revert offer
         // The fake re-run "measures" a substantially worse tilt (10x the magnitude) before completing.
         fx.OnReRun = () => fx.SeedValidModel(vm, gx: 0.01, gy: 0.0);
 
         vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        // The adjustment itself now ENDS with the banner raised. No modal, and nothing reverted yet.
         Assert.Multiple(() => {
-            Assert.That(fx.ConfirmPrompts.Any(p => p.Title.Contains("Worsened")), Is.True, "the worsening-revert prompt must be shown");
-            // 1 forward move + 1 revert (the inverse of `move`).
-            Assert.That(fx.ExecutedMoves, Has.Count.EqualTo(2));
+            Assert.That(vm.TiltWorseningBannerVisible, Is.True, "the banner must be raised");
+            Assert.That(vm.PendingRevertMoveCountForTest, Is.EqualTo(1), "the journal must survive for the banner's button");
+            Assert.That(fx.ConfirmPrompts.Any(p => p.Title.Contains("Worsened")), Is.False, "the modal is gone");
+            Assert.That(fx.ConfirmPrompts, Has.Count.EqualTo(1), "only the re-run prompt remains");
+            Assert.That(fx.ExecutedMoves, Has.Count.EqualTo(1), "only the forward move so far");
+        });
+
+        vm.RevertLastAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        Assert.Multiple(() => {
+            Assert.That(fx.ExecutedMoves, Has.Count.EqualTo(2), "the button sends the inverse");
             Assert.That(fx.ExecutedMoves[1].Axis, Is.EqualTo(move.Axis));
             Assert.That(fx.ExecutedMoves[1].Steps, Is.EqualTo(-move.Steps));
+            Assert.That(vm.TiltWorseningBannerVisible, Is.False, "and clears itself afterwards");
+        });
+    }
+
+    // While the offer is outstanding the adjustment button is dead regardless of generation. This is the term
+    // that replaces the lock the modal used to provide implicitly by blocking the thread.
+    [Test]
+    public void TiltWorseningBanner_WhileVisible_AutomaticAdjustmentIsDisabled() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.SeedValidModel(vm, gx: 0.001, gy: 0.0);
+        vm.MeasurementGenerationForTest = 1;
+        fx.ConnectAsync().GetAwaiter().GetResult();
+        var move = Move(TiltMoveAxis.Backfocus, 10, TiltMoveGroup.Backfocus, "bf");
+        fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, new TiltAdapterMovePlan(new[] { move }, new double[4], 0, 10));
+        fx.ConfirmAnswers.Enqueue(true);
+        fx.OnReRun = () => fx.SeedValidModel(vm, gx: 0.01, gy: 0.0);
+
+        vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        Assert.Multiple(() => {
+            Assert.That(vm.TiltWorseningBannerVisible, Is.True, "precondition");
+            Assert.That(vm.AutomaticAdjustmentCommand.CanExecute(null), Is.False);
+        });
+    }
+
+    // Dismiss records a decision; it must not pretend the moves were undone, and it must not consume the
+    // measurement -- a user who accepts the worse state may legitimately want to correct FROM it.
+    [Test]
+    public void TiltWorseningBanner_Dismissed_LeavesMovesInPlaceAndReEnablesAdjustment() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.SeedValidModel(vm, gx: 0.001, gy: 0.0);
+        vm.MeasurementGenerationForTest = 1;
+        fx.ConnectAsync().GetAwaiter().GetResult();
+        var move = Move(TiltMoveAxis.Backfocus, 10, TiltMoveGroup.Backfocus, "bf");
+        fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, new TiltAdapterMovePlan(new[] { move }, new double[4], 0, 10));
+        fx.ConfirmAnswers.Enqueue(true);
+        fx.OnReRun = () => fx.SeedValidModel(vm, gx: 0.01, gy: 0.0);
+        vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        vm.DismissWorseningBannerCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.TiltWorseningBannerVisible, Is.False);
+            Assert.That(fx.ExecutedMoves, Has.Count.EqualTo(1), "nothing was reverted");
+            Assert.That(vm.LastExecutedMeasurementGenerationForTest, Is.EqualTo(1),
+                "the confirming measurement is NOT consumed by a dismiss");
+            Assert.That(vm.AutomaticAdjustmentCommand.CanExecute(null), Is.True,
+                "correcting forward from the worse state is legitimate");
+        });
+    }
+
+    [Test]
+    public void TiltWorseningBanner_DeviceDisconnected_StaysVisibleWithABlockedReason() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.SeedValidModel(vm, gx: 0.001, gy: 0.0);
+        vm.MeasurementGenerationForTest = 1;
+        fx.ConnectAsync().GetAwaiter().GetResult();
+        var move = Move(TiltMoveAxis.Backfocus, 10, TiltMoveGroup.Backfocus, "bf");
+        fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, new TiltAdapterMovePlan(new[] { move }, new double[4], 0, 10));
+        fx.ConfirmAnswers.Enqueue(true);
+        fx.OnReRun = () => fx.SeedValidModel(vm, gx: 0.01, gy: 0.0);
+        vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        fx.Service.DisconnectAsync().GetAwaiter().GetResult();
+
+        Assert.Multiple(() => {
+            Assert.That(vm.TiltWorseningBannerVisible, Is.True, "the warning is still true after a disconnect");
+            Assert.That(vm.TiltWorseningRevertBlockedReason, Is.Not.Empty);
+            Assert.That(vm.CanShowWorseningRevertButton, Is.False);
+        });
+    }
+
+    [Test]
+    public void TiltWorseningBanner_ClearedByClearAnalyses() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.SeedValidModel(vm, gx: 0.001, gy: 0.0);
+        vm.MeasurementGenerationForTest = 1;
+        fx.ConnectAsync().GetAwaiter().GetResult();
+        var move = Move(TiltMoveAxis.Backfocus, 10, TiltMoveGroup.Backfocus, "bf");
+        fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, new TiltAdapterMovePlan(new[] { move }, new double[4], 0, 10));
+        fx.ConfirmAnswers.Enqueue(true);
+        fx.OnReRun = () => fx.SeedValidModel(vm, gx: 0.01, gy: 0.0);
+        vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        vm.ClearAnalysesCommand.Execute(null);
+
+        Assert.That(vm.TiltWorseningBannerVisible, Is.False);
+    }
+
+    [Test]
+    public void BuildWorseningBannerText_NamesBothMagnitudesAndTheMoveCount() {
+        var text = InspectorVM.BuildWorseningBannerText(0.001, 0.01, 6);
+
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("0.001"));
+            Assert.That(text, Does.Contain("0.01"));
+            Assert.That(text, Does.Contain("6 moves"));
         });
     }
 
@@ -994,12 +1104,12 @@ public class InspectorVMAutomaticAdjustmentTests {
         var plan = new TiltAdapterMovePlan(new[] { move }, new double[4], 0, 10);
         fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, plan);
         fx.ConfirmAnswers.Enqueue(true); // accept the re-run
-        fx.ConfirmAnswers.Enqueue(true); // accept the worsening-revert offer
         // The fake re-run "measures" a substantially worse tilt (10x the magnitude) before completing; this
         // also bumps measurementGeneration to 2 (see ReRunAnalysisAsync's fake behavior above).
         fx.OnReRun = () => fx.SeedValidModel(vm, gx: 0.01, gy: 0.0);
 
         vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        vm.RevertLastAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
         Assert.Multiple(() => {
             Assert.That(fx.ExecutedMoves, Has.Count.EqualTo(2), "precondition: the revert actually ran");
             Assert.That(vm.LastExecutedMeasurementGenerationForTest, Is.EqualTo(2), "consumed against the CURRENT (post-revert) generation, not the stale pre-revert one");
@@ -1013,7 +1123,10 @@ public class InspectorVMAutomaticAdjustmentTests {
     }
 
     [Test]
-    public void ReRunConfirmed_TiltWorsened_DeclinedRevert_LeavesMovesInPlace() {
+    // Was "declining the revert offer leaves the moves in place". There is no offer to decline any more -- the
+    // adjustment ends with a banner and the user acts later, or not at all -- so the honest form of the same
+    // guarantee is that simply LEAVING the banner alone reverts nothing.
+    public void ReRunConfirmed_TiltWorsened_BannerLeftAlone_RevertsNothing() {
         var fx = new AdjustmentFixture();
         var vm = fx.BuildVM();
         fx.SeedValidModel(vm, gx: 0.001, gy: 0.0);
@@ -1023,11 +1136,14 @@ public class InspectorVMAutomaticAdjustmentTests {
         var plan = new TiltAdapterMovePlan(new[] { move }, new double[4], 0, 10);
         fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, plan);
         fx.ConfirmAnswers.Enqueue(true);  // accept the re-run
-        fx.ConfirmAnswers.Enqueue(false); // DECLINE the worsening-revert offer
         fx.OnReRun = () => fx.SeedValidModel(vm, gx: 0.01, gy: 0.0);
 
         vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
-        Assert.That(fx.ExecutedMoves, Has.Count.EqualTo(1), "declining the revert offer must leave the applied move(s) in place");
+
+        Assert.Multiple(() => {
+            Assert.That(fx.ExecutedMoves, Has.Count.EqualTo(1), "the applied move stays applied until the user asks otherwise");
+            Assert.That(vm.TiltWorseningBannerVisible, Is.True, "and the offer is still standing");
+        });
     }
 
     // --- Mid-plan failure: journal + revert ----------------------------------------------------------------
@@ -1226,10 +1342,10 @@ public class InspectorVMAutomaticAdjustmentTests {
         var plan = new TiltAdapterMovePlan(new[] { moveA, moveB }, new double[4], 0, 20);
         fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, plan);
         fx.ConfirmAnswers.Enqueue(true); // accept the re-run
-        fx.ConfirmAnswers.Enqueue(true); // accept the worsening-revert offer
         fx.OnReRun = () => fx.SeedValidModel(vm, gx: 0.01, gy: 0.0);
 
         vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        vm.RevertLastAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
 
         Assert.That(fx.ExecutedMoves, Has.Count.EqualTo(4), "precondition: 2 forward moves + 2 reverts");
         Assert.That(() => fx.ReportedAClearingStatus, Is.True.After(2000).PollEvery(20),
@@ -1301,7 +1417,6 @@ public class InspectorVMAutomaticAdjustmentTests {
         var plan = new TiltAdapterMovePlan(new[] { move }, new double[4], 0, 10);
         fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, plan);
         fx.ConfirmAnswers.Enqueue(true); // accept the re-run
-        fx.ConfirmAnswers.Enqueue(true); // accept the worsening-revert offer
         fx.OnReRun = () => fx.SeedValidModel(vm, gx: 0.01, gy: 0.0);
         // The forward move reports 640/600/560/600; the revert puts every motor back to 600.
         fx.Controller.LastKnownPositions.Returns(
@@ -1309,6 +1424,7 @@ public class InspectorVMAutomaticAdjustmentTests {
             new TiltDevicePositions(new[] { 600, 600, 600, 600 }, known: true));
 
         vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+        vm.RevertLastAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
 
         Assert.That(fx.ExecutedMoves, Has.Count.EqualTo(2), "precondition: 1 forward move + 1 revert");
         Assert.That(vm.ScrewPositionTopRightDisplay, Is.EqualTo("600"),

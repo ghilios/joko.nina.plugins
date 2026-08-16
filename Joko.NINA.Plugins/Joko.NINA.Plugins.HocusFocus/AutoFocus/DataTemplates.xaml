@@ -2961,6 +2961,62 @@
                               visible to a user looking at the inspector, whose whole tilt section is about to
                               vanish when the countdown expires.  -->
                         <ContentControl Content="{Binding IdleCountdown}" />
+                        <!--  "Tilt got worse" banner. First thing in this panel because it disclaims the numbers
+                              below it, and outside the device-connected block so a disconnect degrades the button
+                              to an explanation rather than making the whole warning disappear.
+                              BorderThickness 1 with NotificationErrorBrush is the house style for a red box that
+                              CARRIES AN ACTION; the 3px plain-Red box elsewhere is the text-only fatal style.  -->
+                        <Border
+                            Margin="5,4,5,2"
+                            Padding="6"
+                            BorderBrush="{StaticResource NotificationErrorBrush}"
+                            BorderThickness="1"
+                            CornerRadius="3"
+                            Visibility="{Binding TiltWorseningBannerVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <StackPanel>
+                                <TextBlock
+                                    MaxWidth="520"
+                                    HorizontalAlignment="Left"
+                                    FontWeight="Bold"
+                                    Foreground="{StaticResource NotificationErrorBrush}"
+                                    Text="Tilt got worse after the last adjustment"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    MaxWidth="520"
+                                    Margin="0,3,0,0"
+                                    HorizontalAlignment="Left"
+                                    Text="{Binding TiltWorseningBannerText}"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    MaxWidth="520"
+                                    Margin="0,3,0,0"
+                                    HorizontalAlignment="Left"
+                                    FontStyle="Italic"
+                                    Text="{Binding TiltWorseningRevertBlockedReason}"
+                                    TextWrapping="Wrap"
+                                    Visibility="{Binding TiltWorseningRevertBlockedReason, Converter={StaticResource NullOrEmptyStringToVisibilityCollapsedConverter}}" />
+                                <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
+                                    <Button
+                                        Command="{Binding RevertLastAdjustmentCommand}"
+                                        ToolTip="Sends the inverse of each move, in reverse order."
+                                        Visibility="{Binding CanShowWorseningRevertButton, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                        <TextBlock
+                                            Margin="10,5,10,5"
+                                            Foreground="{StaticResource ButtonForegroundBrush}"
+                                            Text="{Binding TiltWorseningRevertButtonText}" />
+                                    </Button>
+                                    <Button
+                                        Margin="6,0,0,0"
+                                        AutomationProperties.Name="Dismiss this warning"
+                                        Command="{Binding DismissWorseningBannerCommand}">
+                                        <TextBlock
+                                            Margin="10,5,10,5"
+                                            Foreground="{StaticResource ButtonForegroundBrush}"
+                                            Text="Dismiss" />
+                                    </Button>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
                         <!--  No calibration branch  -->
                         <TextBlock
                             Margin="5"

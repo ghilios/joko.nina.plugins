@@ -285,6 +285,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             ReviewFramesCommand = new RelayCommand(ShowFrameReview, canExecute: () => ReviewFramesAvailable);
             AutomaticAdjustmentCommand = new AsyncRelayCommand(RunAutomaticAdjustmentAsync, CanExecuteAutomaticAdjustmentNow);
             ReturnToRunCommand = new AsyncRelayCommand(ReturnToSelectedRunAsync, CanExecuteReturnToRunNow);
+            RevertLastAdjustmentCommand = new AsyncRelayCommand(RevertLastAdjustmentAsync, CanExecuteRevertLastAdjustmentNow);
+            DismissWorseningBannerCommand = new RelayCommand(ClearWorseningBanner);
         }
 
         private bool AnalysisRunning() {
@@ -1930,12 +1932,161 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        // --- "Tilt got worse" banner ---------------------------------------------------------------------
+        //
+        // Replaces a modal that appeared after the confirming re-run and asked for a revert decision with none of
+        // the numbers visible. The journal and the controller identity have to survive past
+        // RunAutomaticAdjustmentAsync's return so the banner's button can still act.
+
+        private IReadOnlyList<TiltAdapterMove> pendingRevertJournal;
+
+        // Held ONLY for a ReferenceEquals test, never invoked. The journal's moves are device-relative, not
+        // controller-relative, so the command resolves the live controller at execution time; a stale reference
+        // used to send would be a whole class of bug.
+        private object pendingRevertControllerIdentity;
+
+        public bool TiltWorseningBannerVisible { get; private set; }
+
+        public string TiltWorseningBannerText { get; private set; } = string.Empty;
+
+        /// <summary>Non-empty when the revert cannot run right now; shown in place of the button, saying why.</summary>
+        public string TiltWorseningRevertBlockedReason { get; private set; } = string.Empty;
+
+        public bool CanShowWorseningRevertButton => TiltWorseningBannerVisible
+            && (pendingRevertJournal?.Count ?? 0) > 0
+            && string.IsNullOrEmpty(TiltWorseningRevertBlockedReason);
+
+        public string TiltWorseningRevertButtonText => (pendingRevertJournal?.Count ?? 0) == 1
+            ? "Revert the 1 move"
+            : $"Revert the {pendingRevertJournal?.Count ?? 0} moves";
+
+        public IAsyncRelayCommand RevertLastAdjustmentCommand { get; private set; }
+
+        public ICommand DismissWorseningBannerCommand { get; private set; }
+
+        internal int PendingRevertMoveCountForTest => pendingRevertJournal?.Count ?? 0;
+
+        /// <summary>Pure so the wording can be asserted without driving a whole adjustment.</summary>
+        internal static string BuildWorseningBannerText(double beforeMagnitude, double afterMagnitude, int moveCount) {
+            var moves = moveCount == 1 ? "1 move" : $"{moveCount} moves";
+            return $"Tilt magnitude rose from {beforeMagnitude:0.####} to {afterMagnitude:0.####} after the {moves} " +
+                   "Automatic Adjustment sent. This can indicate a stale calibration, a rotated camera or adapter, or an " +
+                   "incorrect screw-direction setting — investigate before adjusting again.";
+        }
+
+        private void RaiseWorseningBanner(
+                IReadOnlyList<TiltAdapterMove> journal, ITiltMotionController controller, double before, double after) {
+            pendingRevertJournal = journal?.ToArray() ?? Array.Empty<TiltAdapterMove>();
+            pendingRevertControllerIdentity = controller;
+            TiltWorseningBannerVisible = true;
+            TiltWorseningBannerText = BuildWorseningBannerText(before, after, pendingRevertJournal.Count);
+            TiltWorseningRevertBlockedReason = string.Empty;
+            RaiseWorseningBannerChanged();
+        }
+
+        /// <summary>
+        /// Clears the banner. Called on dismiss, after a revert, when a new analysis completes, and by
+        /// ClearAnalyses — a banner describes exactly one measurement PAIR, so once a newer measurement exists its
+        /// claim is stale and offering a revert against fresh numbers would be dangerous.
+        /// </summary>
+        private void ClearWorseningBanner() {
+            if (!TiltWorseningBannerVisible && pendingRevertJournal == null) {
+                return;
+            }
+            pendingRevertJournal = null;
+            pendingRevertControllerIdentity = null;
+            TiltWorseningBannerVisible = false;
+            TiltWorseningBannerText = string.Empty;
+            TiltWorseningRevertBlockedReason = string.Empty;
+            RaiseWorseningBannerChanged();
+        }
+
+        private void RaiseWorseningBannerChanged() {
+            applicationDispatcher.PostSynchronizationContext(() => {
+                RaisePropertyChanged(nameof(TiltWorseningBannerVisible));
+                RaisePropertyChanged(nameof(TiltWorseningBannerText));
+                RaisePropertyChanged(nameof(TiltWorseningRevertBlockedReason));
+                RaisePropertyChanged(nameof(CanShowWorseningRevertButton));
+                RaisePropertyChanged(nameof(TiltWorseningRevertButtonText));
+                RevertLastAdjustmentCommand?.NotifyCanExecuteChanged();
+                // While an offer is outstanding the adjustment button is dead regardless of generation. This term
+                // is what replaces the lock the modal used to provide implicitly by blocking the thread.
+                AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+            });
+        }
+
+        /// <summary>A device disconnect does NOT clear the banner — the warning is still true and still useful.</summary>
+        private void RefreshWorseningRevertAvailability() {
+            if (!TiltWorseningBannerVisible) {
+                return;
+            }
+            var service = tiltDeviceConnectionService;
+            string reason;
+            if (service?.Connected != true || service.Controller == null) {
+                reason = "Device disconnected — reconnect the tilt adapter to revert these moves.";
+            } else if (!ReferenceEquals(service.Controller, pendingRevertControllerIdentity)) {
+                reason = "The device reconnected since these moves were sent; verify its position before reverting.";
+            } else {
+                reason = string.Empty;
+            }
+            if (reason != TiltWorseningRevertBlockedReason) {
+                TiltWorseningRevertBlockedReason = reason;
+                RaiseWorseningBannerChanged();
+            }
+        }
+
+        private bool CanExecuteRevertLastAdjustmentNow() {
+            var service = tiltDeviceConnectionService;
+            return CanShowWorseningRevertButton
+                && (service?.Connected ?? false)
+                && service.Controller != null
+                && !service.IsOperationActive
+                && !AnalysisRunning();
+        }
+
+        private async Task RevertLastAdjustmentAsync() {
+            var journal = pendingRevertJournal;
+            var service = tiltDeviceConnectionService;
+            var controller = service?.Controller;
+            if (journal == null || journal.Count == 0 || service == null || controller == null) {
+                return;
+            }
+
+            using var operationToken = service.TryBeginOperation("Revert Adjustment");
+            if (operationToken == null) {
+                Notification.ShowWarning("The tilt adapter device is busy with another operation; try the revert again once it finishes.");
+                return;
+            }
+            if (!service.Connected) {
+                Notification.ShowError("The tilt adapter device disconnected before the revert could execute; nothing was sent.");
+                return;
+            }
+
+            try {
+                await RevertJournalAsync(controller, new List<TiltAdapterMove>(journal), "post-adjustment worsening");
+            } finally {
+                // The confirming re-run already moved measurementGeneration forward, but that measurement was of
+                // the PRE-revert state. Left unbumped, the gate would immediately re-enable Automatic Adjustment
+                // against numbers that no longer describe the device. Consume it so a genuinely NEW analysis is
+                // required. (Verbatim semantics of what the modal path did.)
+                lastExecutedMeasurementGeneration = measurementGeneration;
+                // A partial failure leaves the remaining journal no longer a valid inverse, so it is dropped
+                // either way rather than offered for a second click.
+                ClearWorseningBanner();
+                this.progress.Report(new ApplicationStatus { Status = string.Empty });
+            }
+        }
+
         private void RaiseViewingPastRunNoticeChanged() {
             RaisePropertyChanged(nameof(ViewingPastRunNotice));
             RaisePropertyChanged(nameof(HasViewingPastRunNotice));
         }
 
         private void SensorModel_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
+            if (e.PropertyName == nameof(Inspection.SensorModel.LatestSensorModel)) {
+                // A newer measurement exists, so the banner's claim about one specific pair of runs is stale.
+                ClearWorseningBanner();
+            }
             if (e.PropertyName == nameof(Inspection.SensorModel.SelectedTiltHistoryModel)
                 || e.PropertyName == nameof(Inspection.SensorModel.LatestSensorModel)) {
                 RebuildRunReturn();
@@ -2381,7 +2532,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             bool isOperationActive,
             int currentGeneration,
             int lastExecutedGeneration,
-            bool analysisRunning = false) {
+            bool analysisRunning = false,
+            bool revertPending = false) {
             return serviceConnected
                 && controllerAvailable
                 && deviceLinked
@@ -2389,6 +2541,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 && hasNumericGuidance
                 && !isOperationActive
                 && !analysisRunning
+                && !revertPending
                 && currentGeneration > lastExecutedGeneration;
         }
 
@@ -2403,7 +2556,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 isOperationActive: service?.IsOperationActive ?? false,
                 currentGeneration: measurementGeneration,
                 lastExecutedGeneration: lastExecutedMeasurementGeneration,
-                analysisRunning: AnalysisRunning());
+                analysisRunning: AnalysisRunning(),
+                revertPending: TiltWorseningBannerVisible);
         }
 
         /// <summary>
@@ -2645,25 +2799,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 var afterModel = SensorModel?.LatestSensorModel;
                 double afterTiltMagnitude = TiltMagnitude(afterModel);
                 if (TiltWorsened(beforeTiltMagnitude, afterTiltMagnitude)) {
+                    // The toast is kept verbatim: it is the immediate signal. What is gone is the modal that used
+                    // to follow it, which demanded a revert decision with none of the numbers on screen.
                     Notification.ShowError(
                         "Tilt got WORSE after this Automatic Adjustment. This can indicate a stale calibration, a rotated camera/adapter, " +
                         "or an incorrect curvature-sign setting — investigate before adjusting again.");
-                    bool confirmRevert = await confirmPromptAsync(
-                        "Tilt appears WORSE after the moves just applied. Revert them now (send the inverse of each move, in reverse order)?",
-                        "Tilt Worsened — Revert?");
-                    if (confirmRevert) {
-                        await RevertJournalAsync(controller, journal, "post-adjustment worsening");
-
-                        // The confirming re-run above incremented measurementGeneration (a new completed
-                        // analysis), but lastExecutedMeasurementGeneration is still stamped with the PRE-revert
-                        // generation this plan was computed from. Left unbumped, the canExecute gate
-                        // (currentGeneration > lastExecutedGeneration) would immediately re-enable the button
-                        // against the STALE, now-reverted DisplayedSensorModel — a second plan computed before
-                        // the user has looked at fresh (post-revert) numbers could over-correct an already-reverted
-                        // device. Consume the confirming measurement so a genuinely NEW analysis is required.
-                        lastExecutedMeasurementGeneration = measurementGeneration;
-                        AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
-                    }
+                    RaiseWorseningBanner(journal, controller, beforeTiltMagnitude, afterTiltMagnitude);
                 }
             } finally {
                 this.progress.Report(new ApplicationStatus { Status = string.Empty });
@@ -2847,6 +2988,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (e.PropertyName == nameof(TiltDeviceConnectionService.IsOperationActive)) {
                     AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
                 }
+                // A disconnect does NOT dismiss the worsening banner -- the warning is still true and still
+                // useful. It just explains, in place of the button, why the revert cannot run right now.
+                RefreshWorseningRevertAvailability();
+                RevertLastAdjustmentCommand?.NotifyCanExecuteChanged();
+                RebuildRunReturn();
             });
         }
 
@@ -3191,6 +3337,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             ResetErrors();
             RebuildTiltGuidance();
             ClearReviewSnapshot();
+            ClearWorseningBanner();
         }
 
         private void ActivateAutoFocusChart() {
