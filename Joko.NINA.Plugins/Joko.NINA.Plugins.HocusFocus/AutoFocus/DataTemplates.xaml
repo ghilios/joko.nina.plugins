@@ -27,7 +27,7 @@
     <TextBlock x:Key="AutoFocusExposureSeconds_Tooltip" Text="How long of an exposure to take for detailed analysis. Defaults to the Auto Focus exposure duration if not set" />
     <TextBlock x:Key="LoopingExposureAnalysis_Tooltip" Text="If enabled, repeatedly take and analyze exposures" />
     <TextBlock x:Key="StepCount_Tooltip" Text="The minimum number of data points needed on each side of the AutoFocus curve minimum. Uses the value set for AutoFocus if blank" />
-    <TextBlock x:Key="StepSize_Tooltip" Text="How many focuser steps in between each data point when doing an AutoFocus. Uses the value set for AutoFocus if blank" />
+    <TextBlock x:Key="StepSize_Tooltip" Text="How many focuser steps in between each data point when doing an AutoFocus. Uses the value set for AutoFocus if blank — the current filter's per-filter sweep override when per-filter star detection defines one, otherwise the profile's Auto Focus Step Size." />
     <TextBlock x:Key="FramesPerPoint_Tooltip" Text="How many exposures to average together for each focuser point. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="NumRegionsWide_Tooltip" Text="How many cells wide to divide the sensor pixels when generating a grid of eccentricity vectors. This value must be an odd, positive integer, and the height will be calculated proportionally from it based on the sensor resolution" />

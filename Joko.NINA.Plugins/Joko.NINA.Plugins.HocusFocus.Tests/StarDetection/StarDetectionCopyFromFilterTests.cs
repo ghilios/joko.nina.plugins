@@ -1,7 +1,8 @@
-using NINA.Joko.Plugins.HocusFocus;
+﻿using NINA.Joko.Plugins.HocusFocus;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Profile.Interfaces;
 using NSubstitute;
@@ -101,6 +102,91 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
 
             Assert.That(confirmCalled, Is.False);
             store.DidNotReceive().GetOrSeedSnapshot(Arg.Any<string>());
+        }
+
+        // --- Sweep geometry travels with the copy -------------------------------------------------------------
+        //
+        // Deliberately built by a SEPARATE diff helper rather than through ImportableSettings: sweep geometry is
+        // not an IStarDetectionOptions property, so classifying it as importable would make a star-detection
+        // export file rewrite a focuser sweep on another rig, and classifying it as machine-local would be untrue.
+
+        [Test]
+        public void BuildSweepGeometryDiff_BothFieldsDiffer_ProducesTwoLabelledRows() {
+            var rows = StarDetectionSettingsDiff.BuildSweepGeometryDiff(
+                currentStepSize: PerFilterSweepGeometry.Inherit,
+                currentOffsetSteps: 4,
+                incoming: new PerFilterSweepGeometry { StepSize = 25, InitialOffsetSteps = 8 },
+                profileStepSize: 100,
+                profileOffsetSteps: 4);
+
+            Assert.Multiple(() => {
+                Assert.That(rows, Has.Count.EqualTo(2));
+                Assert.That(rows[0].Name, Is.EqualTo("Auto-Focus Step Size"));
+                Assert.That(rows[0].CurrentValue, Is.EqualTo("inherit (100)"), "an unset value shows what it resolves to");
+                Assert.That(rows[0].NewValue, Is.EqualTo("25"));
+                Assert.That(rows[1].Name, Is.EqualTo("Auto-Focus Offset Steps"));
+                Assert.That(rows[1].NewValue, Is.EqualTo("8"));
+            });
+        }
+
+        [Test]
+        public void BuildSweepGeometryDiff_IdenticalGeometry_ProducesNoRows() {
+            var rows = StarDetectionSettingsDiff.BuildSweepGeometryDiff(
+                currentStepSize: 25,
+                currentOffsetSteps: 8,
+                incoming: new PerFilterSweepGeometry { StepSize = 25, InitialOffsetSteps = 8 },
+                profileStepSize: 100,
+                profileOffsetSteps: 4);
+
+            Assert.That(rows, Is.Empty);
+        }
+
+        [Test]
+        public void BuildSweepGeometryDiff_IncomingInheritsWhereCurrentOverrides_ShowsTheProfileFallback() {
+            var rows = StarDetectionSettingsDiff.BuildSweepGeometryDiff(
+                currentStepSize: 25,
+                currentOffsetSteps: PerFilterSweepGeometry.Inherit,
+                incoming: PerFilterSweepGeometry.Unset(),
+                profileStepSize: 100,
+                profileOffsetSteps: 4);
+
+            Assert.Multiple(() => {
+                Assert.That(rows, Has.Count.EqualTo(1));
+                Assert.That(rows[0].CurrentValue, Is.EqualTo("25"));
+                Assert.That(rows[0].NewValue, Is.EqualTo("inherit (100)"));
+            });
+        }
+
+        // Dropping an explicit override in favour of inheriting is a real change to what is STORED, even when the
+        // two happen to resolve to the same number today -- a later edit in Options -> Focuser would move one and
+        // not the other. So it is shown rather than silently collapsed.
+        [Test]
+        public void BuildSweepGeometryDiff_ExplicitValueReplacedByInheritOfTheSameNumber_IsStillShown() {
+            var rows = StarDetectionSettingsDiff.BuildSweepGeometryDiff(
+                currentStepSize: PerFilterSweepGeometry.Inherit,
+                currentOffsetSteps: 4,
+                incoming: PerFilterSweepGeometry.Unset(),
+                profileStepSize: 100,
+                profileOffsetSteps: 4);
+
+            Assert.Multiple(() => {
+                Assert.That(rows, Has.Count.EqualTo(1));
+                Assert.That(rows[0].Name, Is.EqualTo("Auto-Focus Offset Steps"));
+                Assert.That(rows[0].CurrentValue, Is.EqualTo("4"));
+                Assert.That(rows[0].NewValue, Is.EqualTo("inherit (4)"));
+            });
+        }
+
+        [Test]
+        public void BuildSweepGeometryDiff_NullIncoming_IsTreatedAsUnset() {
+            var rows = StarDetectionSettingsDiff.BuildSweepGeometryDiff(
+                currentStepSize: PerFilterSweepGeometry.Inherit,
+                currentOffsetSteps: PerFilterSweepGeometry.Inherit,
+                incoming: null,
+                profileStepSize: 100,
+                profileOffsetSteps: 4);
+
+            Assert.That(rows, Is.Empty);
         }
 
         [Test]

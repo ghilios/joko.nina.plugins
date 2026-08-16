@@ -536,7 +536,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     if (inspectorOptions.CenterFocuserBeforeRun) {
                         try {
                             var centeringEngine = autoFocusEngineFactory.Create();
-                            var centeringOptions = centeringEngine.GetOptions();
+                            var centeringOptions = centeringEngine.GetOptions(imagingFilter: imagingFilter);
                             centeringOptions.Save = false;
                             centeringOptions.PreserveExposures = false;
                             this.progress.Report(new ApplicationStatus() { Status = "Centering focuser before sensor model run" });
@@ -986,7 +986,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private AutoFocusEngineOptions GetAutoFocusEngineOptions(IAutoFocusEngine autoFocusEngine, SavedAutoFocusAttempt savedAutoFocusAttempt = null) {
-            var options = autoFocusEngine.GetOptions(savedAutoFocusAttempt);
+            // Pass the filter so a per-filter sweep-geometry override applies. Harmless on the replay path, where
+            // the saved attempt short-circuits the lookup entirely.
+            var options = autoFocusEngine.GetOptions(savedAutoFocusAttempt, imagingFilter: GetImagingFilter());
             if (inspectorOptions.FramesPerPoint > 0) {
                 options.FramesPerPoint = inspectorOptions.FramesPerPoint;
             }

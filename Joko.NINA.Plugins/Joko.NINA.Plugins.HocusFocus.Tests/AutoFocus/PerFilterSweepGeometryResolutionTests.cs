@@ -1,4 +1,4 @@
-using NINA.Core.Interfaces;
+﻿using NINA.Core.Interfaces;
 using NINA.Core.Model.Equipment;
 using NINA.Core.Utility;
 using NINA.Equipment.Interfaces.Mediator;
@@ -9,6 +9,7 @@ using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using NSubstitute;
@@ -262,6 +263,51 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
             engine.GetOptions(imagingFilter: ha);
 
             store.DidNotReceiveWithAnyArgs().SetSweepGeometry(default, default);
+        }
+
+        // --- Composition order --------------------------------------------------------------------------------
+        //
+        // These are the guards against a future change moving resolution later (into InitializeState or RunImpl).
+        // Two of the three caller-side transforms are RELATIVE, so resolving after them would not throw or produce
+        // an obviously wrong number -- it would just quietly sweep at the un-transformed geometry.
+
+        [Test]
+        public void ApplySignalAmplification_DividesThePerFilterStepNotTheProfileStep() {
+            var ha = new FilterInfo("Ha", 0, 0);
+            var engine = Build(MakeProfileService(false, ha), MakeWheel(ha),
+                MakeStore(enabled: true, "Ha", new PerFilterSweepGeometry { StepSize = 240, InitialOffsetSteps = 3 }));
+
+            var options = engine.GetOptions(imagingFilter: ha);
+            InspectorVM.ApplySignalAmplification(options, signalAmplification: 3, isLiveCapture: true);
+
+            Assert.Multiple(() => {
+                Assert.That(options.AutoFocusStepSize, Is.EqualTo(80), "240 / 3, i.e. the filter's step size was the base");
+                Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(9), "3 * 3, i.e. the filter's offset was the base");
+            });
+        }
+
+        [Test]
+        public void ApplyFocusRecovery_WidensThePerFilterOffsetNotTheProfileOffset() {
+            var ha = new FilterInfo("Ha", 0, 0);
+            var engine = Build(MakeProfileService(false, ha), MakeWheel(ha),
+                MakeStore(enabled: true, "Ha", new PerFilterSweepGeometry { InitialOffsetSteps = 7 }));
+
+            var options = engine.GetOptions(imagingFilter: ha);
+            StarDetectionOptimizerWizardVM.ApplyFocusRecovery(options, recoverySteps: 2);
+
+            Assert.That(options.AutoFocusInitialOffsetSteps, Is.EqualTo(9), "7 + 2, i.e. the filter's offset was the base");
+        }
+
+        [Test]
+        public void ApplyRecaptureGeometry_WinsOverThePerFilterStepSize() {
+            var ha = new FilterInfo("Ha", 0, 0);
+            var engine = Build(MakeProfileService(false, ha), MakeWheel(ha),
+                MakeStore(enabled: true, "Ha", new PerFilterSweepGeometry { StepSize = 240 }));
+
+            var options = engine.GetOptions(imagingFilter: ha);
+            StarDetectionOptimizerWizardVM.ApplyRecaptureGeometry(options, stepSize: 55);
+
+            Assert.That(options.AutoFocusStepSize, Is.EqualTo(55), "a re-capture's own recommendation is absolute");
         }
 
         [Test]

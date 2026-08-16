@@ -686,7 +686,35 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
         }
 
+        /// <summary>
+        /// The sweep geometry to re-render a RELOADED chart with: the per-filter override belonging to the filter
+        /// that run was actually taken through, else the profile.
+        ///
+        /// <para>Keyed on the loaded report's own <c>Filter</c> — which the engine wrote from the resolved
+        /// auto-focus filter — and deliberately NOT on whatever is in the wheel right now: the chart on screen may
+        /// be from another night through another filter, and keying it on the present would be the same
+        /// stale-value class of bug the info-row loading already guards against.</para>
+        /// </summary>
+        private (int StepSize, int OffsetSteps) ResolveReloadedChartSweepGeometry(HocusFocusReport loadedReport) {
+            var focuserSettings = profileService.ActiveProfile.FocuserSettings;
+            var profileGeometry = (focuserSettings.AutoFocusStepSize, focuserSettings.AutoFocusInitialOffsetSteps);
+            var filterName = loadedReport?.Filter;
+            if (perFilterStore?.Enabled != true || string.IsNullOrWhiteSpace(filterName)) {
+                return profileGeometry;
+            }
+            var geometry = perFilterStore.GetSweepGeometry(filterName);
+            if (geometry == null) {
+                return profileGeometry;
+            }
+            return (
+                geometry.HasStepSize ? geometry.StepSize : focuserSettings.AutoFocusStepSize,
+                geometry.HasOffsetSteps ? geometry.InitialOffsetSteps : focuserSettings.AutoFocusInitialOffsetSteps);
+        }
+
         public void SetCurveFittings(string method, string fitting) {
+            // Read ONCE, at the top: the fit below needs the report's filter to resolve this chart's sweep
+            // geometry, and ApplyInfoRowsFromLoadedReport further down needs the report itself.
+            var loadedReport = TryFindLoadedReport(LastAutoFocusPoint?.Timestamp);
             // NINA core's saved-chart reload (AutoFocusToolVM.LoadChart) rebuilds FocusPoints from a
             // saved report's raw Error values and calls this method — another fit entry point, so the
             // same regularization the live engine applies must happen here too.
@@ -704,7 +732,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     }
 
                     if (AFCurveFittingEnum.HYPERBOLIC.ToString() == fitting || AFCurveFittingEnum.TRENDHYPERBOLIC.ToString() == fitting) {
-                        var stepSize = profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize;
+                        var (stepSize, offsetSteps) = ResolveReloadedChartSweepGeometry(loadedReport);
                         var fitInput = validFocusPoints;
                         var hf = SolveHyperbolicForPoints(fitInput, stepSize, out var modelForRun);
 
@@ -713,7 +741,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         // Saved reports carry the FULL measured set, so re-derive the same bounded fit→window→refit
                         // fixed point here — otherwise a reloaded chart would fit (and fill-render) far points the live
                         // run excluded. Same guards as the engine: ≤ offsetSteps+1 passes, never below 3 valid points.
-                        var offsetSteps = profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps;
                         if (offsetSteps >= 1 && stepSize > 0) {
                             for (var pass = 0; pass < offsetSteps + 1; pass++) {
                                 var center = hf.Minimum.X;
@@ -765,7 +792,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // foreign chart has been loaded those fields already hold the foreign run's values, and "keep what is
             // on screen" then keeps exactly the wrong thing. Re-reading unconditionally makes the rows a function
             // of the LOADED run rather than of the path taken to it.
-            ApplyInfoRowsFromLoadedReport(LastAutoFocusPoint?.Timestamp);
+            ApplyInfoRowsFromLoadedReport(loadedReport, LastAutoFocusPoint?.Timestamp);
             RefreshFinalFocusPointError();
         }
 
@@ -779,16 +806,21 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// this method existed. So the change can only ever add information about the loaded run; it can never
         /// substitute another run's number, and it can never present a missing value as a measured 0.</para>
         /// </summary>
-        private void ApplyInfoRowsFromLoadedReport(DateTime? timestamp) {
-            HocusFocusReport report = null;
-            if (timestamp.HasValue) {
-                try {
-                    report = LoadedReportSource?.TryFind(timestamp.Value);
-                } catch (Exception ex) {
-                    // TryFind's contract is not to throw; this is belt-and-braces so a chart still renders.
-                    Logger.Debug($"Could not read the loaded AutoFocus report for {timestamp.Value:o}: {ex.Message}");
-                }
+        /// <summary>Reads the saved report for a chart timestamp, or null. Never throws — a chart must still render.</summary>
+        private HocusFocusReport TryFindLoadedReport(DateTime? timestamp) {
+            if (!timestamp.HasValue) {
+                return null;
             }
+            try {
+                return LoadedReportSource?.TryFind(timestamp.Value);
+            } catch (Exception ex) {
+                // TryFind's contract is not to throw; this is belt-and-braces so a chart still renders.
+                Logger.Debug($"Could not read the loaded AutoFocus report for {timestamp.Value:o}: {ex.Message}");
+                return null;
+            }
+        }
+
+        private void ApplyInfoRowsFromLoadedReport(HocusFocusReport report, DateTime? timestamp) {
             if (report == null && timestamp.HasValue && timestamp == lastGeneratedReportTimestamp) {
                 // This VM's OWN run, whose report could not be read back (not yet flushed, deleted, or a directory
                 // that has moved). The live values are still the truth for it, so prefer them over collapsing the
@@ -965,7 +997,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 autoFocusEngine.SubMeasurementPointCompleted += AutoFocusEngine_SubMeasurementPointCompleted;
                 autoFocusEngine.Completed += AutoFocusEngine_Completed;
                 autoFocusEngine.Failed += AutoFocusEngine_Failed;
-                var options = autoFocusEngine.GetOptions();
+                // The imaging filter is passed so a per-filter sweep-geometry override can be resolved for the
+                // filter this run will actually expose through (the engine applies the AF-filter substitution
+                // itself). The wheel-connected gate above already ran.
+                var options = autoFocusEngine.GetOptions(imagingFilter: imagingFilter);
 
                 ApplyFrameReviewOptions(options);
                 var result = await autoFocusEngine.Run(options, imagingFilter, autoFocusRunCts.Token, progress);

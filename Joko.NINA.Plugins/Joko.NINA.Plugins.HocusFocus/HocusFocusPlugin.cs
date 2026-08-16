@@ -299,7 +299,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
 
         private async Task CopyStarDetectionFromFilter(string sourceFilterName) {
             try {
-                await StarDetectionSettingsIO.CopyFromFilterAsync(sourceFilterName, PerFilterStarDetection, StarDetectionOptions, windowServiceFactory);
+                await StarDetectionSettingsIO.CopyFromFilterAsync(sourceFilterName, PerFilterStarDetection, StarDetectionOptions, windowServiceFactory, PerFilterStarDetectionEditBinder);
             } finally {
                 // Reset the "Copy Settings From" dropdown to no selection once the flow finishes (applied or not), so
                 // the Copy button disables again and the next copy is a deliberate re-selection. Shared binder, so

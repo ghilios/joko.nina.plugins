@@ -155,6 +155,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
         /// <summary>True when the edited filter overrides either sweep-geometry field.</summary>
         public bool HasSweepGeometryOverride => sweepStepSizeOverride > 0 || sweepOffsetStepsOverride >= 1;
 
+        /// <summary>
+        /// True when the step-size box is blank and the profile value applies — drives the dimmed "profile: N"
+        /// hint drawn over the empty box. A per-field flag rather than <see cref="HasSweepGeometryOverride"/>
+        /// because the two fields resolve independently.
+        /// </summary>
+        public bool SweepStepSizeInherits => sweepStepSizeOverride <= 0;
+
+        /// <inheritdoc cref="SweepStepSizeInherits"/>
+        public bool SweepOffsetStepsInherits => sweepOffsetStepsOverride < 1;
+
         private string editedFilterName;
 
         public string EditedFilterName {
@@ -512,6 +522,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             RaisePropertyChanged(nameof(EffectiveSweepStepSize));
             RaisePropertyChanged(nameof(EffectiveSweepOffsetSteps));
             RaisePropertyChanged(nameof(HasSweepGeometryOverride));
+            RaisePropertyChanged(nameof(SweepStepSizeInherits));
+            RaisePropertyChanged(nameof(SweepOffsetStepsInherits));
         }
 
         private void RaiseProfileSweepGeometryChanged() {

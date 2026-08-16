@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -13,6 +13,7 @@
 using NINA.Core.Utility.Notification;
 using NINA.Core.Utility.WindowService;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -123,9 +124,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 string sourceFilterName,
                 IPerFilterStarDetectionStore store,
                 StarDetectionOptions options,
-                IWindowServiceFactory windowServiceFactory) {
+                IWindowServiceFactory windowServiceFactory,
+                PerFilterEditBinder geometryTarget = null) {
             return CopyFromFilterAsync(sourceFilterName, store, options,
-                (rows, summary) => ImportStarDetectionPreview.ShowAsync(windowServiceFactory, new ImportStarDetectionPreviewVM(rows, summary)));
+                (rows, summary) => ImportStarDetectionPreview.ShowAsync(windowServiceFactory, new ImportStarDetectionPreviewVM(rows, summary)),
+                geometryTarget);
         }
 
         /// <summary>Delegate-injected core of the copy-from-filter flow (unit-test seam — no WPF dialog).
@@ -134,13 +137,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 string sourceFilterName,
                 IPerFilterStarDetectionStore store,
                 StarDetectionOptions options,
-                Func<IReadOnlyList<StarDetectionSettingDiffRow>, string, Task<bool>> confirmDiff) {
+                Func<IReadOnlyList<StarDetectionSettingDiffRow>, string, Task<bool>> confirmDiff,
+                PerFilterEditBinder geometryTarget = null) {
             if (string.IsNullOrEmpty(sourceFilterName) || store == null || options == null) {
                 return;
             }
             try {
                 var snapshot = store.GetOrSeedSnapshot(sourceFilterName);
-                var diff = StarDetectionSettingsDiff.BuildDiff(options, snapshot);
+                var diff = new List<StarDetectionSettingDiffRow>(StarDetectionSettingsDiff.BuildDiff(options, snapshot));
+
+                // The sweep geometry is part of the filter's set, and the documented workflow is "tune one
+                // narrowband filter with the wizard, then copy the result to the others". Since Accept now writes
+                // the geometry into the target filter, a copy that carried only detection settings would reproduce
+                // HALF of what the wizard produced -- and the dropped half is the one the user notices on the next
+                // focus run. So it travels with them, and is listed in the confirmation like everything else.
+                var sourceGeometry = store.GetSweepGeometry(sourceFilterName);
+                var geometryDiff = geometryTarget == null
+                    ? new List<StarDetectionSettingDiffRow>()
+                    : StarDetectionSettingsDiff.BuildSweepGeometryDiff(
+                        currentStepSize: geometryTarget.SweepStepSizeOverride,
+                        currentOffsetSteps: geometryTarget.SweepOffsetStepsOverride,
+                        incoming: sourceGeometry,
+                        profileStepSize: geometryTarget.ProfileSweepStepSize,
+                        profileOffsetSteps: geometryTarget.ProfileSweepOffsetSteps);
+                diff.AddRange(geometryDiff);
+
                 if (diff.Count == 0) {
                     Notification.ShowInformation($"'{sourceFilterName}' settings match the current settings; nothing to change.");
                     return;
@@ -152,6 +173,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
 
                 options.ApplyImportedSnapshot(snapshot);
+                if (geometryDiff.Count > 0) {
+                    geometryTarget.MutateFilterSweepGeometry(geometryTarget.EditedFilterName, g => {
+                        g.StepSize = sourceGeometry?.StepSize ?? PerFilterSweepGeometry.Inherit;
+                        g.InitialOffsetSteps = sourceGeometry?.InitialOffsetSteps ?? PerFilterSweepGeometry.Inherit;
+                    });
+                }
                 Logger.Info($"Copied star detection settings from filter '{sourceFilterName}' ({diff.Count} setting(s) changed)");
                 Notification.ShowInformation($"Copied star detection settings from '{sourceFilterName}'");
             } catch (Exception ex) {

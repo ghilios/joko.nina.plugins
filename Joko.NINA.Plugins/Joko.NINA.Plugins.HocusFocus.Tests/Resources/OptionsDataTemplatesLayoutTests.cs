@@ -33,6 +33,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.Resources {
             var collisions = new List<string>();
 
             foreach (var grid in doc.Descendants(Presentation + "Grid")) {
+                // A Grid that declares neither RowDefinitions nor ColumnDefinitions has exactly ONE cell, so
+                // overlapping children are the only thing it can express and are therefore deliberate -- the
+                // watermark-over-a-TextBox idiom, for instance. This rule is about the hand-authored OPTION grids,
+                // where children are placed by explicit Grid.Row and a duplicated row silently stacks two options.
+                if (grid.Element(Presentation + "Grid.RowDefinitions") == null
+                    && grid.Element(Presentation + "Grid.ColumnDefinitions") == null) {
+                    continue;
+                }
                 var labelsByRow = new Dictionary<string, List<string>>();
                 foreach (var child in grid.Elements()) {
                     // Skip property-element children (e.g. Grid.RowDefinitions, Grid.Resources, Grid.ColumnDefinitions).
