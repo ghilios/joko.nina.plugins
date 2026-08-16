@@ -2370,8 +2370,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             var journal = new List<TiltAdapterMove>();
-            Exception failure = null;
-            var moveProgress = new Progress<string>(text => this.progress.Report(new ApplicationStatus { Status = $"Automatic Adjustment: {text}" }));
 
             // Everything below reports transient per-move status text, and NINA's status bar shows the last
             // reported line until something reports an empty one (.claude/docs/mvvm-patterns.md, "Status-bar
@@ -2379,20 +2377,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // revert, or a revert that itself failed partway — must therefore land in this finally, or the
             // last "move N of M" / "reverting move N of M" line hangs in the corner of NINA forever.
             try {
-                for (int i = 0; i < moves.Count; i++) {
-                    var move = moves[i];
-                    this.progress.Report(new ApplicationStatus { Status = $"Automatic Adjustment: move {i + 1} of {moves.Count} — {move.Description}" });
-                    try {
-                        await controller.ExecuteMoveAsync(move, moveProgress, CancellationToken.None);
-                        journal.Add(move);
-                        // The 'cp' poll is suspended for this whole lease, so the panel's motor counters only
-                        // advance if the moves themselves publish them (see PublishControllerPositions).
-                        RefreshDevicePositionDisplays();
-                    } catch (Exception ex) {
-                        failure = ex;
-                        break;
-                    }
-                }
+                Exception failure = await SendMovesAsync(controller, moves, "Automatic Adjustment", journal, CancellationToken.None);
 
                 // Consumed once execution has STARTED (>= 1 move sent), regardless of what happens next (success,
                 // failure, or a later revert) — the same measurement can never drive a second plan.
@@ -2449,6 +2434,40 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             } finally {
                 this.progress.Report(new ApplicationStatus { Status = string.Empty });
             }
+        }
+
+        /// <summary>
+        /// Sends a plan's moves in order, appending each confirmed move to <paramref name="journal"/> and
+        /// publishing the device's counters after every one. Returns the exception that stopped execution, or
+        /// null when every move succeeded; the journal is the caller's record of what actually reached the
+        /// device, and is what a revert inverts.
+        ///
+        /// <para>The caller owns the operation lease and the status-bar <c>finally</c> — this method only sends.
+        /// It is shared by every path that drives the adapter (Automatic Adjustment, a return to a past run's
+        /// positions, and the worsening-banner revert) so that the "publish after every move, never issue a
+        /// follow-up <c>cp</c>" rule from <c>.claude/docs/tilt-domain.md</c> is implemented exactly once.</para>
+        /// </summary>
+        private async Task<Exception> SendMovesAsync(
+            ITiltMotionController controller,
+            IReadOnlyList<TiltAdapterMove> moves,
+            string statusPrefix,
+            List<TiltAdapterMove> journal,
+            CancellationToken token) {
+            var moveProgress = new Progress<string>(text => this.progress.Report(new ApplicationStatus { Status = $"{statusPrefix}: {text}" }));
+            for (int i = 0; i < moves.Count; i++) {
+                var move = moves[i];
+                this.progress.Report(new ApplicationStatus { Status = $"{statusPrefix}: move {i + 1} of {moves.Count} — {move.Description}" });
+                try {
+                    await controller.ExecuteMoveAsync(move, moveProgress, token);
+                    journal.Add(move);
+                    // The 'cp' poll is suspended for the whole lease, so the panel's motor counters only
+                    // advance if the moves themselves publish them (see PublishControllerPositions).
+                    RefreshDevicePositionDisplays();
+                } catch (Exception ex) {
+                    return ex;
+                }
+            }
+            return null;
         }
 
         /// <summary>

@@ -5343,14 +5343,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>The filter the live sweep will expose through, for display: the designated AF filter when
         /// filter-wheel offsets are enabled, otherwise the filter currently loaded in the wheel. Null when unknown.</summary>
         private static string ResolveSweepFilterName(IProfileService profileService, IFilterWheelMediator filterWheelMediator) {
-            var focuserSettings = profileService?.ActiveProfile?.FocuserSettings;
-            if (focuserSettings != null && focuserSettings.UseFilterWheelOffsets) {
-                var af = profileService.ActiveProfile.FilterWheelSettings?.FilterWheelFilters?.FirstOrDefault(f => f.AutoFocusFilter);
-                if (af != null) {
-                    return af.Name;
-                }
-            }
-            return filterWheelMediator?.GetInfo()?.SelectedFilter?.Name;
+            // Shares AutoFocusFilterResolver with the engine so this readout cannot claim a different filter than
+            // the one SetAutofocusFilter will actually move the wheel to. The "imaging filter" for a live sweep
+            // started from this page is whatever is currently loaded in the wheel.
+            return AutoFocusFilterResolver.ResolveName(
+                profileService?.ActiveProfile,
+                filterWheelMediator?.GetInfo()?.SelectedFilter,
+                useExactImagingFilter: false);
         }
 
         /// <summary>The gain the live sweep will expose with, for display: the designated AF filter's gain when

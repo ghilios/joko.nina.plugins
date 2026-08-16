@@ -2018,21 +2018,19 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         public async Task<FilterInfo> SetAutofocusFilter(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress) {
-            if (profileService.ActiveProfile.FocuserSettings.UseFilterWheelOffsets) {
-                var filter = profileService.ActiveProfile.FilterWheelSettings.FilterWheelFilters.Where(f => f.AutoFocusFilter == true).FirstOrDefault();
-                if (filter == null) {
-                    return imagingFilter;
-                }
+            // The substitution rule itself lives in AutoFocusFilterResolver so that GetOptions (which keys the
+            // per-filter sweep geometry on the resolved filter) and the wizard's readouts cannot drift from what
+            // this method actually does to the wheel.
+            if (!AutoFocusFilterResolver.UsesDesignatedAutoFocusFilter(profileService.ActiveProfile, out var filter)) {
+                return imagingFilter;
+            }
 
-                // Set the filter to the autofocus filter if necessary, and move to it so autofocus X indexing works properly when invoking GetFocusPoints()
-                try {
-                    return await filterWheelMediator.ChangeFilter(filter, token, progress);
-                } catch (Exception e) {
-                    Logger.Error("Failed to change filter during AutoFocus", e);
-                    Notification.ShowWarning($"Failed to change filter: {e.Message}");
-                    return imagingFilter;
-                }
-            } else {
+            // Set the filter to the autofocus filter if necessary, and move to it so autofocus X indexing works properly when invoking GetFocusPoints()
+            try {
+                return await filterWheelMediator.ChangeFilter(filter, token, progress);
+            } catch (Exception e) {
+                Logger.Error("Failed to change filter during AutoFocus", e);
+                Notification.ShowWarning($"Failed to change filter: {e.Message}");
                 return imagingFilter;
             }
         }
