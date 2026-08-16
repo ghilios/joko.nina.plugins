@@ -144,7 +144,7 @@ settings"** seed come from its settings set, the filter and gain readouts on the
 target filter (not the profile's designated autofocus filter), and **Accept** writes the winning
 settings into the target filter's set, including the recommended **step size and offset steps**, which go to
 that filter's sweep override rather than to the profile. Optimizing one filter therefore no longer overwrites
-the sweep every other filter uses. (A live sweep's exposure is still written to the profile.) The checkbox
+the sweep every other filter uses. A live sweep's exposure goes to the same filter too, written to NINA's own per-filter **Auto Focus Exposure Time**. The checkbox
 names the filter it will write to, and the step size and offset steps shown on the confirmation page are the
 ones that filter will actually sweep at, marked as an override where one is set. The Star Detector options switch to the filter you just
 optimized, so what you see there afterward is what the run produced.

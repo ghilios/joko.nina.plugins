@@ -919,9 +919,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             sourcePaths = new ObservableCollection<string> { null };
             applyRecommendedStepSize = true;
-            // Seed the Live sweep's editable exposure from the profile's current AF exposure, and its save folder from
-            // the persisted AF SavePath (both are just starting points the user can change on the confirmation screen).
-            liveExposureSeconds = profileService.ActiveProfile.FocuserSettings.AutoFocusExposureTime;
+            // Seed the Live sweep's editable exposure from whatever the target filter will ACTUALLY focus at (its
+            // own AF exposure when it sets one, else the profile's), and its save folder from the persisted AF
+            // SavePath. Both are starting points the user can change on the confirmation screen. This runs after
+            // targetFilterName is resolved above, which is what makes the per-filter value reachable.
+            liveExposureSeconds = EffectiveAutoFocusExposureSeconds;
             saveFolderPath = autoFocusOptions?.SavePath;
 
             BrowseSourceCommand = new RelayCommand<object>(BrowseSource);
@@ -1153,14 +1155,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             get => targetFilterName;
             set {
                 if (targetFilterName != value) {
+                    // Captured BEFORE the change so "has the user typed their own exposure?" is judged against the
+                    // filter that was selected while they had the chance to.
+                    bool exposureUntouched = Math.Abs(liveExposureSeconds - EffectiveAutoFocusExposureSeconds) < 1e-6;
                     targetFilterName = value;
                     RaisePropertyChanged();
+                    // Re-seed the editable sweep exposure from the newly targeted filter, since a filter that
+                    // already carries its own AF exposure is a far better starting point than the profile's. Only
+                    // when the box still holds the previous target's value, so a hand-typed exposure survives.
+                    if (exposureUntouched) {
+                        LiveExposureSeconds = EffectiveAutoFocusExposureSeconds;
+                    }
                     // The sweep readouts (filter/gain) reflect the target filter while per-filter is on.
                     RaiseSweepReadoutsChanged();
                     // So does the donut master: it is read from the target filter's set, so re-targeting changes it.
                     RaisePropertyChanged(nameof(DefocusAwareDonutDetection));
                     RaisePropertyChanged(nameof(SummaryFilterName));
                     RaisePropertyChanged(nameof(HasSummaryFilter));
+                    // The summary's exposure row and the Apply toggle now compare against the TARGET FILTER's
+                    // effective exposure, so re-targeting changes both.
+                    RaiseExposureRowChanged();
                 }
             }
         }
@@ -1168,6 +1182,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>True while per-filter star detection is enabled: shows the target-filter picker (both
         /// modes) and routes baseline/capture/Accept through the target filter's settings set.</summary>
         public bool IsPerFilterEnabled => perFilterEnabled();
+
+        /// <summary>
+        /// The auto-focus exposure that will ACTUALLY be used for the target filter: NINA core's own per-filter
+        /// override (<c>FilterInfo.AutoFocusExposureTime &gt; -1</c>, honored in <c>AutoFocusEngine.TakeExposure</c>)
+        /// when one is set, otherwise the profile's.
+        ///
+        /// <para>Every "did the exposure change?" comparison goes through here. Comparing against the profile while
+        /// Accept writes the filter would make the summary's "(unchanged)" and the Apply checkbox's enablement both
+        /// lie whenever the target filter already carries its own exposure.</para>
+        /// </summary>
+        private double EffectiveAutoFocusExposureSeconds {
+            get {
+                var profileExposure = profileService?.ActiveProfile?.FocuserSettings?.AutoFocusExposureTime ?? 0.0;
+                if (!UsesTargetFilterSettings) {
+                    return profileExposure;
+                }
+                var filter = resolveFilterByName?.Invoke(TargetFilterName);
+                return filter != null && filter.AutoFocusExposureTime > -1 ? filter.AutoFocusExposureTime : profileExposure;
+            }
+        }
 
         /// <summary>The active profile's filter names, for the target-filter picker.</summary>
         public IReadOnlyList<string> AvailableFilterNames => getFilterNames();
@@ -2707,7 +2741,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// alongside the recommended step size/offset.</summary>
         public string SweepExposureChangeText {
             get {
-                var current = profileService?.ActiveProfile?.FocuserSettings?.AutoFocusExposureTime ?? 0.0;
+                var current = EffectiveAutoFocusExposureSeconds;
                 return Math.Abs(current - capturedLiveExposureSeconds) < 1e-6
                     ? $"{capturedLiveExposureSeconds:0.##} s (unchanged)"
                     : $"{current:0.##} s → {capturedLiveExposureSeconds:0.##} s";
@@ -2721,8 +2755,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (!lastRunWasLive || capturedLiveExposureSeconds <= 0) {
                     return false;
                 }
-                var current = profileService?.ActiveProfile?.FocuserSettings?.AutoFocusExposureTime ?? 0.0;
-                return Math.Abs(current - capturedLiveExposureSeconds) > 1e-6;
+                return Math.Abs(EffectiveAutoFocusExposureSeconds - capturedLiveExposureSeconds) > 1e-6;
             }
         }
 
@@ -4315,9 +4348,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (double.IsFinite(recorded) && recorded > 0.0) {
                 return (recorded, false);
             }
-            var profileExposure = profileService?.ActiveProfile?.FocuserSettings?.AutoFocusExposureTime ?? double.NaN;
-            return double.IsFinite(profileExposure) && profileExposure > 0.0
-                ? (profileExposure, true)
+            // Last resort for a run that recorded no exposure: what the target filter would focus at today.
+            var assumedExposure = EffectiveAutoFocusExposureSeconds;
+            return double.IsFinite(assumedExposure) && assumedExposure > 0.0
+                ? (assumedExposure, true)
                 : (double.NaN, false);   // nothing at all: not "assumed", just unknown
         }
 
@@ -4440,12 +4474,27 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     Logger.Info($"Applied recommended AF step size {summary.RecommendedStepSize}, offset steps {summary.RecommendedOffsetSteps}");
                 }
 
-                // The exposure write-back stays PROFILE-level in both modes. NINA core already models per-filter AF
-                // exposure on FilterInfo.AutoFocusExposureTime, so routing it there is a separate change against a
-                // different mechanism -- deliberately not smuggled in here.
-                if (focuserSettings != null && lastRunWasLive && capturedLiveExposureSeconds > 0) {
-                    focuserSettings.AutoFocusExposureTime = capturedLiveExposureSeconds;
-                    Logger.Info($"Applied AF exposure time {capturedLiveExposureSeconds}s to the active profile");
+                // The exposure captured by a live sweep follows the same rule as the geometry above: in per-filter
+                // mode it belongs to the filter that was swept, not to the profile. NINA core already models this
+                // (FilterInfo.AutoFocusExposureTime > -1 wins in AutoFocusEngine.TakeExposure), so this writes core's
+                // own per-filter field rather than inventing a parallel one.
+                if (lastRunWasLive && capturedLiveExposureSeconds > 0) {
+                    if (IsPerFilterEnabled) {
+                        var targetFilter = UsesTargetFilterSettings ? resolveFilterByName?.Invoke(TargetFilterName) : null;
+                        if (targetFilter != null) {
+                            targetFilter.AutoFocusExposureTime = capturedLiveExposureSeconds;
+                            Logger.Info($"Applied AF exposure time {capturedLiveExposureSeconds}s to filter '{TargetFilterName}'");
+                        } else {
+                            // Same discipline as the geometry write: refuse rather than fall back to the profile,
+                            // which would be the cross-filter clobber this whole change removes.
+                            Logger.Error(
+                                "Per-filter star detection is enabled but the target filter could not be resolved; the " +
+                                "sweep exposure was NOT applied.");
+                        }
+                    } else if (focuserSettings != null) {
+                        focuserSettings.AutoFocusExposureTime = capturedLiveExposureSeconds;
+                        Logger.Info($"Applied AF exposure time {capturedLiveExposureSeconds}s to the active profile");
+                    }
                 }
             }
         }

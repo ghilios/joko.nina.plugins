@@ -2888,6 +2888,94 @@ public class StarDetectionOptimizerWizardVMTests {
         focuserSettings.Received(1).AutoFocusExposureTime = 9.0;
     }
 
+    // Per-filter mode routes the sweep exposure the same way it routes the sweep geometry: to the filter that was
+    // actually swept. Writing the profile here would rewrite the exposure every OTHER filter focuses at, from a
+    // measurement made through one of them. Core already models this on FilterInfo.AutoFocusExposureTime.
+    [Test]
+    public async Task Apply_LivePerFilter_WritesExposureToTheTargetFilterNotTheProfile() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+        var target = new FilterInfo("Ha", 0, 1) { AutoFocusExposureTime = -1 };
+
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService,
+            isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine,
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Ha",
+            resolveFilterByName: name => name == "Ha" ? target : null);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 9.0;
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "precondition: the live sweep reached the summary");
+
+        vm.AcceptCommand.Execute(null);
+
+        Assert.That(target.AutoFocusExposureTime, Is.EqualTo(9.0));
+        focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusExposureTime = default;
+    }
+
+    // Refusing beats falling back to the profile: the fallback is exactly the cross-filter clobber being removed.
+    [Test]
+    public async Task Apply_LivePerFilter_UnresolvableTargetFilter_WritesNeitherScope() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService,
+            isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine,
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Ha" }, getCurrentFilterName: () => "Ha",
+            resolveFilterByName: _ => new FilterInfo("Ha", 0, 1));
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 9.0;
+        await vm.StartAsync(CancellationToken.None);
+        // Only now does the target become unresolvable, so Start's own validation cannot mask the Accept path.
+        vm.TargetFilterName = null;
+
+        vm.AcceptCommand.Execute(null);
+
+        focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusExposureTime = default;
+    }
+
+    // "Unchanged" and the Apply toggle's enablement have to be judged against what the filter will ACTUALLY focus
+    // at, or both lie whenever the target filter already carries its own exposure.
+    [Test]
+    public void SweepExposureRow_PerFilter_ComparesAgainstTheFiltersOwnExposureNotTheProfiles() {
+        var profileService = Substitute.For<IProfileService>();
+        profileService.ActiveProfile.FocuserSettings.AutoFocusExposureTime.Returns(3.0);
+        var target = new FilterInfo("Ha", 0, 1) { AutoFocusExposureTime = 9.0 };
+        var vm = NewVM(LoaderReturning(GoodRun()), profileService: profileService,
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Ha" }, getCurrentFilterName: () => "Ha",
+            resolveFilterByName: _ => target);
+
+        Assert.That(vm.LiveExposureSeconds, Is.EqualTo(9.0),
+            "selecting the target seeds the editable exposure from that filter, not the profile's 3 s");
+    }
+
+    [Test]
+    public void TargetFilterChange_DoesNotOverwriteAHandTypedExposure() {
+        var profileService = Substitute.For<IProfileService>();
+        profileService.ActiveProfile.FocuserSettings.AutoFocusExposureTime.Returns(3.0);
+        var ha = new FilterInfo("Ha", 0, 1) { AutoFocusExposureTime = 9.0 };
+        var vm = NewVM(LoaderReturning(GoodRun()), profileService: profileService,
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Lum",
+            resolveFilterByName: name => name == "Ha" ? ha : new FilterInfo("Lum", 0, 0) { AutoFocusExposureTime = -1 });
+        vm.LiveExposureSeconds = 42.0; // the user lengthened it by hand
+
+        vm.TargetFilterName = "Ha";
+
+        Assert.That(vm.LiveExposureSeconds, Is.EqualTo(42.0), "a hand-typed exposure survives re-targeting");
+    }
+
     [Test]
     public async Task Apply_Live_ExposureNotWrittenWhenAfSettingsToggleOff() {
         var options = Substitute.For<IStarDetectionOptions>();

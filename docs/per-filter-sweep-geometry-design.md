@@ -42,7 +42,14 @@ per-filter detection is enabled. Blank means inherit the profile value.
    a specific focuser's step scale, so carrying it between machines would be actively wrong.
 7. **Wizard Accept writes per-filter.** With per-filter on, the recommended geometry goes to the target filter. With
    no target filter it refuses and logs, rather than falling back to a profile write — that fallback would be the
-   very clobber this design removes. The **AF exposure write-back stays profile-level** (see Out of scope).
+   very clobber this design removes.
+8. **The live sweep's AF exposure follows the same rule.** In per-filter mode it is written to core's own
+   `FilterInfo.AutoFocusExposureTime` (honored in `AutoFocusEngine.TakeExposure`, where `> -1` beats the profile)
+   rather than to `FocuserSettings`. Every "did the exposure change?" comparison — the summary's
+   "(unchanged)" row and the Apply checkbox's enablement — resolves through the same target-filter-then-profile
+   chain, or both would lie whenever the target filter already carries its own exposure. The editable sweep
+   exposure is likewise seeded from the target filter, and re-seeded when the target changes unless the user has
+   typed their own value.
 
 ## Resolution point — the crux
 
@@ -126,10 +133,6 @@ any filter's override moves — for a wheel of ≤ 8 filters whose every other p
 
 ## Out of scope
 
-- **Per-filter AF exposure.** `Apply` still writes `focuserSettings.AutoFocusExposureTime` profile-wide, so
-  accepting an Ha sweep rewrites the global AF exposure from an Ha measurement. NINA core already models this
-  correctly on `FilterInfo.AutoFocusExposureTime`. The fix is cheap but goes through a different mechanism than
-  everything here, so it belongs in its own change. Flagged because it will look like a bug in this feature.
 - **Deriving a reloaded chart's step size from `report.MeasurePoints` spacing** (filter-agnostic, and right even
   for other auto-focusers' reports). A strict improvement over the per-filter lookup, but it changes behavior for
   existing charts too.
