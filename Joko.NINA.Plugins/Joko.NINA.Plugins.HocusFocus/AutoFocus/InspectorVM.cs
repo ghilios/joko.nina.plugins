@@ -2104,6 +2104,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public bool IsTiltDeviceConnected => tiltDeviceConnectionService?.Connected ?? false;
 
+        /// <summary>The shared idle auto-disconnect banner. Null in tests and headless hosts, where it renders nothing.</summary>
+        public TiltDeviceIdleCountdownVM IdleCountdown => HocusFocusPlugin.TiltDeviceIdleCountdown;
+
         // Live per-motor stepper positions for the connected motorized adapter, shown in the Tilt Adapter
         // Guidance section. Device motor order matches the wizard's convention (TR=1, TL=2, BR=3, BL=4); there
         // is no calibration-run baseline here, so — unlike the wizard — these carry no Δ.

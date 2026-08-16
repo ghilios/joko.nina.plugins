@@ -101,10 +101,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // Lazily created: SerialPortProvider's own constructor runs a WMI scan, so the real provider is only
         // built on first port enumeration (when the pane is actually shown), never during VM construction.
         private ISerialPortProvider serialPortProvider;
-        // The idle-disconnect confirmation, injectable for tests. Production default shows the NINA
-        // message box (ShowIdleDisconnectPromptAsync); tests inject a fake returning true/false and assert
-        // the right TiltDeviceConnectionService method is called.
-        private readonly Func<Task<bool>> confirmIdleDisconnectAsync;
         // The simulator config the "Simulator" port checks against the selected EAT preset. Null-tolerant: a
         // device-less test rig may not wire it, in which case the Simulator-port config check is skipped.
         private readonly ICameraSimulatorOptions cameraSimulatorOptions;
@@ -322,7 +318,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ITiltAdapterOptions tiltAdapterOptions,
             TiltDeviceConnectionService tiltDeviceConnectionService = null,
             ISerialPortProvider serialPortProvider = null,
-            Func<Task<bool>> confirmIdleDisconnectAsync = null,
             ICameraSimulatorOptions cameraSimulatorOptions = null,
             Func<string, string, Task<bool>> confirmSimConfigChangeAsync = null)
             : base(profileService) {
@@ -331,7 +326,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             this.applicationDispatcher = applicationDispatcher;
             this.tiltDeviceConnectionService = tiltDeviceConnectionService;
             this.serialPortProvider = serialPortProvider; // null => created lazily on first enumeration
-            this.confirmIdleDisconnectAsync = confirmIdleDisconnectAsync ?? ShowIdleDisconnectPromptAsync;
             this.cameraSimulatorOptions = cameraSimulatorOptions;
             this.confirmSimConfigChangeAsync = confirmSimConfigChangeAsync ?? ShowSimConfigChangePromptAsync;
             this.progress = ProgressFactory.Create(applicationStatusMediator, "Tilt Adapter Wizard");
@@ -376,7 +370,6 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // whole app run (like every other subscription in this ctor).
             if (this.tiltDeviceConnectionService != null) {
                 this.tiltDeviceConnectionService.PropertyChanged += TiltDeviceConnectionService_PropertyChanged;
-                this.tiltDeviceConnectionService.IdlePromptRequested += TiltDeviceConnectionService_IdlePromptRequested;
             }
 
             // Hand control of the connected adapter. Lives in Panel A's connection GroupBox, so it is never on
@@ -1512,13 +1505,22 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         public bool IsTiltDeviceConnected => tiltDeviceConnectionService?.Connected ?? false;
 
+        /// <summary>The shared idle auto-disconnect banner. Null in tests and headless hosts, where it renders nothing.</summary>
+        public TiltDeviceIdleCountdownVM IdleCountdown => HocusFocusPlugin.TiltDeviceIdleCountdown;
+
         public bool TiltDevicePositionsKnown => (deviceDisplayPositions != null && deviceDisplayPositions.Count >= 4)
             || (tiltDeviceConnectionService?.PositionsKnown ?? false);
 
         public string TiltDeviceStatusText {
             get {
                 var svc = tiltDeviceConnectionService;
-                if (svc == null || !svc.Connected) return "Not connected";
+                if (svc == null || !svc.Connected) {
+                    // The user was away when the idle countdown ran out, so the panels simply vanished. This is
+                    // the line they read when they come back and wonder why nothing is connected.
+                    return svc?.LastIdleAutoDisconnectUtc is DateTimeOffset when
+                        ? $"Not connected — auto-disconnected after {TiltDeviceConnectionService.IdleTimeout.TotalMinutes:0} min idle at {when.ToLocalTime():HH:mm}"
+                        : "Not connected";
+                }
                 string port = string.IsNullOrEmpty(connectedPortName) ? string.Empty : $" on {connectedPortName}";
                 // Surfaces the exclusive-operation name so T11's hands-off calibration (and the inspector's
                 // plan execution) get a live status line for free.
@@ -1698,6 +1700,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         private void TiltDeviceConnectionService_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
+            if (e.PropertyName == nameof(TiltDeviceConnectionService.LastIdleAutoDisconnectUtc)
+                && tiltDeviceConnectionService?.LastIdleAutoDisconnectUtc != null) {
+                PostToUIThread(NotifyIdleAutoDisconnect);
+            }
             // The service raises INPC from its polling/idle timer threads; marshal without blocking them
             // (same rationale as the device-info broadcasts, see PostToUIThread).
             PostToUIThread(() => {
@@ -1734,50 +1740,15 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             });
         }
 
-        // Test-observability hook for the fire-and-forget idle-prompt handling (mirrors the service's
-        // LastForcedDisconnectTask): tests await it for deterministic completion.
-        internal Task LastIdlePromptTask { get; private set; }
-
-        private void TiltDeviceConnectionService_IdlePromptRequested(object sender, EventArgs e) {
-            // Fires on the service's timer thread; the modal must be shown from the UI thread. Post (never
-            // block the timer thread) and let the async handler route the answer back to the service.
-            PostToUIThread(() => LastIdlePromptTask = HandleIdlePromptRequestedAsync());
-        }
-
-        private async Task HandleIdlePromptRequestedAsync() {
-            var svc = tiltDeviceConnectionService;
-            if (svc == null) return;
-            bool disconnect;
-            try {
-                disconnect = await confirmIdleDisconnectAsync();
-            } catch (Exception ex) {
-                // Treat a failed prompt as "keep connected" but still resolve it, so the service re-arms
-                // rather than suppressing every future idle prompt behind a permanently-outstanding one.
-                Logger.Error(ex, "Tilt device idle-disconnect prompt failed; keeping the device connected");
-                svc.KeepConnectedResetIdle();
-                return;
-            }
-            try {
-                if (disconnect) {
-                    await svc.ConfirmIdleDisconnectAsync();
-                } else {
-                    svc.KeepConnectedResetIdle();
-                }
-            } catch (Exception ex) {
-                Logger.Error(ex, "Tilt device idle disconnect failed");
-            }
-        }
-
-        // Production idle prompt: NINA's message box (it marshals onto the application dispatcher itself,
-        // and the caller is already posted to the UI thread). Default answer is No — never disconnect the
-        // hardware because a dialog was dismissed.
-        private Task<bool> ShowIdleDisconnectPromptAsync() {
-            var result = MyMessageBox.Show(
-                "The tilt adapter device has been connected but idle for 30 minutes. Disconnect it?",
-                "Tilt Adapter Device Idle",
-                System.Windows.MessageBoxButton.YesNo,
-                System.Windows.MessageBoxResult.No);
-            return Task.FromResult(result == System.Windows.MessageBoxResult.Yes);
+        /// <summary>
+        /// Announces an idle auto-disconnect after the fact. The user was away -- the countdown banner they never
+        /// saw is gone, and the tilt panels have collapsed -- so the toast plus the status line built by
+        /// <see cref="TiltDeviceStatusText"/> are what explain why the device is no longer connected.
+        /// Raised here rather than in the service so the service stays UI-free.
+        /// </summary>
+        private void NotifyIdleAutoDisconnect() {
+            Notification.ShowInformation(
+                $"Tilt adapter disconnected automatically after {TiltDeviceConnectionService.IdleTimeout.TotalMinutes:0} minutes idle.");
         }
 
         // Pre-connect checks for the "Simulator" port. Returns false to ABORT the connect. The simulated adapter

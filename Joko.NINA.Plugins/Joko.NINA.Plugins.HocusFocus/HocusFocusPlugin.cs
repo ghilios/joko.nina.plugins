@@ -199,6 +199,9 @@ namespace NINA.Joko.Plugins.HocusFocus {
                         return new EatTiltMotionController(new SimulatedEatTransport(sharedSimActuator), TiltAdapterOptions);
                     });
             }
+            if (TiltDeviceIdleCountdown == null) {
+                TiltDeviceIdleCountdown = new TiltDeviceIdleCountdownVM(TiltDeviceConnectionService, ApplicationDispatcher);
+            }
             if (AlglibAPI == null) {
                 AlglibAPI = new AlglibAPI();
             }
@@ -395,6 +398,12 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public SimulatedTiltAdapterVM SimTiltAdapterVM { get; private set; }
 
         public static TiltDeviceConnectionService TiltDeviceConnectionService { get; private set; }
+
+        /// <summary>
+        /// One shared idle-countdown banner VM, so every panel that shows tilt-device state renders the same
+        /// countdown from one source of truth — whichever panel the user happens to be looking at.
+        /// </summary>
+        public static TiltDeviceIdleCountdownVM TiltDeviceIdleCountdown { get; private set; }
 
         public static AutoFocusEngineFactory AutoFocusEngineFactory { get; private set; }
 

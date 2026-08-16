@@ -10,6 +10,7 @@
     xmlns:afreview="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus.Review"
     xmlns:replay="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay"
     xmlns:tiltprompt="clr-namespace:NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt"
+    xmlns:tiltdevices="clr-namespace:NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices"
     xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
     xmlns:ns="clr-namespace:NINA.Core.Locale;assembly=NINA.Core"
     xmlns:oxy="clr-namespace:OxyPlot.Wpf;assembly=OxyPlot.Contrib.Wpf"
@@ -109,6 +110,51 @@
           they are sent to the device. Implicit DataType template resolved by the WindowService, same as above.  -->
     <DataTemplate DataType="{x:Type tiltprompt:TiltDeviceAdjustmentPromptVM}">
         <tiltprompt:TiltDeviceAdjustmentPromptControl />
+    </DataTemplate>
+
+    <!--  Idle auto-disconnect banner. One implicit DataType template, rendered wherever tilt-device state is shown
+          (this panel's guidance section and both wizard views) via <ContentControl Content="{Binding IdleCountdown}" />,
+          all bound to ONE shared VM so the panel the user is actually looking at shows the same countdown.
+          FILLED warning colour rather than the quiet bordered style used for advisory text: this has a deadline and
+          disconnects on inaction, so it earns the heavier weight. Precedent for the fill + inline button is the
+          camera simulator's "inline confirmation rather than a modal" banner.
+          One button only, because doing nothing already disconnects in under a minute and a real Disconnect
+          button sits nearby in the wizard's connection pane.  -->
+    <DataTemplate DataType="{x:Type tiltdevices:TiltDeviceIdleCountdownVM}">
+        <Border
+            Margin="0,4,0,4"
+            Padding="6,4"
+            Background="{StaticResource NotificationWarningBrush}"
+            CornerRadius="3"
+            Visibility="{Binding IsVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+            <StackPanel>
+                <TextBlock
+                    MaxWidth="420"
+                    HorizontalAlignment="Left"
+                    FontWeight="Bold"
+                    Foreground="{StaticResource NotificationWarningTextBrush}"
+                    Text="{Binding HeadlineText}"
+                    TextWrapping="Wrap" />
+                <TextBlock
+                    MaxWidth="420"
+                    Margin="0,2,0,0"
+                    HorizontalAlignment="Left"
+                    FontSize="10"
+                    Foreground="{StaticResource NotificationWarningTextBrush}"
+                    Text="{Binding DetailText}"
+                    TextWrapping="Wrap" />
+                <WrapPanel Margin="0,4,0,0">
+                    <Button
+                        Command="{Binding StayConnectedCommand}"
+                        IsEnabled="{Binding CanStayConnected}"
+                        Style="{StaticResource StandardButton}"
+                        ToolTip="Resets the idle timer and keeps the device connected."
+                        AutomationProperties.Name="Keep the tilt adapter connected">
+                        <TextBlock Margin="6,2" Text="Stay connected" />
+                    </Button>
+                </WrapPanel>
+            </StackPanel>
+        </Border>
     </DataTemplate>
 
     <!--  Shared chart + info "core": the AF plot plus the run's info rows (Time / Position / HFR / Temperature /
@@ -2911,6 +2957,10 @@
                         </Style>
                     </Expander.Style>
                     <StackPanel Margin="5">
+                        <!--  Idle auto-disconnect countdown. Placed OUTSIDE the connected-only block below so it is
+                              visible to a user looking at the inspector, whose whole tilt section is about to
+                              vanish when the countdown expires.  -->
+                        <ContentControl Content="{Binding IdleCountdown}" />
                         <!--  No calibration branch  -->
                         <TextBlock
                             Margin="5"
