@@ -74,8 +74,9 @@ Star-detection settings can be per-filter (`StarDetection/PerFilter/`). Two pers
 
 - `PerFilterStarDetectionEnabled` — bool, default `false`.
 - `PerFilterStarDetectionJson` — one JSON blob (`PerFilterStarDetectionData`) holding the pre-enable global
-  seed plus a `StarDetectionSettingsSnapshot` per filter name. Corrupt JSON is discarded with a
-  `Logger.Warning`.
+  seed plus, per filter name, a `StarDetectionSettingsSnapshot` and an optional `PerFilterSweepGeometry`
+  (the auto-focus step size / initial offset steps override; `-1` = inherit the profile). Corrupt JSON is
+  discarded with a `Logger.Warning`.
 
 While enabled, the `StarDetectionOptions` singleton is an edit buffer: `PerFilterEditBinder` loads the selected
 filter's snapshot into it and mirrors every edit back to the store, and the singleton's legacy accessor writes
@@ -88,3 +89,23 @@ keys in `StarDetectionOptions.MachineLocalKeys`. Consequences when changing `Sta
   `PerFilterStarDetectionStore.Scrub` / `StarDetectionSettingsSnapshot.CopyMachineLocalFrom`.
 - The UI invariant is unchanged: every new option still needs a control in `Resources/OptionsDataTemplates.xaml`.
 - Add a tooltip `TextBlock` resource (key: `<PropertyName>_Tooltip`) near the other tooltips at the top of `OptionsDataTemplates.xaml`
+
+### Transfer between machines / filters (Export, Import, Copy Settings From)
+
+One filter's set travels as a `StarDetectionSettingsExport` JSON file (`StarDetectionSettingsIO`): a
+`starDetection` snapshot node, plus a sibling `sweepGeometry` node so the filter's auto-focus sweep goes with
+it. Geometry stays OUT of the snapshot on purpose (that type is also the AF replay payload and the engine's
+detector override) and out of `ImportableSettings`/`ExcludedFromImport` (both are keyed on
+`IStarDetectionOptions` properties); it gets its own diff rows via
+`StarDetectionSettingsDiff.BuildSweepGeometryDiff`, shown in the same confirmation dialog. In the file, `null`
+geometry means "says nothing, leave the target's override alone" and an unset instance means "the source
+inherits the profile, clear the target's override" — do not collapse the two.
+
+A new star-detection option therefore also needs a `(property, label)` entry in
+`StarDetectionSettingsDiff.ImportableSettings`, or an `ExcludedFromImport` entry when it describes the computer
+rather than the configuration. Three reflection guards fail if any hand-written copy step misses it:
+`ImportableSettings_CoverExactlyTheImportableInterfaceProperties` (the list), and in
+`StarDetectionSettingsTransferCoverageTests`, `FromOptions_CapturesEverySetting` (capture) plus
+`EveryImportableSetting_SurvivesAFileRoundTripAndApply` (JSON + `ApplyImportedSnapshot`). The last two need a
+second valid value per property; numeric knobs get theirs from the `NumericAlternates` table there, because
+`StarDetectionOptions` setters throw rather than clamp on out-of-range input.
