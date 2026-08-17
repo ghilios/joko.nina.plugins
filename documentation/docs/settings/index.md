@@ -88,16 +88,32 @@ With the feature on, an **Editing Filter** dropdown appears above the settings. 
 
 At detection time each image uses the settings of the filter it was captured with, read from the image metadata. Autofocus frames carry the filter that is physically in the light path, so a focus run through Ha is measured with your Ha settings automatically.
 
+### Auto-focus sweep for one filter
+
+Filters often want different sweeps as well as different detection: a narrowband filter's best step size is not a luminance filter's. Two boxes under **Auto-Focus Sweep for This Filter** override NINA's profile-wide sweep for the filter you are editing:
+
+- **Step Size**: focuser steps between auto-focus points. Overrides **Auto Focus Step Size** in NINA's Options → Focuser.
+- **Initial Offset Steps**: points on each side of the sweep's starting position. Overrides **Auto Focus Initial Offset Steps**.
+
+Leave a box **blank** to use the profile value. A blank box shows that value dimmed, so you can see what it resolves to; clear a box to go back to inheriting. The two resolve independently, so you can pin the step size for a filter and still inherit however many points the profile sweeps.
+
+These are the numbers the [Optimization Wizard](../optimization/index.md) recommends. With per-filter star detection on, its **Apply these auto-focus settings** checkbox writes them here, into the target filter's set, rather than to the profile, so optimizing Ha and then L no longer overwrites Ha's sweep. A live sweep's exposure goes to the same filter, into NINA's own per-filter **Auto Focus Exposure Time** in the filter wheel settings. **Copy Settings From** carries them along with the detection settings. **Export** and **Import** do not, since a step size describes a particular focuser rather than a filter.
+
+Which filter's sweep applies is decided the same way detection decides: the filter the frames are actually taken through. Note that with NINA's **Use Filter Wheel Offsets** enabled, focus runs expose through your designated auto-focus filter, so it is *that* filter's sweep that applies, not the one you are imaging with.
+
 ### Filter wheel required
 
 Per-filter sets are keyed by filter name, so detection must know which filter took each frame; that knowledge comes from the connected filter wheel. With the feature on and no wheel connected:
 
 - Hocus Focus refuses to start its own operations up front: autofocus runs, aberration inspector runs and analyses, and the Optimization Wizard all stop with a message naming the feature, and the sequencer's **Run Aberration Inspector** instruction reports a validation issue.
 - Any detection that still reaches a frame with no filter in its metadata (NINA's built-in autofocus using the Hocus Focus detector, for example) returns zero stars and shows a warning each time: *"Per-filter star detection is enabled but the active filter is unknown - connect a filter wheel."* It never fails the imaging pipeline with an error.
+- The per-filter **sweep geometry** behaves differently on purpose: with no filter to key on it quietly falls back to the profile's step size and offset steps. Detection has nothing to fall back to, so it has to refuse. A sweep spacing does, and failing a focus run over one would be worse than using the profile's.
 
 If you image without a filter wheel (an OSC rig, say), leave the feature off.
 
 Renaming a filter starts the new name from the captured global copy; the old name's set is kept and reattaches if the name returns. Disabling the feature restores the single global set exactly as it was when you enabled per-filter mode, and the per-filter sets are kept for the next time you enable it.
+
+Sweep-geometry overrides are the one thing enabling the feature does **not** seed: every filter starts out inheriting the profile. A copy taken at enable time would freeze, and would then silently ignore any later change you made in Options → Focuser.
 
 ## Reading the results: the Star Detection Results panel
 

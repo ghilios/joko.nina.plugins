@@ -274,4 +274,233 @@ public class PerFilterStarDetectionStoreTests {
             Assert.That(restored.Filters[1].Settings.OptimizedSettings, Is.Null);
         });
     }
+
+    // --- Auto-focus sweep geometry ------------------------------------------------------------------------
+
+    [Test]
+    public void GetSweepGeometry_UnknownFilter_ReturnsUnsetAndPersistsNothing() {
+        // The seed asymmetry against GetOrSeedSnapshot, pinned: detection has no fallback so it must seed on
+        // read, geometry falls back to the profile so it must not. The engine calls this on its run path.
+        var (store, accessor, _) = Build("Ha");
+        store.Enabled = true;
+        var before = accessor.Snapshot["PerFilterStarDetectionJson"];
+
+        var geometry = store.GetSweepGeometry("Ha");
+
+        Assert.Multiple(() => {
+            Assert.That(geometry, Is.Not.Null);
+            Assert.That(geometry.IsUnset, Is.True);
+            Assert.That(accessor.Snapshot["PerFilterStarDetectionJson"], Is.EqualTo(before));
+        });
+    }
+
+    [Test]
+    public void GetSweepGeometry_ReturnsAClone_MutatingItPersistsNothing() {
+        var (store, _, _) = Build("Ha");
+        store.Enabled = true;
+        store.SetSweepGeometry("Ha", new PerFilterSweepGeometry { StepSize = 30, InitialOffsetSteps = 4 });
+
+        var handedOut = store.GetSweepGeometry("Ha");
+        handedOut.StepSize = 999;
+
+        Assert.That(store.GetSweepGeometry("Ha").StepSize, Is.EqualTo(30));
+    }
+
+    [Test]
+    public void SetSweepGeometry_RoundTripsThroughANewStoreInstance() {
+        var (store, accessor, profile) = Build("Ha", "OIII");
+        store.Enabled = true;
+        store.SetSweepGeometry("Ha", new PerFilterSweepGeometry { StepSize = 42, InitialOffsetSteps = 6 });
+
+        var reloaded = new PerFilterStarDetectionStore(profile, accessor, MakeGlobalSnapshot);
+
+        Assert.Multiple(() => {
+            Assert.That(reloaded.GetSweepGeometry("Ha").StepSize, Is.EqualTo(42));
+            Assert.That(reloaded.GetSweepGeometry("Ha").InitialOffsetSteps, Is.EqualTo(6));
+            Assert.That(reloaded.GetSweepGeometry("OIII").IsUnset, Is.True);
+        });
+    }
+
+    [Test]
+    public void SetSweepGeometry_RaisesSweepGeometryChangedButNotSnapshotChanged() {
+        // The binder answers SnapshotChanged by reloading the entire detection buffer, which a geometry edit
+        // must not trigger -- that is the whole reason the two events are separate.
+        var (store, _, _) = Build("Ha");
+        store.Enabled = true;
+        var geometryEvents = new List<string>();
+        var snapshotEvents = new List<string>();
+        store.SweepGeometryChanged += (_, e) => geometryEvents.Add(e.FilterName);
+        store.SnapshotChanged += (_, e) => snapshotEvents.Add(e.FilterName);
+
+        store.SetSweepGeometry("Ha", new PerFilterSweepGeometry { StepSize = 15 });
+
+        Assert.Multiple(() => {
+            Assert.That(geometryEvents, Is.EqualTo(new[] { "Ha" }));
+            Assert.That(snapshotEvents, Is.Empty);
+        });
+    }
+
+    [TestCase(0)]
+    [TestCase(-7)]
+    public void SetSweepGeometry_NonPositiveStepSize_NormalizedToInherit(int stepSize) {
+        var (store, _, _) = Build("Ha");
+        store.Enabled = true;
+
+        store.SetSweepGeometry("Ha", new PerFilterSweepGeometry { StepSize = stepSize, InitialOffsetSteps = 5 });
+
+        Assert.Multiple(() => {
+            Assert.That(store.GetSweepGeometry("Ha").StepSize, Is.EqualTo(PerFilterSweepGeometry.Inherit));
+            Assert.That(store.GetSweepGeometry("Ha").HasStepSize, Is.False);
+            Assert.That(store.GetSweepGeometry("Ha").InitialOffsetSteps, Is.EqualTo(5), "the other field is unaffected");
+        });
+    }
+
+    [Test]
+    public void SetSweepGeometry_ZeroOffsetSteps_NormalizedToInherit() {
+        // A sweep needs at least one point per side, matching the engine's own validation.
+        var (store, _, _) = Build("Ha");
+        store.Enabled = true;
+
+        store.SetSweepGeometry("Ha", new PerFilterSweepGeometry { StepSize = 25, InitialOffsetSteps = 0 });
+
+        Assert.That(store.GetSweepGeometry("Ha").HasOffsetSteps, Is.False);
+    }
+
+    [Test]
+    public void SetSweepGeometry_Null_ClearsTheOverride() {
+        var (store, _, _) = Build("Ha");
+        store.Enabled = true;
+        store.SetSweepGeometry("Ha", new PerFilterSweepGeometry { StepSize = 25, InitialOffsetSteps = 3 });
+
+        store.SetSweepGeometry("Ha", null);
+
+        Assert.That(store.GetSweepGeometry("Ha").IsUnset, Is.True);
+    }
+
+    [Test]
+    public void SetSweepGeometry_ForAFilterWithNoSnapshot_SurvivesPersist() {
+        // A wizard Accept can write geometry for a filter whose options page was never opened, so that filter
+        // has geometry and no snapshot. Persisting only the snapshot map would silently drop it.
+        var (store, accessor, profile) = Build("Ha");
+        store.SetSweepGeometry("NeverOpened", new PerFilterSweepGeometry { StepSize = 77, InitialOffsetSteps = 2 });
+
+        var reloaded = new PerFilterStarDetectionStore(profile, accessor, MakeGlobalSnapshot);
+
+        Assert.Multiple(() => {
+            Assert.That(reloaded.GetSweepGeometry("NeverOpened").StepSize, Is.EqualTo(77));
+            Assert.That(reloaded.TryGetSnapshot("NeverOpened"), Is.Null);
+            Assert.That(reloaded.GetKnownFilterNames(), Contains.Item("NeverOpened"));
+        });
+    }
+
+    [Test]
+    public void DetectionUpsert_DoesNotClobberSweepGeometry() {
+        var (store, _, _) = Build("Ha");
+        store.Enabled = true;
+        store.SetSweepGeometry("Ha", new PerFilterSweepGeometry { StepSize = 33, InitialOffsetSteps = 4 });
+
+        var snapshot = store.GetOrSeedSnapshot("Ha");
+        snapshot.BrightnessSensitivity = 9.9;
+        store.UpsertSnapshot("Ha", snapshot);
+
+        Assert.Multiple(() => {
+            Assert.That(store.GetSweepGeometry("Ha").StepSize, Is.EqualTo(33));
+            Assert.That(store.TryGetSnapshot("Ha").BrightnessSensitivity, Is.EqualTo(9.9));
+        });
+    }
+
+    [Test]
+    public void SweepGeometryUpsert_DoesNotClobberDetectionSettings() {
+        var (store, _, _) = Build("Ha");
+        store.Enabled = true;
+        var snapshot = store.GetOrSeedSnapshot("Ha");
+        snapshot.BrightnessSensitivity = 2.25;
+        store.UpsertSnapshot("Ha", snapshot);
+
+        store.SetSweepGeometry("Ha", new PerFilterSweepGeometry { StepSize = 12 });
+
+        Assert.That(store.TryGetSnapshot("Ha").BrightnessSensitivity, Is.EqualTo(2.25));
+    }
+
+    [Test]
+    public void Enable_DoesNotSeedAnySweepGeometry() {
+        // Detection must seed on enable because it has no fallback. Geometry must NOT: a copy of the profile
+        // value would freeze and drift silently the moment the profile value changed, and would destroy the
+        // "never set" state that makes clearing an override meaningful.
+        var (store, _, _) = Build("Ha", "OIII");
+
+        store.Enabled = true;
+
+        Assert.Multiple(() => {
+            Assert.That(store.GetSweepGeometry("Ha").IsUnset, Is.True);
+            Assert.That(store.GetSweepGeometry("OIII").IsUnset, Is.True);
+        });
+    }
+
+    [Test]
+    public void LegacyBlobWithoutSweepGeometry_LoadsWithEveryFilterInheriting() {
+        var (_, accessor, profile) = Build("Ha");
+        // Hand-written v1 blob, exactly as a build predating this field would have produced.
+        accessor.SetValueString(
+            "PerFilterStarDetectionJson",
+            "{\"SchemaVersion\":1,\"GlobalSeed\":null,\"Filters\":[{\"FilterName\":\"Ha\",\"Settings\":{\"BrightnessSensitivity\":5.5}}]}");
+
+        var store = new PerFilterStarDetectionStore(profile, accessor, MakeGlobalSnapshot);
+
+        Assert.Multiple(() => {
+            Assert.That(store.TryGetSnapshot("Ha").BrightnessSensitivity, Is.EqualTo(5.5), "detection settings still load");
+            Assert.That(store.GetSweepGeometry("Ha").IsUnset, Is.True, "a missing field means inherit");
+        });
+    }
+
+    [Test]
+    public void CorruptSweepGeometryValues_AreNormalizedOnRead() {
+        var (_, accessor, profile) = Build("Ha");
+        accessor.SetValueString(
+            "PerFilterStarDetectionJson",
+            "{\"SchemaVersion\":1,\"Filters\":[{\"FilterName\":\"Ha\",\"SweepGeometry\":{\"StepSize\":0,\"InitialOffsetSteps\":-3}}]}");
+
+        var store = new PerFilterStarDetectionStore(profile, accessor, MakeGlobalSnapshot);
+
+        Assert.That(store.GetSweepGeometry("Ha").IsUnset, Is.True);
+    }
+
+    [Test]
+    public void NewerSchemaVersion_LoadsBestEffortAndDoesNotDiscard() {
+        var (_, accessor, profile) = Build("Ha");
+        accessor.SetValueString(
+            "PerFilterStarDetectionJson",
+            "{\"SchemaVersion\":99,\"Filters\":[{\"FilterName\":\"Ha\",\"SweepGeometry\":{\"StepSize\":21,\"InitialOffsetSteps\":3}}]}");
+
+        var store = new PerFilterStarDetectionStore(profile, accessor, MakeGlobalSnapshot);
+
+        Assert.That(store.GetSweepGeometry("Ha").StepSize, Is.EqualTo(21));
+    }
+
+    [Test]
+    public void PerFilterSweepGeometry_JsonRoundTrip_PreservesBothFields() {
+        var data = new PerFilterStarDetectionData();
+        data.Filters.Add(new PerFilterStarDetectionEntry {
+            FilterName = "Ha",
+            SweepGeometry = new PerFilterSweepGeometry { StepSize = 18, InitialOffsetSteps = 7 }
+        });
+
+        var restored = JsonConvert.DeserializeObject<PerFilterStarDetectionData>(JsonConvert.SerializeObject(data));
+
+        Assert.Multiple(() => {
+            Assert.That(restored.Filters[0].SweepGeometry.StepSize, Is.EqualTo(18));
+            Assert.That(restored.Filters[0].SweepGeometry.InitialOffsetSteps, Is.EqualTo(7));
+        });
+    }
+
+    [Test]
+    public void PerFilterSweepGeometry_ResolvesFieldsIndependently() {
+        var geometry = new PerFilterSweepGeometry { StepSize = 25, InitialOffsetSteps = PerFilterSweepGeometry.Inherit };
+
+        Assert.Multiple(() => {
+            Assert.That(geometry.HasStepSize, Is.True);
+            Assert.That(geometry.HasOffsetSteps, Is.False);
+            Assert.That(geometry.IsUnset, Is.False);
+        });
+    }
 }

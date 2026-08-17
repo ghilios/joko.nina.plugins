@@ -62,6 +62,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
         // handler runs — without the gate that burst would upsert stale data into the new profile's store blob.
         private IProfile observedProfile;
         private ObserveAllCollection<FilterInfo> observedFilters;
+        private IFocuserSettings observedFocuserSettings;
         private bool isLoading;
         private bool isMirroring;
 
@@ -87,12 +88,82 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             profileService.ProfileChanged += ProfileService_ProfileChanged;
             store.EnabledChanged += Store_EnabledChanged;
             store.SnapshotChanged += Store_SnapshotChanged;
+            store.SweepGeometryChanged += Store_SweepGeometryChanged;
             buffer.PropertyChanged += Buffer_PropertyChanged;
             if (store.Enabled) {
                 // Feature already on at startup (persisted per-profile flag): enter buffered-edit mode immediately.
                 OnFeatureEnabled();
             }
         }
+
+        // Backing fields for the edited filter's sweep-geometry override, refreshed from the store rather than
+        // cached as a PerFilterSweepGeometry instance — the store hands out clones, so holding one would quietly
+        // decouple this page from what is actually persisted.
+        private int sweepStepSizeOverride = PerFilterSweepGeometry.Inherit;
+        private int sweepOffsetStepsOverride = PerFilterSweepGeometry.Inherit;
+
+        /// <summary>
+        /// The edited filter's auto-focus step-size override; <see cref="PerFilterSweepGeometry.Inherit"/> (or any
+        /// non-positive value, which is coerced to it) means "use the profile value".
+        ///
+        /// <para>Deliberately a non-nullable int with a negative sentinel rather than an <c>int?</c>: that is this
+        /// project's established "unset numeric" idiom, it is what
+        /// <c>HF_DoubleNegativeToEmptyStringConverter</c> already converts in both directions, and that converter
+        /// calls <c>value.GetType()</c> with no null guard. Coercion happens here because no validation rule may be
+        /// attached to the bound box — rules run on the raw text before the converter and would reject the
+        /// deliberately blank "inherit" state.</para>
+        /// </summary>
+        public int SweepStepSizeOverride {
+            get => sweepStepSizeOverride;
+            set {
+                var coerced = value > 0 ? value : PerFilterSweepGeometry.Inherit;
+                if (sweepStepSizeOverride == coerced) {
+                    return;
+                }
+                sweepStepSizeOverride = coerced;
+                WriteSweepGeometryToStore();
+                RaiseSweepGeometryChanged();
+            }
+        }
+
+        /// <inheritdoc cref="SweepStepSizeOverride"/>
+        public int SweepOffsetStepsOverride {
+            get => sweepOffsetStepsOverride;
+            set {
+                var coerced = value >= 1 ? value : PerFilterSweepGeometry.Inherit;
+                if (sweepOffsetStepsOverride == coerced) {
+                    return;
+                }
+                sweepOffsetStepsOverride = coerced;
+                WriteSweepGeometryToStore();
+                RaiseSweepGeometryChanged();
+            }
+        }
+
+        /// <summary>The profile's step size — what a blank override box resolves to, shown as the box's hint.</summary>
+        public int ProfileSweepStepSize => profileService.ActiveProfile?.FocuserSettings?.AutoFocusStepSize ?? 0;
+
+        /// <inheritdoc cref="ProfileSweepStepSize"/>
+        public int ProfileSweepOffsetSteps => profileService.ActiveProfile?.FocuserSettings?.AutoFocusInitialOffsetSteps ?? 0;
+
+        /// <summary>What the edited filter will actually sweep at right now — the override if set, else the profile.</summary>
+        public int EffectiveSweepStepSize => sweepStepSizeOverride > 0 ? sweepStepSizeOverride : ProfileSweepStepSize;
+
+        /// <inheritdoc cref="EffectiveSweepStepSize"/>
+        public int EffectiveSweepOffsetSteps => sweepOffsetStepsOverride >= 1 ? sweepOffsetStepsOverride : ProfileSweepOffsetSteps;
+
+        /// <summary>True when the edited filter overrides either sweep-geometry field.</summary>
+        public bool HasSweepGeometryOverride => sweepStepSizeOverride > 0 || sweepOffsetStepsOverride >= 1;
+
+        /// <summary>
+        /// True when the step-size box is blank and the profile value applies — drives the dimmed "profile: N"
+        /// hint drawn over the empty box. A per-field flag rather than <see cref="HasSweepGeometryOverride"/>
+        /// because the two fields resolve independently.
+        /// </summary>
+        public bool SweepStepSizeInherits => sweepStepSizeOverride <= 0;
+
+        /// <inheritdoc cref="SweepStepSizeInherits"/>
+        public bool SweepOffsetStepsInherits => sweepOffsetStepsOverride < 1;
 
         private string editedFilterName;
 
@@ -103,6 +174,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
                     editedFilterName = value;
                     RaisePropertyChanged();
                     RaiseActiveFilterWarningChanged();
+                    LoadSweepGeometryFromStore(editedFilterName);
                     if (!string.IsNullOrEmpty(editedFilterName)) {
                         LoadSnapshotIntoBuffer(editedFilterName);
                     }
@@ -218,6 +290,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             }
             editedFilterName = current;
             RaisePropertyChanged(nameof(EditedFilterName));
+            LoadSweepGeometryFromStore(current);
             LoadSnapshotIntoBuffer(current);
         }
 
@@ -262,10 +335,20 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             if (observedFilters != null) {
                 observedFilters.CollectionChanged -= Filters_CollectionChanged;
             }
+            if (observedFocuserSettings != null) {
+                observedFocuserSettings.PropertyChanged -= FocuserSettings_PropertyChanged;
+            }
             observedProfile = profileService.ActiveProfile;
             observedFilters = observedProfile?.FilterWheelSettings?.FilterWheelFilters;
             if (observedFilters != null) {
                 observedFilters.CollectionChanged += Filters_CollectionChanged;
+            }
+            // The sweep-geometry hints show the PROFILE values a blank box falls back to, so they have to track an
+            // edit made in NINA's Options -> Focuser while this page is open — otherwise the page keeps claiming a
+            // number the next run will not use. Precedent for this subscription: InspectorVM and TiltAdapterWizardVM.
+            observedFocuserSettings = observedProfile?.FocuserSettings;
+            if (observedFocuserSettings != null) {
+                observedFocuserSettings.PropertyChanged += FocuserSettings_PropertyChanged;
             }
         }
 
@@ -287,12 +370,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
                     : ResolveDefaultFilterName(names);
                 editedFilterName = name;
                 RaisePropertyChanged(nameof(EditedFilterName));
+                LoadSweepGeometryFromStore(name);
                 if (!string.IsNullOrEmpty(name)) {
                     LoadSnapshotIntoBuffer(name);
                 }
             } else {
                 buffer.PersistToProfile = true;
+                LoadSweepGeometryFromStore(null);
             }
+            // The whole geometry set is per-profile, and so are the profile values the hints show.
+            RaiseProfileSweepGeometryChanged();
             // A new profile can bring a different filter set and a different edited filter.
             RaiseActiveFilterWarningChanged();
             // A copy source picked against the old profile's filters is meaningless now.
@@ -313,6 +400,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             } else {
                 buffer.PersistToProfile = true;
                 buffer.ReloadFromProfile();
+                // Overrides stay in the store for the next enable; they simply stop being exposed. Unlike the
+                // detection buffer there is nothing to restore — geometry never wrote to the profile.
+                LoadSweepGeometryFromStore(null);
             }
             // The warning is gated on Enabled, so toggling the feature always changes whether it shows. Raised
             // inline like the buffer mutations above: Enabled is flipped from the options UI.
@@ -329,6 +419,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             var name = ResolveDefaultFilterName(AvailableFilterNames);
             editedFilterName = name;
             RaisePropertyChanged(nameof(EditedFilterName));
+            LoadSweepGeometryFromStore(name);
             if (!string.IsNullOrEmpty(name)) {
                 LoadSnapshotIntoBuffer(name);
             }
@@ -379,6 +470,87 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
                     return;
                 }
                 LoadSnapshotIntoBuffer(editedFilterName);
+            });
+        }
+
+        /// <summary>
+        /// Applies <paramref name="mutate"/> to ONE filter's sweep geometry. The geometry sibling of
+        /// <see cref="MutateFilterSettings"/>, and it exists for the same reason: the store's getters hand back
+        /// clones, so mutating what you were given persists nothing.
+        ///
+        /// <para>Unlike its sibling there is no singleton edit buffer to route through — geometry lives only in the
+        /// store — so this is always store-backed, callable for any filter from anywhere, with no ordering
+        /// requirement on <see cref="EditedFilterName"/>. When the target IS the edited filter, the bound properties
+        /// are refreshed too.</para>
+        /// </summary>
+        public void MutateFilterSweepGeometry(string filterName, Action<PerFilterSweepGeometry> mutate) {
+            if (mutate == null) {
+                throw new ArgumentNullException(nameof(mutate));
+            }
+            if (!store.Enabled || string.IsNullOrEmpty(filterName)) {
+                return;
+            }
+            // The store contracts to never return null; coalescing anyway keeps a UI-thread NullReferenceException
+            // out of reach if a host ever supplies a partially-configured store.
+            var geometry = store.GetSweepGeometry(filterName) ?? PerFilterSweepGeometry.Unset();
+            mutate(geometry);
+            store.SetSweepGeometry(filterName, geometry);
+        }
+
+        private void LoadSweepGeometryFromStore(string filterName) {
+            var geometry = (store.Enabled && !string.IsNullOrEmpty(filterName)
+                ? store.GetSweepGeometry(filterName)
+                : PerFilterSweepGeometry.Unset()) ?? PerFilterSweepGeometry.Unset();
+            sweepStepSizeOverride = geometry.HasStepSize ? geometry.StepSize : PerFilterSweepGeometry.Inherit;
+            sweepOffsetStepsOverride = geometry.HasOffsetSteps ? geometry.InitialOffsetSteps : PerFilterSweepGeometry.Inherit;
+            RaiseSweepGeometryChanged();
+        }
+
+        private void WriteSweepGeometryToStore() {
+            if (!store.Enabled || string.IsNullOrEmpty(editedFilterName)) {
+                return;
+            }
+            store.SetSweepGeometry(editedFilterName, new PerFilterSweepGeometry {
+                StepSize = sweepStepSizeOverride,
+                InitialOffsetSteps = sweepOffsetStepsOverride
+            });
+        }
+
+        private void RaiseSweepGeometryChanged() {
+            RaisePropertyChanged(nameof(SweepStepSizeOverride));
+            RaisePropertyChanged(nameof(SweepOffsetStepsOverride));
+            RaisePropertyChanged(nameof(EffectiveSweepStepSize));
+            RaisePropertyChanged(nameof(EffectiveSweepOffsetSteps));
+            RaisePropertyChanged(nameof(HasSweepGeometryOverride));
+            RaisePropertyChanged(nameof(SweepStepSizeInherits));
+            RaisePropertyChanged(nameof(SweepOffsetStepsInherits));
+        }
+
+        private void RaiseProfileSweepGeometryChanged() {
+            RaisePropertyChanged(nameof(ProfileSweepStepSize));
+            RaisePropertyChanged(nameof(ProfileSweepOffsetSteps));
+            RaisePropertyChanged(nameof(EffectiveSweepStepSize));
+            RaisePropertyChanged(nameof(EffectiveSweepOffsetSteps));
+        }
+
+        private void FocuserSettings_PropertyChanged(object sender, PropertyChangedEventArgs e) {
+            if (e == null
+                || string.IsNullOrEmpty(e.PropertyName)
+                || e.PropertyName == nameof(IFocuserSettings.AutoFocusStepSize)
+                || e.PropertyName == nameof(IFocuserSettings.AutoFocusInitialOffsetSteps)) {
+                RaiseProfileSweepGeometryChanged();
+            }
+        }
+
+        // The wizard's Accept writes geometry for the target filter from its own thread, so this can arrive
+        // off the UI thread exactly like Store_SnapshotChanged. Note it does NOT reload the detection buffer.
+        private void Store_SweepGeometryChanged(object sender, PerFilterSnapshotChangedEventArgs e) {
+            var filterName = e.FilterName;
+            PostToUiThread(() => {
+                if (!store.Enabled || !string.Equals(filterName, editedFilterName, StringComparison.Ordinal)) {
+                    return;
+                }
+                LoadSweepGeometryFromStore(editedFilterName);
             });
         }
 

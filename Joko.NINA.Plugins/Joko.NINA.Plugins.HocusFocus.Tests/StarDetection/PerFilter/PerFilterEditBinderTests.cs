@@ -8,6 +8,8 @@ using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Profile.Interfaces;
 using NSubstitute;
 using NUnit.Framework;
+using System.Collections.Generic;
+using System.ComponentModel;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection.PerFilter;
 
@@ -788,6 +790,188 @@ public class PerFilterEditBinderStoreIntegrationTests {
         Assert.Multiple(() => {
             Assert.That(h.Buffer.MaxDistortion, Is.EqualTo(0.45));
             Assert.That(h.Store.TryGetSnapshot("Ha").MaxDistortion, Is.EqualTo(0.91));
+        });
+    }
+
+    // --- Auto-focus sweep geometry ------------------------------------------------------------------------
+
+    private static Harness BuildWithProfileGeometry(int stepSize = 100, int offsetSteps = 4) {
+        var h = Build();
+        h.ProfileService.ActiveProfile.FocuserSettings.AutoFocusStepSize.Returns(stepSize);
+        h.ProfileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps.Returns(offsetSteps);
+        return h;
+    }
+
+    [Test]
+    public void SweepGeometry_NoOverride_EffectiveValuesAreTheProfileValues() {
+        var h = BuildWithProfileGeometry(stepSize: 100, offsetSteps: 4);
+        h.Store.Enabled = true;
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.SweepStepSizeOverride, Is.EqualTo(PerFilterSweepGeometry.Inherit));
+            Assert.That(h.Binder.SweepOffsetStepsOverride, Is.EqualTo(PerFilterSweepGeometry.Inherit));
+            Assert.That(h.Binder.ProfileSweepStepSize, Is.EqualTo(100));
+            Assert.That(h.Binder.ProfileSweepOffsetSteps, Is.EqualTo(4));
+            Assert.That(h.Binder.EffectiveSweepStepSize, Is.EqualTo(100));
+            Assert.That(h.Binder.EffectiveSweepOffsetSteps, Is.EqualTo(4));
+            Assert.That(h.Binder.HasSweepGeometryOverride, Is.False);
+        });
+    }
+
+    [Test]
+    public void SweepGeometry_SettingAnOverride_PersistsToTheStoreForTheEditedFilter() {
+        var h = BuildWithProfileGeometry();
+        h.Store.Enabled = true;
+
+        h.Binder.SweepStepSizeOverride = 30;
+        h.Binder.SweepOffsetStepsOverride = 6;
+
+        var stored = h.Store.GetSweepGeometry("Ha");
+        Assert.Multiple(() => {
+            Assert.That(stored.StepSize, Is.EqualTo(30));
+            Assert.That(stored.InitialOffsetSteps, Is.EqualTo(6));
+            Assert.That(h.Binder.EffectiveSweepStepSize, Is.EqualTo(30));
+            Assert.That(h.Binder.HasSweepGeometryOverride, Is.True);
+            Assert.That(h.Store.GetSweepGeometry("L").IsUnset, Is.True, "the other filter is untouched");
+        });
+    }
+
+    // The two fields are stored together but resolve separately, so a user can pin the step size for a
+    // narrowband filter and still inherit however many points the profile sweeps.
+    [Test]
+    public void SweepGeometry_StepSizeOverriddenOnly_OffsetStillInheritsTheProfile() {
+        var h = BuildWithProfileGeometry(stepSize: 100, offsetSteps: 4);
+        h.Store.Enabled = true;
+
+        h.Binder.SweepStepSizeOverride = 25;
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.EffectiveSweepStepSize, Is.EqualTo(25));
+            Assert.That(h.Binder.EffectiveSweepOffsetSteps, Is.EqualTo(4));
+        });
+    }
+
+    // The bound box has no validation rule (a rule would reject the deliberately blank "inherit" state), so the
+    // setter is the only thing standing between a typo and the engine.
+    [TestCase(0)]
+    [TestCase(-5)]
+    public void SweepGeometry_NonPositiveStepSize_CoercedToInherit(int typed) {
+        var h = BuildWithProfileGeometry(stepSize: 100);
+        h.Store.Enabled = true;
+        h.Binder.SweepStepSizeOverride = 30;
+
+        h.Binder.SweepStepSizeOverride = typed;
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.SweepStepSizeOverride, Is.EqualTo(PerFilterSweepGeometry.Inherit));
+            Assert.That(h.Binder.EffectiveSweepStepSize, Is.EqualTo(100));
+        });
+    }
+
+    [Test]
+    public void SweepGeometry_ClearingTheOverride_FallsBackToTheProfile() {
+        var h = BuildWithProfileGeometry(stepSize: 100);
+        h.Store.Enabled = true;
+        h.Binder.SweepStepSizeOverride = 30;
+
+        // What the converter produces when the user empties the box.
+        h.Binder.SweepStepSizeOverride = PerFilterSweepGeometry.Inherit;
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.EffectiveSweepStepSize, Is.EqualTo(100));
+            Assert.That(h.Store.GetSweepGeometry("Ha").HasStepSize, Is.False);
+        });
+    }
+
+    [Test]
+    public void SweepGeometry_SwitchingTheEditedFilter_LoadsThatFiltersOverride() {
+        var h = BuildWithProfileGeometry(stepSize: 100);
+        h.Store.Enabled = true;
+        h.Binder.SweepStepSizeOverride = 30;
+
+        h.Binder.EditedFilterName = "L";
+
+        Assert.That(h.Binder.SweepStepSizeOverride, Is.EqualTo(PerFilterSweepGeometry.Inherit), "L has no override");
+
+        h.Binder.SweepStepSizeOverride = 55;
+        h.Binder.EditedFilterName = "Ha";
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.SweepStepSizeOverride, Is.EqualTo(30), "Ha's override comes back");
+            Assert.That(h.Store.GetSweepGeometry("L").StepSize, Is.EqualTo(55));
+        });
+    }
+
+    // The hint under a blank box shows the profile value, so it has to track an edit made in Options -> Focuser
+    // while this page is open -- otherwise the page claims a number the next run will not use.
+    [Test]
+    public void SweepGeometry_ProfileValueChanges_RaisesTheHintAndEffectiveProperties() {
+        var h = BuildWithProfileGeometry(stepSize: 100);
+        h.Store.Enabled = true;
+        var raised = new List<string>();
+        h.Binder.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        h.ProfileService.ActiveProfile.FocuserSettings.AutoFocusStepSize.Returns(140);
+        h.ProfileService.ActiveProfile.FocuserSettings.PropertyChanged += Raise.Event<PropertyChangedEventHandler>(
+            h.ProfileService.ActiveProfile.FocuserSettings, new PropertyChangedEventArgs(nameof(IFocuserSettings.AutoFocusStepSize)));
+
+        Assert.Multiple(() => {
+            Assert.That(raised, Contains.Item(nameof(PerFilterEditBinder.ProfileSweepStepSize)));
+            Assert.That(raised, Contains.Item(nameof(PerFilterEditBinder.EffectiveSweepStepSize)));
+            Assert.That(h.Binder.EffectiveSweepStepSize, Is.EqualTo(140));
+        });
+    }
+
+    [Test]
+    public void MutateFilterSweepGeometry_NonEditedFilter_PersistsWithoutTouchingTheEditedOne() {
+        var h = BuildWithProfileGeometry();
+        h.Store.Enabled = true;
+        h.Binder.SweepStepSizeOverride = 30;
+
+        h.Binder.MutateFilterSweepGeometry("L", g => { g.StepSize = 77; g.InitialOffsetSteps = 9; });
+
+        Assert.Multiple(() => {
+            Assert.That(h.Store.GetSweepGeometry("L").StepSize, Is.EqualTo(77));
+            Assert.That(h.Binder.SweepStepSizeOverride, Is.EqualTo(30), "the edited filter's bound value is unchanged");
+        });
+    }
+
+    [Test]
+    public void MutateFilterSweepGeometry_EditedFilter_AlsoRefreshesTheBoundProperties() {
+        var h = BuildWithProfileGeometry();
+        h.Store.Enabled = true;
+
+        h.Binder.MutateFilterSweepGeometry("Ha", g => { g.StepSize = 44; g.InitialOffsetSteps = 3; });
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.SweepStepSizeOverride, Is.EqualTo(44));
+            Assert.That(h.Binder.SweepOffsetStepsOverride, Is.EqualTo(3));
+        });
+    }
+
+    // The store hands back clones, so a caller that mutated what it was given would persist nothing -- the whole
+    // reason MutateFilterSweepGeometry exists rather than "get, then change it".
+    [Test]
+    public void MutateFilterSweepGeometry_DoesNotAliasTheStoresInstance() {
+        var h = BuildWithProfileGeometry();
+        h.Store.Enabled = true;
+        var handedOut = h.Store.GetSweepGeometry("Ha");
+        handedOut.StepSize = 999;
+
+        Assert.That(h.Store.GetSweepGeometry("Ha").HasStepSize, Is.False);
+    }
+
+    [Test]
+    public void SweepGeometry_FeatureDisabled_WritesNothingAndReportsNoOverride() {
+        var h = BuildWithProfileGeometry(stepSize: 100);
+        h.Store.Enabled = true;
+        h.Binder.SweepStepSizeOverride = 30;
+
+        h.Store.Enabled = false;
+
+        Assert.Multiple(() => {
+            Assert.That(h.Binder.HasSweepGeometryOverride, Is.False, "nothing is exposed while the feature is off");
+            Assert.That(h.Store.GetSweepGeometry("Ha").StepSize, Is.EqualTo(30), "but the override is retained for the next enable");
         });
     }
 }

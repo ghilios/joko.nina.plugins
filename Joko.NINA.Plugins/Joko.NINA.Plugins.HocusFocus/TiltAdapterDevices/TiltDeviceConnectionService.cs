@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -93,8 +93,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
         /// <summary>Position-poll cadence (design doc user decision #6: "refreshed by polling cp" at a constant cadence).</summary>
         public static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
 
-        /// <summary>Idle-prompt threshold (design doc user decision #7).</summary>
+        /// <summary>Idle threshold, after which the auto-disconnect countdown arms.</summary>
         public static readonly TimeSpan IdleTimeout = TimeSpan.FromMinutes(30);
+
+        /// <summary>
+        /// How long the on-screen countdown runs before the idle disconnect actually fires. The user has already
+        /// had <see cref="IdleTimeout"/>; this is a courtesy decline window, not the decision window, and the cost
+        /// of a wrong disconnect is one Connect click (the adapter keeps its motor counters across sessions).
+        /// Deliberately NOT configurable: a short value would faithfully recreate the yanked-without-warning
+        /// failure this design exists to remove.
+        /// </summary>
+        public static readonly TimeSpan IdleDisconnectGrace = TimeSpan.FromSeconds(60);
 
         private readonly IProfileService profileService;
         private readonly ITiltAdapterOptions options;
@@ -124,6 +133,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
         // only guaranteed atomic on 64-bit runtimes).
         private long lastActivityUtcTicks;
         private long lastPollUtcTicks = DateTimeOffset.MinValue.UtcTicks;
+        // Ticks of the instant the idle disconnect fires, or MinValue when no countdown is armed. Same
+        // Interlocked treatment and for the same reason as the two above: written on the timer thread and on
+        // caller threads, read on both.
+        private long idleDisconnectDeadlineUtcTicks = DateTimeOffset.MinValue.UtcTicks;
 
         // Guards against the idle-prompt TOCTOU double-fire: the underlying System.Threading.Timer does NOT
         // serialize its callback (TimeSource_Tick can be re-entered on a different pool thread if a previous
@@ -141,6 +154,31 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
             get => new DateTimeOffset(Interlocked.Read(ref lastPollUtcTicks), TimeSpan.Zero);
             set => Interlocked.Exchange(ref lastPollUtcTicks, value.UtcTicks);
         }
+
+        private DateTimeOffset IdleDisconnectDeadlineUtc {
+            get => new DateTimeOffset(Interlocked.Read(ref idleDisconnectDeadlineUtcTicks), TimeSpan.Zero);
+            set => Interlocked.Exchange(ref idleDisconnectDeadlineUtcTicks, value.UtcTicks);
+        }
+
+        /// <summary>True while the auto-disconnect countdown is running and the banner should be shown.</summary>
+        public bool IdleDisconnectPending => Interlocked.CompareExchange(ref idlePromptOutstandingFlag, 0, 0) != 0;
+
+        /// <summary>
+        /// Time left before the idle disconnect fires, clamped at zero. Computed from the SAME clock the fire
+        /// check uses, so the number on screen and the moment of disconnect cannot disagree.
+        /// </summary>
+        public TimeSpan IdleDisconnectRemaining {
+            get {
+                if (!IdleDisconnectPending) {
+                    return TimeSpan.Zero;
+                }
+                var remaining = IdleDisconnectDeadlineUtc - timeSource.UtcNow;
+                return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+            }
+        }
+
+        /// <summary>When the device was last disconnected by the idle timer, for the reconnect-side status line. Null otherwise.</summary>
+        public DateTimeOffset? LastIdleAutoDisconnectUtc { get; private set; }
 
         private IReadOnlyList<int> currentPositions = Array.Empty<int>();
 
@@ -184,11 +222,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
         public bool PositionsKnown { get; private set; }
 
         /// <summary>
-        /// Raised once, after 30 minutes with no user-initiated activity while connected (design doc user
-        /// decision #7). Suppressed from firing again until <see cref="ConfirmIdleDisconnectAsync"/> or
-        /// <see cref="KeepConnectedResetIdle"/> resolves the outstanding prompt.
+        /// Test-observability hook, mirroring <see cref="LastForcedDisconnectTask"/>: the task started by the most
+        /// recent idle auto-disconnect. Production never awaits it (the timer callback is necessarily
+        /// fire-and-forget); tests await it so the disconnect completes deterministically under the fake clock.
         /// </summary>
-        public event EventHandler IdlePromptRequested;
+        internal Task LastIdleAutoDisconnectTask { get; private set; }
 
         /// <summary>
         /// Test-observability hook: the <see cref="Task"/> started by the most recent
@@ -218,6 +256,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
             try {
                 if (Connected) {
                     await DisconnectCoreAsync().ConfigureAwait(false);
+                }
+
+                // The "auto-disconnected at HH:mm" note exists to explain why the device is not connected; once
+                // the user reconnects it has served its purpose.
+                if (LastIdleAutoDisconnectUtc.HasValue) {
+                    LastIdleAutoDisconnectUtc = null;
+                    RaisePropertyChanged(nameof(LastIdleAutoDisconnectUtc));
                 }
 
                 // The SimulatedTiltPort sentinel routes to the simulated controller (camera simulator) instead of
@@ -289,7 +334,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
                 SetConnected(false);
                 SetPositionsUnknown();
                 LastPollUtc = DateTimeOffset.MinValue; // next connect polls promptly rather than waiting out a stale interval
-                Interlocked.Exchange(ref idlePromptOutstandingFlag, 0);
+                ClearIdleCountdown();
                 RaisePropertyChanged(nameof(Controller));
             }
         }
@@ -373,23 +418,38 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
             // and polls again on its own (see TryPollTick).
         }
 
-        /// <summary>The "Yes" path for the idle-disconnect modal (T10): disconnects the device.</summary>
-        public Task ConfirmIdleDisconnectAsync() {
-            Interlocked.Exchange(ref idlePromptOutstandingFlag, 0);
-            return DisconnectAsync();
-        }
-
-        /// <summary>The "No" path for the idle-disconnect modal (T10): resets the idle timer and re-arms the prompt for the next 30-minute window. Does not touch the connection.</summary>
+        /// <summary>
+        /// The banner's "Stay connected" button: cancels the countdown, resets the idle timer, and re-arms the
+        /// next window. Does not touch the connection.
+        /// </summary>
         public void KeepConnectedResetIdle() {
-            Interlocked.Exchange(ref idlePromptOutstandingFlag, 0);
+            ClearIdleCountdown();
             RecordUserActivity();
         }
 
         // User-initiated activity only (Connect, TryBeginOperation, and lease disposal, i.e. a completed
         // move/plan/calibration step) — deliberately NOT called from the poll path, per the design doc:
         // "Polling does NOT count as activity."
+        //
+        // Touching the device IS declining the auto-disconnect: moving a motor or starting a calibration takes
+        // an operation lease, which lands here, so the countdown vanishes without the user also having to find
+        // the banner's button.
         private void RecordUserActivity() {
             LastActivityUtc = timeSource.UtcNow;
+            ClearIdleCountdown();
+        }
+
+        private void ClearIdleCountdown() {
+            if (Interlocked.Exchange(ref idlePromptOutstandingFlag, 0) == 0) {
+                return;
+            }
+            IdleDisconnectDeadlineUtc = DateTimeOffset.MinValue;
+            RaiseIdleCountdownChanged();
+        }
+
+        private void RaiseIdleCountdownChanged() {
+            RaisePropertyChanged(nameof(IdleDisconnectPending));
+            RaisePropertyChanged(nameof(IdleDisconnectRemaining));
         }
 
         private void TimeSource_Tick(object sender, EventArgs e) {
@@ -415,9 +475,33 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices {
             // "outstanding" (1) and actually raises the event -- design doc user decision #7 requires the
             // prompt fire EXACTLY once per idle window.
             if (Interlocked.CompareExchange(ref idlePromptOutstandingFlag, 1, 0) != 0) {
-                return; // Already outstanding (or another concurrent tick just claimed it).
+                // Already counting down. Fire once the grace period is up -- re-validating first, because the
+                // deadline was set up to a minute ago and the world may have moved since.
+                if (now >= IdleDisconnectDeadlineUtc) {
+                    FireIdleDisconnect(now);
+                }
+                return;
             }
-            IdlePromptRequested?.Invoke(this, EventArgs.Empty);
+            IdleDisconnectDeadlineUtc = now + IdleDisconnectGrace;
+            Logger.Info($"Tilt adapter idle for {IdleTimeout.TotalMinutes:0} minutes; disconnecting in {IdleDisconnectGrace.TotalSeconds:0}s unless cancelled.");
+            RaiseIdleCountdownChanged();
+        }
+
+        // Re-validated against the same conditions CheckIdle used to arm the countdown. Activity recorded inside
+        // the race window between the deadline passing and this tick therefore still vetoes the disconnect, which
+        // is the belt to RecordUserActivity's suspenders.
+        private void FireIdleDisconnect(DateTimeOffset now) {
+            if (!Connected || isOperationActive || now - LastActivityUtc < IdleTimeout) {
+                ClearIdleCountdown();
+                return;
+            }
+            Interlocked.Exchange(ref idlePromptOutstandingFlag, 0);
+            IdleDisconnectDeadlineUtc = DateTimeOffset.MinValue;
+            LastIdleAutoDisconnectUtc = now;
+            Logger.Info("Tilt adapter disconnected automatically after the idle countdown expired.");
+            RaisePropertyChanged(nameof(LastIdleAutoDisconnectUtc));
+            RaiseIdleCountdownChanged();
+            LastIdleAutoDisconnectTask = DisconnectAsync();
         }
 
         private void TryPollTick(DateTimeOffset now) {

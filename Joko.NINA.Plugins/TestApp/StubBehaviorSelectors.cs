@@ -177,9 +177,17 @@ namespace TestApp {
         public event EventHandler EnabledChanged;
 
         public event EventHandler<PerFilterSnapshotChangedEventArgs> SnapshotChanged;
+
+        public event EventHandler<PerFilterSnapshotChangedEventArgs> SweepGeometryChanged;
 #pragma warning restore CS0067
 
         public StarDetectionSettingsSnapshot TryGetSnapshot(string filterName) => null;
+
+        // Enabled is hard-false above, so the engine never consults these; answering "no override" keeps the
+        // headless run on the profile's sweep geometry, which is what the warning in the constructor describes.
+        public PerFilterSweepGeometry GetSweepGeometry(string filterName) => PerFilterSweepGeometry.Unset();
+
+        public void SetSweepGeometry(string filterName, PerFilterSweepGeometry geometry) { }
 
         public StarDetectionSettingsSnapshot GetOrSeedSnapshot(string filterName)
             => throw new NotSupportedException("Per-filter star detection is unavailable headlessly (no filter wheel).");

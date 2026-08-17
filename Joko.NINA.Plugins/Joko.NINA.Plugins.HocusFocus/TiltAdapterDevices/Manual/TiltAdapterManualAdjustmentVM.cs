@@ -806,12 +806,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual {
                 if (targets == null || !PositionsKnown) {
                     return null;
                 }
-                var delta = new double[4];
-                for (int wizardIndex = 0; wizardIndex < 4; ++wizardIndex) {
-                    int deviceIndex = TiltAdapterCorner.InWizardScrewOrder[wizardIndex].DeviceMotorNumber - 1;
-                    delta[wizardIndex] = targets[deviceIndex] - lastKnownPositions[deviceIndex];
-                }
-                return delta;
+                return TiltDeviceTargetMath.DeltaPerScrew(targets, lastKnownPositions);
             }
         }
 
@@ -1354,7 +1349,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual {
             // Twist: the component of the requested delta that no rigid plane can produce. Reported before the
             // user ever opens the dialog, because they typed four numbers and only three of the four degrees of
             // freedom are physically available.
-            double twist = TiltMovePlanner.Decompose(delta4).t;
+            double twist = TiltDeviceTargetMath.TwistSteps(delta4);
             if (Math.Abs(twist) < 1.0) {
                 return;
             }

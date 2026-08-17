@@ -16,6 +16,7 @@ using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
@@ -332,6 +333,8 @@ public class StarDetectionOptimizerWizardVMTests {
         Func<string, IStarDetectionOptions> getFilterDetectionOptions = null,
         Action<string, OptimizedStarDetectionSettings> applyOptimizedToFilter = null,
         Action<string, bool> setFilterDonutDetection = null,
+        Func<string, PerFilterSweepGeometry> getFilterSweepGeometry = null,
+        Action<string, int, int> applySweepGeometryToFilter = null,
         // The product default is SourceMode.Live (owner's decision, 2026-08-11). Nearly every test in this file
         // predates that and drives StartAsync expecting the REPLAY path -- under Live, StartAsync goes to
         // RunLiveAttemptAsync, which waits on a camera and an auto-focus the doubles never satisfy, and the
@@ -358,6 +361,8 @@ public class StarDetectionOptimizerWizardVMTests {
             currentFilterName: currentFilterName,
             currentGain: currentGain,
             perFilterEnabled: perFilterEnabled,
+            getFilterSweepGeometry: getFilterSweepGeometry,
+            applySweepGeometryToFilter: applySweepGeometryToFilter,
             isFilterWheelConnected: isFilterWheelConnected,
             getFilterNames: getFilterNames,
             getCurrentFilterName: getCurrentFilterName,
@@ -742,6 +747,124 @@ public class StarDetectionOptimizerWizardVMTests {
 
         focuserSettings.Received(1).AutoFocusStepSize = vm.Summary.RecommendedStepSize;
         focuserSettings.Received(1).AutoFocusInitialOffsetSteps = vm.Summary.RecommendedOffsetSteps;
+    }
+
+    // Before this, Accept split its writes: the optimized DETECTION settings went to the target filter while the
+    // recommended SWEEP GEOMETRY went to the profile. Optimizing Ha and then L therefore replaced Ha's step size
+    // silently, because the two halves of one recommendation landed in different scopes.
+    [Test]
+    public async Task Apply_PerFilterEnabled_WritesGeometryToTheTargetFilterNotTheProfile() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+        var applied = new List<(string Filter, int StepSize, int OffsetSteps)>();
+
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService,
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Ha",
+            applySweepGeometryToFilter: (name, stepSize, offsetSteps) => applied.Add((name, stepSize, offsetSteps)));
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        vm.ApplyRecommendedStepSize = true;
+
+        vm.AcceptCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            Assert.That(applied, Has.Count.EqualTo(1));
+            Assert.That(applied[0].Filter, Is.EqualTo("Ha"));
+            Assert.That(applied[0].StepSize, Is.EqualTo(vm.Summary.RecommendedStepSize));
+            Assert.That(applied[0].OffsetSteps, Is.EqualTo(vm.Summary.RecommendedOffsetSteps));
+        });
+        focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusStepSize = default;
+        focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusInitialOffsetSteps = default;
+    }
+
+    // Refusing beats silently writing the profile: a profile write here would be the exact cross-filter clobber
+    // this change removes.
+    [Test]
+    public async Task Apply_PerFilterEnabledWithNoTargetFilter_WritesNeitherScope() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+        var applied = new List<string>();
+
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService,
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => Array.Empty<string>(), getCurrentFilterName: () => null,
+            applySweepGeometryToFilter: (name, _, __) => applied.Add(name));
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        vm.ApplyRecommendedStepSize = true;
+
+        vm.AcceptCommand.Execute(null);
+
+        Assert.That(applied, Is.Empty);
+        focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusStepSize = default;
+    }
+
+    [Test]
+    public async Task Apply_PerFilterDisabled_StillWritesGeometryToTheProfile() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+        var applied = new List<string>();
+
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService,
+            applySweepGeometryToFilter: (name, _, __) => applied.Add(name));
+        vm.SourcePaths[0] = @"C:\run1";
+        await vm.StartAsync(CancellationToken.None);
+        vm.ApplyRecommendedStepSize = true;
+
+        vm.AcceptCommand.Execute(null);
+
+        focuserSettings.Received(1).AutoFocusStepSize = vm.Summary.RecommendedStepSize;
+        Assert.That(applied, Is.Empty);
+    }
+
+    [Test]
+    public void ApplyRecommendedSettingsLabel_NamesTheTargetFilterOnlyInPerFilterMode() {
+        var global = NewVM(LoaderReturning(GoodRun()));
+        var perFilter = NewVM(LoaderReturning(GoodRun()),
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Ha");
+
+        Assert.Multiple(() => {
+            Assert.That(global.ApplyRecommendedSettingsLabel, Does.Contain("my profile"));
+            Assert.That(perFilter.ApplyRecommendedSettingsLabel, Does.Contain("'Ha'"));
+            Assert.That(perFilter.ApplyRecommendedSettingsLabel, Does.Not.Contain("my profile"));
+        });
+    }
+
+    [Test]
+    public void SweepStepSize_PerFilterEnabled_ShowsTheTargetFiltersOverrideAndNotesIt() {
+        var vm = NewVM(LoaderReturning(GoodRun()),
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Ha" }, getCurrentFilterName: () => "Ha",
+            getFilterSweepGeometry: _ => new PerFilterSweepGeometry { StepSize = 18, InitialOffsetSteps = 6 });
+
+        Assert.Multiple(() => {
+            Assert.That(vm.SweepStepSize, Is.EqualTo(18));
+            Assert.That(vm.SweepOffsetSteps, Is.EqualTo(6));
+            Assert.That(vm.SweepStepSizeText, Does.Contain("Ha override"));
+        });
+    }
+
+    [Test]
+    public void SweepStepSize_PerFilterEnabledWithNoOverride_ShowsTheProfileValuePlain() {
+        var profileService = Substitute.For<IProfileService>();
+        profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize.Returns(42);
+        var vm = NewVM(LoaderReturning(GoodRun()), profileService: profileService,
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Ha" }, getCurrentFilterName: () => "Ha",
+            getFilterSweepGeometry: _ => PerFilterSweepGeometry.Unset());
+
+        Assert.Multiple(() => {
+            Assert.That(vm.SweepStepSize, Is.EqualTo(42));
+            Assert.That(vm.SweepStepSizeText, Is.EqualTo("42"), "silence means the profile, matching the settings page");
+        });
     }
 
     [Test]
@@ -1570,7 +1693,7 @@ public class StarDetectionOptimizerWizardVMTests {
     // stubbed connected so the pre-flight check passes.
     private static IAutoFocusEngine LiveEngine(Func<CallInfo, AutoFocusResult> onSweep) {
         var engine = Substitute.For<IAutoFocusEngine>();
-        engine.GetOptions().Returns(_ => new AutoFocusEngineOptions());
+        engine.GetOptions().ReturnsForAnyArgs(_ => new AutoFocusEngineOptions());
         engine.CaptureFixedSweepAsync(default, default, default, default).ReturnsForAnyArgs(ci => Task.FromResult(onSweep(ci)));
         return engine;
     }
@@ -1712,7 +1835,7 @@ public class StarDetectionOptimizerWizardVMTests {
         var baseTimeout = TimeSpan.FromSeconds(300);
         AutoFocusEngineOptions captured = null;
         var engine = Substitute.For<IAutoFocusEngine>();
-        engine.GetOptions().Returns(_ => new AutoFocusEngineOptions {
+        engine.GetOptions().ReturnsForAnyArgs(_ => new AutoFocusEngineOptions {
             AutoFocusInitialOffsetSteps = P,
             AutoFocusStepSize = DefaultStepSize,
             AutoFocusTimeout = baseTimeout
@@ -2765,6 +2888,94 @@ public class StarDetectionOptimizerWizardVMTests {
         focuserSettings.Received(1).AutoFocusExposureTime = 9.0;
     }
 
+    // Per-filter mode routes the sweep exposure the same way it routes the sweep geometry: to the filter that was
+    // actually swept. Writing the profile here would rewrite the exposure every OTHER filter focuses at, from a
+    // measurement made through one of them. Core already models this on FilterInfo.AutoFocusExposureTime.
+    [Test]
+    public async Task Apply_LivePerFilter_WritesExposureToTheTargetFilterNotTheProfile() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+        var target = new FilterInfo("Ha", 0, 1) { AutoFocusExposureTime = -1 };
+
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService,
+            isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine,
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Ha",
+            resolveFilterByName: name => name == "Ha" ? target : null);
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 9.0;
+
+        await vm.StartAsync(CancellationToken.None);
+        Assert.That(vm.CurrentStep, Is.EqualTo(WizardStep.Summary), "precondition: the live sweep reached the summary");
+
+        vm.AcceptCommand.Execute(null);
+
+        Assert.That(target.AutoFocusExposureTime, Is.EqualTo(9.0));
+        focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusExposureTime = default;
+    }
+
+    // Refusing beats falling back to the profile: the fallback is exactly the cross-filter clobber being removed.
+    [Test]
+    public async Task Apply_LivePerFilter_UnresolvableTargetFilter_WritesNeitherScope() {
+        var options = Substitute.For<IStarDetectionOptions>();
+        var profileService = Substitute.For<IProfileService>();
+        var focuserSettings = Substitute.For<IFocuserSettings>();
+        profileService.ActiveProfile.FocuserSettings.Returns(focuserSettings);
+
+        var engine = LiveEngine(_ => new AutoFocusResult { Succeeded = true, SaveFolder = @"C:\live\attempt" });
+        var vm = NewVM(LoaderReturning(GoodRun()), options, profileService,
+            isCameraConnected: () => true, isFocuserConnected: () => true, autoFocusEngine: engine,
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Ha" }, getCurrentFilterName: () => "Ha",
+            resolveFilterByName: _ => new FilterInfo("Ha", 0, 1));
+        vm.SourceMode = SourceMode.Live;
+        vm.SaveFolderPath = @"C:\live";
+        vm.LiveExposureSeconds = 9.0;
+        await vm.StartAsync(CancellationToken.None);
+        // Only now does the target become unresolvable, so Start's own validation cannot mask the Accept path.
+        vm.TargetFilterName = null;
+
+        vm.AcceptCommand.Execute(null);
+
+        focuserSettings.DidNotReceiveWithAnyArgs().AutoFocusExposureTime = default;
+    }
+
+    // "Unchanged" and the Apply toggle's enablement have to be judged against what the filter will ACTUALLY focus
+    // at, or both lie whenever the target filter already carries its own exposure.
+    [Test]
+    public void SweepExposureRow_PerFilter_ComparesAgainstTheFiltersOwnExposureNotTheProfiles() {
+        var profileService = Substitute.For<IProfileService>();
+        profileService.ActiveProfile.FocuserSettings.AutoFocusExposureTime.Returns(3.0);
+        var target = new FilterInfo("Ha", 0, 1) { AutoFocusExposureTime = 9.0 };
+        var vm = NewVM(LoaderReturning(GoodRun()), profileService: profileService,
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Ha" }, getCurrentFilterName: () => "Ha",
+            resolveFilterByName: _ => target);
+
+        Assert.That(vm.LiveExposureSeconds, Is.EqualTo(9.0),
+            "selecting the target seeds the editable exposure from that filter, not the profile's 3 s");
+    }
+
+    [Test]
+    public void TargetFilterChange_DoesNotOverwriteAHandTypedExposure() {
+        var profileService = Substitute.For<IProfileService>();
+        profileService.ActiveProfile.FocuserSettings.AutoFocusExposureTime.Returns(3.0);
+        var ha = new FilterInfo("Ha", 0, 1) { AutoFocusExposureTime = 9.0 };
+        var vm = NewVM(LoaderReturning(GoodRun()), profileService: profileService,
+            perFilterEnabled: () => true, isFilterWheelConnected: () => true,
+            getFilterNames: () => new[] { "Lum", "Ha" }, getCurrentFilterName: () => "Lum",
+            resolveFilterByName: name => name == "Ha" ? ha : new FilterInfo("Lum", 0, 0) { AutoFocusExposureTime = -1 });
+        vm.LiveExposureSeconds = 42.0; // the user lengthened it by hand
+
+        vm.TargetFilterName = "Ha";
+
+        Assert.That(vm.LiveExposureSeconds, Is.EqualTo(42.0), "a hand-typed exposure survives re-targeting");
+    }
+
     [Test]
     public async Task Apply_Live_ExposureNotWrittenWhenAfSettingsToggleOff() {
         var options = Substitute.For<IStarDetectionOptions>();
@@ -3480,7 +3691,7 @@ public class StarDetectionOptimizerWizardVMTests {
 
     private static IAutoFocusEngine LiveEngineReturningTasks(Func<CallInfo, Task<AutoFocusResult>> onSweep) {
         var engine = Substitute.For<IAutoFocusEngine>();
-        engine.GetOptions().Returns(_ => new AutoFocusEngineOptions());
+        engine.GetOptions().ReturnsForAnyArgs(_ => new AutoFocusEngineOptions());
         engine.CaptureFixedSweepAsync(default, default, default, default).ReturnsForAnyArgs(ci => onSweep(ci));
         return engine;
     }

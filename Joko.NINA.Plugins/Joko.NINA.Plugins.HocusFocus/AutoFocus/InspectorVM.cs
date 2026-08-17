@@ -219,6 +219,10 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             RegionLineFittings = new AsyncObservableCollection<TrendlineFitting>(Enumerable.Range(0, 6).Select(i => (TrendlineFitting)null));
             TiltModel = new TiltModel(inspectorOptions);
             SensorModel = new SensorModel(profileService, inspectorOptions, autoFocusOptions, alglibAPI);
+            // Selecting a history row is what populates the return panel, and UpdateModel clears the selection on
+            // every completed analysis -- which is also what makes the panel self-dismiss rather than offering a
+            // stale target.
+            SensorModel.PropertyChanged += SensorModel_PropertyChanged;
 
             inspectorOptions.PropertyChanged += (s, e) => {
                 if (e.PropertyName == nameof(IInspectorOptions.SignalAmplification) ||
@@ -280,6 +284,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             CancelSlewToZenithCommand = new RelayCommand(() => slewToZenithCts?.Cancel());
             ReviewFramesCommand = new RelayCommand(ShowFrameReview, canExecute: () => ReviewFramesAvailable);
             AutomaticAdjustmentCommand = new AsyncRelayCommand(RunAutomaticAdjustmentAsync, CanExecuteAutomaticAdjustmentNow);
+            ReturnToRunCommand = new AsyncRelayCommand(ReturnToSelectedRunAsync, CanExecuteReturnToRunNow);
+            RevertLastAdjustmentCommand = new AsyncRelayCommand(RevertLastAdjustmentAsync, CanExecuteRevertLastAdjustmentNow);
+            DismissWorseningBannerCommand = new RelayCommand(ClearWorseningBanner);
         }
 
         private bool AnalysisRunning() {
@@ -536,7 +543,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     if (inspectorOptions.CenterFocuserBeforeRun) {
                         try {
                             var centeringEngine = autoFocusEngineFactory.Create();
-                            var centeringOptions = centeringEngine.GetOptions();
+                            var centeringOptions = centeringEngine.GetOptions(imagingFilter: imagingFilter);
                             centeringOptions.Save = false;
                             centeringOptions.PreserveExposures = false;
                             this.progress.Report(new ApplicationStatus() { Status = "Centering focuser before sensor model run" });
@@ -674,7 +681,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                         finalFocusPosition: finalFocuserPosition,
                         stepSize: result.StepSize,
                         progress,
-                        ct: ct);
+                        ct: ct,
+                        adapterState: CaptureAdapterState());
 
                     // Annotated registration/alignment TIFFs are no longer written to the run folder. "Review
                     // Frames" re-renders the same overlays live (from the raw frames plus the capture-time
@@ -986,7 +994,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         }
 
         private AutoFocusEngineOptions GetAutoFocusEngineOptions(IAutoFocusEngine autoFocusEngine, SavedAutoFocusAttempt savedAutoFocusAttempt = null) {
-            var options = autoFocusEngine.GetOptions(savedAutoFocusAttempt);
+            // Pass the filter so a per-filter sweep-geometry override applies. Harmless on the replay path, where
+            // the saved attempt short-circuits the lookup entirely.
+            var options = autoFocusEngine.GetOptions(savedAutoFocusAttempt, imagingFilter: GetImagingFilter());
             if (inspectorOptions.FramesPerPoint > 0) {
                 options.FramesPerPoint = inspectorOptions.FramesPerPoint;
             }
@@ -1682,6 +1692,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 ClearAnalysesCommand?.NotifyCanExecuteChanged();
                 SlewToZenithEastCommand?.NotifyCanExecuteChanged();
                 SlewToZenithWestCommand?.NotifyCanExecuteChanged();
+                // Automatic Adjustment is analysis-gated too: its measurement-generation counter only advances
+                // when a run COMPLETES, so without this the button stays live for the whole duration of a sweep.
+                AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
             });
         }
 
@@ -1832,6 +1845,326 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public IInspectorOptions InspectorOptions => this.inspectorOptions;
 
         public TiltAdapterGuidanceVM TiltGuidance { get; private set; }
+
+        private TiltRunReturnVM runReturn = TiltRunReturnVM.Hidden;
+
+        /// <summary>
+        /// The "Return to this run" panel under the sensor-model history grid. Swapped whole, like
+        /// <see cref="TiltGuidance"/>. Hidden unless a non-newest history row is selected.
+        /// </summary>
+        public TiltRunReturnVM RunReturn {
+            get => runReturn;
+            private set {
+                runReturn = value ?? TiltRunReturnVM.Hidden;
+                RaisePropertyChanged();
+            }
+        }
+
+        /// <summary>
+        /// Set while a past run is being VIEWED, to defuse the one real collision in this UI: selecting an old row
+        /// switches the guidance table to that run's flatten-from-there numbers, which reads far too easily as
+        /// "how to get back there".
+        /// </summary>
+        public string ViewingPastRunNotice { get; private set; } = string.Empty;
+
+        public bool HasViewingPastRunNotice => !string.IsNullOrEmpty(ViewingPastRunNotice);
+
+        public IAsyncRelayCommand ReturnToRunCommand { get; private set; }
+
+        /// <summary>
+        /// Recomputes the return panel and the viewing notice for the currently selected history row. Posted,
+        /// like every other rebuild here, because it is reachable from the device poll thread via the options'
+        /// PropertyChanged and because a command requery off the UI thread throws.
+        /// </summary>
+        private void RebuildRunReturn() {
+            applicationDispatcher.PostSynchronizationContext(() => {
+                var selected = SensorModel?.SelectedTiltHistoryModel;
+                var history = SensorModel?.SensorTiltHistoryModels;
+                if (selected == null || history == null) {
+                    RunReturn = TiltRunReturnVM.Hidden;
+                    ViewingPastRunNotice = string.Empty;
+                    RaiseViewingPastRunNoticeChanged();
+                    ReturnToRunCommand?.NotifyCanExecuteChanged();
+                    return;
+                }
+
+                bool isNewest = history.Count > 0 && ReferenceEquals(history[0], selected);
+                ViewingPastRunNotice = isNewest
+                    ? string.Empty
+                    : $"Viewing run #{selected.HistoryId}. The guidance above flattens the sensor FROM run #{selected.HistoryId}'s state — it is not how to get back to it. " +
+                      "To return the adapter to that state, use \u201cReturn to this run\u201d under Sensor Model Tilt Measurement History.";
+                RaiseViewingPastRunNoticeChanged();
+
+                var options = tiltAdapterOptions;
+                var service = tiltDeviceConnectionService;
+                bool isMotorized = options?.AdjustmentType == TiltAdjustmentType.StepperMotors;
+                var target = TiltRevertPlanFactory.Build(
+                    selected,
+                    SensorModel?.LatestSensorModel,
+                    options,
+                    service?.CurrentPositions,
+                    service?.PositionsKnown ?? false,
+                    options?.DeviceName,
+                    IsCalibrationDeviceLinked(options),
+                    options?.CalibrationIsReliable ?? false);
+
+                RunReturn = TiltRunReturnVM.Build(
+                    selected,
+                    target,
+                    isNewestRun: isNewest,
+                    isMotorized: isMotorized,
+                    deviceConnected: service?.Connected ?? false,
+                    deviceBusy: service?.IsOperationActive ?? false,
+                    angleUnit: options?.AngleDisplayUnit ?? TiltGuidanceAngleUnit.Turns);
+                ReturnToRunCommand?.NotifyCanExecuteChanged();
+            });
+        }
+
+
+        // --- "Tilt got worse" banner ---------------------------------------------------------------------
+        //
+        // Replaces a modal that appeared after the confirming re-run and asked for a revert decision with none of
+        // the numbers visible. The journal and the controller identity have to survive past
+        // RunAutomaticAdjustmentAsync's return so the banner's button can still act.
+
+        private IReadOnlyList<TiltAdapterMove> pendingRevertJournal;
+
+        // Held ONLY for a ReferenceEquals test, never invoked. The journal's moves are device-relative, not
+        // controller-relative, so the command resolves the live controller at execution time; a stale reference
+        // used to send would be a whole class of bug.
+        private object pendingRevertControllerIdentity;
+
+        public bool TiltWorseningBannerVisible { get; private set; }
+
+        public string TiltWorseningBannerText { get; private set; } = string.Empty;
+
+        /// <summary>Non-empty when the revert cannot run right now; shown in place of the button, saying why.</summary>
+        public string TiltWorseningRevertBlockedReason { get; private set; } = string.Empty;
+
+        public bool CanShowWorseningRevertButton => TiltWorseningBannerVisible
+            && (pendingRevertJournal?.Count ?? 0) > 0
+            && string.IsNullOrEmpty(TiltWorseningRevertBlockedReason);
+
+        public string TiltWorseningRevertButtonText => (pendingRevertJournal?.Count ?? 0) == 1
+            ? "Revert the 1 move"
+            : $"Revert the {pendingRevertJournal?.Count ?? 0} moves";
+
+        public IAsyncRelayCommand RevertLastAdjustmentCommand { get; private set; }
+
+        public ICommand DismissWorseningBannerCommand { get; private set; }
+
+        internal int PendingRevertMoveCountForTest => pendingRevertJournal?.Count ?? 0;
+
+        /// <summary>Pure so the wording can be asserted without driving a whole adjustment.</summary>
+        internal static string BuildWorseningBannerText(double beforeMagnitude, double afterMagnitude, int moveCount) {
+            var moves = moveCount == 1 ? "1 move" : $"{moveCount} moves";
+            return $"Tilt magnitude rose from {beforeMagnitude:0.####} to {afterMagnitude:0.####} after the {moves} " +
+                   "Automatic Adjustment sent. This can indicate a stale calibration, a rotated camera or adapter, or an " +
+                   "incorrect screw-direction setting — investigate before adjusting again.";
+        }
+
+        private void RaiseWorseningBanner(
+                IReadOnlyList<TiltAdapterMove> journal, ITiltMotionController controller, double before, double after) {
+            pendingRevertJournal = journal?.ToArray() ?? Array.Empty<TiltAdapterMove>();
+            pendingRevertControllerIdentity = controller;
+            TiltWorseningBannerVisible = true;
+            TiltWorseningBannerText = BuildWorseningBannerText(before, after, pendingRevertJournal.Count);
+            TiltWorseningRevertBlockedReason = string.Empty;
+            RaiseWorseningBannerChanged();
+        }
+
+        /// <summary>
+        /// Clears the banner. Called on dismiss, after a revert, when a new analysis completes, and by
+        /// ClearAnalyses — a banner describes exactly one measurement PAIR, so once a newer measurement exists its
+        /// claim is stale and offering a revert against fresh numbers would be dangerous.
+        /// </summary>
+        private void ClearWorseningBanner() {
+            if (!TiltWorseningBannerVisible && pendingRevertJournal == null) {
+                return;
+            }
+            pendingRevertJournal = null;
+            pendingRevertControllerIdentity = null;
+            TiltWorseningBannerVisible = false;
+            TiltWorseningBannerText = string.Empty;
+            TiltWorseningRevertBlockedReason = string.Empty;
+            RaiseWorseningBannerChanged();
+        }
+
+        private void RaiseWorseningBannerChanged() {
+            applicationDispatcher.PostSynchronizationContext(() => {
+                RaisePropertyChanged(nameof(TiltWorseningBannerVisible));
+                RaisePropertyChanged(nameof(TiltWorseningBannerText));
+                RaisePropertyChanged(nameof(TiltWorseningRevertBlockedReason));
+                RaisePropertyChanged(nameof(CanShowWorseningRevertButton));
+                RaisePropertyChanged(nameof(TiltWorseningRevertButtonText));
+                RevertLastAdjustmentCommand?.NotifyCanExecuteChanged();
+                // While an offer is outstanding the adjustment button is dead regardless of generation. This term
+                // is what replaces the lock the modal used to provide implicitly by blocking the thread.
+                AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+            });
+        }
+
+        /// <summary>A device disconnect does NOT clear the banner — the warning is still true and still useful.</summary>
+        private void RefreshWorseningRevertAvailability() {
+            if (!TiltWorseningBannerVisible) {
+                return;
+            }
+            var service = tiltDeviceConnectionService;
+            string reason;
+            if (service?.Connected != true || service.Controller == null) {
+                reason = "Device disconnected — reconnect the tilt adapter to revert these moves.";
+            } else if (!ReferenceEquals(service.Controller, pendingRevertControllerIdentity)) {
+                reason = "The device reconnected since these moves were sent; verify its position before reverting.";
+            } else {
+                reason = string.Empty;
+            }
+            if (reason != TiltWorseningRevertBlockedReason) {
+                TiltWorseningRevertBlockedReason = reason;
+                RaiseWorseningBannerChanged();
+            }
+        }
+
+        private bool CanExecuteRevertLastAdjustmentNow() {
+            var service = tiltDeviceConnectionService;
+            return CanShowWorseningRevertButton
+                && (service?.Connected ?? false)
+                && service.Controller != null
+                && !service.IsOperationActive
+                && !AnalysisRunning();
+        }
+
+        private async Task RevertLastAdjustmentAsync() {
+            var journal = pendingRevertJournal;
+            var service = tiltDeviceConnectionService;
+            var controller = service?.Controller;
+            if (journal == null || journal.Count == 0 || service == null || controller == null) {
+                return;
+            }
+
+            using var operationToken = service.TryBeginOperation("Revert Adjustment");
+            if (operationToken == null) {
+                Notification.ShowWarning("The tilt adapter device is busy with another operation; try the revert again once it finishes.");
+                return;
+            }
+            if (!service.Connected) {
+                Notification.ShowError("The tilt adapter device disconnected before the revert could execute; nothing was sent.");
+                return;
+            }
+
+            try {
+                await RevertJournalAsync(controller, new List<TiltAdapterMove>(journal), "post-adjustment worsening");
+            } finally {
+                // The confirming re-run already moved measurementGeneration forward, but that measurement was of
+                // the PRE-revert state. Left unbumped, the gate would immediately re-enable Automatic Adjustment
+                // against numbers that no longer describe the device. Consume it so a genuinely NEW analysis is
+                // required. (Verbatim semantics of what the modal path did.)
+                lastExecutedMeasurementGeneration = measurementGeneration;
+                // A partial failure leaves the remaining journal no longer a valid inverse, so it is dropped
+                // either way rather than offered for a second click.
+                ClearWorseningBanner();
+                this.progress.Report(new ApplicationStatus { Status = string.Empty });
+            }
+        }
+
+        private void RaiseViewingPastRunNoticeChanged() {
+            RaisePropertyChanged(nameof(ViewingPastRunNotice));
+            RaisePropertyChanged(nameof(HasViewingPastRunNotice));
+        }
+
+        private void SensorModel_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {
+            if (e.PropertyName == nameof(Inspection.SensorModel.LatestSensorModel)) {
+                // A newer measurement exists, so the banner's claim about one specific pair of runs is stale.
+                ClearWorseningBanner();
+            }
+            if (e.PropertyName == nameof(Inspection.SensorModel.SelectedTiltHistoryModel)
+                || e.PropertyName == nameof(Inspection.SensorModel.LatestSensorModel)) {
+                RebuildRunReturn();
+            }
+        }
+
+        private bool CanExecuteReturnToRunNow() {
+            var service = tiltDeviceConnectionService;
+            return RunReturn.ShowDriveButton
+                && (service?.Connected ?? false)
+                && service.Controller != null
+                && !service.IsOperationActive
+                && !AnalysisRunning();
+        }
+
+        /// <summary>
+        /// Drives the adapter back to the selected run's recorded motor positions.
+        ///
+        /// <para>The inline panel above has already shown the target, the per-corner delta and any twist warning,
+        /// so the click is informed — but this still confirms before sending. The motion is irreversible and
+        /// EEPROM-persisted, and the approval dialog is also where a plan that trips the device's travel limit can
+        /// be narrowed by dropping the backfocus group.</para>
+        /// </summary>
+        private async Task ReturnToSelectedRunAsync() {
+            var panel = RunReturn;
+            var service = tiltDeviceConnectionService;
+            var options = tiltAdapterOptions;
+            var controller = service?.Controller;
+            if (!panel.IsVisible || panel.Target == null || service == null || options == null || controller == null) {
+                return;
+            }
+
+            var sPerScrew = panel.Target.StepsPerScrew.ToArray();
+            var unitMicrons = panel.Target.UnitMicrons;
+            int maxStepsPerCommand = options.TiltDeviceMaxStepsPerCommand;
+
+            TiltDevicePlanPreview Replanner(bool includeTilt, bool includeBackfocus) =>
+                BuildPlanPreview(sPerScrew, includeTilt, includeBackfocus, unitMicrons, maxStepsPerCommand, controller);
+
+            var choice = await showAdjustmentPromptAsync(
+                Replanner,
+                options.ScrewInwardCurvatureSignIsMeasured,
+                TiltGuidance?.PitchMismatchWarning ?? string.Empty,
+                !service.PositionsKnown,
+                unitMicrons);
+            if (!choice.Proceed) {
+                return;
+            }
+
+            var moves = choice.FinalPlan?.Moves ?? Array.Empty<TiltAdapterMove>();
+            if (moves.Count == 0) {
+                Notification.ShowInformation("Return to run: no moves were needed for the approved groups.");
+                return;
+            }
+
+            using var operationToken = service.TryBeginOperation("Revert to Measurement");
+            if (operationToken == null) {
+                Notification.ShowWarning("The tilt adapter device is busy with another operation; try again once it finishes.");
+                return;
+            }
+            if (!service.Connected || !ReferenceEquals(service.Controller, controller)) {
+                Notification.ShowError("The tilt adapter device disconnected before the return could execute; nothing was sent.");
+                return;
+            }
+
+            var journal = new List<TiltAdapterMove>();
+            try {
+                var statusPrefix = $"Return to run #{panel.TargetRun.HistoryId}";
+                var failure = await SendMovesAsync(controller, moves, statusPrefix, journal, CancellationToken.None);
+
+                if (journal.Count > 0) {
+                    // The device has physically moved, so the fitted model on screen no longer describes it --
+                    // exactly the reason Automatic Adjustment consumes its measurement after sending.
+                    lastExecutedMeasurementGeneration = measurementGeneration;
+                    AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
+                }
+
+                if (failure != null) {
+                    Logger.Error(failure, "Return to run: move execution failed");
+                    await HandleExecutionFailureAsync(controller, journal, failure);
+                    return;
+                }
+
+                Notification.ShowInformation(
+                    $"Return to run #{panel.TargetRun.HistoryId} complete: {journal.Count} move(s) sent. Re-run the Inspector to confirm.");
+            } finally {
+                this.progress.Report(new ApplicationStatus { Status = string.Empty });
+            }
+        }
 
         // Two-way bound by the Tilt Adapter Guidance dropdown. Writing it flips the persisted option,
         // whose PropertyChanged is already subscribed to RebuildTiltGuidance() (see the constructor),
@@ -2099,6 +2432,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         public bool IsTiltDeviceConnected => tiltDeviceConnectionService?.Connected ?? false;
 
+        /// <summary>The shared idle auto-disconnect banner. Null in tests and headless hosts, where it renders nothing.</summary>
+        public TiltDeviceIdleCountdownVM IdleCountdown => HocusFocusPlugin.TiltDeviceIdleCountdown;
+
         // Live per-motor stepper positions for the connected motorized adapter, shown in the Tilt Adapter
         // Guidance section. Device motor order matches the wizard's convention (TR=1, TL=2, BR=3, BL=4); there
         // is no calibration-run baseline here, so — unlike the wizard — these carry no Δ.
@@ -2170,6 +2506,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// correspondence) yet still be noise-dominated (measurement noise rivaling the screw-move signal) —
         /// both must hold before automation may run unattended.
         /// </summary>
+        /// <remarks>
+        /// <paramref name="analysisRunning"/> is optional so the existing pure-helper call sites keep compiling.
+        /// It closes a gap the generation counter does not cover: the counter only advances when an analysis
+        /// COMPLETES, so between "sweep started" and "sweep finished" the gate still saw the previous
+        /// measurement as fresh and would happily move the adapter out from under the run in progress.
+        /// </remarks>
         internal static bool CanExecuteAutomaticAdjustment(
             bool serviceConnected,
             bool controllerAvailable,
@@ -2178,13 +2520,17 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             bool hasNumericGuidance,
             bool isOperationActive,
             int currentGeneration,
-            int lastExecutedGeneration) {
+            int lastExecutedGeneration,
+            bool analysisRunning = false,
+            bool revertPending = false) {
             return serviceConnected
                 && controllerAvailable
                 && deviceLinked
                 && calibrationIsReliable
                 && hasNumericGuidance
                 && !isOperationActive
+                && !analysisRunning
+                && !revertPending
                 && currentGeneration > lastExecutedGeneration;
         }
 
@@ -2198,8 +2544,34 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 hasNumericGuidance: TiltGuidance?.HasNumericGuidance ?? false,
                 isOperationActive: service?.IsOperationActive ?? false,
                 currentGeneration: measurementGeneration,
-                lastExecutedGeneration: lastExecutedMeasurementGeneration);
+                lastExecutedGeneration: lastExecutedMeasurementGeneration,
+                analysisRunning: AnalysisRunning(),
+                revertPending: TiltWorseningBannerVisible);
         }
+
+        /// <summary>
+        /// What the tilt adapter looks like right now, recorded with the run being analysed so the user can later
+        /// ask to be driven back to it.
+        ///
+        /// <para>Reads the SERVICE's CurrentPositions rather than the controller's LastKnownPositions: that is the
+        /// number the panel is showing, and it is the one kept correct in both regimes — fresh from the 5 s poll
+        /// during an ordinary run, and advanced by the PublishControllerPositions call after each move during an
+        /// adjustment lease (which spans the confirming re-run), i.e. exactly the post-move state that produced
+        /// the measurement.</para>
+        /// </summary>
+        private TiltAdapterStateSnapshot CaptureAdapterState() {
+            var svc = tiltDeviceConnectionService;
+            var now = DateTime.UtcNow;
+            var presetName = tiltAdapterOptions?.DeviceName;
+            if (svc == null || !svc.Connected || !svc.PositionsKnown) {
+                return TiltAdapterStateSnapshot.Unknown(now, presetName);
+            }
+            return new TiltAdapterStateSnapshot(now, svc.CurrentPositions, positionsKnown: true, devicePresetName: presetName);
+        }
+
+        // AnalyzeAutoFocusResult needs a full AutoFocusResult that the fixtures already call impractical to build,
+        // so tests exercise the capture directly -- mirroring MeasurementGenerationForTest.
+        internal TiltAdapterStateSnapshot CaptureAdapterStateForTest() => CaptureAdapterState();
 
         /// <summary>Dimensionless tilt magnitude sqrt(Gx² + Gy²) — used for the before/after worsening check.</summary>
         internal static double TiltMagnitude(SensorParaboloidModel model) =>
@@ -2294,7 +2666,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return;
             }
 
-            var model = SensorModel?.DisplayedSensorModel;
+            // LatestSensorModel, NOT DisplayedSensorModel: selecting a row in the history grid rewrites the
+            // displayed model with that past run's fit, while the measurement-generation gate still reports
+            // "fresh" — so planning from the display let a completed run + a history click drive the device
+            // from a stale measurement. Only the newest measurement describes the sensor as it is now.
+            var model = SensorModel?.LatestSensorModel;
             if (model == null) {
                 Notification.ShowError("No fitted sensor model is available for Automatic Adjustment.");
                 return;
@@ -2370,8 +2746,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             var journal = new List<TiltAdapterMove>();
-            Exception failure = null;
-            var moveProgress = new Progress<string>(text => this.progress.Report(new ApplicationStatus { Status = $"Automatic Adjustment: {text}" }));
 
             // Everything below reports transient per-move status text, and NINA's status bar shows the last
             // reported line until something reports an empty one (.claude/docs/mvvm-patterns.md, "Status-bar
@@ -2379,20 +2753,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             // revert, or a revert that itself failed partway — must therefore land in this finally, or the
             // last "move N of M" / "reverting move N of M" line hangs in the corner of NINA forever.
             try {
-                for (int i = 0; i < moves.Count; i++) {
-                    var move = moves[i];
-                    this.progress.Report(new ApplicationStatus { Status = $"Automatic Adjustment: move {i + 1} of {moves.Count} — {move.Description}" });
-                    try {
-                        await controller.ExecuteMoveAsync(move, moveProgress, CancellationToken.None);
-                        journal.Add(move);
-                        // The 'cp' poll is suspended for this whole lease, so the panel's motor counters only
-                        // advance if the moves themselves publish them (see PublishControllerPositions).
-                        RefreshDevicePositionDisplays();
-                    } catch (Exception ex) {
-                        failure = ex;
-                        break;
-                    }
-                }
+                Exception failure = await SendMovesAsync(controller, moves, "Automatic Adjustment", journal, CancellationToken.None);
 
                 // Consumed once execution has STARTED (>= 1 move sent), regardless of what happens next (success,
                 // failure, or a later revert) — the same measurement can never drive a second plan.
@@ -2423,32 +2784,53 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     return;
                 }
 
-                var afterModel = SensorModel?.DisplayedSensorModel;
+                var afterModel = SensorModel?.LatestSensorModel;
                 double afterTiltMagnitude = TiltMagnitude(afterModel);
                 if (TiltWorsened(beforeTiltMagnitude, afterTiltMagnitude)) {
+                    // The toast is kept verbatim: it is the immediate signal. What is gone is the modal that used
+                    // to follow it, which demanded a revert decision with none of the numbers on screen.
                     Notification.ShowError(
                         "Tilt got WORSE after this Automatic Adjustment. This can indicate a stale calibration, a rotated camera/adapter, " +
                         "or an incorrect curvature-sign setting — investigate before adjusting again.");
-                    bool confirmRevert = await confirmPromptAsync(
-                        "Tilt appears WORSE after the moves just applied. Revert them now (send the inverse of each move, in reverse order)?",
-                        "Tilt Worsened — Revert?");
-                    if (confirmRevert) {
-                        await RevertJournalAsync(controller, journal, "post-adjustment worsening");
-
-                        // The confirming re-run above incremented measurementGeneration (a new completed
-                        // analysis), but lastExecutedMeasurementGeneration is still stamped with the PRE-revert
-                        // generation this plan was computed from. Left unbumped, the canExecute gate
-                        // (currentGeneration > lastExecutedGeneration) would immediately re-enable the button
-                        // against the STALE, now-reverted DisplayedSensorModel — a second plan computed before
-                        // the user has looked at fresh (post-revert) numbers could over-correct an already-reverted
-                        // device. Consume the confirming measurement so a genuinely NEW analysis is required.
-                        lastExecutedMeasurementGeneration = measurementGeneration;
-                        AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
-                    }
+                    RaiseWorseningBanner(journal, controller, beforeTiltMagnitude, afterTiltMagnitude);
                 }
             } finally {
                 this.progress.Report(new ApplicationStatus { Status = string.Empty });
             }
+        }
+
+        /// <summary>
+        /// Sends a plan's moves in order, appending each confirmed move to <paramref name="journal"/> and
+        /// publishing the device's counters after every one. Returns the exception that stopped execution, or
+        /// null when every move succeeded; the journal is the caller's record of what actually reached the
+        /// device, and is what a revert inverts.
+        ///
+        /// <para>The caller owns the operation lease and the status-bar <c>finally</c> — this method only sends.
+        /// It is shared by every path that drives the adapter (Automatic Adjustment, a return to a past run's
+        /// positions, and the worsening-banner revert) so that the "publish after every move, never issue a
+        /// follow-up <c>cp</c>" rule from <c>.claude/docs/tilt-domain.md</c> is implemented exactly once.</para>
+        /// </summary>
+        private async Task<Exception> SendMovesAsync(
+            ITiltMotionController controller,
+            IReadOnlyList<TiltAdapterMove> moves,
+            string statusPrefix,
+            List<TiltAdapterMove> journal,
+            CancellationToken token) {
+            var moveProgress = new Progress<string>(text => this.progress.Report(new ApplicationStatus { Status = $"{statusPrefix}: {text}" }));
+            for (int i = 0; i < moves.Count; i++) {
+                var move = moves[i];
+                this.progress.Report(new ApplicationStatus { Status = $"{statusPrefix}: move {i + 1} of {moves.Count} — {move.Description}" });
+                try {
+                    await controller.ExecuteMoveAsync(move, moveProgress, token);
+                    journal.Add(move);
+                    // The 'cp' poll is suspended for the whole lease, so the panel's motor counters only
+                    // advance if the moves themselves publish them (see PublishControllerPositions).
+                    RefreshDevicePositionDisplays();
+                } catch (Exception ex) {
+                    return ex;
+                }
+            }
+            return null;
         }
 
         /// <summary>
@@ -2594,6 +2976,11 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (e.PropertyName == nameof(TiltDeviceConnectionService.IsOperationActive)) {
                     AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
                 }
+                // A disconnect does NOT dismiss the worsening banner -- the warning is still true and still
+                // useful. It just explains, in place of the button, why the revert cannot run right now.
+                RefreshWorseningRevertAvailability();
+                RevertLastAdjustmentCommand?.NotifyCanExecuteChanged();
+                RebuildRunReturn();
             });
         }
 
@@ -2938,6 +3325,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             ResetErrors();
             RebuildTiltGuidance();
             ClearReviewSnapshot();
+            ClearWorseningBanner();
         }
 
         private void ActivateAutoFocusChart() {

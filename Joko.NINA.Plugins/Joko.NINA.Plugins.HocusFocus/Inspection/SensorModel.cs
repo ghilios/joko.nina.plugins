@@ -57,6 +57,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
     }
 
+    /// <summary>
+    /// One completed sensor-model run, as shown in the Sensor Model Tilt Measurement History grid.
+    ///
+    /// <para><b>This type does NOT raise PropertyChanged.</b> Every displayed value is therefore fixed when the
+    /// row is constructed. A property mutated after the row has been inserted will never reach the UI: the grid
+    /// binds once and has nothing to listen to. That is not hypothetical -- an "adjustment applied afterwards"
+    /// column was added here, set after insertion, and rendered blank in every case while unit tests asserting
+    /// the property directly passed. Add a mutable display value only after making this a
+    /// <see cref="BaseINPC"/>.</para>
+    /// </summary>
     public class SensorParaboloidTiltHistoryModel {
 
         public SensorParaboloidTiltHistoryModel(
@@ -70,7 +80,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             double curvatureEffectMicrons,
             double autoFocusOffset,
             TiltPlaneModel tiltPlaneModel,
-            SensorParaboloidModel sensorModel) {
+            SensorParaboloidModel sensorModel,
+            TiltAdapterStateSnapshot adapterState = null) {
+            AdapterState = adapterState;
             HistoryId = historyId;
             ImageSize = imageSize;
             PixelSizeMicrons = pixelSizeMicrons;
@@ -95,6 +107,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public double AutoFocusOffset { get; private set; }
         public TiltPlaneModel TiltPlaneModel { get; private set; }
         public SensorParaboloidModel SensorModel { get; private set; }
+
+        /// <summary>
+        /// What the tilt adapter looked like when this run was measured. Null for runs measured with no device
+        /// connected, and for every run made before this was recorded.
+        ///
+        /// <para>Passed IN rather than read here: sampling it inside <c>UpdateModel</c> would put a device
+        /// dependency into a math class, and would take the sample at an unpredictable moment relative to the
+        /// fit rather than at a defined point in the analysis.</para>
+        /// </summary>
+        public TiltAdapterStateSnapshot AdapterState { get; private set; }
+
+        /// <summary>Local capture time for the grid's Time column; falls back to nothing when unrecorded.</summary>
+        public string CapturedAtDisplay =>
+            AdapterState == null ? string.Empty : AdapterState.CapturedUtc.ToLocalTime().ToString("HH:mm:ss");
+
+        /// <summary>"✓" when this run can be returned to by driving the motors, "—" otherwise.</summary>
+        public string PositionsRecordedDisplay => AdapterState?.HasPositions == true ? "✓" : "—";
+
     }
 
     public class SensorModel : BaseINPC {
@@ -124,7 +154,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             double finalFocusPosition,
             int stepSize,
             IProgress<ApplicationStatus> progress,
-            CancellationToken ct) {
+            CancellationToken ct,
+            TiltAdapterStateSnapshot adapterState = null) {
             if (allDetectedStars.Count == 0) {
                 throw new ArgumentException("Cannot update sensor model. No detected stars provided");
             }
@@ -148,6 +179,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                     ct: ct);
 
                 DisplayedSensorModel = solution;
+                LatestSensorModel = solution;
                 SensorModelResult.Update(
                     solution,
                     imageSize,
@@ -161,6 +193,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
                 var historyId = Interlocked.Increment(ref nextHistoryId);
                 SensorTiltHistoryModels.Insert(0, new SensorParaboloidTiltHistoryModel(
+                    adapterState: adapterState,
                     historyId: historyId,
                     pixelSizeMicrons: pixelSize,
                     fRatio: fRatio,
@@ -1526,12 +1559,47 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
 
         private SensorParaboloidModel displayedSensorModel;
 
+        /// <summary>
+        /// The model currently on screen. Follows <see cref="SelectedTiltHistoryModel"/>, so selecting a past
+        /// run in the history grid rewrites this with that run's fit — which is the point, for display.
+        /// <b>Never plan a device move from this.</b> Use <see cref="LatestSensorModel"/>.
+        /// </summary>
         public SensorParaboloidModel DisplayedSensorModel {
             get => displayedSensorModel;
             private set {
                 displayedSensorModel = value;
                 RaisePropertyChanged();
             }
+        }
+
+        private SensorParaboloidModel latestSensorModel;
+
+        /// <summary>
+        /// The most recently MEASURED model — written only by <see cref="UpdateModel"/>, never by the history
+        /// selection. This is the one that describes the sensor as it is right now, so it is what anything
+        /// driving the adapter must plan from.
+        ///
+        /// <para>The distinction is load-bearing. <see cref="SelectedTiltHistoryModel"/>'s setter rewrites
+        /// <see cref="DisplayedSensorModel"/> with a past run's fit while the measurement-generation gate still
+        /// reports "fresh", so planning from the displayed model let a user complete a run, click an old
+        /// history row, and drive the device from a stale measurement.</para>
+        /// </summary>
+        public SensorParaboloidModel LatestSensorModel {
+            get => latestSensorModel;
+            private set {
+                latestSensorModel = value;
+                RaisePropertyChanged();
+            }
+        }
+
+        /// <summary>
+        /// Test seam, mirroring <c>InspectorVM.MeasurementGenerationForTest</c>: <see cref="UpdateModel"/> needs a
+        /// full registration-and-fit result that is impractical to construct in a unit test, so tests stand in
+        /// for "an analysis completed" by writing the model it would have produced.
+        /// </summary>
+        internal SensorParaboloidModel LatestSensorModelForTest {
+            get => LatestSensorModel;
+            set => LatestSensorModel = value;
         }
 
         public void Reset() {
@@ -1541,6 +1609,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         public void Clear() {
             SensorModelResult.Reset();
             SensorTiltHistoryModels.Clear();
+            LatestSensorModel = null;
             this.ModelLoaded = false;
         }
 

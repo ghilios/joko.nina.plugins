@@ -199,6 +199,9 @@ namespace NINA.Joko.Plugins.HocusFocus {
                         return new EatTiltMotionController(new SimulatedEatTransport(sharedSimActuator), TiltAdapterOptions);
                     });
             }
+            if (TiltDeviceIdleCountdown == null) {
+                TiltDeviceIdleCountdown = new TiltDeviceIdleCountdownVM(TiltDeviceConnectionService, ApplicationDispatcher);
+            }
             if (AlglibAPI == null) {
                 AlglibAPI = new AlglibAPI();
             }
@@ -215,7 +218,10 @@ namespace NINA.Joko.Plugins.HocusFocus {
                     starAnnotatorSelector,
                     AutoFocusOptions,
                     StarAnnotatorOptions,
-                    AlglibAPI);
+                    AlglibAPI,
+                    // Lets the engine resolve a per-filter sweep-geometry override for the filter a run will
+                    // actually expose through. Constructed above, so it is non-null by the time this runs.
+                    PerFilterStarDetection);
             }
 
             options.AddImagePattern(fwhmImagePattern);
@@ -296,7 +302,7 @@ namespace NINA.Joko.Plugins.HocusFocus {
 
         private async Task CopyStarDetectionFromFilter(string sourceFilterName) {
             try {
-                await StarDetectionSettingsIO.CopyFromFilterAsync(sourceFilterName, PerFilterStarDetection, StarDetectionOptions, windowServiceFactory);
+                await StarDetectionSettingsIO.CopyFromFilterAsync(sourceFilterName, PerFilterStarDetection, StarDetectionOptions, windowServiceFactory, PerFilterStarDetectionEditBinder);
             } finally {
                 // Reset the "Copy Settings From" dropdown to no selection once the flow finishes (applied or not), so
                 // the Copy button disables again and the next copy is a deliberate re-selection. Shared binder, so
@@ -392,6 +398,12 @@ namespace NINA.Joko.Plugins.HocusFocus {
         public SimulatedTiltAdapterVM SimTiltAdapterVM { get; private set; }
 
         public static TiltDeviceConnectionService TiltDeviceConnectionService { get; private set; }
+
+        /// <summary>
+        /// One shared idle-countdown banner VM, so every panel that shows tilt-device state renders the same
+        /// countdown from one source of truth — whichever panel the user happens to be looking at.
+        /// </summary>
+        public static TiltDeviceIdleCountdownVM TiltDeviceIdleCountdown { get; private set; }
 
         public static AutoFocusEngineFactory AutoFocusEngineFactory { get; private set; }
 

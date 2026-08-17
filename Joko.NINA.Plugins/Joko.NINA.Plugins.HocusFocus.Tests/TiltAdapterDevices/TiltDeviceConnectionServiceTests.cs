@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -38,6 +38,9 @@ public class TiltDeviceConnectionServiceTests {
             UtcNow += delta;
             Tick?.Invoke(this, EventArgs.Empty);
         }
+
+        /// <summary>Moves virtual time WITHOUT firing a tick, so a test can set up state the next tick will observe.</summary>
+        public void SetNow(DateTimeOffset value) => UtcNow = value;
 
         public void Dispose() {
         }
@@ -392,22 +395,70 @@ public class TiltDeviceConnectionServiceTests {
         await controller.Received(1).QueryPositionsAsync(Arg.Any<CancellationToken>());
     }
 
-    // --- Idle tracking ------------------------------------------------------------------------------------
+    // --- Idle auto-disconnect -----------------------------------------------------------------------------
+    //
+    // The modal that used to ask "disconnect it?" is gone. After the idle threshold the service arms a visible
+    // countdown; if nothing intervenes before the grace period expires it disconnects on its own. The service
+    // owns the whole policy so that hardware behavior never depends on a UI thread being responsive.
+
+    private static void AdvanceBy(FakeTiltDeviceTimeSource time, TimeSpan total) {
+        // Step at the real poll cadence so ticks land the way they do in production.
+        var elapsed = TimeSpan.Zero;
+        while (elapsed < total) {
+            var step = TiltDeviceConnectionService.PollInterval;
+            if (elapsed + step > total) {
+                step = total - elapsed;
+            }
+            time.Advance(step);
+            elapsed += step;
+        }
+    }
 
     [Test]
-    public async Task Idle_ThirtyMinutesNoActivity_RaisesPromptExactlyOnce() {
+    public async Task Idle_ThirtyMinutesNoActivity_ArmsTheCountdownWithoutDisconnecting() {
         var (service, _, time, _) = Build();
         await service.ConnectAsync("preset", "COM3", CancellationToken.None);
 
-        int raiseCount = 0;
-        service.IdlePromptRequested += (s, e) => raiseCount++;
+        AdvanceBy(time, TiltDeviceConnectionService.IdleTimeout);
 
-        // Many small (poll-cadence) ticks past the idle threshold; polling happens on every one of them.
-        for (int i = 0; i < 400; i++) { // 400 * 5s = 2000s > 1800s (30 min)
-            time.Advance(TiltDeviceConnectionService.PollInterval);
-        }
+        Assert.Multiple(() => {
+            Assert.That(service.IdleDisconnectPending, Is.True);
+            Assert.That(service.Connected, Is.True, "arming the countdown must not itself disconnect");
+            Assert.That(service.IdleDisconnectRemaining, Is.EqualTo(TiltDeviceConnectionService.IdleDisconnectGrace));
+        });
+    }
 
-        Assert.That(raiseCount, Is.EqualTo(1));
+    [Test]
+    public async Task Idle_CountdownExpires_DisconnectsAndRecordsWhy() {
+        var (service, _, time, controllers) = Build();
+        await service.ConnectAsync("preset", "COM3", CancellationToken.None);
+
+        AdvanceBy(time, TiltDeviceConnectionService.IdleTimeout);
+        AdvanceBy(time, TiltDeviceConnectionService.IdleDisconnectGrace);
+        await service.LastIdleAutoDisconnectTask;
+
+        Assert.Multiple(() => {
+            Assert.That(service.Connected, Is.False);
+            Assert.That(service.IdleDisconnectPending, Is.False);
+            Assert.That(service.LastIdleAutoDisconnectUtc, Is.Not.Null, "the reconnect-side status line needs this");
+        });
+        await controllers[0].Received(1).DisconnectAsync(Arg.Any<CancellationToken>());
+    }
+
+    // The countdown must not fire early, or the number on screen would be a lie.
+    [Test]
+    public async Task Idle_WithinTheGracePeriod_StaysConnected() {
+        var (service, _, time, _) = Build();
+        await service.ConnectAsync("preset", "COM3", CancellationToken.None);
+
+        AdvanceBy(time, TiltDeviceConnectionService.IdleTimeout);
+        AdvanceBy(time, TiltDeviceConnectionService.IdleDisconnectGrace - TimeSpan.FromSeconds(10));
+
+        Assert.Multiple(() => {
+            Assert.That(service.Connected, Is.True);
+            Assert.That(service.IdleDisconnectPending, Is.True);
+            Assert.That(service.IdleDisconnectRemaining, Is.EqualTo(TimeSpan.FromSeconds(10)));
+        });
     }
 
     [Test]
@@ -415,57 +466,92 @@ public class TiltDeviceConnectionServiceTests {
         var (service, _, time, _) = Build();
         await service.ConnectAsync("preset", "COM3", CancellationToken.None);
 
-        bool raised = false;
-        service.IdlePromptRequested += (s, e) => raised = true;
+        AdvanceBy(time, TiltDeviceConnectionService.IdleTimeout - TimeSpan.FromSeconds(5));
+        Assert.That(service.IdleDisconnectPending, Is.False, "must not arm before the idle timeout elapses");
 
-        // Advance to just under 30 minutes with a poll-cadence tick (which itself performs a poll). If
-        // polling incorrectly counted as activity, the subsequent small advance would never reach the
-        // (now pushed-out) idle deadline.
-        time.Advance(TiltDeviceConnectionService.IdleTimeout - TimeSpan.FromSeconds(1));
-        Assert.That(raised, Is.False, "Must not fire before the idle timeout elapses.");
-
-        time.Advance(TimeSpan.FromSeconds(2));
-        Assert.That(raised, Is.True, "Must fire once idle timeout elapses, unaffected by intervening polling.");
+        AdvanceBy(time, TimeSpan.FromSeconds(10));
+        Assert.That(service.IdleDisconnectPending, Is.True, "polling in between must not have pushed the deadline out");
     }
 
     [Test]
-    public async Task KeepConnectedResetIdle_ResetsTimerAndDoesNotDisconnect() {
+    public async Task KeepConnectedResetIdle_CancelsTheCountdownAndReArms() {
         var (service, _, time, _) = Build();
         await service.ConnectAsync("preset", "COM3", CancellationToken.None);
 
-        int raiseCount = 0;
-        service.IdlePromptRequested += (s, e) => raiseCount++;
-
-        time.Advance(TiltDeviceConnectionService.IdleTimeout);
-        Assert.That(raiseCount, Is.EqualTo(1));
+        AdvanceBy(time, TiltDeviceConnectionService.IdleTimeout);
+        Assert.That(service.IdleDisconnectPending, Is.True);
 
         service.KeepConnectedResetIdle();
 
-        time.Advance(TimeSpan.FromSeconds(1));
-        Assert.That(raiseCount, Is.EqualTo(1), "Must not immediately re-raise after being kept connected.");
+        Assert.Multiple(() => {
+            Assert.That(service.IdleDisconnectPending, Is.False);
+            Assert.That(service.Connected, Is.True, "keep-connected must not disconnect");
+        });
 
-        time.Advance(TiltDeviceConnectionService.IdleTimeout);
-        Assert.That(raiseCount, Is.EqualTo(2), "Must re-arm and fire again after a full new idle window.");
+        var pastTheOldGrace = TiltDeviceConnectionService.IdleDisconnectGrace + TimeSpan.FromSeconds(30);
+        AdvanceBy(time, pastTheOldGrace);
+        Assert.That(service.Connected, Is.True, "the cancelled countdown must not fire later");
 
-        Assert.That(service.Connected, Is.True, "Keep-connected must not disconnect.");
+        // Advance only to the new threshold -- going further would arm AND expire a fresh countdown, which is a
+        // different behavior than the re-arm this test is about.
+        AdvanceBy(time, TiltDeviceConnectionService.IdleTimeout - pastTheOldGrace);
+        Assert.Multiple(() => {
+            Assert.That(service.IdleDisconnectPending, Is.True, "a full new idle window must arm it again");
+            Assert.That(service.Connected, Is.True);
+        });
+    }
+
+    // Touching the device IS declining. Every device operation takes a lease, which records activity -- so a
+    // user who is actually working never has to find the banner's button.
+    [Test]
+    public async Task Idle_DeviceActivityDuringTheCountdown_CancelsIt() {
+        var (service, _, time, _) = Build();
+        await service.ConnectAsync("preset", "COM3", CancellationToken.None);
+
+        AdvanceBy(time, TiltDeviceConnectionService.IdleTimeout);
+        Assert.That(service.IdleDisconnectPending, Is.True);
+
+        using (var token = service.TryBeginOperation("a motor move")) {
+            Assert.That(token, Is.Not.Null);
+            Assert.That(service.IdleDisconnectPending, Is.False, "taking a lease cancels the countdown");
+        }
+
+        AdvanceBy(time, TiltDeviceConnectionService.IdleDisconnectGrace + TimeSpan.FromSeconds(30));
+        Assert.That(service.Connected, Is.True);
+    }
+
+    // The deadline is set up to a minute before it is acted on, so the fire path re-validates rather than
+    // trusting that the world stood still.
+    [Test]
+    public async Task Idle_ActivityRecordedAfterTheDeadlinePasses_VetoesTheDisconnect() {
+        var (service, _, time, _) = Build();
+        await service.ConnectAsync("preset", "COM3", CancellationToken.None);
+
+        AdvanceBy(time, TiltDeviceConnectionService.IdleTimeout);
+        // Move virtual time past the deadline WITHOUT ticking, then record activity, then let a tick land.
+        time.SetNow(time.UtcNow + TiltDeviceConnectionService.IdleDisconnectGrace + TimeSpan.FromSeconds(5));
+        service.KeepConnectedResetIdle();
+        time.Advance(TimeSpan.Zero);
+
+        Assert.That(service.Connected, Is.True);
     }
 
     [Test]
-    public async Task ConfirmIdleDisconnectAsync_Disconnects() {
-        var (service, _, time, controllers) = Build();
+    public async Task Reconnecting_ClearsTheAutoDisconnectNote() {
+        var (service, _, time, _) = Build();
+        await service.ConnectAsync("preset", "COM3", CancellationToken.None);
+        AdvanceBy(time, TiltDeviceConnectionService.IdleTimeout);
+        AdvanceBy(time, TiltDeviceConnectionService.IdleDisconnectGrace);
+        await service.LastIdleAutoDisconnectTask;
+        Assert.That(service.LastIdleAutoDisconnectUtc, Is.Not.Null);
+
         await service.ConnectAsync("preset", "COM3", CancellationToken.None);
 
-        time.Advance(TiltDeviceConnectionService.IdleTimeout);
-        Assert.That(service.Connected, Is.True, "The prompt firing must not itself disconnect.");
-
-        await service.ConfirmIdleDisconnectAsync();
-
-        Assert.That(service.Connected, Is.False);
-        await controllers[0].Received(1).DisconnectAsync(Arg.Any<CancellationToken>());
+        Assert.That(service.LastIdleAutoDisconnectUtc, Is.Null);
     }
 
     // Regression lock (fix #5): T11's hands-off calibration run holds an operation lease for a whole
-    // multi-command plan that can legitimately exceed 30 minutes -- the idle prompt must not fire while it
+    // multi-command plan that can legitimately exceed 30 minutes -- the countdown must not arm while it
     // is held, however far past the threshold virtual time advances.
     [Test]
     public async Task Idle_SuppressedWhileOperationActive_EvenWellPastThreshold() {
@@ -475,72 +561,50 @@ public class TiltDeviceConnectionServiceTests {
         var token = service.TryBeginOperation("hands-off calibration");
         Assert.That(token, Is.Not.Null);
 
-        bool raised = false;
-        service.IdlePromptRequested += (s, e) => raised = true;
+        AdvanceBy(time, TiltDeviceConnectionService.IdleTimeout + TimeSpan.FromMinutes(10));
+        Assert.That(service.IdleDisconnectPending, Is.False, "suppressed for the entire duration of an active operation lease");
 
-        time.Advance(TiltDeviceConnectionService.IdleTimeout + TimeSpan.FromMinutes(10));
-        Assert.That(raised, Is.False, "Idle prompt must be suppressed for the entire duration of an active operation lease.");
-
-        // EndOperation() itself records activity, so releasing the lease resets the idle clock -- a small
-        // subsequent advance must not immediately fire either.
+        // EndOperation() itself records activity, so releasing the lease resets the idle clock.
         token.Dispose();
-        time.Advance(TimeSpan.FromSeconds(1));
-        Assert.That(raised, Is.False, "Releasing the lease resets the idle timer; must not fire immediately.");
+        AdvanceBy(time, TimeSpan.FromSeconds(5));
+        Assert.That(service.IdleDisconnectPending, Is.False, "releasing the lease resets the idle timer");
 
-        // But a full new idle window after release must still fire normally -- suppression must not be sticky.
-        time.Advance(TiltDeviceConnectionService.IdleTimeout);
-        Assert.That(raised, Is.True, "Must resume firing normally once the lease is released and a full idle window elapses.");
+        AdvanceBy(time, TiltDeviceConnectionService.IdleTimeout);
+        Assert.That(service.IdleDisconnectPending, Is.True, "suppression must not be sticky");
     }
 
     // Regression lock (T9 fix E): EndOperation used to release the lock / clear isOperationActive and only
     // THEN call RecordUserActivity() -- a timer tick landing in that window (for a lease held past the idle
-    // timeout, e.g. a long T11 calibration run) would see isOperationActive == false together with a STALE
-    // LastActivityUtc and fire one spurious idle-disconnect prompt right as the operation ends. The fix
-    // reorders RecordUserActivity() to run BEFORE isOperationActive is cleared.
-    //
-    // FakeTiltDeviceTimeSource.Advance is single-threaded, so it can't land a tick "in the middle of" a
-    // synchronous method by wall-clock race the way the real Timer could -- but EndOperation raises
-    // PropertyChanged(IsOperationActive) synchronously partway through its own body (AFTER the flag clear in
-    // both the old and new ordering), which gives a precise, deterministic hook: firing a Tick from inside
-    // that notification lands exactly on the boundary the fix moves RecordUserActivity() across, so this
-    // reproduces the bug on the pre-fix ordering and proves it's gone on the fixed ordering.
+    // timeout) would see isOperationActive == false together with a STALE LastActivityUtc and arm a spurious
+    // countdown right as the operation ends. The fix reorders RecordUserActivity() before the flag clear.
     [Test]
-    public async Task EndOperation_TickLandingAsOperationEnds_DoesNotRaiseSpuriousIdlePrompt() {
+    public async Task EndOperation_TickLandingAsOperationEnds_DoesNotArmASpuriousCountdown() {
         var (service, _, time, _) = Build();
         await service.ConnectAsync("preset", "COM3", CancellationToken.None);
 
-        // Hold the lease well past the idle timeout (T11-style long calibration run) so LastActivityUtc,
-        // stamped when the lease began, is already stale by the time it ends.
         var token = service.TryBeginOperation("long calibration");
         Assert.That(token, Is.Not.Null);
-        time.Advance(TiltDeviceConnectionService.IdleTimeout + TimeSpan.FromMinutes(5));
-
-        bool raised = false;
-        service.IdlePromptRequested += (s, e) => raised = true;
+        AdvanceBy(time, TiltDeviceConnectionService.IdleTimeout + TimeSpan.FromMinutes(5));
 
         void OnPropertyChanged(object s, System.ComponentModel.PropertyChangedEventArgs e) {
             if (e.PropertyName == nameof(TiltDeviceConnectionService.IsOperationActive) && !service.IsOperationActive) {
-                // Zero-delta Advance still fires Tick synchronously at the current (already-past-threshold)
-                // virtual time -- simulating a timer tick landing right here, mid-EndOperation.
                 time.Advance(TimeSpan.Zero);
             }
         }
         service.PropertyChanged += OnPropertyChanged;
         try {
-            token.Dispose(); // -> EndOperation(), synchronously raising the INPC above partway through.
+            token.Dispose();
         } finally {
             service.PropertyChanged -= OnPropertyChanged;
         }
 
-        Assert.That(raised, Is.False, "a tick landing exactly as the operation ends must not see stale activity and fire a spurious idle prompt");
+        Assert.That(service.IdleDisconnectPending, Is.False,
+            "a tick landing exactly as the operation ends must not see stale activity and arm a countdown");
     }
 
-    // Regression lock (fix #1): the idle-prompt check-and-set must be atomic. FakeTiltDeviceTimeSource.Advance
-    // is single-threaded, so it cannot itself reproduce the race (a real System.Threading.Timer can re-enter
-    // its callback on another pool thread if a previous tick hasn't returned) -- this test instead fires the
-    // SAME Tick event concurrently from many threads once virtual time is already past the idle threshold,
-    // which exercises the exact TOCTOU window (concurrent CheckIdle invocations racing the outstanding-flag
-    // check-and-set) that the fix guards.
+    // Regression lock (fix #1): the arm check-and-set must be atomic, or concurrent ticks could each arm a
+    // countdown. FakeTiltDeviceTimeSource.Advance is single-threaded, so this fires the SAME Tick event from
+    // many threads at a virtual time already past the idle threshold.
     private sealed class ConcurrentTickTimeSource : ITiltDeviceTimeSource {
         public DateTimeOffset UtcNow { get; set; }
         public event EventHandler Tick;
@@ -550,7 +614,7 @@ public class TiltDeviceConnectionServiceTests {
     }
 
     [Test]
-    public async Task Idle_ConcurrentTicksPastThreshold_RaisesPromptExactlyOnce() {
+    public async Task Idle_ConcurrentTicksPastThreshold_ArmExactlyOneCountdown() {
         var profile = Substitute.For<IProfileService>();
         var options = Substitute.For<ITiltAdapterOptions>();
         var time = new ConcurrentTickTimeSource { UtcNow = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero) };
@@ -559,8 +623,12 @@ public class TiltDeviceConnectionServiceTests {
 
         time.UtcNow += TiltDeviceConnectionService.IdleTimeout + TimeSpan.FromSeconds(1);
 
-        int raiseCount = 0;
-        service.IdlePromptRequested += (s, e) => Interlocked.Increment(ref raiseCount);
+        int changeCount = 0;
+        service.PropertyChanged += (s, e) => {
+            if (e.PropertyName == nameof(TiltDeviceConnectionService.IdleDisconnectPending)) {
+                Interlocked.Increment(ref changeCount);
+            }
+        };
 
         const int concurrency = 8;
         var barrier = new Barrier(concurrency);
@@ -573,6 +641,9 @@ public class TiltDeviceConnectionServiceTests {
         }
         await Task.WhenAll(tasks);
 
-        Assert.That(raiseCount, Is.EqualTo(1));
+        Assert.Multiple(() => {
+            Assert.That(changeCount, Is.EqualTo(1));
+            Assert.That(service.Connected, Is.True, "the grace period has not elapsed yet");
+        });
     }
 }

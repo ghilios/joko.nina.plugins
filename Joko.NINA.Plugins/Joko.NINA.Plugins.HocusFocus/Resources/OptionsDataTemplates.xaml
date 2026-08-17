@@ -510,6 +510,9 @@
     <TextBlock x:Key="PerFilterStarDetectionEnabled_Tooltip" Text="Gives every filter in the active profile its own complete set of star detection settings. When enabled, detection uses the settings of the filter each image was captured with, and every control below edits the selected filter's set. Requires a filter wheel; images without a known filter soft-fail detection with a warning. When disabled, the single global settings apply exactly as before." />
     <TextBlock x:Key="EditedFilterName_Tooltip" Text="Which filter's star detection settings are being edited. Every control below reads and writes the selected filter's set. Only shown while per-filter star detection is enabled." />
     <TextBlock x:Key="CopyStarDetectionFromFilter_Tooltip" Text="Copies another filter's star detection settings onto the filter currently being edited. A confirmation dialog shows exactly which settings will change before anything is applied." />
+    <TextBlock x:Key="PerFilterSweepHeader_Tooltip" Text="Auto-focus sweep geometry saved with this filter's settings set. Filters often want different sweeps -- a narrowband filter's best step size is not a luminance filter's -- and without these, applying the Optimization Wizard's recommendation for one filter overwrites the profile value every other filter uses. Only shown while per-filter star detection is enabled." />
+    <TextBlock x:Key="PerFilterSweepStepSize_Tooltip" Text="Focuser steps between auto-focus points when focusing through this filter. Overrides the profile's Auto Focus Step Size (NINA Options -&gt; Focuser) for this filter only. Leave the box blank to use the profile value -- the dimmed hint shows the number a blank box resolves to. Clear the box to go back to the profile value. While per-filter star detection is enabled, the Optimization Wizard's Accept writes its recommended step size here rather than to the profile." />
+    <TextBlock x:Key="PerFilterSweepOffsetSteps_Tooltip" Text="Auto-focus points on each side of the sweep's starting position when focusing through this filter. Overrides the profile's Auto Focus Initial Offset Steps (NINA Options -&gt; Focuser) for this filter only. Leave the box blank to use the profile value -- the dimmed hint shows the number a blank box resolves to. Clear the box to go back to the profile value." />
     <TextBlock x:Key="UseOptimizedSettings_Tooltip" Text="When enabled, the optimized star-detection settings produced by the optimization wizard drive detection instead of the Noise Level / Pixel Scale / Focus Range presets. Only available in Simple Mode after the wizard has produced and applied a result" />
     <TextBlock x:Key="ModelPSF_Tooltip" Text="Whether to fit PSF models to detected stars. This is required for FWHM and Eccentricity" />
     <TextBlock x:Key="PSFFitType_Tooltip" Text="What type of PSF model to fit. Moffat 0.4 more closely resembles real stars and is the default used by PixInsight" />
@@ -2431,6 +2434,9 @@
                     <RowDefinition />
                     <RowDefinition Style="{StaticResource ShowOnPerFilterEnabled}" />
                     <RowDefinition Style="{StaticResource ShowOnPerFilterEnabled}" />
+                    <RowDefinition Style="{StaticResource ShowOnPerFilterEnabled}" />
+                    <RowDefinition Style="{StaticResource ShowOnPerFilterEnabled}" />
+                    <RowDefinition Style="{StaticResource ShowOnPerFilterEnabled}" />
                 </Grid.RowDefinitions>
                 <TextBlock
                     Grid.Row="0"
@@ -2498,6 +2504,102 @@
                             TextWrapping="Wrap" />
                     </Button>
                 </StackPanel>
+                <!--  Auto-focus sweep geometry stored WITH this filter's settings set. These are focuser numbers on a
+                      star-detection page on purpose: they belong to the per-filter set, and this block is the only
+                      surface that edits per-filter sets. The header names that so it does not read as a stray control.
+                      The header spans both shared-size columns, which the layout guard permits because it does not
+                      wrap (only wrapping + ColumnSpan > 1 livelocks the re-measure).
+                      NO validation rule on either box: rules run on the RAW text before the converter and would
+                      reject the deliberately blank "inherit" state, exactly as documented on the Camera Simulator's
+                      Focuser Step Size row. Out-of-range input is coerced in the binder's setter instead.
+                      The dimmed inherited-value hint is drawn as an overlaid TextBlock rather than via HintTextBox:
+                      that control's hint opacity is not settable in the NINA version this plugin builds against,
+                      and its 0.4 default (fine for a static "(AutoFocus)" label) is too faint for a number the
+                      user is meant to read and compare a typed value against. 0.6 matches the de-emphasis used for
+                      secondary text elsewhere in this plugin.  -->
+                <TextBlock
+                    Grid.Row="3"
+                    Grid.Column="0"
+                    Grid.ColumnSpan="2"
+                    Margin="0,10,0,0"
+                    FontStyle="Italic"
+                    Foreground="{StaticResource PrimaryBrush}"
+                    Text="Auto-Focus Sweep for This Filter"
+                    ToolTip="{StaticResource PerFilterSweepHeader_Tooltip}" />
+                <TextBlock
+                    Grid.Row="4"
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="Step Size"
+                    ToolTip="{StaticResource PerFilterSweepStepSize_Tooltip}" />
+                <Grid
+                    Grid.Row="4"
+                    Grid.Column="1"
+                    Margin="5,5,0,0"
+                    HorizontalAlignment="Left">
+                    <TextBox
+                        MinWidth="80"
+                        VerticalAlignment="Center"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
+                        Foreground="{StaticResource PrimaryBrush}"
+                        TextAlignment="Left"
+                        ToolTip="{StaticResource PerFilterSweepStepSize_Tooltip}">
+                        <TextBox.Text>
+                            <Binding
+                                Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                Mode="TwoWay"
+                                Path="PerFilterEditBinder.SweepStepSizeOverride"
+                                UpdateSourceTrigger="LostFocus" />
+                        </TextBox.Text>
+                    </TextBox>
+                    <TextBlock
+                        Margin="5,0,0,0"
+                        VerticalAlignment="Center"
+                        Foreground="{StaticResource PrimaryBrush}"
+                        IsHitTestVisible="False"
+                        Opacity="0.6"
+                        Text="{Binding PerFilterEditBinder.ProfileSweepStepSize, Mode=OneWay}"
+                        ToolTip="{StaticResource PerFilterSweepStepSize_Tooltip}"
+                        Visibility="{Binding PerFilterEditBinder.SweepStepSizeInherits, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                </Grid>
+                <TextBlock
+                    Grid.Row="5"
+                    Grid.Column="0"
+                    VerticalAlignment="Center"
+                    Text="Initial Offset Steps"
+                    ToolTip="{StaticResource PerFilterSweepOffsetSteps_Tooltip}" />
+                <Grid
+                    Grid.Row="5"
+                    Grid.Column="1"
+                    Margin="5,5,0,0"
+                    HorizontalAlignment="Left">
+                    <TextBox
+                        MinWidth="80"
+                        VerticalAlignment="Center"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
+                        Foreground="{StaticResource PrimaryBrush}"
+                        TextAlignment="Left"
+                        ToolTip="{StaticResource PerFilterSweepOffsetSteps_Tooltip}">
+                        <TextBox.Text>
+                            <Binding
+                                Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                Mode="TwoWay"
+                                Path="PerFilterEditBinder.SweepOffsetStepsOverride"
+                                UpdateSourceTrigger="LostFocus" />
+                        </TextBox.Text>
+                    </TextBox>
+                    <TextBlock
+                        Margin="5,0,0,0"
+                        VerticalAlignment="Center"
+                        Foreground="{StaticResource PrimaryBrush}"
+                        IsHitTestVisible="False"
+                        Opacity="0.6"
+                        Text="{Binding PerFilterEditBinder.ProfileSweepOffsetSteps, Mode=OneWay}"
+                        ToolTip="{StaticResource PerFilterSweepOffsetSteps_Tooltip}"
+                        Visibility="{Binding PerFilterEditBinder.SweepOffsetStepsInherits, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                </Grid>
             </Grid>
             <!--  Active-filter warning: a standalone full-width message BELOW the per-filter grid, deliberately NOT a
                   cell in that grid. A wrapping TextBlock must not span the grid's Auto SharedSizeGroup columns

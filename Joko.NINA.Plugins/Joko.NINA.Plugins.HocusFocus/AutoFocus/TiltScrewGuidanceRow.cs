@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -100,13 +100,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         /// and ignore the unit. Values below the 0.005-turn noise floor render as an em dash with no
         /// direction mark (so the smallest shown value is ~2° / 0.3 min).
         /// </summary>
+        /// <summary>What <see cref="FormatAmount"/> returns when the amount is below the noise floor.</summary>
+        public const string NoAdjustmentGlyph = "—";
+
         public static string FormatAmount(double signedAmount, bool steps, TiltGuidanceAngleUnit angleUnit) {
             if (steps) {
                 long rounded = (long)Math.Round(Math.Abs(signedAmount), MidpointRounding.AwayFromZero);
-                if (rounded == 0) return "—";
+                if (rounded == 0) return NoAdjustmentGlyph;
                 return signedAmount >= 0 ? $"+{rounded} steps" : $"−{rounded} steps";
             }
-            if (Math.Abs(signedAmount) < 0.005) return "—";
+            if (Math.Abs(signedAmount) < 0.005) return NoAdjustmentGlyph;
             string glyph = signedAmount >= 0 ? "⟳" : "⟲";
             if (angleUnit == TiltGuidanceAngleUnit.Degrees) {
                 long degrees = (long)Math.Round(Math.Abs(signedAmount) * 360.0, MidpointRounding.AwayFromZero);

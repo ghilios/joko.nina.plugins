@@ -110,6 +110,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         public AFCurveFittingEnum AutoFocusCurveFitting { get; set; }
         public int AutoFocusInitialOffsetSteps { get; set; }
         public int AutoFocusStepSize { get; set; }
+
+        /// <summary>
+        /// The filter name the two sweep-geometry values above were resolved for, or null when no per-filter
+        /// lookup happened. Observability only — transient, never persisted, never in a replay snapshot. The
+        /// engine compares it against the filter it actually ends up exposing through and warns on a mismatch.
+        /// </summary>
+        public string SweepGeometryFilterName { get; set; }
         public int FramesPerPoint { get; set; }
         public int MaxConcurrent { get; set; }
         public TimeSpan OverrideAutoFocusExposureTime { get; set; } = TimeSpan.Zero;
@@ -188,7 +195,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
         Task<AutoFocusResult> RerunWithRegions(AutoFocusEngineOptions options, SavedAutoFocusAttempt savedAttempt, FilterInfo imagingFilter, List<StarDetectionRegion> regions, CancellationToken token, IProgress<ApplicationStatus> progress);
 
-        AutoFocusEngineOptions GetOptions(SavedAutoFocusAttempt savedAttempt = null);
+        AutoFocusEngineOptions GetOptions(SavedAutoFocusAttempt savedAttempt = null, FilterInfo imagingFilter = null, bool useExactImagingFilter = false);
 
         Task<FilterInfo> SetAutofocusFilter(FilterInfo imagingFilter, CancellationToken token, IProgress<ApplicationStatus> progress);
 

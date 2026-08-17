@@ -44,6 +44,39 @@ Automatic Adjustment plan including its confirming inspector run and any revert.
   last published values alone (a mid-plan gap must not blank a display that was right a moment ago) and logs
   a warning, so a stale panel is diagnosable rather than silent.
 
+## Reverting: putting the adapter back
+
+Two mechanisms, in strict precedence, exposed as "Return to this run" (Aberration Inspector history) and the
+"tilt got worse" banner's revert button. `AutoFocus/TiltRevertPlanFactory.cs` owns the choice.
+
+1. **Absolute motor positions** recorded with an Inspector run (`TiltAdapterStateSnapshot`), driven to directly.
+   Exact, and it consumes **no calibration at all** — not the screw angles, not `ScrewInwardCurvatureSign`, not the
+   pitch. It is therefore deliberately **not** gated on `IsCalibrationDeviceLinked` / `CalibrationIsReliable`; it is
+   raw hardware control toward a recorded counter. Keyed by device preset, because counters are per-device.
+2. **Session journal** (the worsening banner only) — the inverse of each move just sent, in reverse order. Exact for
+   exactly those moves, needs no model and no known positions, and unwinds any controller-prepended backfocus bias
+   for free because the bias was part of the executed plan.
+3. **Measurement differential** — `T(now) − T(run K)`, where `T` is `ComputePerScrewTargets`. Each run's targets are a
+   *state* description ("signed units from here to flat"), so their difference is the motion between the two states.
+   Only the two endpoint measurements matter: no assumption that intermediate guidance was applied (unknowable), no
+   summing, no error accumulation. This is the only option for manual screws, and it **does** read the calibration,
+   so it carries the same critical gate Automatic Adjustment does.
+
+Backfocus stays in the differential: a curvature-only change decomposes to pure piston, with no spurious tilt and no
+twist. What is weak about it is the source data — `Kx/Ky/X0/Y0` are the noisiest fitted parameters, and a spacer or
+filter change between the runs is silently attributed to the adapter — so the target reports
+`BackfocusTrustworthy = false` and the approval dialog is where that group can be dropped.
+
+Two states the device genuinely reached differ by a rigid-plane delta, so a snapshot-vs-current **twist ≥ 1 step is
+itself diagnostic**: position tracking drifted (lost steps, or a resync). It is surfaced, not silently projected away.
+
+**Both the run history and the journal are SESSION-ONLY.** The history collections are in-memory and the journal is a
+plain field, so after a NINA restart there is nothing to return to — even though the device itself still knows its
+counters via `TiltDeviceShadowPositions`. If that is ever wanted, the right shape is a separately-named
+"restore points" feature (a capped ring buffer of positions-only records beside the shadow positions), not persisted
+measurement history: serializing fitted math DTOs in an options blob is a maintenance tax, and the differential path
+needs a *current* model that is also gone after a restart.
+
 ## Image mirroring
 
 Camera images may be mirrored horizontally and/or vertically depending on the optical train (e.g., a star diagonal introduces a mirror). **Do not assume that screws numbered clockwise around the physical adapter will appear clockwise around the sensor image.** The screw orientations must be determined from the actual image coordinates after accounting for any mirroring. Plans and features that involve tilt correction must track orientation in image-space, not physical-space.

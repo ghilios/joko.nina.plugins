@@ -26,6 +26,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
         private const string EnabledKey = "PerFilterStarDetectionEnabled";
         private const string JsonKey = "PerFilterStarDetectionJson";
 
+        /// <summary>
+        /// Bump ONLY for a change that cannot be expressed as an additive member with an inherit/absent default.
+        /// Adding sweep geometry did not qualify: the same blob legitimately holds a mix of entries with and
+        /// without it (a v1 blob that this build upserts one filter into becomes a hybrid), so a version bump
+        /// would encode a claim — "geometry is present" — that is false for most real blobs, and the first reader
+        /// to trust it would be wrong.
+        /// </summary>
+        private const int CurrentSchemaVersion = 1;
+
         private readonly IProfileService profileService;
         private readonly IPluginOptionsAccessor optionsAccessor;
         private readonly Func<StarDetectionSettingsSnapshot> captureGlobalSnapshot;
@@ -33,6 +42,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
         // and the seed, and every snapshot crossing the boundary is a clone.
         private readonly object storeLock = new object();
         private readonly Dictionary<string, StarDetectionSettingsSnapshot> snapshotsByFilterName = new(StringComparer.Ordinal);
+        // Sweep geometry is a separate map, not a field on the snapshot, because a filter can legitimately have
+        // one without the other: the Optimization Wizard can write geometry for a filter whose detection settings
+        // page has never been opened. Guarded by the same storeLock.
+        private readonly Dictionary<string, PerFilterSweepGeometry> geometryByFilterName = new(StringComparer.Ordinal);
 
         private bool enabled;
         private StarDetectionSettingsSnapshot globalSeed;
@@ -74,6 +87,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
         public event EventHandler EnabledChanged;
 
         public event EventHandler<PerFilterSnapshotChangedEventArgs> SnapshotChanged;
+
+        /// <summary>
+        /// Raised when one filter's sweep geometry changes. Separate from <see cref="SnapshotChanged"/> on purpose:
+        /// the edit binder answers that one by reloading the entire detection buffer, which a geometry edit must
+        /// not trigger.
+        /// </summary>
+        public event EventHandler<PerFilterSnapshotChangedEventArgs> SweepGeometryChanged;
 
         public bool Enabled {
             get => enabled;
@@ -125,9 +145,52 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             SnapshotChanged?.Invoke(this, new PerFilterSnapshotChangedEventArgs(filterName));
         }
 
+        /// <summary>
+        /// One filter's sweep-geometry override. Always a fresh instance and NEVER null: an unknown filter, or a
+        /// known one with no override, yields an all-<see cref="PerFilterSweepGeometry.Inherit"/> instance, so
+        /// callers never null-check and can never persist by accident through the value they were handed.
+        ///
+        /// <para><b>Unlike <see cref="GetOrSeedSnapshot"/>, this never writes.</b> Detection seeds on read because
+        /// it has no fallback; geometry has one (the profile), so a read has no reason to persist. That matters
+        /// concretely: the auto-focus engine calls this on its run path, where a seed-and-fan-out would push a
+        /// <see cref="SnapshotChanged"/> through the edit binder mid-run.</para>
+        /// </summary>
+        public PerFilterSweepGeometry GetSweepGeometry(string filterName) {
+            if (string.IsNullOrEmpty(filterName)) {
+                return PerFilterSweepGeometry.Unset();
+            }
+            lock (storeLock) {
+                return geometryByFilterName.TryGetValue(filterName, out var geometry)
+                    ? geometry.Normalized()
+                    : PerFilterSweepGeometry.Unset();
+            }
+        }
+
+        /// <summary>
+        /// Replaces one filter's sweep-geometry override, normalizing anything unusable back to
+        /// <see cref="PerFilterSweepGeometry.Inherit"/>. A null <paramref name="geometry"/> means "clear the
+        /// override" — unlike <see cref="UpsertSnapshot"/>, null is meaningful here rather than a programming error.
+        /// </summary>
+        public void SetSweepGeometry(string filterName, PerFilterSweepGeometry geometry) {
+            if (string.IsNullOrEmpty(filterName)) {
+                return;
+            }
+            lock (storeLock) {
+                geometryByFilterName[filterName] = (geometry ?? PerFilterSweepGeometry.Unset()).Normalized();
+                PersistLocked();
+            }
+            SweepGeometryChanged?.Invoke(this, new PerFilterSnapshotChangedEventArgs(filterName));
+        }
+
         public IReadOnlyList<string> GetKnownFilterNames() {
             lock (storeLock) {
-                return new List<string>(snapshotsByFilterName.Keys);
+                var names = new List<string>(snapshotsByFilterName.Keys);
+                foreach (var name in geometryByFilterName.Keys) {
+                    if (!snapshotsByFilterName.ContainsKey(name)) {
+                        names.Add(name);
+                    }
+                }
+                return names;
             }
         }
 
@@ -159,12 +222,38 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             }
         }
 
+        // Iterates the UNION of both maps, not just the snapshot map: a filter can carry sweep geometry without
+        // detection settings (a wizard Accept on a filter whose options page was never opened), and iterating only
+        // the snapshots would drop that filter's override on the very next persist.
         private void PersistLocked() {
             var data = new PerFilterStarDetectionData() { GlobalSeed = globalSeed };
             foreach (var kvp in snapshotsByFilterName) {
-                data.Filters.Add(new PerFilterStarDetectionEntry() { FilterName = kvp.Key, Settings = kvp.Value });
+                data.Filters.Add(new PerFilterStarDetectionEntry() {
+                    FilterName = kvp.Key,
+                    Settings = kvp.Value,
+                    SweepGeometry = GeometryToPersistLocked(kvp.Key)
+                });
+            }
+            foreach (var kvp in geometryByFilterName) {
+                if (snapshotsByFilterName.ContainsKey(kvp.Key)) {
+                    continue;
+                }
+                var geometry = GeometryToPersistLocked(kvp.Key);
+                if (geometry == null) {
+                    continue;
+                }
+                data.Filters.Add(new PerFilterStarDetectionEntry() { FilterName = kvp.Key, SweepGeometry = geometry });
             }
             optionsAccessor.SetValueString(JsonKey, JsonConvert.SerializeObject(data));
+        }
+
+        // An all-Inherit override is indistinguishable from having none, so it is written as null to keep the blob
+        // byte-comparable with one produced before this field existed.
+        private PerFilterSweepGeometry GeometryToPersistLocked(string filterName) {
+            if (!geometryByFilterName.TryGetValue(filterName, out var geometry) || geometry.IsUnset) {
+                return null;
+            }
+            return geometry;
         }
 
         private void ProfileService_ProfileChanged(object sender, EventArgs e) {
@@ -177,6 +266,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
                 enabled = optionsAccessor.GetValueBoolean(EnabledKey, false);
                 globalSeed = null;
                 snapshotsByFilterName.Clear();
+                geometryByFilterName.Clear();
                 var json = optionsAccessor.GetValueString(JsonKey, "");
                 if (string.IsNullOrEmpty(json)) {
                     return;
@@ -187,15 +277,31 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
                     if (data?.Filters == null) {
                         return;
                     }
+                    if (data.SchemaVersion > CurrentSchemaVersion) {
+                        // Load best-effort rather than discarding: silently wiping a user's per-filter sets because
+                        // they briefly ran a newer build would be far worse than ignoring a field we don't know.
+                        Logger.Warning(
+                            $"PerFilterStarDetectionJson was written by a newer schema (v{data.SchemaVersion}); reading it as " +
+                            $"v{CurrentSchemaVersion}. Settings this build does not understand are ignored.");
+                    }
                     foreach (var entry in data.Filters) {
-                        if (!string.IsNullOrEmpty(entry?.FilterName) && entry.Settings != null) {
+                        // Note the OR: an entry may carry sweep geometry with no detection settings, and dropping it
+                        // for lack of a snapshot would lose the override.
+                        if (string.IsNullOrEmpty(entry?.FilterName) || (entry.Settings == null && entry.SweepGeometry == null)) {
+                            continue;
+                        }
+                        if (entry.Settings != null) {
                             snapshotsByFilterName[entry.FilterName] = entry.Settings;
+                        }
+                        if (entry.SweepGeometry != null) {
+                            geometryByFilterName[entry.FilterName] = entry.SweepGeometry.Normalized();
                         }
                     }
                 } catch (Exception ex) {
                     Logger.Warning($"Discarding corrupt PerFilterStarDetectionJson: {ex.Message}");
                     globalSeed = null;
                     snapshotsByFilterName.Clear();
+                    geometryByFilterName.Clear();
                 }
             }
         }

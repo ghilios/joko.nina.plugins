@@ -22,12 +22,14 @@ using NINA.Equipment.Interfaces.Mediator;
 using NINA.Image.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using NINA.Profile.Interfaces;
 using OxyPlot.Series;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
@@ -604,6 +606,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         // PerFilterEditBinder.MutateFilterSettings, which picks the store or the edit buffer as appropriate.
         private readonly Action<string, bool> setFilterDonutDetection;
 
+        // Reads one filter's sweep-geometry override, for the Live confirmation readouts. Null in tests, which
+        // then show the profile values.
+        private readonly Func<string, PerFilterSweepGeometry> getFilterSweepGeometry;
+
+        // Writes the recommended sweep geometry into ONE filter's set. Separate from the getter for the same
+        // reason setFilterDonutDetection is separate from getFilterDetectionOptions: the store hands out clones,
+        // so a caller that mutated what it read would persist nothing.
+        private readonly Action<string, int, int> applySweepGeometryToFilter;
+
         // The last measured in-focus HFR (captured pixels), for the confirmation panel's recommendation. Supplied by
         // the plugin from InFocusHfrRecord; null in tests, which then show the no-measurement copy.
         private readonly Func<double> getMeasuredInFocusHfr;
@@ -740,6 +751,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                     }
                     binder.MutateFilterSettings(name, o => o.DefocusAwareDonutDetection = value);
                 },
+                // Reads the target filter's sweep-geometry override for the Live confirmation readouts, so they
+                // show what the sweep will actually run at rather than the profile's numbers.
+                getFilterSweepGeometry: name => HocusFocusPlugin.PerFilterStarDetection?.GetSweepGeometry(name),
+                // Accept's geometry write in per-filter mode. Unlike applyOptimizedToFilter this does NOT depend on
+                // EditedFilterName being pointed at the target first: MutateFilterSweepGeometry is store-backed.
+                applySweepGeometryToFilter: (name, stepSize, offsetSteps) => {
+                    var binder = HocusFocusPlugin.PerFilterStarDetectionEditBinder;
+                    if (binder == null) {
+                        Logger.Error("Cannot apply the recommended sweep geometry: the per-filter edit binder is unavailable.");
+                        return;
+                    }
+                    binder.MutateFilterSweepGeometry(name, g => {
+                        g.StepSize = stepSize;
+                        g.InitialOffsetSteps = offsetSteps;
+                    });
+                },
                 getMeasuredInFocusHfr: () => HocusFocusPlugin.InFocusHfr?.HfrPixels ?? double.NaN,
                 recordMeasuredInFocusHfr: hfr => HocusFocusPlugin.InFocusHfr?.Record(hfr, DateTime.UtcNow, "optimization wizard live sweep"),
                 // The summary already gave the reason and the button named the action, so this only has to cover what
@@ -849,6 +876,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             Func<string, IStarDetectionOptions> getFilterDetectionOptions = null,
             Action<string, OptimizedStarDetectionSettings> applyOptimizedToFilter = null,
             Action<string, bool> setFilterDonutDetection = null,
+            Func<string, PerFilterSweepGeometry> getFilterSweepGeometry = null,
+            Action<string, int, int> applySweepGeometryToFilter = null,
             Func<double> getMeasuredInFocusHfr = null,
             Action<double> recordMeasuredInFocusHfr = null) {
             this.profileService = profileService ?? throw new ArgumentNullException(nameof(profileService));
@@ -880,6 +909,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             this.getFilterDetectionOptions = getFilterDetectionOptions;
             this.applyOptimizedToFilter = applyOptimizedToFilter;
             this.setFilterDonutDetection = setFilterDonutDetection;
+            this.getFilterSweepGeometry = getFilterSweepGeometry;
+            this.applySweepGeometryToFilter = applySweepGeometryToFilter;
             if (this.perFilterEnabled()) {
                 // Default the target to the currently-loaded wheel filter, else the first profile filter.
                 var current = this.getCurrentFilterName?.Invoke();
@@ -888,9 +919,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             sourcePaths = new ObservableCollection<string> { null };
             applyRecommendedStepSize = true;
-            // Seed the Live sweep's editable exposure from the profile's current AF exposure, and its save folder from
-            // the persisted AF SavePath (both are just starting points the user can change on the confirmation screen).
-            liveExposureSeconds = profileService.ActiveProfile.FocuserSettings.AutoFocusExposureTime;
+            // Seed the Live sweep's editable exposure from whatever the target filter will ACTUALLY focus at (its
+            // own AF exposure when it sets one, else the profile's), and its save folder from the persisted AF
+            // SavePath. Both are starting points the user can change on the confirmation screen. This runs after
+            // targetFilterName is resolved above, which is what makes the per-filter value reachable.
+            liveExposureSeconds = EffectiveAutoFocusExposureSeconds;
             saveFolderPath = autoFocusOptions?.SavePath;
 
             BrowseSourceCommand = new RelayCommand<object>(BrowseSource);
@@ -1122,14 +1155,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             get => targetFilterName;
             set {
                 if (targetFilterName != value) {
+                    // Captured BEFORE the change so "has the user typed their own exposure?" is judged against the
+                    // filter that was selected while they had the chance to.
+                    bool exposureUntouched = Math.Abs(liveExposureSeconds - EffectiveAutoFocusExposureSeconds) < 1e-6;
                     targetFilterName = value;
                     RaisePropertyChanged();
+                    // Re-seed the editable sweep exposure from the newly targeted filter, since a filter that
+                    // already carries its own AF exposure is a far better starting point than the profile's. Only
+                    // when the box still holds the previous target's value, so a hand-typed exposure survives.
+                    if (exposureUntouched) {
+                        LiveExposureSeconds = EffectiveAutoFocusExposureSeconds;
+                    }
                     // The sweep readouts (filter/gain) reflect the target filter while per-filter is on.
                     RaiseSweepReadoutsChanged();
                     // So does the donut master: it is read from the target filter's set, so re-targeting changes it.
                     RaisePropertyChanged(nameof(DefocusAwareDonutDetection));
                     RaisePropertyChanged(nameof(SummaryFilterName));
                     RaisePropertyChanged(nameof(HasSummaryFilter));
+                    // The summary's exposure row and the Apply toggle now compare against the TARGET FILTER's
+                    // effective exposure, so re-targeting changes both.
+                    RaiseExposureRowChanged();
                 }
             }
         }
@@ -1137,6 +1182,26 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>True while per-filter star detection is enabled: shows the target-filter picker (both
         /// modes) and routes baseline/capture/Accept through the target filter's settings set.</summary>
         public bool IsPerFilterEnabled => perFilterEnabled();
+
+        /// <summary>
+        /// The auto-focus exposure that will ACTUALLY be used for the target filter: NINA core's own per-filter
+        /// override (<c>FilterInfo.AutoFocusExposureTime &gt; -1</c>, honored in <c>AutoFocusEngine.TakeExposure</c>)
+        /// when one is set, otherwise the profile's.
+        ///
+        /// <para>Every "did the exposure change?" comparison goes through here. Comparing against the profile while
+        /// Accept writes the filter would make the summary's "(unchanged)" and the Apply checkbox's enablement both
+        /// lie whenever the target filter already carries its own exposure.</para>
+        /// </summary>
+        private double EffectiveAutoFocusExposureSeconds {
+            get {
+                var profileExposure = profileService?.ActiveProfile?.FocuserSettings?.AutoFocusExposureTime ?? 0.0;
+                if (!UsesTargetFilterSettings) {
+                    return profileExposure;
+                }
+                var filter = resolveFilterByName?.Invoke(TargetFilterName);
+                return filter != null && filter.AutoFocusExposureTime > -1 ? filter.AutoFocusExposureTime : profileExposure;
+            }
+        }
 
         /// <summary>The active profile's filter names, for the target-filter picker.</summary>
         public IReadOnlyList<string> AvailableFilterNames => getFilterNames();
@@ -1183,8 +1248,41 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         // Read-only capture summary shown on the Live confirmation panel. All derive from the profile / AF filter and
         // do not change during the wizard, so they need no change notifications beyond the initial bind.
-        public int SweepStepSize => profileService.ActiveProfile.FocuserSettings.AutoFocusStepSize;
-        public int SweepOffsetSteps => profileService.ActiveProfile.FocuserSettings.AutoFocusInitialOffsetSteps;
+        public int SweepStepSize => ResolveSweepGeometryReadout().StepSize;
+
+        public int SweepOffsetSteps => ResolveSweepGeometryReadout().OffsetSteps;
+
+        /// <summary>
+        /// The geometry the sweep will actually use: the target filter's override when per-filter is on and it
+        /// defines one, otherwise the profile. Mirrors <see cref="SweepGain"/>, which already resolves the same way.
+        /// </summary>
+        private (int StepSize, int OffsetSteps) ResolveSweepGeometryReadout() {
+            var focuserSettings = profileService.ActiveProfile.FocuserSettings;
+            if (!UsesTargetFilterSettings || getFilterSweepGeometry == null) {
+                return (focuserSettings.AutoFocusStepSize, focuserSettings.AutoFocusInitialOffsetSteps);
+            }
+            var geometry = getFilterSweepGeometry(TargetFilterName);
+            return (
+                geometry?.HasStepSize == true ? geometry.StepSize : focuserSettings.AutoFocusStepSize,
+                geometry?.HasOffsetSteps == true ? geometry.InitialOffsetSteps : focuserSettings.AutoFocusInitialOffsetSteps);
+        }
+
+        /// <summary>Step size with a note when it comes from the target filter rather than the profile.</summary>
+        public string SweepStepSizeText => DescribeSweepGeometryValue(SweepStepSize, g => g?.HasStepSize == true);
+
+        /// <inheritdoc cref="SweepStepSizeText"/>
+        public string SweepOffsetStepsText => DescribeSweepGeometryValue(SweepOffsetSteps, g => g?.HasOffsetSteps == true);
+
+        private string DescribeSweepGeometryValue(int value, Func<PerFilterSweepGeometry, bool> isOverridden) {
+            if (!UsesTargetFilterSettings || getFilterSweepGeometry == null) {
+                return value.ToString(CultureInfo.CurrentCulture);
+            }
+            // Silence means "from the profile", matching the settings page, where a blank box with a greyed
+            // "profile: N" hint is how inheriting is shown.
+            return isOverridden(getFilterSweepGeometry(TargetFilterName))
+                ? string.Format(CultureInfo.CurrentCulture, "{0} ({1} override)", value, TargetFilterName)
+                : value.ToString(CultureInfo.CurrentCulture);
+        }
 
         /// <summary>The offset-steps-per-side the Live sweep will actually capture: the profile's
         /// <see cref="SweepOffsetSteps"/> plus the session-only <see cref="FocusRecoverySteps"/> recovery steps. Adds 0
@@ -1301,6 +1399,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
         private void RaiseSweepReadoutsChanged() {
             RaisePropertyChanged(nameof(SweepStepSize));
+            // Both of these became filter-dependent with per-filter sweep geometry; SweepOffsetSteps was
+            // previously constant for the whole wizard and so was never raised.
+            RaisePropertyChanged(nameof(SweepOffsetSteps));
+            RaisePropertyChanged(nameof(SweepStepSizeText));
+            RaisePropertyChanged(nameof(SweepOffsetStepsText));
             RaisePropertyChanged(nameof(SweepEffectiveOffsetSteps));
             RaisePropertyChanged(nameof(SweepPointCount));
             RaisePropertyChanged(nameof(SweepCaptureBinning));
@@ -1309,6 +1412,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             RaisePropertyChanged(nameof(SweepGain));
             RaisePropertyChanged(nameof(SweepEstimatedFrames));
             RaisePropertyChanged(nameof(SweepEstimatedDurationText));
+            RaisePropertyChanged(nameof(ApplyRecommendedSettingsLabel));
         }
 
         private string captureContextText;
@@ -2214,6 +2318,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// checkbox binds its IsEnabled here so an unchanged recommendation can't be "applied".</summary>
         public bool CanApplyRecommendedStepSize => (Summary?.StepSizeOrOffsetChanged ?? false) || ExposureChangedForLiveRun;
 
+        /// <summary>
+        /// Label for the "apply these auto-focus settings" checkbox. Names the target filter in per-filter mode,
+        /// because that is where Accept writes the geometry — saying "to my profile" there would be untrue. Only
+        /// the filter NAME is interpolated: the recommended numbers are already shown in the rows above, and
+        /// numbers baked into an action label go stale.
+        /// </summary>
+        public string ApplyRecommendedSettingsLabel =>
+            UsesTargetFilterSettings
+                ? string.Format(CultureInfo.CurrentCulture, "Apply these auto-focus settings to the '{0}' filter when I click Accept", TargetFilterName)
+                : "Apply these auto-focus settings to my profile when I click Accept";
+
         /// <summary>Whether the summary shows the detection-binning block at all. Hidden when the baseline fit
         /// was degenerate: there is no measured HFR to reason from, and the bad curve is already on the chart.</summary>
         public bool HasDetectionBinningBlock => SelectedSummary?.HasDetectionBinningMeasurement ?? false;
@@ -2626,7 +2741,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// alongside the recommended step size/offset.</summary>
         public string SweepExposureChangeText {
             get {
-                var current = profileService?.ActiveProfile?.FocuserSettings?.AutoFocusExposureTime ?? 0.0;
+                var current = EffectiveAutoFocusExposureSeconds;
                 return Math.Abs(current - capturedLiveExposureSeconds) < 1e-6
                     ? $"{capturedLiveExposureSeconds:0.##} s (unchanged)"
                     : $"{current:0.##} s → {capturedLiveExposureSeconds:0.##} s";
@@ -2640,8 +2755,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                 if (!lastRunWasLive || capturedLiveExposureSeconds <= 0) {
                     return false;
                 }
-                var current = profileService?.ActiveProfile?.FocuserSettings?.AutoFocusExposureTime ?? 0.0;
-                return Math.Abs(current - capturedLiveExposureSeconds) > 1e-6;
+                return Math.Abs(EffectiveAutoFocusExposureSeconds - capturedLiveExposureSeconds) > 1e-6;
             }
         }
 
@@ -3206,7 +3320,23 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             CaptureContextText = null;
             CaptureExposureText = null;
             ExposureProgressMax = 0;
-            var options = autoFocusEngine.GetOptions();
+            // Per-filter runs sweep on EXACTLY the chosen target filter: pass it as the imaging filter and set
+            // UseExactImagingFilter so the engine skips the designated-AF-filter substitution. The wheel moves
+            // as part of the sweep and stays on the target afterward.
+            // ValidateSourceBeforeStart already refused an unresolvable target; this is the last line of defense —
+            // a null filter here would make the engine fall back to the designated AF filter (or not move at all),
+            // so fail loudly rather than sweep the wrong filter and attribute the result to the target.
+            // Resolved BEFORE GetOptions so the sweep also picks up that filter's per-filter sweep geometry — an
+            // ordinary Live Start targeting Ha sweeps at Ha's step size, not the profile's.
+            FilterInfo sweepFilter = null;
+            if (IsPerFilterEnabled) {
+                sweepFilter = resolveFilterByName?.Invoke(TargetFilterName);
+                if (sweepFilter == null) {
+                    throw new InvalidOperationException($"Filter '{TargetFilterName}' was not found in the profile's filter wheel settings.");
+                }
+            }
+
+            var options = autoFocusEngine.GetOptions(imagingFilter: sweepFilter, useExactImagingFilter: sweepFilter != null);
             options.Save = true;                        // frames must land on disk so we can load them like a replay
             options.SavePath = SaveFolderPath;          // honor the folder chosen on the confirmation screen
             // Use the exposure the user set on the confirmation screen (they can lengthen it for faint/narrowband stars).
@@ -3214,20 +3344,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             capturedLiveExposureSeconds = LiveExposureSeconds;   // remember what we captured with, for the Summary write-back
             RaiseExposureRowChanged();
 
-            // Per-filter runs sweep on EXACTLY the chosen target filter: pass it as the imaging filter and set
-            // UseExactImagingFilter so the engine skips the designated-AF-filter substitution. The wheel moves
-            // as part of the sweep and stays on the target afterward.
-            // ValidateSourceBeforeStart already refused an unresolvable target; this is the last line of defense —
-            // a null filter here would make the engine fall back to the designated AF filter (or not move at all),
-            // so fail loudly rather than sweep the wrong filter and attribute the result to the target.
-            FilterInfo sweepFilter = null;
-            if (IsPerFilterEnabled) {
-                sweepFilter = resolveFilterByName?.Invoke(TargetFilterName);
-                if (sweepFilter == null) {
-                    throw new InvalidOperationException($"Filter '{TargetFilterName}' was not found in the profile's filter wheel settings.");
-                }
-                options.UseExactImagingFilter = true;
-            }
+            // Only a per-filter run pins the exact filter; otherwise the engine keeps its normal
+            // designated-AF-filter substitution, so this path stays byte-identical to before.
+            options.UseExactImagingFilter = sweepFilter != null;
 
             // F51(b) — a RE-CAPTURE also carries the recommended sweep GEOMETRY, not just the exposure. Applied
             // BEFORE ApplyFocusRecovery so recovery still widens whatever offset this leaves behind, exactly as it
@@ -4229,9 +4348,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             if (double.IsFinite(recorded) && recorded > 0.0) {
                 return (recorded, false);
             }
-            var profileExposure = profileService?.ActiveProfile?.FocuserSettings?.AutoFocusExposureTime ?? double.NaN;
-            return double.IsFinite(profileExposure) && profileExposure > 0.0
-                ? (profileExposure, true)
+            // Last resort for a run that recorded no exposure: what the target filter would focus at today.
+            var assumedExposure = EffectiveAutoFocusExposureSeconds;
+            return double.IsFinite(assumedExposure) && assumedExposure > 0.0
+                ? (assumedExposure, true)
                 : (double.NaN, false);   // nothing at all: not "assumed", just unknown
         }
 
@@ -4332,12 +4452,46 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // actually used (the sweep fell back to the profile/filter exposure), so writing it would corrupt the profile.
             if (ApplyRecommendedStepSize) {
                 var focuserSettings = profileService?.ActiveProfile?.FocuserSettings;
-                if (focuserSettings != null) {
+                if (IsPerFilterEnabled) {
+                    // Per-filter: the sweep geometry belongs to the filter this run targeted. Writing it to the
+                    // profile is what let optimizing Ha and then L silently replace Ha's recommendation, since the
+                    // detection settings went to the filter while the geometry went to the profile.
+                    if (UsesTargetFilterSettings && applySweepGeometryToFilter != null) {
+                        applySweepGeometryToFilter(TargetFilterName, summary.RecommendedStepSize, summary.RecommendedOffsetSteps);
+                        Logger.Info(
+                            $"Applied recommended AF step size {summary.RecommendedStepSize}, offset steps " +
+                            $"{summary.RecommendedOffsetSteps} to filter '{TargetFilterName}'");
+                    } else {
+                        // Mirrors applyOptimizedToFilter's discipline: refuse rather than silently writing the
+                        // profile, which would be the very cross-filter clobber this change exists to remove.
+                        Logger.Error(
+                            "Per-filter star detection is enabled but no target filter is available; the recommended " +
+                            "sweep geometry was NOT applied.");
+                    }
+                } else if (focuserSettings != null) {
                     focuserSettings.AutoFocusStepSize = summary.RecommendedStepSize;
                     focuserSettings.AutoFocusInitialOffsetSteps = summary.RecommendedOffsetSteps;
                     Logger.Info($"Applied recommended AF step size {summary.RecommendedStepSize}, offset steps {summary.RecommendedOffsetSteps}");
+                }
 
-                    if (lastRunWasLive && capturedLiveExposureSeconds > 0) {
+                // The exposure captured by a live sweep follows the same rule as the geometry above: in per-filter
+                // mode it belongs to the filter that was swept, not to the profile. NINA core already models this
+                // (FilterInfo.AutoFocusExposureTime > -1 wins in AutoFocusEngine.TakeExposure), so this writes core's
+                // own per-filter field rather than inventing a parallel one.
+                if (lastRunWasLive && capturedLiveExposureSeconds > 0) {
+                    if (IsPerFilterEnabled) {
+                        var targetFilter = UsesTargetFilterSettings ? resolveFilterByName?.Invoke(TargetFilterName) : null;
+                        if (targetFilter != null) {
+                            targetFilter.AutoFocusExposureTime = capturedLiveExposureSeconds;
+                            Logger.Info($"Applied AF exposure time {capturedLiveExposureSeconds}s to filter '{TargetFilterName}'");
+                        } else {
+                            // Same discipline as the geometry write: refuse rather than fall back to the profile,
+                            // which would be the cross-filter clobber this whole change removes.
+                            Logger.Error(
+                                "Per-filter star detection is enabled but the target filter could not be resolved; the " +
+                                "sweep exposure was NOT applied.");
+                        }
+                    } else if (focuserSettings != null) {
                         focuserSettings.AutoFocusExposureTime = capturedLiveExposureSeconds;
                         Logger.Info($"Applied AF exposure time {capturedLiveExposureSeconds}s to the active profile");
                     }
@@ -5343,14 +5497,13 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// <summary>The filter the live sweep will expose through, for display: the designated AF filter when
         /// filter-wheel offsets are enabled, otherwise the filter currently loaded in the wheel. Null when unknown.</summary>
         private static string ResolveSweepFilterName(IProfileService profileService, IFilterWheelMediator filterWheelMediator) {
-            var focuserSettings = profileService?.ActiveProfile?.FocuserSettings;
-            if (focuserSettings != null && focuserSettings.UseFilterWheelOffsets) {
-                var af = profileService.ActiveProfile.FilterWheelSettings?.FilterWheelFilters?.FirstOrDefault(f => f.AutoFocusFilter);
-                if (af != null) {
-                    return af.Name;
-                }
-            }
-            return filterWheelMediator?.GetInfo()?.SelectedFilter?.Name;
+            // Shares AutoFocusFilterResolver with the engine so this readout cannot claim a different filter than
+            // the one SetAutofocusFilter will actually move the wheel to. The "imaging filter" for a live sweep
+            // started from this page is whatever is currently loaded in the wheel.
+            return AutoFocusFilterResolver.ResolveName(
+                profileService?.ActiveProfile,
+                filterWheelMediator?.GetInfo()?.SelectedFilter,
+                useExactImagingFilter: false);
         }
 
         /// <summary>The gain the live sweep will expose with, for display: the designated AF filter's gain when

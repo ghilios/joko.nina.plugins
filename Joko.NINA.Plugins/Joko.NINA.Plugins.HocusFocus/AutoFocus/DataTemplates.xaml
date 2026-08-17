@@ -10,6 +10,7 @@
     xmlns:afreview="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus.Review"
     xmlns:replay="clr-namespace:NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay"
     xmlns:tiltprompt="clr-namespace:NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt"
+    xmlns:tiltdevices="clr-namespace:NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices"
     xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
     xmlns:ns="clr-namespace:NINA.Core.Locale;assembly=NINA.Core"
     xmlns:oxy="clr-namespace:OxyPlot.Wpf;assembly=OxyPlot.Contrib.Wpf"
@@ -27,7 +28,7 @@
     <TextBlock x:Key="AutoFocusExposureSeconds_Tooltip" Text="How long of an exposure to take for detailed analysis. Defaults to the Auto Focus exposure duration if not set" />
     <TextBlock x:Key="LoopingExposureAnalysis_Tooltip" Text="If enabled, repeatedly take and analyze exposures" />
     <TextBlock x:Key="StepCount_Tooltip" Text="The minimum number of data points needed on each side of the AutoFocus curve minimum. Uses the value set for AutoFocus if blank" />
-    <TextBlock x:Key="StepSize_Tooltip" Text="How many focuser steps in between each data point when doing an AutoFocus. Uses the value set for AutoFocus if blank" />
+    <TextBlock x:Key="StepSize_Tooltip" Text="How many focuser steps in between each data point when doing an AutoFocus. Uses the value set for AutoFocus if blank — the current filter's per-filter sweep override when per-filter star detection defines one, otherwise the profile's Auto Focus Step Size." />
     <TextBlock x:Key="FramesPerPoint_Tooltip" Text="How many exposures to average together for each focuser point. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="AutoFocusTimeoutSeconds_Tooltip" Text="How long, in seconds, after which AutoFocus should time out and fail. Uses the value set for AutoFocus if blank" />
     <TextBlock x:Key="NumRegionsWide_Tooltip" Text="How many cells wide to divide the sensor pixels when generating a grid of eccentricity vectors. This value must be an odd, positive integer, and the height will be calculated proportionally from it based on the sensor resolution" />
@@ -109,6 +110,51 @@
           they are sent to the device. Implicit DataType template resolved by the WindowService, same as above.  -->
     <DataTemplate DataType="{x:Type tiltprompt:TiltDeviceAdjustmentPromptVM}">
         <tiltprompt:TiltDeviceAdjustmentPromptControl />
+    </DataTemplate>
+
+    <!--  Idle auto-disconnect banner. One implicit DataType template, rendered wherever tilt-device state is shown
+          (this panel's guidance section and both wizard views) via <ContentControl Content="{Binding IdleCountdown}" />,
+          all bound to ONE shared VM so the panel the user is actually looking at shows the same countdown.
+          FILLED warning colour rather than the quiet bordered style used for advisory text: this has a deadline and
+          disconnects on inaction, so it earns the heavier weight. Precedent for the fill + inline button is the
+          camera simulator's "inline confirmation rather than a modal" banner.
+          One button only, because doing nothing already disconnects in under a minute and a real Disconnect
+          button sits nearby in the wizard's connection pane.  -->
+    <DataTemplate DataType="{x:Type tiltdevices:TiltDeviceIdleCountdownVM}">
+        <Border
+            Margin="0,4,0,4"
+            Padding="6,4"
+            Background="{StaticResource NotificationWarningBrush}"
+            CornerRadius="3"
+            Visibility="{Binding IsVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+            <StackPanel>
+                <TextBlock
+                    MaxWidth="420"
+                    HorizontalAlignment="Left"
+                    FontWeight="Bold"
+                    Foreground="{StaticResource NotificationWarningTextBrush}"
+                    Text="{Binding HeadlineText}"
+                    TextWrapping="Wrap" />
+                <TextBlock
+                    MaxWidth="420"
+                    Margin="0,2,0,0"
+                    HorizontalAlignment="Left"
+                    FontSize="10"
+                    Foreground="{StaticResource NotificationWarningTextBrush}"
+                    Text="{Binding DetailText}"
+                    TextWrapping="Wrap" />
+                <WrapPanel Margin="0,4,0,0">
+                    <Button
+                        Command="{Binding StayConnectedCommand}"
+                        IsEnabled="{Binding CanStayConnected}"
+                        Style="{StaticResource StandardButton}"
+                        ToolTip="Resets the idle timer and keeps the device connected."
+                        AutomationProperties.Name="Keep the tilt adapter connected">
+                        <TextBlock Margin="6,2" Text="Stay connected" />
+                    </Button>
+                </WrapPanel>
+            </StackPanel>
+        </Border>
     </DataTemplate>
 
     <!--  Shared chart + info "core": the AF plot plus the run's info rows (Time / Position / HFR / Temperature /
@@ -2911,6 +2957,66 @@
                         </Style>
                     </Expander.Style>
                     <StackPanel Margin="5">
+                        <!--  Idle auto-disconnect countdown. Placed OUTSIDE the connected-only block below so it is
+                              visible to a user looking at the inspector, whose whole tilt section is about to
+                              vanish when the countdown expires.  -->
+                        <ContentControl Content="{Binding IdleCountdown}" />
+                        <!--  "Tilt got worse" banner. First thing in this panel because it disclaims the numbers
+                              below it, and outside the device-connected block so a disconnect degrades the button
+                              to an explanation rather than making the whole warning disappear.
+                              BorderThickness 1 with NotificationErrorBrush is the house style for a red box that
+                              CARRIES AN ACTION; the 3px plain-Red box elsewhere is the text-only fatal style.  -->
+                        <Border
+                            Margin="5,4,5,2"
+                            Padding="6"
+                            BorderBrush="{StaticResource NotificationErrorBrush}"
+                            BorderThickness="1"
+                            CornerRadius="3"
+                            Visibility="{Binding TiltWorseningBannerVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <StackPanel>
+                                <TextBlock
+                                    MaxWidth="520"
+                                    HorizontalAlignment="Left"
+                                    FontWeight="Bold"
+                                    Foreground="{StaticResource NotificationErrorBrush}"
+                                    Text="Tilt got worse after the last adjustment"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    MaxWidth="520"
+                                    Margin="0,3,0,0"
+                                    HorizontalAlignment="Left"
+                                    Text="{Binding TiltWorseningBannerText}"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    MaxWidth="520"
+                                    Margin="0,3,0,0"
+                                    HorizontalAlignment="Left"
+                                    FontStyle="Italic"
+                                    Text="{Binding TiltWorseningRevertBlockedReason}"
+                                    TextWrapping="Wrap"
+                                    Visibility="{Binding TiltWorseningRevertBlockedReason, Converter={StaticResource NullOrEmptyStringToVisibilityCollapsedConverter}}" />
+                                <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
+                                    <Button
+                                        Command="{Binding RevertLastAdjustmentCommand}"
+                                        ToolTip="Sends the inverse of each move, in reverse order."
+                                        Visibility="{Binding CanShowWorseningRevertButton, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                        <TextBlock
+                                            Margin="10,5,10,5"
+                                            Foreground="{StaticResource ButtonForegroundBrush}"
+                                            Text="{Binding TiltWorseningRevertButtonText}" />
+                                    </Button>
+                                    <Button
+                                        Margin="6,0,0,0"
+                                        AutomationProperties.Name="Dismiss this warning"
+                                        Command="{Binding DismissWorseningBannerCommand}">
+                                        <TextBlock
+                                            Margin="10,5,10,5"
+                                            Foreground="{StaticResource ButtonForegroundBrush}"
+                                            Text="Dismiss" />
+                                    </Button>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
                         <!--  No calibration branch  -->
                         <TextBlock
                             Margin="5"
@@ -2920,6 +3026,18 @@
                         </TextBlock>
                         <!--  Calibrated guidance branch  -->
                         <StackPanel Visibility="{Binding HasTiltAdapterCalibration, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <!--  Selecting an old history row switches this whole table to that run's
+                                  flatten-from-there numbers, which reads far too easily as "how to get back
+                                  there". Say so, right above the numbers it is about.  -->
+                            <TextBlock
+                                MaxWidth="520"
+                                Margin="5,4,5,2"
+                                HorizontalAlignment="Left"
+                                FontStyle="Italic"
+                                Foreground="{StaticResource NotificationWarningBrush}"
+                                Text="{Binding ViewingPastRunNotice}"
+                                TextWrapping="Wrap"
+                                Visibility="{Binding HasViewingPastRunNotice, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             <!--  Direction legend: ⬆/⬇ = adapter motion, ⟳/⟲ = screw rotation. First
                                   element so the conventions are read before the table.  -->
                             <TextBlock
@@ -3764,7 +3882,7 @@
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             FontWeight="DemiBold"
-                            Text="Tilt Adjustment History" />
+                            Text="Tilt Plane Runs" />
                         <DataGrid
                             Grid.Row="1"
                             Margin="10"
@@ -3958,6 +4076,7 @@
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
@@ -3968,7 +4087,7 @@
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             FontWeight="DemiBold"
-                            Text="Tilt Adjustment History" />
+                            Text="Sensor Model Runs" />
                         <DataGrid
                             Grid.Row="1"
                             Margin="10"
@@ -3983,6 +4102,19 @@
                                     Width="Auto"
                                     Binding="{Binding HistoryId}"
                                     Header="Id" />
+                                <!--  Two columns that make a row identifiable: when it was measured, and whether
+                                      motor positions were recorded (so one-click return is available). Both are
+                                      fixed when the row is constructed, and that matters: the row type does not
+                                      raise PropertyChanged, so a column bound to a value set LATER would never
+                                      refresh. Session-scoped history, so the time needs no date.  -->
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding CapturedAtDisplay}"
+                                    Header="Time" />
+                                <DataGridTextColumn
+                                    Width="Auto"
+                                    Binding="{Binding PositionsRecordedDisplay}"
+                                    Header="Pos" />
                                 <DataGridTextColumn
                                     Width="Auto"
                                     Binding="{Binding Path=TiltPlaneModel.TopLeft.AdjustmentRequiredSteps, StringFormat=\{0:0.#\}, Converter={StaticResource NaNToDoubleDashConverter}}"
@@ -4013,6 +4145,63 @@
                                     Header="Auto Focus Offset" />
                             </DataGrid.Columns>
                         </DataGrid>
+                        <!--  "Return to this run": a read-only PREVIEW of what returning the adapter to the
+                              selected run would send, plus the single control that actually moves hardware.
+                              Selecting a row stays view-only; nothing here acts on selection alone. Deliberately
+                              one button below the grid rather than a button per row, because the grid is dense
+                              and a device-driving control per row invites misclicks.  -->
+                        <Border
+                            Grid.Row="2"
+                            Margin="10,0,10,10"
+                            Padding="6"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="3"
+                            Visibility="{Binding RunReturn.IsVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                            <StackPanel>
+                                <TextBlock FontWeight="Bold" Text="{Binding RunReturn.Header}" TextWrapping="Wrap" />
+                                <TextBlock
+                                    MaxWidth="520"
+                                    Margin="0,3,0,0"
+                                    HorizontalAlignment="Left"
+                                    Text="{Binding RunReturn.BodyText}"
+                                    TextWrapping="Wrap" />
+                                <ItemsControl Margin="0,4,0,0" ItemsSource="{Binding RunReturn.MotionLines}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Margin="0,1,0,0" controls:IconizedText.Text="{Binding}" />
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Border
+                                    Margin="0,6,0,0"
+                                    Padding="5"
+                                    BorderBrush="{StaticResource NotificationWarningBrush}"
+                                    BorderThickness="1"
+                                    Visibility="{Binding RunReturn.HasWarning, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                    <TextBlock MaxWidth="500" Text="{Binding RunReturn.WarningText}" TextWrapping="Wrap" />
+                                </Border>
+                                <TextBlock
+                                    MaxWidth="520"
+                                    Margin="0,4,0,0"
+                                    HorizontalAlignment="Left"
+                                    FontStyle="Italic"
+                                    Text="{Binding RunReturn.CaveatText}"
+                                    TextWrapping="Wrap"
+                                    Visibility="{Binding RunReturn.HasCaveat, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
+                                <Button
+                                    Margin="0,6,0,0"
+                                    HorizontalAlignment="Left"
+                                    Command="{Binding ReturnToRunCommand}"
+                                    ToolTip="Sends relative moves to bring each motor to the position recorded at this run, with the same approval, journaling and position publishing as Automatic Adjustment."
+                                    Visibility="{Binding RunReturn.ShowDriveButton, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                    <TextBlock
+                                        Margin="10,5,10,5"
+                                        Foreground="{StaticResource ButtonForegroundBrush}"
+                                        Text="{Binding RunReturn.DriveButtonText}" />
+                                </Button>
+                            </StackPanel>
+                        </Border>
                     </Grid>
                 </Expander>
 

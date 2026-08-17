@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.Input;
+﻿using CommunityToolkit.Mvvm.Input;
 using NINA.Core.Interfaces;
 using NINA.Core.Utility.SerialCommunication;
 using NINA.Equipment.Equipment.MyCamera;
@@ -80,8 +80,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 applicationDispatcher: dispatcher ?? new SynchronousApplicationDispatcher(),
                 tiltAdapterOptions: options,
                 tiltDeviceConnectionService: tiltDeviceService,
-                serialPortProvider: serialPortProvider,
-                confirmIdleDisconnectAsync: confirmIdleDisconnectAsync);
+                serialPortProvider: serialPortProvider);
             return (vm, options, camera, focuser);
         }
 
@@ -109,8 +108,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         // seam: no interface extraction or virtuals on the service, production wiring untouched.
         private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options, TiltDeviceConnectionService service,
             ITiltMotionController controller, FakeTiltDeviceTimeSource time, List<string> requestedPresets)
-            BuildMotorized(string deviceName = "ASG Electronic EAT - 90mm",
-                Func<Task<bool>> confirmIdleDisconnectAsync = null, TiltDevicePositions polledPositions = null,
+            BuildMotorized(string deviceName = "ASG Electronic EAT - 90mm", TiltDevicePositions polledPositions = null,
                 ICameraSimulatorOptions cameraSimulatorOptions = null,
                 Func<string, string, Task<bool>> confirmSimConfigChangeAsync = null) {
             var profile = Substitute.For<IProfileService>();
@@ -144,7 +142,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 tiltAdapterOptions: options,
                 tiltDeviceConnectionService: service,
                 serialPortProvider: ports,
-                confirmIdleDisconnectAsync: confirmIdleDisconnectAsync,
                 cameraSimulatorOptions: cameraSimulatorOptions,
                 confirmSimConfigChangeAsync: confirmSimConfigChangeAsync);
             return (vm, options, service, controller, time, requestedPresets);
@@ -1859,50 +1856,59 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             });
         }
 
+        // The modal is gone: the service arms a countdown the panels render, and disconnects on its own if
+        // nothing intervenes. These pin the VM-visible end of that, which is what the banner binds to.
         [Test]
-        public void IdlePrompt_ConfirmYes_DisconnectsThroughService() {
-            int promptCount = 0;
-            var (vm, _, service, controller, time, _) = BuildMotorized(
-                confirmIdleDisconnectAsync: () => { promptCount++; return Task.FromResult(true); });
+        public void Idle_AfterTheThreshold_ExposesAPendingCountdownWithoutDisconnecting() {
+            var (vm, _, service, controller, time, _) = BuildMotorized();
             vm.SelectedPortName = "COM3";
             ((AsyncRelayCommand)vm.ConnectDeviceCommand).ExecuteAsync(null).GetAwaiter().GetResult();
             Assert.That(service.Connected, Is.True, "precondition");
 
             time.Advance(TimeSpan.FromMinutes(31));
-            Assert.That(vm.LastIdlePromptTask, Is.Not.Null, "the idle prompt handler should have run");
-            vm.LastIdlePromptTask.GetAwaiter().GetResult();
 
             Assert.Multiple(() => {
-                Assert.That(promptCount, Is.EqualTo(1));
-                Assert.That(service.Connected, Is.False, "Yes must route to ConfirmIdleDisconnectAsync (disconnect)");
-                controller.Received(1).DisconnectAsync(Arg.Any<CancellationToken>());
+                Assert.That(service.IdleDisconnectPending, Is.True);
+                Assert.That(service.Connected, Is.True);
+                controller.DidNotReceive().DisconnectAsync(Arg.Any<CancellationToken>());
             });
         }
 
         [Test]
-        public void IdlePrompt_ConfirmNo_KeepsConnected_AndResetsIdleTimer() {
-            int promptCount = 0;
-            var (vm, _, service, controller, time, _) = BuildMotorized(
-                confirmIdleDisconnectAsync: () => { promptCount++; return Task.FromResult(false); });
+        public void Idle_GraceExpires_DisconnectsWithoutAnyPrompt() {
+            var (vm, _, service, controller, time, _) = BuildMotorized();
             vm.SelectedPortName = "COM3";
             ((AsyncRelayCommand)vm.ConnectDeviceCommand).ExecuteAsync(null).GetAwaiter().GetResult();
 
             time.Advance(TimeSpan.FromMinutes(31));
-            vm.LastIdlePromptTask.GetAwaiter().GetResult();
+            time.Advance(TiltDeviceConnectionService.IdleDisconnectGrace);
+            service.LastIdleAutoDisconnectTask.GetAwaiter().GetResult();
+
             Assert.Multiple(() => {
-                Assert.That(promptCount, Is.EqualTo(1));
-                Assert.That(service.Connected, Is.True, "No must route to KeepConnectedResetIdle (stay connected)");
-                controller.DidNotReceive().DisconnectAsync(Arg.Any<CancellationToken>());
+                Assert.That(service.Connected, Is.False);
+                Assert.That(service.LastIdleAutoDisconnectUtc, Is.Not.Null);
             });
+            controller.Received(1).DisconnectAsync(Arg.Any<CancellationToken>());
+        }
 
-            // KeepConnectedResetIdle restarted the 30-minute window: 29 more minutes -> no new prompt...
-            time.Advance(TimeSpan.FromMinutes(29));
-            Assert.That(promptCount, Is.EqualTo(1), "the idle timer must have been reset by the No answer");
+        [Test]
+        public void Idle_StayConnected_CancelsTheCountdownAndReArms() {
+            var (vm, _, service, controller, time, _) = BuildMotorized();
+            vm.SelectedPortName = "COM3";
+            ((AsyncRelayCommand)vm.ConnectDeviceCommand).ExecuteAsync(null).GetAwaiter().GetResult();
 
-            // ...but 31 minutes past the reset the prompt is re-armed and fires again.
-            time.Advance(TimeSpan.FromMinutes(2));
-            vm.LastIdlePromptTask.GetAwaiter().GetResult();
-            Assert.That(promptCount, Is.EqualTo(2));
+            time.Advance(TimeSpan.FromMinutes(31));
+            service.KeepConnectedResetIdle();
+
+            time.Advance(TiltDeviceConnectionService.IdleDisconnectGrace + TimeSpan.FromMinutes(1));
+            Assert.Multiple(() => {
+                Assert.That(service.Connected, Is.True, "the cancelled countdown must not fire later");
+                Assert.That(service.IdleDisconnectPending, Is.False);
+            });
+            controller.DidNotReceive().DisconnectAsync(Arg.Any<CancellationToken>());
+
+            time.Advance(TimeSpan.FromMinutes(31));
+            Assert.That(service.IdleDisconnectPending, Is.True, "a full new idle window re-arms it");
         }
 
         [Test]

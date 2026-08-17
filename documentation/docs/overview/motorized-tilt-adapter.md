@@ -114,10 +114,56 @@ before sending; there is no automatic undo.
 !!! note "One adjustment per measurement"
     After a plan executes, **Automatic Adjustment** stays disabled until a new Detailed Analysis
     completes, so the same measurement can never be applied twice and every adjustment is confirmed
-    by a fresh measurement before the next one. If the confirming run shows the tilt got *worse*
-    (a sign of a stale calibration or a camera rotated since calibration), the plugin says so and
-    offers to revert, sending the inverse of each move in reverse order. A failure partway through
-    a plan brings the same revert offer.
+    by a fresh measurement before the next one. A failure partway through a plan brings a revert offer.
+
+### If the confirming run says tilt got worse
+
+The plugin shows a red **"Tilt got worse after the last adjustment"** panel at the top of the Tilt Adapter
+Guidance section, quoting the tilt magnitude before and after and the number of moves that were sent. It stays
+there until you act, so you can look at the numbers before deciding. While it is up, **Automatic
+Adjustment** is disabled, so a second plan cannot be computed from a measurement you have not accepted.
+
+- **Revert the N moves** sends the inverse of each move, in reverse order, and then requires a fresh analysis
+  before adjusting again.
+- **Dismiss** accepts the worse state and re-enables Automatic Adjustment, so you can correct forward from it.
+
+Tilt getting worse usually means a stale calibration, a camera or adapter rotated since it was calibrated, or an
+incorrect screw-direction setting, all worth investigating before adjusting again. If the device disconnects while
+the panel is up, the panel stays and explains that reverting needs the device back.
+
+## Returning to an earlier measurement
+
+Every Aberration Inspector run in the current session records what the adapter looked like at the time, and the
+**Sensor Model Tilt Measurement History** grid gains two columns to make a row identifiable: **Time**, and
+**Pos** (✓ when motor positions were recorded, so a one-click return is possible).
+
+To find the run you want back, select candidates and read the Return panel: it states whether returning there
+would actually move anything, and by how much. That is a better answer than a "was this one adjusted?" marker
+could give, because it compares the measurements rather than tracking what the plugin happened to send, so it
+sees adjustments made by any means.
+
+Selecting a row is view-only (it shows that run's numbers and nothing more) and fills in a **Return to
+run #N** panel below the grid. That panel previews exactly what would be sent before you click anything:
+
+- **With recorded motor positions** (a motorized adapter that was connected at the time) the return is exact and
+  uses no calibration at all: it simply drives each motor back to the counter value recorded then. Click **Drive
+  Adapter to Run #N Positions** and approve the usual plan dialog.
+- **If the counters are unchanged but the measured tilt is not**, the adapter was moved by something other than
+  these motors: screws turned by hand, a re-seat, the vendor app, or the camera simulator's own tilt controls.
+  Driving the motors back would do nothing, so the panel says so and computes the move from the two fitted
+  models instead. On a motorized adapter you can still drive that.
+- **Without them** (a manual-screw adapter, or a run measured with nothing connected) the panel computes the
+  motion from the difference between that run's fitted model and the current one, and shows it as per-screw
+  turns. This needs no record of what you actually did between the runs, but it is only as good as the two fits,
+  and it assumes nothing but the tilt adjustment changed. The panel says so.
+
+!!! warning "Selecting an old run changes the guidance table"
+    While a past run is selected, the guidance above shows how to flatten the sensor **from that run's state**,
+    which is not how to get back to it. A note appears above the table saying so.
+
+!!! note "History is per session"
+    Runs are remembered for as long as NINA is running. After a restart the history is empty, so there is nothing
+    to return to, even though the adapter itself still knows where its motors are.
 
 ## Manual adjustment
 
@@ -253,7 +299,13 @@ calibration ran but did not pass its own quality validation; re-run it under bet
 
 **Automatic Adjustment is disabled right after an adjustment.** That is the
 one-adjustment-per-measurement rule. Run a new Detailed Analysis; the button re-enables when it
-completes.
+completes. It is also disabled while a **"Tilt got worse"** panel is showing (revert or dismiss it first)
+and while an analysis is running.
+
+**The device disconnected on its own.** After 30 minutes with no activity the plugin shows an amber banner in
+the tilt panels counting down, and disconnects when it reaches zero. Clicking **Stay connected** cancels it
+and restarts the 30 minutes, as does simply moving the adapter or starting a run, which count as activity. If it
+did disconnect, the connection line says so with the time it happened; just connect again.
 
 **A move was refused by a limit.** The error says which limit. For **Max steps per command**, either
 reduce the amount being sent (for calibration, **Steps applied per screw**) or raise the limit. For

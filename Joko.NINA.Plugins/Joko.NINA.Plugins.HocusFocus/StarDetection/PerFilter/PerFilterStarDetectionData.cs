@@ -29,5 +29,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
     public class PerFilterStarDetectionEntry {
         public string FilterName;
         public StarDetectionSettingsSnapshot Settings;
+
+        /// <summary>
+        /// This filter's auto-focus sweep-geometry override, or null when it has none. Null is also what every
+        /// blob written before this field existed deserializes to, and null means "inherit the profile" — so
+        /// "missing" and "unset" are the same state by construction and no migration branch is needed.
+        /// </summary>
+        public PerFilterSweepGeometry SweepGeometry;
     }
 }

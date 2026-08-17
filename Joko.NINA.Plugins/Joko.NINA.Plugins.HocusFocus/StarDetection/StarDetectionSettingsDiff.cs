@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -14,6 +14,7 @@ using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
 using System;
 using System.Collections.Generic;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter;
 using System.ComponentModel;
 using System.Globalization;
 using System.Reflection;
@@ -35,6 +36,48 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     /// shown or applied (see <see cref="StarDetectionOptions.ApplyImportedSnapshot"/>).
     /// </summary>
     public static class StarDetectionSettingsDiff {
+
+        /// <summary>
+        /// Diff rows for the per-filter auto-focus SWEEP GEOMETRY, produced separately from
+        /// <see cref="BuildDiff"/> and never routed through <see cref="ImportableSettings"/>.
+        ///
+        /// <para>That separation is the point. Sweep geometry is not an <see cref="IStarDetectionOptions"/>
+        /// property, so it cannot be classified as "importable" (which would make a star-detection export file
+        /// silently rewrite a focuser sweep on another rig) or "machine-local" (which would be untrue). Keeping it
+        /// out of those lists is what lets the coverage guard over that interface stay untouched.</para>
+        ///
+        /// <para>An unset field renders as "inherit (N)" so the dialog shows what the value actually resolves to,
+        /// matching the dimmed "profile: N" hint on the settings page.</para>
+        /// </summary>
+        public static IReadOnlyList<StarDetectionSettingDiffRow> BuildSweepGeometryDiff(
+                int currentStepSize,
+                int currentOffsetSteps,
+                PerFilterSweepGeometry incoming,
+                int profileStepSize,
+                int profileOffsetSteps) {
+            var rows = new List<StarDetectionSettingDiffRow>();
+            var normalized = (incoming ?? PerFilterSweepGeometry.Unset()).Normalized();
+
+            AddSweepGeometryRow(rows, "Auto-Focus Step Size", currentStepSize, normalized.StepSize, profileStepSize);
+            AddSweepGeometryRow(rows, "Auto-Focus Offset Steps", currentOffsetSteps, normalized.InitialOffsetSteps, profileOffsetSteps);
+            return rows;
+        }
+
+        private static void AddSweepGeometryRow(List<StarDetectionSettingDiffRow> rows, string label, int current, int incoming, int profileValue) {
+            if (current == incoming) {
+                return;
+            }
+            rows.Add(new StarDetectionSettingDiffRow {
+                Name = label,
+                CurrentValue = DescribeSweepGeometryValue(current, profileValue),
+                NewValue = DescribeSweepGeometryValue(incoming, profileValue)
+            });
+        }
+
+        private static string DescribeSweepGeometryValue(int value, int profileValue)
+            => value > 0
+                ? value.ToString(CultureInfo.CurrentCulture)
+                : string.Format(CultureInfo.CurrentCulture, "inherit ({0})", profileValue);
 
         /// <summary>The machine-local knobs that are never imported (and therefore never shown in the diff). Kept here
         /// as the single source of truth; a unit test asserts ImportableSettings ∪ ExcludedFromImport covers exactly
