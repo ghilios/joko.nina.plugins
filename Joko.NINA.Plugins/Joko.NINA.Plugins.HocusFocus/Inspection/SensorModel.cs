@@ -57,6 +57,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         }
     }
 
+    /// <summary>
+    /// One completed sensor-model run, as shown in the Sensor Model Tilt Measurement History grid.
+    ///
+    /// <para><b>This type does NOT raise PropertyChanged.</b> Every displayed value is therefore fixed when the
+    /// row is constructed. A property mutated after the row has been inserted will never reach the UI: the grid
+    /// binds once and has nothing to listen to. That is not hypothetical -- an "adjustment applied afterwards"
+    /// column was added here, set after insertion, and rendered blank in every case while unit tests asserting
+    /// the property directly passed. Add a mutable display value only after making this a
+    /// <see cref="BaseINPC"/>.</para>
+    /// </summary>
     public class SensorParaboloidTiltHistoryModel {
 
         public SensorParaboloidTiltHistoryModel(
@@ -108,12 +118,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         /// </summary>
         public TiltAdapterStateSnapshot AdapterState { get; private set; }
 
-        /// <summary>
-        /// Set once an adjustment computed FROM this run has actually sent a move, i.e. the adapter has been
-        /// moved away from the state this measurement describes. Marks the rows worth returning to.
-        /// </summary>
-        public bool AdjustmentAppliedAfterwards { get; set; }
-
         /// <summary>Local capture time for the grid's Time column; falls back to nothing when unrecorded.</summary>
         public string CapturedAtDisplay =>
             AdapterState == null ? string.Empty : AdapterState.CapturedUtc.ToLocalTime().ToString("HH:mm:ss");
@@ -121,8 +125,6 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
         /// <summary>"✓" when this run can be returned to by driving the motors, "—" otherwise.</summary>
         public string PositionsRecordedDisplay => AdapterState?.HasPositions == true ? "✓" : "—";
 
-        /// <summary>"⚙" when an adjustment was applied after this run.</summary>
-        public string AdjustmentAppliedDisplay => AdjustmentAppliedAfterwards ? "⚙" : string.Empty;
     }
 
     public class SensorModel : BaseINPC {

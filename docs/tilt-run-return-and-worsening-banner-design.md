@@ -181,10 +181,18 @@ Model changes:
 
 Columns (sensor-model grid, after `Id`):
 - **Time** — `{Binding Timestamp, StringFormat=HH:mm:ss}`. Session-scoped history; date is noise.
-- **Adjusted** — bool → `"⚙"`/`""` converter, header tooltip: "A device adjustment was applied after this run — the adapter no longer matches this measurement."
 - **Pos** — snapshot != null → `"✓"`/`"—"`, header tooltip: "Motor positions were recorded at this run; one-click return is available."
 
-`Pos` is what makes the one-click promise legible *before* selecting a row; `Adjusted` is how the user finds "the run before I broke it" (the newest ⚙ row is the run the last adjustment was computed from — the state to go back to is that row itself, pre-move... precisely: ⚙ marks "measured, then moved away from", i.e. exactly the candidate return targets).
+`Pos` is what makes the one-click promise legible *before* selecting a row.
+
+> **Amendment (implemented, then removed).** An `Adjusted` column (⚙, set from an `AdjustmentAppliedAfterwards`
+> flag) was built to answer "which run is the one before I broke it". It failed twice over and was dropped.
+> First, `SensorParaboloidTiltHistoryModel` raises no `PropertyChanged`, and the flag is set *after* the row is
+> inserted, so the cell never refreshed — it read blank in every case, while unit tests asserting the model
+> property directly passed. Second, and not fixable: the flag only ever knows what the PLUGIN sent, so screws
+> turned by hand, the vendor app and the camera simulator's tilt panel all leave it blank on a rig that plainly
+> moved. The Return panel answers the same question from the two fitted models, which see movement by any cause,
+> so the column was removed rather than repaired.
 
 ---
 

@@ -134,10 +134,13 @@ the panel is up, the panel stays and explains that reverting needs the device ba
 ## Returning to an earlier measurement
 
 Every Aberration Inspector run in the current session records what the adapter looked like at the time, and the
-**Sensor Model Tilt Measurement History** grid gains three columns to make a row identifiable: **Time**,
-**Adjusted** (⚙ when the plugin sent moves after that run, i.e. the adapter has since moved away from it, so the
-newest ⚙ row is the state you probably want back)
-and **Pos** (✓ when motor positions were recorded, so a one-click return is possible).
+**Sensor Model Tilt Measurement History** grid gains two columns to make a row identifiable: **Time**, and
+**Pos** (✓ when motor positions were recorded, so a one-click return is possible).
+
+To find the run you want back, select candidates and read the Return panel: it states whether returning there
+would actually move anything, and by how much. That is a better answer than a "was this one adjusted?" marker
+could give, because it compares the measurements rather than tracking what the plugin happened to send, so it
+sees adjustments made by any means.
 
 Selecting a row is view-only (it shows that run's numbers and nothing more) and fills in a **Return to
 run #N** panel below the grid. That panel previews exactly what would be sent before you click anything:
@@ -157,12 +160,6 @@ run #N** panel below the grid. That panel previews exactly what would be sent be
 !!! warning "Selecting an old run changes the guidance table"
     While a past run is selected, the guidance above shows how to flatten the sensor **from that run's state**,
     which is not how to get back to it. A note appears above the table saying so.
-
-!!! note "The ⚙ marker only knows what the plugin sent"
-    Automatic Adjustment, a return to an earlier run, and the worsening revert all mark the row they moved away
-    from. Screws turned by hand, the vendor app, and the camera simulator's own tilt controls cannot be seen, so
-    an unmarked row does not prove the adapter is untouched. The Return panel does not rely on the marker: it
-    compares the fitted models, which measure the sensor rather than the motors.
 
 !!! note "History is per session"
     Runs are remembered for as long as NINA is running. After a restart the history is empty, so there is nothing

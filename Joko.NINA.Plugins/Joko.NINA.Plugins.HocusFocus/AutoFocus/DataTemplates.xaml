@@ -4102,19 +4102,15 @@
                                     Width="Auto"
                                     Binding="{Binding HistoryId}"
                                     Header="Id" />
-                                <!--  Three columns that make a row identifiable enough to pick "the run before I
-                                      broke it": when it was measured, whether an adjustment was applied AFTER it
-                                      (so the adapter no longer matches it), and whether motor positions were
-                                      recorded (so one-click return is available). Session-scoped history, so the
-                                      time needs no date.  -->
+                                <!--  Two columns that make a row identifiable: when it was measured, and whether
+                                      motor positions were recorded (so one-click return is available). Both are
+                                      fixed when the row is constructed, and that matters: the row type does not
+                                      raise PropertyChanged, so a column bound to a value set LATER would never
+                                      refresh. Session-scoped history, so the time needs no date.  -->
                                 <DataGridTextColumn
                                     Width="Auto"
                                     Binding="{Binding CapturedAtDisplay}"
                                     Header="Time" />
-                                <DataGridTextColumn
-                                    Width="Auto"
-                                    Binding="{Binding AdjustmentAppliedDisplay}"
-                                    Header="Adjusted" />
                                 <DataGridTextColumn
                                     Width="Auto"
                                     Binding="{Binding PositionsRecordedDisplay}"

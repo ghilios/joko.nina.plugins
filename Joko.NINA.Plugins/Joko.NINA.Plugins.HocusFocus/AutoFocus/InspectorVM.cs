@@ -1920,22 +1920,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             });
         }
 
-        /// <summary>
-        /// Flags the newest run as one the adapter has since been moved away from, so its measurement no longer
-        /// describes the device. The newest ⚙ row in the history grid is therefore "the run before I changed
-        /// something" — the one a user looking to undo actually wants.
-        ///
-        /// <para>Called from every path that sends moves: Automatic Adjustment, a return to a past run, and the
-        /// worsening revert. It can only ever mark what the PLUGIN sent — screws turned by hand, the vendor app,
-        /// or the camera simulator's own tilt controls are invisible to it, which is why the return panel
-        /// separately compares the fitted models rather than trusting this flag.</para>
-        /// </summary>
-        private void MarkNewestRunAdjusted() {
-            var history = SensorModel?.SensorTiltHistoryModels;
-            if (history != null && history.Count > 0) {
-                history[0].AdjustmentAppliedAfterwards = true;
-            }
-        }
 
         // --- "Tilt got worse" banner ---------------------------------------------------------------------
         //
@@ -2069,9 +2053,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
             try {
                 await RevertJournalAsync(controller, new List<TiltAdapterMove>(journal), "post-adjustment worsening");
-                // A revert moves the adapter too: the confirming measurement that raised this banner no longer
-                // describes where the device is.
-                MarkNewestRunAdjusted();
             } finally {
                 // The confirming re-run already moved measurementGeneration forward, but that measurement was of
                 // the PRE-revert state. Left unbumped, the gate would immediately re-enable Automatic Adjustment
@@ -2170,7 +2151,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     // exactly the reason Automatic Adjustment consumes its measurement after sending.
                     lastExecutedMeasurementGeneration = measurementGeneration;
                     AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
-                    MarkNewestRunAdjusted();
                 }
 
                 if (failure != null) {
@@ -2780,7 +2760,6 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 if (journal.Count > 0) {
                     lastExecutedMeasurementGeneration = capturedGeneration;
                     AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
-                    MarkNewestRunAdjusted();
                 }
 
                 if (failure != null) {
