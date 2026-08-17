@@ -292,11 +292,10 @@ public class AberrationSurfaceTests {
     }
 
     [Test]
-    public void TheRotationallySymmetricSplit_IsIndependentOfTilt() {
-        // The physical claim, pinned: a DETECTOR's own position cannot alter the beam's aberrations, so the
-        // even-in-field-position term carries no tilt. (The odd term does, and models a tilted CORRECTOR --
-        // see TiltAstigmatism_DoesNotWashOutHoweverFarTheTiltIsPushed.) With the fraction at zero the two
-        // statements coincide and the whole split is tilt-free.
+    public void TheSplit_IsIndependentOfTilt_WhenTheTiltFractionIsZero() {
+        // The physical claim, pinned: a DETECTOR's own position cannot alter the beam's aberrations. A tilted
+        // CORRECTOR can, and that is what the fraction models -- but it enters as a raised LEVEL, uniform over
+        // the field, never as a field gradient. With the fraction at zero nothing about the split sees tilt.
         var noTilt = Build(tiltAmountUm: 0.0, backfocusUm: 40.0, astigmatism: true, cornerAstigUm: 15.0);
         var hugeTilt = Build(tiltAngleDeg: 37.0, tiltAmountUm: 2000.0, backfocusUm: 40.0, astigmatism: true, cornerAstigUm: 15.0);
         Assert.That(hugeTilt.AstigmatismCoefficient, Is.EqualTo(noTilt.AstigmatismCoefficient).Within(1e-18));
@@ -317,15 +316,17 @@ public class AberrationSurfaceTests {
         var expected = (1.0 + fraction) / (1.0 - fraction);
 
         foreach (var tilt in new[] { 100.0, 1000.0, 10000.0 }) {
+            // At the corner both the split and the tilt reach their quoted values, so the ratio is exactly the
+            // closed form. Elsewhere it is smaller, because A falls off as r'^2 while Δ falls off linearly.
             var withTerm = Build(tiltAngleDeg: 0.0, tiltAmountUm: tilt, backfocusUm: 0.0,
                                  astigmatism: true, cornerAstigUm: 0.0, tiltFraction: fraction);
-            var (radial, tangential) = SemiAxes(withTerm, W - 1, H / 2, X0Steps);
+            var (radial, tangential) = SemiAxes(withTerm, W - 1, H - 1, X0Steps);
             Assert.That(radial / tangential, Is.EqualTo(expected).Within(0.02),
                 $"axis ratio at {tilt} µm of tilt");
 
             var without = Build(tiltAngleDeg: 0.0, tiltAmountUm: tilt, backfocusUm: 0.0,
                                 astigmatism: true, cornerAstigUm: 15.0);
-            var plain = SemiAxes(without, W - 1, H / 2, X0Steps);
+            var plain = SemiAxes(without, W - 1, H - 1, X0Steps);
             Assert.That(plain.radial / plain.tangential, Is.LessThan(expected),
                 "and the residual-only term really does decay -- otherwise this test proves nothing");
         }
@@ -341,7 +342,7 @@ public class AberrationSurfaceTests {
         var surface = Build(tiltAngleDeg: 0.0, tiltAmountUm: 1000.0, backfocusUm: 0.0,
                             astigmatism: true, cornerAstigUm: 0.0, tiltFraction: 0.25);
         var px = W - 1;
-        var py = H / 2;
+        var py = H - 1;
 
         // Focus exactly on this point: the step that zeroes its local defocus. LocalDefocusMicrons is
         // Δ = steps·k − z, so the step that nulls it is (steps₀·k + Δ₀)/k.
@@ -364,12 +365,66 @@ public class AberrationSurfaceTests {
         var noTilt = Build(tiltAmountUm: 0.0, astigmatism: true, cornerAstigUm: 15.0, tiltFraction: 0.5);
         var toggledOff = Build(tiltAngleDeg: 20.0, tiltAmountUm: 500.0, astigmatism: false, cornerAstigUm: 15.0, tiltFraction: 0.5);
         Assert.Multiple(() => {
-            Assert.That(noFraction.AstigmatismTiltGx, Is.EqualTo(0.0));
-            Assert.That(noFraction.AstigmatismTiltGy, Is.EqualTo(0.0));
-            Assert.That(noTilt.AstigmatismTiltGx, Is.EqualTo(0.0));
-            Assert.That(noTilt.AstigmatismTiltGy, Is.EqualTo(0.0));
+            Assert.That(noFraction.PredictedTiltAstigmatismEffectMicrons, Is.EqualTo(0.0));
+            Assert.That(noTilt.PredictedTiltAstigmatismEffectMicrons, Is.EqualTo(0.0));
             Assert.That(toggledOff.IsAstigmatic, Is.False);
             Assert.That(toggledOff.AstigmatismSplitMicrons(0, 0), Is.EqualTo(0.0));
+        });
+    }
+
+    [Test]
+    public void BackfocusAndTilt_CombineSigned_WithTheLargerMagnitudeWinning() {
+        // Two independent signed competitions, and it is worth being precise about which is which.
+        //
+        // (1) In the SPLIT: the spacing-induced K/2, the corrector residual a_c, and the tilt's contribution
+        //     c_t·TiltAmount all add signed into one corner value. A tilt term large enough and opposite in
+        //     sign flips the whole field's orientation, exactly as a bigger spacer would.
+        const double backfocus = 100.0;   // K/2 = +50 at the corner
+        const double residual = 15.0;
+        var tiltWins = Build(tiltAmountUm: 400.0, backfocusUm: backfocus, astigmatism: true,
+                             cornerAstigUm: residual, tiltFraction: -0.25);   // −100 from the tilt
+        var backfocusWins = Build(tiltAmountUm: 100.0, backfocusUm: backfocus, astigmatism: true,
+                                  cornerAstigUm: residual, tiltFraction: -0.25);   // −25 from the tilt
+        Assert.Multiple(() => {
+            Assert.That(tiltWins.PredictedAstigmatismEffectMicrons, Is.EqualTo(50.0 + 15.0 - 100.0).Within(1e-9));
+            Assert.That(backfocusWins.PredictedAstigmatismEffectMicrons, Is.EqualTo(50.0 + 15.0 - 25.0).Within(1e-9));
+            Assert.That(Math.Sign(tiltWins.PredictedAstigmatismEffectMicrons),
+                Is.Not.EqualTo(Math.Sign(backfocusWins.PredictedAstigmatismEffectMicrons)),
+                "the larger magnitude decides the sign, and so decides radial versus tangential");
+        });
+
+        // (2) In the LOCAL DEFOCUS: the uniform curvature from the backfocus error and the tilt plane add
+        //     signed at every field point. When the curvature wins, every corner has the same sign of Δ and
+        //     so the same orientation -- the backfocus signature. When the tilt wins, opposite corners have
+        //     opposite signs and the orientations are perpendicular -- the tilt signature. This is the
+        //     competition that decides which of the two classic patterns a frame shows, and it needs no
+        //     astigmatism term at all.
+        var curvatureDominates = Build(tiltAmountUm: 100.0, backfocusUm: 600.0, astigmatism: true, cornerAstigUm: residual);
+        var tiltDominates = Build(tiltAmountUm: 600.0, backfocusUm: 100.0, astigmatism: true, cornerAstigUm: residual);
+        double Delta(AberrationSurface s, int px, int py) => s.LocalDefocusMicrons(px, py, X0Steps);
+        Assert.Multiple(() => {
+            Assert.That(Math.Sign(Delta(curvatureDominates, 0, H - 1)),
+                Is.EqualTo(Math.Sign(Delta(curvatureDominates, W - 1, H - 1))),
+                "curvature dominating: both corners defocus the same way");
+            Assert.That(Math.Sign(Delta(tiltDominates, 0, H - 1)),
+                Is.Not.EqualTo(Math.Sign(Delta(tiltDominates, W - 1, H - 1))),
+                "tilt dominating: opposite corners straddle focus, which is what makes them perpendicular");
+        });
+    }
+
+    [Test]
+    public void UnderStrongTilt_OppositeCornersStayPerpendicular() {
+        // The regression that matters. An earlier revision gave the tilt an ODD (field-linear) term, which
+        // flips sign along with Δ -- leaving Δ·A < 0 everywhere and every corner elongated radially. Keeping
+        // the tilt's contribution in the EVEN part is what preserves the pair, and this asserts it at a tilt
+        // large enough that the residual alone would have washed out entirely.
+        var surface = Build(tiltAngleDeg: 0.0, tiltAmountUm: 4000.0, backfocusUm: 0.0,
+                            astigmatism: true, cornerAstigUm: 15.0, tiltFraction: 0.25);
+        var left = SemiAxes(surface, 0, H - 1, X0Steps);
+        var right = SemiAxes(surface, W - 1, H - 1, X0Steps);
+        Assert.Multiple(() => {
+            Assert.That(left.tangential, Is.GreaterThan(left.radial * 1.4), "one corner across the radius");
+            Assert.That(right.radial, Is.GreaterThan(right.tangential * 1.4), "the opposite corner along it");
         });
     }
 

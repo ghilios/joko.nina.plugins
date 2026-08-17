@@ -157,37 +157,42 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
 
         /// <summary>
         /// (c″) <b>Tilt that carries the corrector</b> — the second astigmatism mechanism, and the one that
-        /// makes a badly tilted rig look badly tilted. The residual term (c′) is fixed while tilt drives Δ
-        /// without bound, so its axis ratio decays toward 1: push the tilt far enough and the corners render
-        /// <i>round</i>, and any corner can still be brought to a perfect point focus. A real tilt is rarely
-        /// the detector alone — a sagging focuser or a non-square thread tilts the corrector too, which
-        /// displaces the astigmatic node and adds a split proportional to the tilt itself.
+        /// keeps a badly tilted rig looking badly tilted. The residual (c′) is a fixed corner value while tilt
+        /// drives Δ without bound, so its axis ratio decays toward 1: push the tilt far enough and the corners
+        /// render <i>round</i>, and any corner can still be brought to a perfect point focus. A real tilt is
+        /// rarely the detector alone — a sagging focuser or a non-square thread tilts the corrector too, and
+        /// that raises the astigmatism level in proportion to the tilt.
         ///
-        /// <para>Two things distinguish it from (c′), and both are asserted: the elongation is <b>radial on
-        /// both edges</b> rather than perpendicular (Δ and the split flip together, so Δ·A &lt; 0 everywhere),
-        /// and it is <b>much stronger at the same tilt</b>. Predicted for 150 µm of tilt with c_t = 0.25 and a
-        /// perfect corrector: left edge Δ = +120.1, A = −30.0 ⇒ (2.85, 1.71) px, right edge Δ = −119.3,
-        /// A = +29.8 ⇒ (2.83, 1.70) px — axis ratio 1.67 = (1+c_t)/(1−c_t) at both, and at any tilt.</para>
+        /// <para><b>It must stay perpendicular.</b> The classic tilt signature is one corner elongated along
+        /// the radius and the opposite one across it, and that exists because Δ changes sign across the field
+        /// while the split does not. So the tilt's contribution goes into the <b>even</b> part of the split —
+        /// a raised level, uniform over the field. An earlier revision made it a signed field gradient
+        /// instead, which flips together with Δ and left every corner radial; this test is what distinguishes
+        /// the two, and asserts the perpendicular pair survives at a tilt that washes the residual out.</para>
+        ///
+        /// <para>Predicted for 150 µm of tilt with c_t = 0.25 and a perfect corrector (a_c = 0): the effective
+        /// corner split is 37.5 µm, so left edge Δ = +120.1, A = +12.0 ⇒ (2.05, 2.51) px <b>tangential</b>;
+        /// right edge Δ = −119.3, A = +11.9 ⇒ (2.49, 2.04) px <b>radial</b>. With c_t = 0 the same frame has
+        /// A ≡ 0 and renders perfectly round, which is the control.</para>
         /// </summary>
         [Test]
-        public async Task TiltThatCarriesTheCorrector_ElongatesRadiallyOnBothEdges_AndFarMoreThanTheResidualAlone() {
+        public async Task TiltThatCarriesTheCorrector_KeepsTheEdgesPerpendicular_WhereAPerfectCorrectorIsRound() {
             var carried = await MeasureEdgeElongation(backfocusErrorMicrons: 0.0, tiltAmountMicrons: 150.0,
                 cornerAstigmatismMicrons: 0.0, tiltAstigmatismFraction: 0.25);
-            var residualOnly = await MeasureEdgeElongation(backfocusErrorMicrons: 0.0, tiltAmountMicrons: 150.0,
-                cornerAstigmatismMicrons: 15.0, tiltAstigmatismFraction: 0.0);
+            var perfectOptic = await MeasureEdgeElongation(backfocusErrorMicrons: 0.0, tiltAmountMicrons: 150.0,
+                cornerAstigmatismMicrons: 0.0, tiltAstigmatismFraction: 0.0);
 
             Assert.Multiple(() => {
-                Assert.That(carried.LeftScore, Is.GreaterThan(0.5), "radial on the left edge");
-                Assert.That(carried.RightScore, Is.GreaterThan(0.5), "and radial on the right edge too");
-                Assert.That(carried.LeftEccentricity, Is.GreaterThan(0.35));
-                Assert.That(carried.RightEccentricity, Is.GreaterThan(0.35));
-                Assert.That(carried.CentreEccentricity, Is.LessThan(0.15), "the node is still on axis, so the centre is round");
+                Assert.That(carried.LeftScore, Is.LessThan(-0.5), "left edge across the radius");
+                Assert.That(carried.RightScore, Is.GreaterThan(0.5), "right edge along it -- perpendicular, not both radial");
+                Assert.That(carried.LeftEccentricity, Is.GreaterThan(0.25));
+                Assert.That(carried.RightEccentricity, Is.GreaterThan(0.25));
+                Assert.That(carried.CentreEccentricity, Is.LessThan(0.15), "the axial star stays round");
 
-                // The contrast is the point: same tilt, same frame, and the residual alone has already begun
-                // to wash out at a tilt this size.
-                Assert.That(carried.LeftEccentricity, Is.GreaterThan(residualOnly.LeftEccentricity + 0.10));
-                Assert.That(residualOnly.LeftScore, Is.LessThan(0.0),
-                    "the residual mechanism is perpendicular across the field, not radial on both sides");
+                // The control: a flawless corrector, squarely mounted, at the identical tilt. Tilt alone moves
+                // focus around and produces no elongation whatever -- so the contrast is the whole effect.
+                Assert.That(perfectOptic.LeftEccentricity, Is.LessThan(carried.LeftEccentricity - 0.10));
+                Assert.That(perfectOptic.RightEccentricity, Is.LessThan(carried.RightEccentricity - 0.10));
             });
         }
 

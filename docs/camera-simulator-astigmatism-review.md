@@ -26,12 +26,26 @@ the astigmatic node off-axis, adding a term linear in field position and paralle
 correctly identified nodal astigmatism as the mechanism for optical-element tilt but filed it as an
 out-of-scope refinement rather than as the missing half of the answer.
 
-The shipped model now carries both, and they are separable because one is even in field position and the
-other odd — no amount of parameter fitting can substitute one for the other. Their signatures differ
-visibly too: the residual mechanism elongates opposite edges *perpendicular* to each other and fades at
-large tilt; the nodal mechanism elongates *every* edge radially and holds its axis ratio at
-`(1+c_t)/(1−c_t)` at any tilt. Measured through the detector at 150 µm of tilt: e = 0.52 radial on both
-edges for the nodal term, against 0.19/0.15 perpendicular for the residual term on the same frame.
+The shipped model now carries both.
+
+**And the first attempt at the second one was wrong in an instructive way.** Nodal aberration theory's
+leading perturbation is *field-linear* — `c_t·(G⃗·r⃗')` — and taking it verbatim holds the axis ratio at
+any tilt, which was the requirement. But it is **odd** in field position, so it flips sign exactly where Δ
+does, leaving `Δ·A < 0` everywhere and every corner elongated radially. A 3×3 corner panel from a real
+render showed both far corners tilted the same way instead of perpendicular. The classic radial/tangential
+pair exists *because* Δ changes sign across a tilted field while the split does not, so any tilt term that
+is odd in field position destroys the very thing the feature is for.
+
+The coupling therefore enters the **even** part instead, as a raised corner level `c_t·T` — which is what
+the exact nodal form reduces to anyway once the node displacement is large compared with the sensor, the
+regime a visibly tilted rig is in. Measured through the detector at 150 µm of tilt with a perfect
+corrector: e = 0.38 tangential on one edge and 0.39 radial on the opposite one, against 0.14/0.15 (round)
+with the coupling at zero.
+
+**The lesson worth keeping:** "which nodal term survives" was not decidable from the theory alone. The
+field gradient and the raised level are both real parts of the same expansion; what selected between them
+was an observable — the perpendicular corner pair — that a tilted rig shows and one of the two terms
+cannot produce.
 
 ## The three bench failures that triggered this
 

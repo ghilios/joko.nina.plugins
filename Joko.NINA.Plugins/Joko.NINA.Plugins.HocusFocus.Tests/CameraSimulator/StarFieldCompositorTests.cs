@@ -317,35 +317,41 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         }
 
         [Test]
-        public void Render_ExtremeTilt_KeepsItsEllipticity_InsteadOfWashingOutToRound() {
+        public void Render_ExtremeTilt_KeepsItsEllipticity_AndStaysPerpendicular() {
             // Measured through the truth sink rather than the detector, because at this tilt the stars are
             // donuts far too large for a reliable Moffat fit -- and the whole point is what happens at tilts
-            // that large. The residual mechanism alone decays as 1/tilt; the carried-corrector term does not,
-            // and settles at (1+c_t)/(1-c_t) = 1.67.
+            // that large. Two properties, and the model has to hold both at once: the residual mechanism alone
+            // decays as 1/tilt, and any tilt term that is ODD in field position holds its ratio but flips with
+            // Δ, collapsing the perpendicular pair into radial-everywhere.
             var stars = AstigmatismScene();
             var steps = SyntheticCameraTestScene.OptimalFocuserPosition;
 
-            double WorstAxisRatio(double residual, double fraction) {
+            List<StarTruth> RenderWith(double residual, double fraction) {
                 var request = SyntheticCameraTestScene.Request(steps,
                     aberrationsEnabled: true, tiltAngleDegrees: 0.0, tiltAmountMicrons: 2000.0, backfocusErrorMicrons: 0.0,
                     astigmatismEnabled: true, cornerAstigmatismMicrons: residual, tiltAstigmatismFraction: fraction);
                 var truth = new List<StarTruth>();
                 new StarFieldCompositor(new FakeCatalogReader(stars)).Render(request, truth, CancellationToken.None);
                 Assert.That(truth, Is.Not.Empty);
-                return truth
-                    .Where(t => t.OuterRadiusRadialPixels > 0.0 && t.OuterRadiusTangentialPixels > 0.0)
-                    .Max(t => Math.Max(t.OuterRadiusRadialPixels, t.OuterRadiusTangentialPixels)
-                            / Math.Min(t.OuterRadiusRadialPixels, t.OuterRadiusTangentialPixels));
+                return truth;
             }
+            double WorstRatio(List<StarTruth> t) => t
+                .Where(x => x.OuterRadiusRadialPixels > 0.0 && x.OuterRadiusTangentialPixels > 0.0)
+                .Max(x => Math.Max(x.OuterRadiusRadialPixels, x.OuterRadiusTangentialPixels)
+                        / Math.Min(x.OuterRadiusRadialPixels, x.OuterRadiusTangentialPixels));
 
-            var residualOnly = WorstAxisRatio(residual: 15.0, fraction: 0.0);
-            var carried = WorstAxisRatio(residual: 0.0, fraction: 0.25);
+            var residualOnly = RenderWith(residual: 15.0, fraction: 0.0);
+            var carried = RenderWith(residual: 0.0, fraction: 0.25);
 
             Assert.Multiple(() => {
-                Assert.That(residualOnly, Is.LessThan(1.05),
+                Assert.That(WorstRatio(residualOnly), Is.LessThan(1.05),
                     "the residual alone really has washed out by 2 mm of tilt -- this is the reported defect");
-                Assert.That(carried, Is.EqualTo(5.0 / 3.0).Within(0.05),
+                Assert.That(WorstRatio(carried), Is.GreaterThan(1.25),
                     "the carried-corrector term holds its ratio at any tilt");
+                Assert.That(carried.Any(t => t.OuterRadiusRadialPixels > t.OuterRadiusTangentialPixels), Is.True,
+                    "some stars elongate along the radius...");
+                Assert.That(carried.Any(t => t.OuterRadiusTangentialPixels > t.OuterRadiusRadialPixels), Is.True,
+                    "...and others across it, on the same frame -- the pair must survive the tilt term");
             });
         }
 

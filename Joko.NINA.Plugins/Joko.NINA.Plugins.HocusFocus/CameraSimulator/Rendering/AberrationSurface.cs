@@ -142,50 +142,38 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         public double AstigmatismCoefficient { get; }
 
         /// <summary>
-        /// Predicted T–S half-split at the sensor corner from the rotationally symmetric term alone,
-        /// <c>a₂·(halfW² + halfH²)</c> µm — i.e. <c>BackfocusErrorMicrons/2 + CornerAstigmatismMicrons</c>.
-        /// The tilt-driven term is reported separately by <see cref="PredictedTiltAstigmatismEffectMicrons"/>.
+        /// Predicted T–S half-split at the sensor corner, <c>a₂·(halfW² + halfH²)</c> µm — i.e.
+        /// <c>BackfocusErrorMicrons/2 + CornerAstigmatismMicrons + c_t·TiltAmountMicrons</c>. The last part is
+        /// reported on its own by <see cref="PredictedTiltAstigmatismEffectMicrons"/>.
         /// </summary>
         public double PredictedAstigmatismEffectMicrons { get; }
 
         /// <summary>
-        /// The <b>field-linear</b> astigmatism gradient (µm of T–S half-split per µm of sensor position),
-        /// <c>c_t·Gx</c> and <c>c_t·Gy</c>. Zero when the tilt is zero, when astigmatism is off, or when
-        /// <c>TiltAstigmatismFraction</c> is 0.
+        /// The corner half-split the <b>tilt itself</b> contributes, <c>c_t·TiltAmountMicrons</c> µm. Added to
+        /// the configured residual to give the effective corner astigmatism, so it raises the astigmatism
+        /// <i>level</i> without changing its field shape.
         ///
-        /// <para>This is the term that makes tilt <i>produce</i> astigmatism rather than merely reveal it, and
-        /// it exists because a real rig's tilt is rarely the sensor alone. A crooked camera inside a square
-        /// adapter tilts only the detector, and a detector cannot change the beam. But a sagging focuser or a
-        /// non-square thread tilts the <b>corrector</b> along with the camera, and nodal aberration theory says
-        /// a tilted element displaces the astigmatic node off the optical axis: the astigmatic field becomes
-        /// <c>a₂|r⃗' − s⃗|²</c> rather than <c>a₂r'²</c>, whose leading new term is linear in field position and
-        /// parallel to the tilt. That is exactly <c>c_t·(G⃗·r⃗')</c>.</para>
+        /// <para><b>Why a level and not a gradient.</b> The classic tilt signature — one corner elongated along
+        /// the radius, the opposite corner across it — exists because Δ changes sign across a tilted field
+        /// while the split does not. Any tilt term that is <b>odd</b> in field position flips together with Δ,
+        /// which leaves <c>Δ·A &lt; 0</c> everywhere and makes every corner radial. An earlier revision added
+        /// exactly such a term (<c>c_t·(G⃗·r⃗')</c>, the leading nodal-aberration-theory perturbation) and that
+        /// is precisely what it produced. So the tilt has to enter through the <b>even</b> part.</para>
         ///
-        /// <para><b>Why it matters, and why the quadratic term alone is not enough.</b> <c>A = a₂r'²</c> is
-        /// fixed while tilt drives Δ without bound, so the axis ratio <c>|Δ−A|/|Δ+A| → 1</c>: crank the tilt
-        /// far enough and the corners go <i>round</i> again, and any corner can still be brought to a perfect
-        /// point focus. That is right for a tilted detector and wrong for a tilted train. The linear term
-        /// scales with the same tilt that drives Δ, so the axis ratio settles at <c>(1+c_t)/(1−c_t)</c>
-        /// <b>independently of tilt magnitude</b>, and a tilted corner can no longer be focused sharp — it
-        /// bottoms out at a circle of least confusion of radius <c>|A|/(2Np)</c>. That is the observable the
-        /// user reported missing, and it is the honest reading of "that part of the sensor is not at the
-        /// spacing the corrector was designed for".</para>
-        /// </summary>
-        public double AstigmatismTiltGx { get; }
-
-        /// <inheritdoc cref="AstigmatismTiltGx"/>
-        public double AstigmatismTiltGy { get; }
-
-        /// <summary>
-        /// The corner value of the field-linear term, <c>c_t·TiltAmountMicrons</c> µm — how much T–S split the
-        /// tilt itself contributes at the sensor corner, alongside
-        /// <see cref="PredictedAstigmatismEffectMicrons"/>.
+        /// <para>The physical reading: a tilted corrector displaces the astigmatic node off-axis, and on a
+        /// visibly tilted rig that displacement is large compared with the sensor — so the sensor samples a
+        /// region where the astigmatism is high and slowly varying, i.e. an approximately uniform raised level
+        /// rather than a through-zero gradient. Two things are deliberately dropped from the exact nodal form:
+        /// the gradient (it destroys the observed perpendicular pair) and the quadratic growth in the node
+        /// displacement (it overshoots, driving <c>|A| &gt; |Δ|</c> and turning the corners back into round
+        /// blobs). What is kept is the part that matters — a split that scales with the tilt, so the axis ratio
+        /// settles at <c>(1+c_t)/(1−c_t)</c> and does not wash out however far the tilt is pushed.</para>
         /// </summary>
         public double PredictedTiltAstigmatismEffectMicrons { get; }
 
         /// <summary>Whether any astigmatism term is live. Exactly the condition under which a render can take
         /// the elliptical kernel path, so callers must branch on this rather than on either term alone.</summary>
-        public bool IsAstigmatic => AstigmatismCoefficient != 0.0 || AstigmatismTiltGx != 0.0 || AstigmatismTiltGy != 0.0;
+        public bool IsAstigmatic => AstigmatismCoefficient != 0.0;
 
         /// <summary>
         /// Plain-number constructor (unit-test friendly). Inverts the aberration knobs onto (Gx, Gy, K). When
@@ -282,20 +270,17 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 // guarantee rests on A being exactly 0.0 so every star collapses onto one quantized level.
                 AstigmatismCoefficient = 0.0;
                 PredictedAstigmatismEffectMicrons = 0.0;
-                AstigmatismTiltGx = 0.0;
-                AstigmatismTiltGy = 0.0;
                 PredictedTiltAstigmatismEffectMicrons = 0.0;
             } else {
-                // Rotationally symmetric part: the spacing-induced half-split is exactly K/2 (Seidel 3:1), plus
-                // the corrector's own residual expressed at the corner.
-                AstigmatismCoefficient = 0.5 * K + (cornerRadiusSquared > 0.0 ? cornerAstigmatismMicrons / cornerRadiusSquared : 0.0);
-                PredictedAstigmatismEffectMicrons = AstigmatismCoefficient * cornerRadiusSquared;
-
-                // Field-linear part: the displaced astigmatic node of a tilted corrector. Parallel to the tilt
-                // gradient by construction, so it scales with the same tilt that drives Δ.
-                AstigmatismTiltGx = tiltAstigmatismFraction * Gx;
-                AstigmatismTiltGy = tiltAstigmatismFraction * Gy;
+                // Three contributions, all entering the SAME rotationally symmetric coefficient so that A keeps
+                // one sign across the field -- which is what preserves the radial/tangential corner pair:
+                //   K/2                     the spacing-induced split, pinned by Seidel's 3:1 rule
+                //   a_c / r_c^2             the corrector's own residual at design spacing
+                //   c_t * TiltAmount/r_c^2  the level a tilted corrector adds, scaling with the tilt
                 PredictedTiltAstigmatismEffectMicrons = tiltAstigmatismFraction * PredictedTiltEffectMicrons;
+                var cornerSplit = cornerAstigmatismMicrons + PredictedTiltAstigmatismEffectMicrons;
+                AstigmatismCoefficient = 0.5 * K + (cornerRadiusSquared > 0.0 ? cornerSplit / cornerRadiusSquared : 0.0);
+                PredictedAstigmatismEffectMicrons = AstigmatismCoefficient * cornerRadiusSquared;
             }
         }
 
@@ -385,8 +370,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             ToCenteredMicrons(px, py, out var x, out var y);
             var xPrime = x - X0;
             var yPrime = y - Y0;
-            return AstigmatismCoefficient * (xPrime * xPrime + yPrime * yPrime)
-                 + AstigmatismTiltGx * xPrime + AstigmatismTiltGy * yPrime;
+            return AstigmatismCoefficient * (xPrime * xPrime + yPrime * yPrime);
         }
 
         /// <summary>

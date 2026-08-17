@@ -209,17 +209,18 @@ The two surfaces straddle the surface above, separated by a half-split \(A\):
 
 \[
 z_T = z + A, \qquad z_S = z - A, \qquad
-A(x,y) = \left( \tfrac{K}{2} + \frac{a_c}{r_c^2} \right) r'^2 + c_t \, (\vec G \cdot \vec r\,') ,
+A(x,y) = \frac{r'^2}{r_c^2} \left( \tfrac{C}{2} + a_c + c_t T \right) ,
 \]
 
-where \(r'\) is the distance from the optical axis, \(K\) is the field curvature the backfocus error
-produces, \(a_c\) is the corrector's own residual split at the corner radius \(r_c\), \(\vec G\) is the
-tilt gradient, and \(c_t\) is how much of the tilt carries the corrector with it. The \(K/2\) is not a
-tunable fraction — for a Seidel corrector the tangential surface departs from the Petzval surface exactly
-three times as far as the sagittal one, which puts the half-split at exactly half the curvature the same
-mis-spacing induces. A star's blur is then an ellipse: its radial extent comes from
-\(\lvert \Delta - A \rvert\) and its tangential extent from \(\lvert \Delta + A \rvert\), where
-\(\Delta\) is the local defocus from the surface above.
+where \(r'\) is the distance from the optical axis, \(r_c\) the corner radius, \(C\) the backfocus error,
+\(a_c\) the corrector's own residual split, \(T\) the tilt amount, and \(c_t\) how much of the tilt carries
+the corrector with it. All three contributions are quoted at the same place — the sensor corner — and add
+**signed**, so the largest of them decides the sign. The \(C/2\) is not a tunable fraction: for a Seidel
+corrector the tangential surface departs from the Petzval surface exactly three times as far as the
+sagittal one, which puts the half-split at exactly half the curvature the same mis-spacing induces. A
+star's blur is then an ellipse: its radial extent comes from \(\lvert \Delta - A \rvert\) and its
+tangential extent from \(\lvert \Delta + A \rvert\), where \(\Delta\) is the local defocus from the
+surface above.
 
 That crossing is the whole behaviour, and it reduces to one rule:
 
@@ -238,13 +239,18 @@ edge and lying across the radius along the opposite one — the pattern the
 [Aberration Inspector](tilt-aberration-inspector.md)'s eccentricity vector field is built to reveal.
 
 But a *corrector* tilted along with the camera — a sagging focuser, a thread that is not square — does
-change the beam, and that is the second term. A tilted element pushes the astigmatic node off the optical
-axis, which adds a split proportional to the tilt itself. Two things follow that the first term cannot
-produce. The elongation is **radial on every edge** rather than perpendicular across the frame, because
-\(\Delta\) and the split now flip together. And it **does not wash out**: the axis ratio settles at
-\((1+c_t)/(1-c_t)\) whatever the tilt magnitude, where the first term alone decays back to round once the
-tilt is large. Set **Tilt Astigmatism** to 0 to model a crooked camera in a square adapter, where the
-first term is the whole story.
+change the beam, and that is the \(c_t T\) term. A tilted element pushes the astigmatic node off the
+optical axis, and on a visibly tilted rig that displacement is large compared with the sensor, so what the
+sensor sees is a raised astigmatism level scaling with the tilt. It **does not wash out**: the axis ratio
+settles at \((1+c_t)/(1-c_t)\) whatever the tilt magnitude, where the residual alone decays back to round
+once the tilt is large — 1.35 at 100 µm of tilt, 1.03 at 1 mm, 1.00 at 10 mm on a full-frame sensor at
+f/7. Set **Tilt Astigmatism** to 0 to model a crooked camera in a square adapter, where the residual is
+the whole story.
+
+Because this term is a raised *level* rather than a gradient, it leaves the radial/tangential pair intact
+— one corner along the radius, the opposite across it — and simply keeps it visible at tilts where it
+would otherwise fade. That pairing is worth understanding, because it is the whole tilt-versus-backfocus
+diagnostic: it exists because \(\Delta\) changes sign across a tilted field while the split does not.
 
 Where the surface crosses focus the two extents are equal and the star is round again — but not a point:
 that is the circle of least confusion, and its radius grows with the tilt. This is why a tilted or badly
@@ -265,6 +271,16 @@ saturates rather than growing without bound. The axis ratio approaches \(\lvert 
 \lvert \Delta + A \rvert \to 3\) as the induced term dominates — the Seidel 3:1 ratio showing through
 directly — so a huge error gives *larger* stars, not indefinitely more eccentric ones.
 
+**Backfocus and tilt compete, signed, and the larger one wins — in two places.** In the split, the three
+contributions above add at the corner, so a tilt term of opposite sign and larger magnitude flips the
+whole field from radial to tangential exactly as a bigger spacer would. And in the local defocus, the
+uniform curvature and the tilt plane add at every field point: when the curvature wins, every corner
+defocuses the same way and every corner elongates the same way, which is the *backfocus* signature; when
+the tilt wins, opposite corners straddle focus and come out perpendicular, which is the *tilt* signature.
+That second competition is why "mostly backfocus with a little tilt" and "mostly tilt with a little
+backfocus" look nothing alike, and it is what the [Aberration
+Inspector](tilt-aberration-inspector.md) is reading when it separates the two.
+
 Two options control it, inside the Field Aberrations group:
 
 - **Model Astigmatism** turns it on. It is on by default, and does nothing at all until there is
@@ -276,10 +292,12 @@ Two options control it, inside the Field Aberrations group:
   responds — which side of design spacing gives radially elongated stars — and 0 models a flawless
   corrector, which disables the effect on a perfectly spaced rig without touching the toggle.
 - **Tilt Astigmatism** is how much of the tilt carries the corrector with it rather than tilting the
-  sensor alone, as a fraction. The default is 0.25, which gives a 1.67:1 corner at any tilt. Raise it
-  to model a rig whose tilt is mostly a sagging focuser; set it to 0 for a camera that is simply
-  crooked in a square adapter. Values at or beyond ±1 are rejected — at 1 the star collapses to a line
-  everywhere at once.
+  sensor alone: microns of corner split per micron of tilt effect. The default is 0.25, which gives a
+  1.67:1 corner at any tilt. Raise it to model a rig whose tilt is mostly a sagging focuser; set it to 0
+  for a camera that is simply crooked in a square adapter. It is **signed**, and adds to the other two
+  contributions signed, so a large enough tilt term of the opposite sign flips the whole field's
+  elongation direction the same way a bigger spacer would. Values at or beyond ±1 are rejected — at 1 the
+  star collapses to a line everywhere at once.
 
 Two things this deliberately does not change. The **inspector still recovers exactly what you
 inject**: the two surfaces' mean is the surface it fits, and reversing the defocus swaps the two

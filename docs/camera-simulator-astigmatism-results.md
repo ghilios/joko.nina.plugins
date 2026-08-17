@@ -17,10 +17,10 @@ and labelled where used.
    is within noise of the isotropic one across every field and defocus tested — worst 1.03×. The elliptical
    path is never entered, because the quantized defocus levels coincide and the kernel collapses to the
    circular one. **SHIPPED.**
-2. **The dense 61 MP worst case is 1.38× and 934 ms.** On the headline field — 34,909 stars on a QHY600 at
-   350 steps of defocus with tilt and backfocus injected — the shipped default renders in 934 ms against 677
-   ms isotropic. That is 6 % of a 15 s AF exposure and 19 % of a 5 s one, so it stays entirely hidden behind
-   the prefetch. **SHIPPED**, with the ratio gate missed and the absolute gate passed by 3.2× — see
+2. **The dense 61 MP worst case is 1.37× and 1013 ms.** On the headline field — 34,909 stars on a QHY600 at
+   350 steps of defocus with tilt and backfocus injected — the shipped defaults render in 1013 ms against 737
+   ms isotropic. That is 7 % of a 15 s AF exposure and 20 % of a 5 s one, so it stays entirely hidden behind
+   the prefetch. **SHIPPED**, with the ratio gate missed and the absolute gate passed by 3.0× — see
    [Gates](#gates).
 3. **Three optimizations took it from 1.58× to 1.33×**, all fidelity-free: building the distinct kernels in
    parallel, pooling the fine-grid buffers off the large-object heap, and writing the separable convolution
@@ -34,11 +34,15 @@ and labelled where used.
    `on-zero` with 60 µm of backfocus error the dense-wide field builds 121 kernels against the isotropic
    arm's 7. That is the Seidel-fixed induced split, not a residual. On the clean `A0` config `on-zero`
    collapses to `off` exactly — 1 kernel, both arms, all four fields. **VERIFIED.**
-6. **The tilt-astigmatism term costs kernels, not a new phase.** Because the split now tracks the whole
-   defocus range on a tilted field instead of a fixed corner value, the tilted `A2` cells build roughly
-   2.4× the kernels they did with the residual term alone (450 vs 189 on the headline cell). Nothing else
-   moves — catalog query, stamping and development are all within noise. The ratio is unchanged at 1.38×
-   because the extra kernels landed alongside a proportionally slower baseline on this run.
+6. **The tilt-astigmatism term costs kernels, not a new phase.** It raises the split at every field radius,
+   so more distinct (tangential, sagittal) level pairs are realized: the tilted `A2` cells build ~3× the
+   kernels of the residual term alone (508 vs 169 on the headline cell). Nothing else moves — catalog
+   query, stamping and development are all within noise, and the entire delta is kernel generation.
+7. **The stress arm is now within 2 % of the cache budget.** `on-strong` (40 µm residual, 0.6 fraction)
+   peaks at 375 MB against the 384 MB ceiling and 1161 kernels. The coarsening ladder still did not fire —
+   every cell in the matrix rendered at the same defocus quantum as the isotropic arm — but that headroom
+   is gone, and raising either default would trip it. Recorded as the binding constraint on the option
+   ranges.
 
 ## Method
 
@@ -83,12 +87,13 @@ astrograph, a common QHY600 pairing) covers 3.6× the area and clears the target
 | `off` | astigmatism disabled — today's isotropic renderer |
 | `on-zero` | enabled with corner residual 0 and tilt fraction 0 — a **perfectly corrected** optic, squarely mounted |
 | `on` | corner residual 15 µm, tilt fraction 0.25 — the shipped defaults |
-| `on-strong` | corner residual 40 µm, tilt fraction 0.6 — a poor corrector on a sagging focuser |
+| `on-strong` | corner residual 40 µm, tilt fraction 0.6 — a poor corrector on a badly sagging focuser |
 
-The tilt fraction is the expensive half. The residual term contributes a split that is a fixed function of
-field radius, so it adds a bounded set of level pairs; the tilt term's split tracks the full defocus range
-across a tilted field, which multiplies them. That is why the tilted `A2` cells carry ~2.4× the kernels of
-the `A1` cells at the same defocus, and it is deliberately what the headline number prices.
+The tilt fraction is the expensive half. Both terms enter the same rotationally symmetric coefficient, but
+the tilt term raises it in proportion to the tilt — so on a tilted field the split is far larger at every
+radius and many more distinct (tangential, sagittal) level pairs get realized. That is why the tilted `A2`
+cells carry ~3× the kernels of the untilted `A1` cells at the same defocus, and it is deliberately what the
+headline number prices.
 
 `on-zero` is **not** a "feature off" arm and it is worth being precise about why. A perfect corrector still
 gets an induced split from mis-spacing — exactly half the curvature the same mis-spacing induces, by Seidel's
@@ -140,19 +145,20 @@ kernel; the astigmatic key is (tangential level, sagittal level, orientation bin
 
 Orientation bins resolved to **22–26** at the shipped settings and **45** at the stress arm, against a cap of
 64, so the kernel count is still driven by realized level pairs rather than by angular quantization — though
-with far less headroom than before the tilt term. Peak cache **142.5 MB** against the 384 MB budget, so the
-coarsening ladder never fired at the shipped default and every cell rendered at full fidelity; the
-`on-strong` arm peaks at 274 MB, still inside it. (See
+with far less headroom than before the tilt term. Peak cache **161.8 MB** against the 384 MB budget at the
+shipped defaults, and **375 MB** on the stress arm. The coarsening ladder never fired anywhere in the matrix
+— every cell rendered at the same defocus quantum as the isotropic arm, which is the check that it did not
+silently trade fidelity for bytes — but the stress arm is now within 2 % of the ceiling. (See
 [the budget corrections](#three-budget-bugs-found-after-the-matrix-was-recorded) for how that budget was
 arrived at.)
 
 | field | cell | kernels (on) | bins | cache MB | kernels (on-strong) |
 |---|---|---|---|---|---|
-| dense-wide | 350 / A2 | 450 | 26 | 142.5 | 857 |
-| dense-wide | 150 / A2 | 447 | 26 | 38.0 | 846 |
-| dense | 350 / A2 | 217 | 19 | 48.4 | 405 |
-| sparse | 350 / A2 | 188 | 19 | 42.0 | 319 |
-| dense-oversampled | 350 / A2 | 159 | 17 | 46.2 | 265 |
+| dense-wide | 350 / A2 | 508 | 26 | 161.8 | 1161 |
+| dense-wide | 150 / A2 | 503 | 26 | 43.1 | 1150 |
+| dense | 350 / A2 | 253 | 19 | 56.8 | 508 |
+| sparse | 350 / A2 | 218 | 19 | 49.0 | 396 |
+| dense-oversampled | 350 / A2 | 189 | 17 | 55.1 | 322 |
 
 **One fidelity limit worth stating.** At very large tilt the orientation-bin formula asks for more bins than
 the cap of 64 allows — a 10 mm tilt on a QHY600 wants ~770 — so the rim of a kernel can sit up to ~1.4 % of
@@ -161,7 +167,7 @@ so this shows up as a small systematic rotation rather than as visible banding, 
 comes close to the cap. Recorded because the cap is silent, not because it bites here.
 
 **The exact count replaced an upper bound.** The bound — defocus cells × astigmatism cells × orientation
-bins — predicted 863 MB for the dense-wide 350/A2 cell where the cache really holds 143 MB, because Δ and A
+bins — predicted 863 MB for the dense-wide 350/A2 cell where the cache really holds 162 MB, because Δ and A
 are both smooth functions of field position and so are nowhere near independent. Coarsening on that estimate
 doubled the defocus quantum and halved the bins on a frame that fitted comfortably. Since assigning keys is
 pure arithmetic and builds nothing, the budget loop now measures the cache it would really allocate and
@@ -175,69 +181,71 @@ Per-phase medians, ms. `on/off` is the ratio that G2 gates.
 
 | defocus | aberr | off | on | on/off | strong | strong/off | kernels | bins | cache MB | kernelGen (on) |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 0 | A0 | 589 | 585 | 0.99× | 586 | 0.99× | 1 | 1 | 0.0 | 0 ms (0%) |
-| 0 | A1 | 604 | 612 | 1.01× | 640 | 1.06× | 156 | 22 | 2.6 | 5 ms (1%) |
-| 0 | A2 | 597 | 630 | 1.06× | 672 | 1.13× | 415 | 26 | 7.1 | 36 ms (6%) |
-| 150 | A0 | 623 | 635 | 1.02× | 616 | 0.99× | 1 | 1 | 0.1 | 3 ms (0%) |
-| 150 | A1 | 611 | 722 | 1.18× | 745 | 1.22× | 167 | 22 | 14.4 | 84 ms (12%) |
-| 150 | A2 | 618 | 778 | 1.26× | 846 | 1.37× | 447 | 26 | 38.0 | 142 ms (18%) |
-| 350 | A0 | 641 | 650 | 1.01× | 642 | 1.00× | 1 | 1 | 0.3 | 6 ms (1%) |
-| 350 | A1 | 650 | 799 | 1.23× | 854 | 1.31× | 169 | 22 | 53.1 | 116 ms (15%) |
-| **350** | **A2** | **677** | **934** | **1.38×** | 1139 | 1.68× | 450 | 26 | 142.5 | 263 ms (28%) |
+| 0 | A0 | 614 | 614 | 1.00× | 617 | 1.01× | 1 | 1 | 0.0 | 0 ms (0%) |
+| 0 | A1 | 620 | 655 | 1.06× | 650 | 1.05× | 156 | 22 | 2.6 | 24 ms (4%) |
+| 0 | A2 | 620 | 659 | 1.06× | 685 | 1.11× | 473 | 26 | 8.1 | 42 ms (6%) |
+| 150 | A0 | 650 | 657 | 1.01× | 639 | 0.98× | 1 | 1 | 0.1 | 3 ms (0%) |
+| 150 | A1 | 654 | 764 | 1.17× | 798 | 1.22× | 167 | 22 | 14.4 | 86 ms (11%) |
+| 150 | A2 | 643 | 812 | 1.26× | 988 | 1.54× | 503 | 26 | 43.1 | 157 ms (19%) |
+| 350 | A0 | 685 | 697 | 1.02× | 706 | 1.03× | 1 | 1 | 0.3 | 6 ms (1%) |
+| 350 | A1 | 704 | 838 | 1.19× | 927 | 1.32× | 169 | 22 | 53.1 | 102 ms (12%) |
+| **350** | **A2** | **737** | **1013** | **1.37×** | 1289 | 1.75× | 508 | 26 | 161.8 | 311 ms (31%) |
 
-The `A1` (backfocus-only) column is the residual mechanism on its own — no tilt, so no field-linear term —
-and it is visibly cheaper than `A2` at the same defocus. That gap *is* the tilt term's cost.
+The `A1` (backfocus-only) column is the residual mechanism on its own — no tilt, so no tilt term — and it
+is visibly cheaper than `A2` at the same defocus, 169 kernels against 508. That gap *is* the tilt term's
+cost.
 
 Headline cell phase breakdown:
 
 | phase | off | on |
 |---|---|---|
-| catalog query | 85 | 82 |
-| stamp-job build | 102 | 358 |
-| …of which kernel generation | 7 | 263 |
-| stamping | 57 | 77 |
-| development | 474 | 484 |
-| **total** | **677** [650–696] | **934** [915–939] |
+| catalog query | 131 | 89 |
+| stamp-job build | 157 | 416 |
+| …of which kernel generation | 7 | 311 |
+| stamping | 78 | 93 |
+| development | 498 | 503 |
+| **total** | **737** [674–760] | **1013** [999–1052] |
 
 Development is unchanged, as it must be — the astigmatism model never touches it. The entire delta is
-kernel generation, plus ~20 ms of extra stamping from slightly larger footprints.
+kernel generation. (This session's machine was ~9 % slower than the one that recorded the earlier tables;
+compare kernel counts across revisions rather than absolute milliseconds.)
 
 #### dense — 8,464 stars, 1000 mm
 
 | defocus | aberr | off | on | on/off | strong/off | kernels | cache MB |
 |---|---|---|---|---|---|---|---|
-| 0 | A2 | 419 | 433 | 1.03× | 1.10× | 199 | 5.6 |
-| 150 | A2 | 423 | 534 | 1.26× | 1.33× | 216 | 17.4 |
-| 350 | A2 | 444 | 525 | 1.18× | 1.38× | 217 | 48.4 |
+| 0 | A2 | 452 | 472 | 1.04× | 1.09× | 229 | 6.4 |
+| 150 | A2 | 436 | 547 | 1.26× | 1.42× | 252 | 20.3 |
+| 350 | A2 | 448 | 594 | 1.33× | 1.56× | 253 | 56.8 |
 
 #### sparse — 990 stars, identical optics to `dense`
 
 | defocus | aberr | off | on | on/off | strong/off | kernels | cache MB |
 |---|---|---|---|---|---|---|---|
-| 0 | A2 | 360 | 367 | 1.02× | 1.05× | 174 | 4.8 |
-| 150 | A2 | 365 | 392 | 1.07× | 1.15× | 186 | 15.0 |
-| 350 | A2 | 383 | 429 | 1.12× | 1.36× | 188 | 42.0 |
+| 0 | A2 | 376 | 379 | 1.01× | 1.03× | 193 | 5.4 |
+| 150 | A2 | 376 | 412 | 1.10× | 1.19× | 219 | 17.7 |
+| 350 | A2 | 378 | 470 | 1.24× | 1.46× | 218 | 49.0 |
 
 #### dense-oversampled — 1,670 stars, 2000 mm f/8
 
 | defocus | aberr | off | on | on/off | strong/off | kernels | cache MB |
 |---|---|---|---|---|---|---|---|
-| 0 | A2 | 383 | 396 | 1.04× | 1.16× | 148 | 10.1 |
-| 150 | A2 | 390 | 452 | 1.16× | 1.21× | 159 | 21.7 |
-| 350 | A2 | 382 | 517 | 1.36× | 1.53× | 159 | 46.2 |
+| 0 | A2 | 409 | 421 | 1.03× | 1.12× | 163 | 11.1 |
+| 150 | A2 | 416 | 456 | 1.10× | 1.23× | 185 | 25.4 |
+| 350 | A2 | 408 | 552 | 1.35× | 1.65× | 189 | 55.1 |
 
 ## 4. Scaling controls
 
 **Star count.** `dense` and `sparse` differ only in how many stars the pointing has — 8,464 against 990,
-8.5×. Catalog query scales with it and stamping scales with it; **kernel generation does not** (217 vs 188
+8.5×. Catalog query scales with it and stamping scales with it; **kernel generation does not** (253 vs 218
 kernels at 350/A2). That is the expected shape: kernels are a property of the aberration field, not of how
 many stars sample it. It also means a *sparse* field is the harsher relative case — fewer stars to amortize
-the same kernel set over — though here development dominates both and the ratios land close (1.18× vs 1.12×).
+the same kernel set over — though here development dominates both and the ratios land close (1.33× vs 1.24×).
 
 **Kernel radius.** `dense-oversampled` doubles σ_min (2.78 px vs 1.44 px) and so the support radius, but its
-kernel count is *lower* (159 vs 217) because the coarser plate scale spreads the same defocus over fewer
-quantized levels. Cache bytes land similar (46 MB vs 48 MB): the R² per kernel is offset by having fewer of
-them. Its ratio is nonetheless the second-worst in the matrix (1.36×), because each of those kernels costs
+kernel count is *lower* (189 vs 253) because the coarser plate scale spreads the same defocus over fewer
+quantized levels. Cache bytes land similar (55 MB vs 57 MB): the R² per kernel is offset by having fewer of
+them. Its ratio is nonetheless among the worst in the matrix (1.35×), because each of those kernels costs
 R² to build.
 
 ## 5. Under live contention
@@ -248,50 +256,55 @@ real `StarDetector.Detect` loop alongside every timed render.
 
 | arm | total ms | kernelGen |
 |---|---|---|
-| off | 993 | 29 ms |
-| on | 1124 | 291 ms |
+| off | 978 | 17 ms |
+| on | 1295 | 428 ms |
 
-**Ratio 1.13×** — *better* than the 1.38× measured idle, because contention slows the field-independent
-development phase for both arms and so dilutes the difference. The absolute worst case under contention is
-1.12 s.
+**Ratio 1.32×**, against 1.37× measured idle. Contention slows the field-independent development phase for
+both arms and dilutes the difference, but far less than it did before the tilt term: kernel generation is
+now large enough (428 ms) that it competes for the same cores the detector is using. The absolute worst case
+under contention is 1.30 s.
 
 ## 6. Gates
 
 | | gate | bar | measured | verdict |
 |---|---|---|---|---|
-| G1 | `on/off`, clean A0 cells | ≤ 1.10× | **1.06×** | **PASS** |
-| G2 | `on/off`, all other cells | ≤ 1.25× | **1.38×** (on), 1.68× (strong) | **FAIL** |
-| G3 | worst absolute cell | ≤ 3.0 s and ≤ exposure | **934 ms** (on), 1139 ms (strong) | **PASS** |
-| G4 | kernel-generation share | ≤ 10 % | **28 %** (on), 41 % (strong) | **FAIL** |
-| G5 | distinct kernels per frame | ≤ 512 | **450** (on), 857 (strong) | **PASS** at the defaults, **FAIL** on the stress arm |
-| G6 | peak kernel cache | ≤ 256 MB | **143 MB** (on), 274 MB (strong) | **PASS** at the defaults |
-| G7 | `on/off` under contention | ≤ 1.40× | **1.13×** | **PASS** |
+| G1 | `on/off`, clean A0 cells | ≤ 1.10× | **1.03×** | **PASS** |
+| G2 | `on/off`, all other cells | ≤ 1.25× | **1.37×** (on), 1.75× (strong) | **FAIL** |
+| G3 | worst absolute cell | ≤ 3.0 s and ≤ exposure | **1013 ms** (on), 1289 ms (strong) | **PASS** |
+| G4 | kernel-generation share | ≤ 10 % | **31 %** (on), 45 % (strong) | **FAIL** |
+| G5 | distinct kernels per frame | ≤ 512 | **508** (on), 1161 (strong) | **PASS** at the defaults, **FAIL** on the stress arm |
+| G6 | peak kernel cache | ≤ 256 MB | **162 MB** (on), 375 MB (strong) | **PASS** at the defaults |
+| G7 | `on/off` under contention | ≤ 1.40× | **1.32×** | **PASS** |
 
 ### On the three that missed
 
 These bars were written in the plan before any measurement existed. Two of them turned out to be the wrong
 instrument, and saying so is more useful than moving them quietly.
 
-**G2 (1.38× against 1.25×) is a real miss, and the bar is the right *kind* of bar** — a ratio is what ports
-across hardware. It is missed on four cells, all with tilt and backfocus both injected at 150–350 steps of
-defocus. The reasoning behind the number, though, was about *absolute* time: the render is prefetched at
-`StartExposure`, so its cost is invisible while render ≤ exposure. At 934 ms against a 5 s exposure there is
-5.4× of headroom, and under contention the ratio falls to 1.13×. A machine would have to be roughly 5×
-slower than this one before the feature became visible — and at that point the 677 ms *baseline* render is
+**G2 (1.37× against 1.25×) is a real miss, and the bar is the right *kind* of bar** — a ratio is what ports
+across hardware. It is missed on five cells, all with tilt injected at 150–350 steps of defocus. The
+reasoning behind the number, though, was about *absolute* time: the render is prefetched at
+`StartExposure`, so its cost is invisible while render ≤ exposure. At 1013 ms against a 5 s exposure there
+is 4.9× of headroom, and under contention the ratio falls to 1.32×. A machine would have to be roughly 5×
+slower than this one before the feature became visible — and at that point the 737 ms *baseline* render is
 already marginal, so the astigmatism model is not what breaks it. Recorded as accepted, not as passed.
 
-**G4 (28 % against 10 %) measures the wrong thing.** It was written as "the only phase that is pure added
+**G4 (31 % against 10 %) measures the wrong thing.** It was written as "the only phase that is pure added
 overhead", to catch kernel generation running away. But the share is a ratio against a total that is
 *dominated by development* — so making development faster would fail this gate while making the render
-strictly better. The 263 ms of kernel generation it flags is the same 263 ms G2 and G3 already price
+strictly better. The 311 ms of kernel generation it flags is the same 311 ms G2 and G3 already price
 correctly. Superseded by G2/G3; not carried forward.
 
-**G5 (857 against 512) fires only on `on-strong`,** a 40 µm residual on a rig whose tilt is 60 % optical —
-several times worse than anything a working setup shows. At the shipped defaults the worst is 450. The count
-was a proxy for memory, and memory is measured directly by G6 at 143 MB of a 256 MB bar — with the in-code
-budget enforcing it exactly rather than approximately. Keep G6; treat G5 as informational. Note that
-`on-strong` now also exceeds G6 at 274 MB, still comfortably inside the 384 MB budget the code enforces;
-G6's own 256 MB bar predates the budget's own measurement and is the weaker of the two.
+**G5 (508 against 512) now passes by four kernels at the shipped defaults, which is the real finding.** It
+was comfortable before the tilt term and is not any more. The stress arm is at 1161. The count was a proxy
+for memory, and memory is measured directly — 162 MB at the defaults, 375 MB on the stress arm against the
+384 MB the code actually enforces. The coarsening ladder did not fire anywhere in the matrix (every cell
+kept the isotropic arm's defocus quantum), but there is no headroom left on the stress arm.
+
+**This bounds the option ranges, and that is worth saying plainly.** Raising either `CornerAstigmatism` or
+`TiltAstigmatismFraction` much past the stress arm's 40 µm / 0.6 will trip the coarsening ladder, which
+trades defocus resolution for bytes. That is a graceful degradation and it logs, but it is a real fidelity
+change and it will happen silently from the user's point of view.
 
 ## 7. Mitigations — measured, not proposed
 
@@ -305,15 +318,17 @@ rendered pixel at fixed inputs.
 | 2 | + vectorize the separable convolution | 845 ms | 1.23× | 210 ms |
 | 3 | final, with the exact cache budget | 848 ms | 1.33× | 216 ms |
 | 4 | model corrected to the Seidel + residual form | 880 ms | 1.39× | 250 ms |
-| 5 | + the field-linear (tilted-corrector) term | 934 ms | 1.38× | 263 ms |
+| 5 | + a field-linear tilted-corrector term (**rejected**) | 934 ms | 1.38× | 263 ms |
+| 6 | tilt term moved into the even part | 1013 ms | 1.37× | 311 ms |
 
 *(Rows 2 and 3 differ in ratio, not in absolute cost: the `off` baseline in row 2's run measured 685 ms
-against 639 ms in the final matrix, which is run-to-run variance on the isotropic arm. Row 5 is the shipped
-model. Rows 4 and 5 were measured in separate sessions whose `off` baselines differ by 7 % (634 vs 677 ms),
-so compare their kernel counts — 409 → 450 — rather than their ratios.)*
+against 639 ms in the final matrix, which is run-to-run variance on the isotropic arm. Row 6 is the shipped
+model; row 5 rendered every corner radially and was rejected against a real corner panel, not on cost.
+Rows 4–6 were measured in separate sessions whose `off` baselines differ by up to 16 % (634 / 677 / 737 ms),
+so compare their kernel counts — 409 → 450 → 508 — rather than their ratios.)*
 
-1. **Parallel kernel building** was mandatory from the start, not an optimization applied later: 450 kernels
-   at ~14 ms each is 6.3 s serial, against a render that runs in well under one. Split `BuildStampJobs` into
+1. **Parallel kernel building** was mandatory from the start, not an optimization applied later: 508 kernels
+   at ~14 ms each is 7.1 s serial, against a render that runs in well under one. Split `BuildStampJobs` into
    key assignment / parallel build over the distinct keys / job assembly. Deterministic — the key list is in
    deterministic star order, each kernel is a pure function of its key, and every write lands in its own
    pre-indexed slot.
@@ -368,7 +383,7 @@ three were the budget failing to do what it claimed.
 
 - **Fewer kernel-build threads.** Tested at 48 / 24 / 12 / 6: kernel generation measured 275 / 356 / 364 /
   591 ms. Full parallelism is strictly best, so the shared governor's default is already right. The residual
-  gap to ideal scaling (450 kernels × 14 ms ÷ 48 ≈ 131 ms against 263 ms measured) is imperfect scaling, not
+  gap to ideal scaling (508 kernels × 14 ms ÷ 48 ≈ 148 ms against 311 ms measured) is imperfect scaling, not
   oversubscription.
 - **Coarser orientation binning.** Would cut the kernel count, but the bins resolve to 22–26 at the shipped
   defaults against a cap of 64, so the count is still driven by realized defocus level pairs and thinning the
@@ -384,7 +399,7 @@ three were the budget failing to do what it claimed.
 
 The model ships enabled, with a 15 µm corner astigmatism, a 0.25 tilt-astigmatism fraction, and a 50 µm
 backfocus error default. On a clean, well-corrected rig it is free; on a mis-spaced or tilted one it costs
-38 % of a render that takes 0.93 s,
+37 % of a render that takes 1.0 s,
 hidden entirely behind an exposure. The cache budget, the coarsening ladder, and the circular-donut fallback
 are in place and were never triggered at the shipped default — they exist for configurations past anything a
 real corrector produces.

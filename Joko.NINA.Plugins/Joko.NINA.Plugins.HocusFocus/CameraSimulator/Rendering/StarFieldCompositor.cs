@@ -587,10 +587,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             var samples = new List<(int px, int py)>(6) {
                 (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (w / 2, h / 2)
             };
-            // Both Δ and A are plane-plus-paraboloid in field position, so each one's extremum over the
-            // sensor rectangle is at a corner OR at its own interior stationary point -- which is NOT the
-            // sensor centre unless the gradients and the axis offset all vanish. Sample both stationary
-            // points: missing one under-sizes the projection margin and silently drops wing-spill stars.
+            // Δ is plane-plus-paraboloid in field position, so its extremum over the sensor rectangle is at a
+            // corner OR at its interior stationary point -- which is NOT the sensor centre unless the gradients
+            // and the axis offset all vanish. Missing it under-sizes the projection margin and silently drops
+            // wing-spill stars. A is a pure paraboloid about the optical axis, so its own extremum is always at
+            // a corner and the four corner samples already cover it.
             void AddStationary(double gx, double gy, double curvature) {
                 if (curvature == 0.0) {
                     return;
@@ -602,7 +603,6 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 samples.Add((Math.Clamp(spx, 0, w - 1), Math.Clamp(spy, 0, h - 1)));
             }
             AddStationary(aberration.Gx, aberration.Gy, aberration.K);
-            AddStationary(aberration.AstigmatismTiltGx, aberration.AstigmatismTiltGy, aberration.AstigmatismCoefficient);
 
             double maxAbsDefocus = 0.0, maxAbsSplit = 0.0, maxCombined = 0.0;
             double minDefocus = double.MaxValue, maxDefocus = double.MinValue;
