@@ -583,11 +583,16 @@ public class InspectorVMAutomaticAdjustmentTests {
         public void SeedValidModel(InspectorVM vm, double gx = 0.001, double gy = 0.0, double k = 0.0) {
             var imageSize = new System.Drawing.Size(1000, 1000);
             var paraboloid = new SensorParaboloidModel(x0: 0, y0: 0, z0: 0, gx: gx, gy: gy, k: k);
-            vm.SensorModel.SelectedTiltHistoryModel = new SensorParaboloidTiltHistoryModel(
-                historyId: 1, imageSize: imageSize, pixelSizeMicrons: 4.0, fRatio: 5.0,
+            var run = new SensorParaboloidTiltHistoryModel(
+                historyId: vm.SensorModel.SensorTiltHistoryModels.Count + 1, imageSize: imageSize,
+                pixelSizeMicrons: 4.0, fRatio: 5.0,
                 focuserSizeMicrons: 1.0, finalFocusPosition: 0.0, tiltEffectMicrons: 0.0,
                 curvatureEffectMicrons: 0.0, autoFocusOffset: 0.0, tiltPlaneModel: null,
                 sensorModel: paraboloid);
+            // A completed analysis inserts newest-first as well as updating the models; without the insert the
+            // history is empty here and anything that reads or marks the newest row silently does nothing.
+            vm.SensorModel.SensorTiltHistoryModels.Insert(0, run);
+            vm.SensorModel.SelectedTiltHistoryModel = run;
             // The line above drives the DISPLAY (guidance rebuilds from it). Automatic Adjustment plans from the
             // latest MEASURED model instead, which only a completed analysis writes -- so stand in for that here,
             // or every flow test would plan from a null model.
@@ -904,6 +909,65 @@ public class InspectorVMAutomaticAdjustmentTests {
             Assert.That(run.PositionsRecordedDisplay, Is.EqualTo("—"));
             Assert.That(run.AdjustmentAppliedDisplay, Is.Empty);
         });
+    }
+
+    // The Adjusted (gear) column marks runs the adapter has since been moved away from, so the newest marked row
+    // is "the run before I changed something". Every path that sends moves must set it, or the column silently
+    // under-reports and points the user at the wrong row.
+    [Test]
+    public void AdjustmentApplied_IsMarkedOnTheRunAPlanWasComputedFrom() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.SeedValidModel(vm);
+        vm.MeasurementGenerationForTest = 1;
+        fx.ConnectAsync().GetAwaiter().GetResult();
+        var move = Move(TiltMoveAxis.Backfocus, 10, TiltMoveGroup.Backfocus, "bf");
+        fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, new TiltAdapterMovePlan(new[] { move }, new double[4], 0, 10));
+        fx.ConfirmAnswers.Enqueue(false); // decline the confirming re-run; the moves were still sent
+
+        vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        Assert.Multiple(() => {
+            Assert.That(fx.ExecutedMoves, Has.Count.EqualTo(1), "precondition: a move was actually sent");
+            Assert.That(vm.SensorModel.SensorTiltHistoryModels[0].AdjustmentAppliedAfterwards, Is.True);
+            Assert.That(vm.SensorModel.SensorTiltHistoryModels[0].AdjustmentAppliedDisplay, Is.EqualTo("⚙"));
+        });
+    }
+
+    [Test]
+    public void AdjustmentApplied_IsNotMarkedWhenNothingWasSent() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.SeedValidModel(vm);
+        vm.MeasurementGenerationForTest = 1;
+        fx.ConnectAsync().GetAwaiter().GetResult();
+        fx.NextChoice = TiltDeviceAdjustmentChoice.Cancelled;
+
+        vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        Assert.Multiple(() => {
+            Assert.That(fx.ExecutedMoves, Is.Empty, "precondition: the dialog was cancelled");
+            Assert.That(vm.SensorModel.SensorTiltHistoryModels[0].AdjustmentAppliedAfterwards, Is.False);
+        });
+    }
+
+    // A revert is a move too: the confirming measurement that raised the banner no longer describes the device.
+    [Test]
+    public void AdjustmentApplied_IsMarkedAfterAWorseningRevert() {
+        var fx = new AdjustmentFixture();
+        var vm = fx.BuildVM();
+        fx.SeedValidModel(vm, gx: 0.001, gy: 0.0);
+        vm.MeasurementGenerationForTest = 1;
+        fx.ConnectAsync().GetAwaiter().GetResult();
+        var move = Move(TiltMoveAxis.Backfocus, 10, TiltMoveGroup.Backfocus, "bf");
+        fx.NextChoice = TiltDeviceAdjustmentChoice.Proceeded(true, true, new TiltAdapterMovePlan(new[] { move }, new double[4], 0, 10));
+        fx.ConfirmAnswers.Enqueue(true);
+        fx.OnReRun = () => fx.SeedValidModel(vm, gx: 0.01, gy: 0.0);
+        vm.AutomaticAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        vm.RevertLastAdjustmentCommand.ExecuteAsync(null).GetAwaiter().GetResult();
+
+        Assert.That(vm.SensorModel.SensorTiltHistoryModels[0].AdjustmentAppliedAfterwards, Is.True);
     }
 
     // --- Plans come from the newest MEASUREMENT, never from the history selection ---------------------------
