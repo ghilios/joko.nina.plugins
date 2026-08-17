@@ -254,3 +254,48 @@ the gates verbatim, keeping detection **bit-identical**. The three numeric knobs
 (`DefocusAwareGates`), guarded by the objective's `SDefocusPrecision` near-focus precision penalty (multiplicative,
 = 1.0 when no star is relaxation-admitted ⇒ objective bit-identical when off). See
 `docs/star-detection-optimization-wizard-results.md` (F2/F3 + cache-health notes).
+
+## Synthetic-camera render benchmark (`bench-simrender`)
+
+Times the simulator's render pipeline on a real ASTAP star field, and reports the PSF kernel-cache
+cardinality — the quantity that actually grows when the cache key gains axes.
+
+```
+TestApp bench-simrender [--catalog "C:\Program Files\astap"] [--field dense-wide,dense,sparse|all]
+                        [--defocus-steps 0,150,350] [--aberr A0,A1,A2] [--arms off,on-zero,on,on-strong]
+                        [--ratio 0.7] [--ratio-strong 1.5] [--limit-mag 17] [--exposure 5]
+                        [--iters 5] [--warmup 1] [--census] [--kernel-ladder] [--with-detection]
+                        [--csv <path>]
+```
+
+**Read `kernelGen` and `kernels`, not just `total`.** Development is 50–90 % of a 61 MP render, so the
+wall clock is an insensitive instrument for anything the PSF does.
+
+Sub-modes, cheapest first:
+
+- `--kernel-ladder` — times `PsfKernelGenerator` alone across R = 8…240 px and fits the log-log scaling
+  exponent, circular vs elliptical. Seconds, no catalog needed. **Run it first** after any change to kernel
+  generation: a separable convolution holds ~2, a direct 2-D one shows ~4.
+- `--census` — star and kernel counts with no timing. Use it to check a pointing is as dense as intended
+  before spending eight minutes on the matrix.
+- (default) the full timing matrix, ~8 min at `--iters 5 --field all`.
+- `--with-detection` — runs a real `StarDetector.Detect` loop alongside every timed render, emulating the
+  contention a render actually meets in NINA (the camera prefetches the next frame while the previous
+  autofocus point is still being detected, both through the shared CPU governor).
+
+Fields are named pointings + optics on the QHY600/IMX455: `dense-wide` (γ Cygni at 530 mm f/5, ~35k on-frame
+stars — the headline), `dense` (same sky at 1000 mm), `sparse` (North Galactic Pole, identical optics to
+`dense` so only the star count differs), `dense-oversampled` (2000 mm f/8, the kernel-radius stress). At
+1000 mm a 61 MP frame covers only 2.8 sq deg and the G18 catalog stops at mag 18, which is why the dense
+field is the widefield one.
+
+Arms: `off` (isotropic), `on-zero` (enabled at ratio 0 — a **verification** arm that must measure identical
+to `off`), `on` (shipped ratio), `on-strong` (stress). Aberration configs `A0` clean / `A1` backfocus only /
+`A2` tilt + backfocus.
+
+**Run in Release**; the banner warns otherwise and Debug numbers are not comparable. Timing lives here rather
+than in the unit suite because it needs the ASTAP database and is flaky by construction; what the suite
+guards instead is kernel-cache cardinality and byte bounds
+(`StarFieldCompositorTests.Render_KernelCacheCardinality_StaysBounded`), which is what actually regresses.
+
+Results and the gate analysis: `docs/camera-simulator-astigmatism-results.md`.

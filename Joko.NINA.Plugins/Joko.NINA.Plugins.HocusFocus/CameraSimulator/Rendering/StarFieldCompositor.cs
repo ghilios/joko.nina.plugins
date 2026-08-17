@@ -520,6 +520,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
 
             if (timings != null) {
                 timings.DistinctKernels = kernels.Length;
+                timings.OrientationBins = orientationBins;
+                timings.DefocusQuantumMicrons = quantumMicrons;
                 long cacheBytes = 0;
                 var maxRadius = 0;
                 foreach (var cached in kernels) {

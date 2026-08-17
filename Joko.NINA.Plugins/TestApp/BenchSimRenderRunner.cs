@@ -15,6 +15,9 @@ using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Catalog;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.StarDetection;
+using NINA.Joko.Plugins.HocusFocus.Utility;
+using OpenCvSharp;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -123,6 +126,7 @@ namespace TestApp {
             var censusOnly = DiagnosticUtil.HasFlag(args, "--census");
             var ladderOnly = DiagnosticUtil.HasFlag(args, "--kernel-ladder");
             var csvPath = DiagnosticUtil.GetArg(args, "--csv");
+            var withDetection = DiagnosticUtil.HasFlag(args, "--with-detection");
 
             PrintBanner(catalogPath);
 
@@ -145,9 +149,14 @@ namespace TestApp {
                 .Select(s => int.Parse(s.Trim(), CultureInfo.InvariantCulture)).ToList();
             var arms = armsArg.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
 
+            using var contention = withDetection ? ConcurrentDetectionLoad.Start() : null;
+            if (withDetection) {
+                Console.WriteLine("contention: a real StarDetector.Detect loop is running alongside every timed render");
+            }
+
             var rows = new List<string>();
             rows.Add("field,focalMm,focalRatio,limitMag,defocusSteps,aberr,arm,iters,"
-                   + "starsQueried,stampJobs,distinctKernels,kernelCacheBytes,maxKernelRadiusPx,"
+                   + "starsQueried,stampJobs,distinctKernels,kernelCacheBytes,maxKernelRadiusPx,orientationBins,defocusQuantumUm,"
                    + "totalMsMedian,totalMsMin,totalMsMax,queryMs,jobBuildMs,kernelGenMs,stampMs,developMs,"
                    + "kernelGenMsPerKernel,skyPlusDarkElectronsPerPx,config,processorCount");
 
@@ -183,6 +192,50 @@ namespace TestApp {
                 Console.WriteLine($"CSV written to {csvPath}");
             }
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// A background star-detection load, emulating what a render actually competes with in NINA: the
+        /// camera prefetches the next frame at <c>StartExposure</c> while the previous autofocus point is still
+        /// being detected, and both loops are routed through the same shared CPU governor. A ratio measured on
+        /// an otherwise idle box is the optimistic case.
+        /// </summary>
+        private sealed class ConcurrentDetectionLoad : IDisposable {
+            private readonly CancellationTokenSource cts = new CancellationTokenSource();
+            private readonly Task loop;
+            private readonly Mat field;
+
+            private ConcurrentDetectionLoad(Mat field) {
+                this.field = field;
+                loop = Task.Run(async () => {
+                    var detector = new StarDetector(new AlglibAPI());
+                    while (!cts.IsCancellationRequested) {
+                        try {
+                            await detector.Detect(field, new StarDetectorParams(), null, cts.Token);
+                        } catch (OperationCanceledException) {
+                            return;
+                        }
+                    }
+                });
+            }
+
+            public static ConcurrentDetectionLoad Start() {
+                const int size = 3008;
+                var field = StarStamper.CreateFlat(size, size, 0.05f);
+                var random = new Random(1234);
+                for (var i = 0; i < 1500; ++i) {
+                    StarStamper.AddGaussianStar(field, random.Next(20, size - 20), random.Next(20, size - 20), 2.2, 0.6);
+                }
+                StarStamper.AddGaussianNoise(field, 0.01, 4242);
+                return new ConcurrentDetectionLoad(field);
+            }
+
+            public void Dispose() {
+                cts.Cancel();
+                try { loop.Wait(TimeSpan.FromSeconds(30)); } catch (AggregateException) { }
+                cts.Dispose();
+                field.Dispose();
+            }
         }
 
         /// <summary>One cell's measurement: the census plus the per-phase medians over the timed iterations.</summary>
@@ -437,7 +490,7 @@ namespace TestApp {
                             + $"kappa={model.KappaPixelsPerStep:F5} px/step, maxAbsDefocus={StarFieldCompositor.MaxAbsDefocusMicrons(model):F0} um");
             Console.WriteLine();
             Console.WriteLine($"{"defocus",8} {"aberr",6} {"arm",9} {"stars",8} {"jobs",8} {"kernels",8} {"cacheMB",8} {"maxR",6} "
-                            + $"{"query",8} {"jobBuild",9} {"kernelGen",10} {"stamp",8} {"develop",9} {"total",9}");
+                            + $"{"bins",5} {"query",8} {"jobBuild",9} {"kernelGen",10} {"stamp",8} {"develop",9} {"total",9}");
         }
 
         private static void PrintRow(BenchField field, int defocusOffset, AberrationConfig aberration, string arm, CellResult cell, bool censusOnly) {
@@ -449,7 +502,7 @@ namespace TestApp {
             }
             Console.WriteLine($"{defocusOffset,8} {aberration.Name,6} {arm,9} {c.StarsQueried,8:N0} {c.StampJobs,8:N0} "
                             + $"{c.DistinctKernels,8:N0} {c.KernelCacheBytes / 1048576.0,8:F1} {c.MaxKernelRadius,6} "
-                            + $"{cell.QueryMs,8:F1} {cell.JobBuildMs,9:F1} {cell.KernelGenMs,10:F1} {cell.StampMs,8:F1} "
+                            + $"{c.OrientationBins,5} {cell.QueryMs,8:F1} {cell.JobBuildMs,9:F1} {cell.KernelGenMs,10:F1} {cell.StampMs,8:F1} "
                             + $"{cell.DevelopMs,9:F1} {cell.TotalMsMedian,9:F1}");
         }
 
@@ -476,6 +529,8 @@ namespace TestApp {
                 c.DistinctKernels.ToString(CultureInfo.InvariantCulture),
                 c.KernelCacheBytes.ToString(CultureInfo.InvariantCulture),
                 c.MaxKernelRadius.ToString(CultureInfo.InvariantCulture),
+                c.OrientationBins.ToString(CultureInfo.InvariantCulture),
+                c.DefocusQuantumMicrons.ToString("F2", CultureInfo.InvariantCulture),
                 cell.TotalMsMedian.ToString("F1", CultureInfo.InvariantCulture),
                 cell.TotalMsMin.ToString("F1", CultureInfo.InvariantCulture),
                 cell.TotalMsMax.ToString("F1", CultureInfo.InvariantCulture),

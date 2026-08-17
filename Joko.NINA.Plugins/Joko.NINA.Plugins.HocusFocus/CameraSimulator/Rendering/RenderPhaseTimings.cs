@@ -70,6 +70,12 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <summary>Largest <see cref="PsfKernel.Radius"/> in the cache, in pixels. Kernel cost and size both go as R².</summary>
         public int MaxKernelRadius { get; set; }
 
+        /// <summary>Orientation bins the render resolved to. 1 means the field was round enough to need none.</summary>
+        public int OrientationBins { get; set; }
+
+        /// <summary>Defocus quantum (µm) actually used, after any coarsening the cache budget forced.</summary>
+        public double DefocusQuantumMicrons { get; set; }
+
         /// <summary>Sum of the measured phases, in ms. Not the same as the caller's stopwatch — it excludes setup.</summary>
         public double TotalPhaseMs => CatalogQueryMs + StampJobBuildMs + StampMs + DevelopMs;
 
