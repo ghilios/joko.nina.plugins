@@ -3279,6 +3279,9 @@
     <TextBlock x:Key="CamSim_BackfocusErrorMicrons_Tooltip" Text="Corner-versus-center curvature offset (µm) from a backfocus error — an isotropic field-curvature term. Only used while aberrations are enabled." />
     <TextBlock x:Key="CamSim_OpticalAxisOffsetXMicrons_Tooltip" Text="X offset (µm) of the optical axis from the sensor center (X0), shifting where the best-focus surface is centered. Only used while aberrations are enabled." />
     <TextBlock x:Key="CamSim_OpticalAxisOffsetYMicrons_Tooltip" Text="Y offset (µm) of the optical axis from the sensor center (Y0), shifting where the best-focus surface is centered. Only used while aberrations are enabled." />
+    <TextBlock x:Key="CamSim_EnableFieldAstigmatism_Tooltip" Text="Split the best-focus surface into the tangential and sagittal focal surfaces a mis-spaced corrector produces, so stars render elliptical rather than round: radially smeared where the local defocus and the astigmatism disagree in sign, tangentially where they agree, and round in between. The two surfaces straddle the surface the aberration inspector fits, so what the inspector recovers is unchanged. Needs a nonzero Backfocus Error or Tilt Amount to have anything to work from." />
+    <TextBlock x:Key="CamSim_BackfocusSpacingErrorMicrons_Tooltip" Text="How far the sensor sits from the corrector's design spacing, in µm — the cause, where Backfocus Error is the effect it produces at the corners. Enter a magnitude; the direction is taken from the sign of Backfocus Error. Leave blank to infer it from Backfocus Error using a nominal flattener (1 mm of spacing error giving 50 µm of corner curvature on a full frame). It matters because a tilted sensor is mis-spaced by a different amount across the field, which is what lets tilt alone produce eccentric stars." />
+    <TextBlock x:Key="CamSim_AstigmatismRatio_Tooltip" Text="How much astigmatism accompanies the residual field curvature (the ratio c_a/c_m). Both grow together with spacing error on a real corrector and are comparable in size, so a value near 1 is physical; 0 disables the effect without touching the toggle. At the default, the tangential/sagittal focus split at the sensor corner comes out at 0.7× the Backfocus Error." />
     <TextBlock x:Key="CamSim_ShowTiltAdapterPanel_Tooltip" Text="Show the simulated tilt adapter as a panel in the Imaging tab, so it can be operated next to the Aberration Inspector. Requires a NINA restart to appear the first time." />
 
     <DataTemplate x:Key="HocusFocus_CameraSimulator_Options">
@@ -3621,6 +3624,9 @@
                     <RowDefinition />
                     <RowDefinition />
                     <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Tilt Angle" ToolTip="{StaticResource CamSim_TiltAngleDegrees_Tooltip}" />
@@ -3682,6 +3688,47 @@
                             <rules:FloatRangeRule>
                                 <rules:FloatRangeRule.ValidRange>
                                     <rules:FloatRangeChecker Maximum="100000" Minimum="-100000" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Text="Model Astigmatism" ToolTip="{StaticResource CamSim_EnableFieldAstigmatism_Tooltip}" />
+                <CheckBox Grid.Row="5" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding CameraSimulatorOptions.EnableFieldAstigmatism}" ToolTip="{StaticResource CamSim_EnableFieldAstigmatism_Tooltip}" />
+
+                <!--  Blank means infer, so this is a HintTextBox over the negative-as-empty converter and carries NO
+                      ValidationRules: those run on the raw text and would reject the empty box the whole pattern
+                      depends on. Same shape as the Focuser Step Size row above.  -->
+                <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Text="Backfocus Spacing Error" ToolTip="{StaticResource CamSim_BackfocusSpacingErrorMicrons_Tooltip}" />
+                <StackPanel Grid.Row="6" Grid.Column="1" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Orientation="Horizontal">
+                    <ninactrl:HintTextBox
+                        MinWidth="80"
+                        VerticalAlignment="Center"
+                        HorizontalContentAlignment="Left"
+                        VerticalContentAlignment="Center"
+                        Foreground="{StaticResource PrimaryBrush}"
+                        HintText="{Binding CameraSimulatorOptions.EffectiveBackfocusSpacingErrorMicrons, StringFormat=\{0:0\}, Mode=OneWay}"
+                        TextAlignment="Left"
+                        ToolTip="{StaticResource CamSim_BackfocusSpacingErrorMicrons_Tooltip}">
+                        <ninactrl:HintTextBox.Text>
+                            <Binding
+                                Converter="{StaticResource HF_DoubleNegativeToEmptyStringConverter}"
+                                Mode="TwoWay"
+                                Path="CameraSimulatorOptions.BackfocusSpacingErrorMicrons"
+                                UpdateSourceTrigger="LostFocus" />
+                        </ninactrl:HintTextBox.Text>
+                    </ninactrl:HintTextBox>
+                    <TextBlock Margin="3,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" Text="µm" ToolTip="{StaticResource CamSim_BackfocusSpacingErrorMicrons_Tooltip}" />
+                </StackPanel>
+
+                <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Text="Astigmatism Ratio" ToolTip="{StaticResource CamSim_AstigmatismRatio_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="7" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_AstigmatismRatio_Tooltip}" Unit="">
+                    <Binding Path="CameraSimulatorOptions.AstigmatismRatio" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="3" Minimum="0" />
                                 </rules:FloatRangeRule.ValidRange>
                             </rules:FloatRangeRule>
                         </Binding.ValidationRules>

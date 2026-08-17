@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator;
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
@@ -465,10 +466,37 @@ public class CameraSimulatorOptionsTests {
             Assert.That(options.EnableAberrations, Is.False);
             Assert.That(options.TiltAngleDegrees, Is.EqualTo(0.0));
             Assert.That(options.TiltAmountMicrons, Is.EqualTo(0.0));
-            Assert.That(options.BackfocusErrorMicrons, Is.EqualTo(0.0));
+            // Nonzero on purpose: the field-astigmatism model needs a spacing error to work from, so a user who
+            // enables aberrations sees eccentric stars rather than only round ones.
+            Assert.That(options.BackfocusErrorMicrons, Is.EqualTo(CameraSimulatorOptions.DefaultBackfocusErrorMicrons));
             Assert.That(options.OpticalAxisOffsetXMicrons, Is.EqualTo(0.0));
             Assert.That(options.OpticalAxisOffsetYMicrons, Is.EqualTo(0.0));
+            Assert.That(options.EnableFieldAstigmatism, Is.True);
+            Assert.That(options.BackfocusSpacingErrorMicrons, Is.EqualTo(AberrationSurface.UnsetSpacingErrorMicrons),
+                "the spacing error ships unset, so it is inferred from the backfocus error");
+            Assert.That(options.AstigmatismRatio, Is.EqualTo(CameraSimulatorOptions.DefaultAstigmatismRatio));
         });
+    }
+
+    [Test]
+    public void EffectiveBackfocusSpacingError_InfersFromTheBackfocusErrorWhenUnset() {
+        var (options, _, _) = Build();
+        options.SensorModel = SonySensorModel.IMX455;
+
+        // Under the nominal flattener the inference assumes, 50 µm of corner curvature on a full frame comes
+        // from a 1 mm spacer error -- which is the story the shipped default is chosen to tell.
+        options.BackfocusErrorMicrons = 50.0;
+        Assert.That(options.EffectiveBackfocusSpacingErrorMicrons, Is.EqualTo(1000.0).Within(20.0));
+
+        // The sign follows the backfocus error, since a corrector's curvature response to spacing has one sign.
+        options.BackfocusErrorMicrons = -50.0;
+        Assert.That(options.EffectiveBackfocusSpacingErrorMicrons, Is.EqualTo(-1000.0).Within(20.0));
+
+        // Once entered, the magnitude is used verbatim and only the sign is inherited.
+        options.BackfocusSpacingErrorMicrons = 400.0;
+        Assert.That(options.EffectiveBackfocusSpacingErrorMicrons, Is.EqualTo(-400.0));
+        options.BackfocusErrorMicrons = 50.0;
+        Assert.That(options.EffectiveBackfocusSpacingErrorMicrons, Is.EqualTo(400.0));
     }
 
     [Test]

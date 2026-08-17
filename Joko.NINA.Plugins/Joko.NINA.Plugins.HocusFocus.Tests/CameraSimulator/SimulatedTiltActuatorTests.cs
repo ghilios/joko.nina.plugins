@@ -97,12 +97,16 @@ public class SimulatedTiltActuatorTests {
     public void ApplyWizardScrewSteps_DiagonalPair_ChangesTiltNotBackfocus() {
         var options = ConfiguredEat();
         var actuator = new SimulatedTiltActuator(options, new RecordingApplicationDispatcher());
+        // Against the value the options START at, not a literal zero: the shipped backfocus default is
+        // nonzero so the astigmatism model has something to work from, and what this test is about is that a
+        // symmetric move does not MOVE it.
+        var baselineBackfocus = options.BackfocusErrorMicrons;
 
         actuator.ApplyWizardScrewSteps(new[] { 50.0, 0.0, -50.0, 0.0 }); // pure diagonal -> pure tilt, piston 0
 
         Assert.Multiple(() => {
             Assert.That(options.TiltAmountMicrons, Is.GreaterThan(0.0), "a diagonal move must inject tilt");
-            Assert.That(options.BackfocusErrorMicrons, Is.EqualTo(0.0).Within(1e-9), "a symmetric diagonal move has zero piston -> no backfocus change");
+            Assert.That(options.BackfocusErrorMicrons, Is.EqualTo(baselineBackfocus).Within(1e-9), "a symmetric diagonal move has zero piston -> no backfocus change");
         });
     }
 
@@ -123,14 +127,16 @@ public class SimulatedTiltActuatorTests {
     public void ApplyWizardScrewSteps_ApplyThenInverse_ReturnsToBaseline() {
         var options = ConfiguredEat();
         var actuator = new SimulatedTiltActuator(options, new RecordingApplicationDispatcher());
+        var baselineTilt = options.TiltAmountMicrons;
+        var baselineBackfocus = options.BackfocusErrorMicrons;
 
         actuator.ApplyWizardScrewSteps(new[] { 50.0, 0.0, -50.0, 0.0 });
         actuator.ApplyWizardScrewSteps(new[] { -50.0, 0.0, 50.0, 0.0 }); // exact inverse
 
         Assert.Multiple(() => {
             Assert.That(actuator.GetPerMotorPositions(), Is.EqualTo(new[] { Home, Home, Home, Home }), "counters must return to baseline");
-            Assert.That(options.TiltAmountMicrons, Is.EqualTo(0.0).Within(1e-6), "injected tilt must return to baseline");
-            Assert.That(options.BackfocusErrorMicrons, Is.EqualTo(0.0).Within(1e-6), "injected backfocus must return to baseline");
+            Assert.That(options.TiltAmountMicrons, Is.EqualTo(baselineTilt).Within(1e-6), "injected tilt must return to baseline");
+            Assert.That(options.BackfocusErrorMicrons, Is.EqualTo(baselineBackfocus).Within(1e-6), "injected backfocus must return to baseline");
         });
     }
 

@@ -152,6 +152,24 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double OpticalAxisOffsetXMicrons { get; set; }
         double OpticalAxisOffsetYMicrons { get; set; }
 
+        // Field astigmatism — splits the best-focus surface into tangential and sagittal surfaces, so stars
+        // render elliptical: radial in one corner, tangential in the opposite, round in between.
+        bool EnableFieldAstigmatism { get; set; }
+
+        /// <summary>
+        /// Axial spacing error magnitude e_c (µm) — how far the sensor sits from the corrector's design
+        /// spacing. Negative means "not entered", in which case it is inferred from
+        /// <see cref="BackfocusErrorMicrons"/>; the direction is always taken from that error's sign, since a
+        /// corrector's curvature response to spacing has one fixed sign.
+        /// </summary>
+        double BackfocusSpacingErrorMicrons { get; set; }
+
+        /// <summary>Resolved spacing error (µm) after inference — the hint shown when the box is left blank.</summary>
+        double EffectiveBackfocusSpacingErrorMicrons { get; }
+
+        /// <summary>ρ = c_a/c_m, how much astigmatism accompanies the residual field curvature. Non-negative.</summary>
+        double AstigmatismRatio { get; set; }
+
         // Simulated tilt adapter. Deliberately separate from the user's real ITiltAdapterOptions: the inspector
         // guides from the REAL calibration, so the two must be comparable but must never implicitly overwrite
         // each other. The panel surfaces a coherence badge + explicit copy commands instead.

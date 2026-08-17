@@ -12,6 +12,7 @@
 
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
@@ -141,6 +142,21 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         /// </summary>
         public const double DefaultFocuserStepSizeMicrons = 2.0;
 
+        /// <summary>
+        /// Shipped corner curvature effect (µm). Nonzero on purpose: with it at zero the field-astigmatism
+        /// model has nothing to work from and a user enabling aberrations would see only round stars. 50 µm is
+        /// ≈ 0.75× the critical focus zone at f/7 on a full frame — visible but not caricatured — and
+        /// corresponds to a 1 mm spacer error under the nominal flattener the spacing inference assumes.
+        /// </summary>
+        public const double DefaultBackfocusErrorMicrons = 50.0;
+
+        /// <summary>
+        /// Shipped ρ = c_a/c_m. The reference doc has both correction terms growing together with spacing
+        /// error and comparable in size, so a ratio of order one is the physical starting point; 0.7 keeps the
+        /// astigmatism a little under the curvature.
+        /// </summary>
+        public const double DefaultAstigmatismRatio = 0.7;
+
         /// <summary>The stored value meaning "unset — infer it". Matches the plugin's <c>DoubleNegativeToEmptyStringConverter</c> convention.</summary>
         private const double Unset = -1.0;
 
@@ -256,9 +272,12 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             enableAberrations = optionsAccessor.GetValueBoolean(nameof(EnableAberrations), false);
             tiltAngleDegrees = optionsAccessor.GetValueDouble(nameof(TiltAngleDegrees), 0.0);
             tiltAmountMicrons = optionsAccessor.GetValueDouble(nameof(TiltAmountMicrons), 0.0);
-            backfocusErrorMicrons = optionsAccessor.GetValueDouble(nameof(BackfocusErrorMicrons), 0.0);
+            backfocusErrorMicrons = optionsAccessor.GetValueDouble(nameof(BackfocusErrorMicrons), DefaultBackfocusErrorMicrons);
             opticalAxisOffsetXMicrons = optionsAccessor.GetValueDouble(nameof(OpticalAxisOffsetXMicrons), 0.0);
             opticalAxisOffsetYMicrons = optionsAccessor.GetValueDouble(nameof(OpticalAxisOffsetYMicrons), 0.0);
+            enableFieldAstigmatism = optionsAccessor.GetValueBoolean(nameof(EnableFieldAstigmatism), true);
+            backfocusSpacingErrorMicrons = optionsAccessor.GetValueDouble(nameof(BackfocusSpacingErrorMicrons), AberrationSurface.UnsetSpacingErrorMicrons);
+            astigmatismRatio = optionsAccessor.GetValueDouble(nameof(AstigmatismRatio), DefaultAstigmatismRatio);
             // Heal a stored screw count outside 3|4 (a hand-edited or legacy profile). SimulatedTiltAdapter rejects
             // anything else, so an unhealed value would surface as a panel-construction crash rather than a 3.
             simScrewCount = optionsAccessor.GetValueInt32(nameof(SimScrewCount), 3) == 4 ? 4 : 3;
@@ -302,9 +321,12 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             EnableAberrations = false;
             TiltAngleDegrees = 0.0;
             TiltAmountMicrons = 0.0;
-            BackfocusErrorMicrons = 0.0;
+            BackfocusErrorMicrons = DefaultBackfocusErrorMicrons;
             OpticalAxisOffsetXMicrons = 0.0;
             OpticalAxisOffsetYMicrons = 0.0;
+            EnableFieldAstigmatism = true;
+            BackfocusSpacingErrorMicrons = AberrationSurface.UnsetSpacingErrorMicrons;
+            AstigmatismRatio = DefaultAstigmatismRatio;
             SimScrewCount = 3;
             SimScrewNumberingClockwise = true;
             SimScrew1AngleDegrees = 0.0;
@@ -675,6 +697,72 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 if (backfocusErrorMicrons != value) {
                     backfocusErrorMicrons = value;
                     optionsAccessor.SetValueDouble(nameof(BackfocusErrorMicrons), backfocusErrorMicrons);
+                    RaisePropertyChanged();
+                    // The inferred spacing error is derived from this, so its hint text has to follow.
+                    RaisePropertyChanged(nameof(EffectiveBackfocusSpacingErrorMicrons));
+                }
+            }
+        }
+
+        private bool enableFieldAstigmatism;
+
+        public bool EnableFieldAstigmatism {
+            get => enableFieldAstigmatism;
+            set {
+                if (enableFieldAstigmatism != value) {
+                    enableFieldAstigmatism = value;
+                    optionsAccessor.SetValueBoolean(nameof(EnableFieldAstigmatism), enableFieldAstigmatism);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double backfocusSpacingErrorMicrons;
+
+        public double BackfocusSpacingErrorMicrons {
+            get => backfocusSpacingErrorMicrons;
+            set {
+                if (backfocusSpacingErrorMicrons != value) {
+                    backfocusSpacingErrorMicrons = value;
+                    optionsAccessor.SetValueDouble(nameof(BackfocusSpacingErrorMicrons), backfocusSpacingErrorMicrons);
+                    RaisePropertyChanged();
+                    RaisePropertyChanged(nameof(EffectiveBackfocusSpacingErrorMicrons));
+                }
+            }
+        }
+
+        /// <summary>
+        /// The spacing error the renderer will actually use: the entered magnitude when one was entered, and
+        /// otherwise <c>K / c_m0</c> — the spacing a nominal flattener would need to produce the configured
+        /// corner curvature effect. Signed, following the backfocus error.
+        /// </summary>
+        public double EffectiveBackfocusSpacingErrorMicrons {
+            get {
+                if (backfocusSpacingErrorMicrons >= 0.0) {
+                    return backfocusErrorMicrons < 0.0 ? -backfocusSpacingErrorMicrons : backfocusSpacingErrorMicrons;
+                }
+                // K·(halfW² + halfH²) == BackfocusErrorMicrons, and e_c = K / c_m0, so the sensor's half-diagonal
+                // cancels out of the ratio only once the sensor is known — take it from the configured model.
+                var sensor = SensorRegistry.Get(SensorModel);
+                var halfWidth = sensor.Width * sensor.PixelSizeMicrons / 2.0;
+                var halfHeight = sensor.Height * sensor.PixelSizeMicrons / 2.0;
+                var cornerRadiusSquared = halfWidth * halfWidth + halfHeight * halfHeight;
+                if (cornerRadiusSquared <= 0.0) {
+                    return 0.0;
+                }
+                var curvature = backfocusErrorMicrons / cornerRadiusSquared;
+                return curvature / AberrationSurface.NominalCurvaturePerSpacingPerAreaMicrons;
+            }
+        }
+
+        private double astigmatismRatio;
+
+        public double AstigmatismRatio {
+            get => astigmatismRatio;
+            set {
+                if (astigmatismRatio != value) {
+                    astigmatismRatio = value;
+                    optionsAccessor.SetValueDouble(nameof(AstigmatismRatio), astigmatismRatio);
                     RaisePropertyChanged();
                 }
             }
