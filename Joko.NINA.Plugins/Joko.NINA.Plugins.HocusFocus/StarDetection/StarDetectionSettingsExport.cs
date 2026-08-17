@@ -15,20 +15,29 @@ using Newtonsoft.Json.Serialization;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter;
 using System;
 using System.IO;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
     /// <summary>
-    /// File envelope for exporting/importing ONLY star-detection parameters between machines (tune on a fast box,
-    /// import on the imaging box). Wraps a flat, profile-detached <see cref="StarDetectionSettingsSnapshot"/> with a
-    /// schema version + provenance. The JSON conventions and the never-throwing <see cref="TryLoad"/> pattern mirror
-    /// <see cref="AutoFocusReplayMetadata"/>; the envelope fields are kept OUT of the snapshot itself because that type
-    /// is reused as the AF replay payload and as the engine's in-memory override, where a schema/provenance would be
-    /// meaningless.
+    /// File envelope for exporting/importing one filter's star-detection parameters — plus its auto-focus sweep
+    /// geometry — between machines (tune on a fast box, import on the imaging box). Wraps a flat, profile-detached
+    /// <see cref="StarDetectionSettingsSnapshot"/> with a schema version + provenance. The JSON conventions and the
+    /// never-throwing <see cref="TryLoad"/> pattern mirror <see cref="AutoFocusReplayMetadata"/>; the envelope fields
+    /// are kept OUT of the snapshot itself because that type is reused as the AF replay payload and as the engine's
+    /// in-memory override, where a schema/provenance would be meaningless.
     /// </summary>
     public sealed class StarDetectionSettingsExport {
+
+        /// <summary>
+        /// Deliberately still 1 after the <see cref="FilterName"/> and <see cref="SweepGeometry"/> nodes were added.
+        /// Both are additive and optional in BOTH directions — a new plugin reading an old file gets null, and an old
+        /// plugin reading a new file ignores the extra key — so bumping this would only make an older plugin refuse a
+        /// file it can read perfectly well (<see cref="TryLoad"/> rejects a newer schema). Bump it when a change
+        /// actually breaks one of those directions.
+        /// </summary>
         public const int CurrentSchemaVersion = 1;
 
         /// <summary>Discriminator that distinguishes this file from an AutoFocus <c>metadata.json</c> — the latter also
@@ -64,11 +73,33 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// <see cref="StarDetectionSettingsSnapshot"/>).</summary>
         public StarDetectionSettingsSnapshot StarDetection { get; set; }
 
+        /// <summary>
+        /// The exported filter's auto-focus sweep-geometry override, or null when the file carries none (per-filter
+        /// star detection was off, and every export written before this node existed). Omitted from the JSON when
+        /// null so those files keep the legacy schema byte-for-byte.
+        ///
+        /// <para>A SIBLING of <see cref="StarDetection"/> rather than a member of it, because that type is also the
+        /// AF replay metadata payload and the engine's in-memory detector override — a focuser sweep inside a node
+        /// named <c>starDetection</c> would be meaningless in both roles (see
+        /// <see cref="PerFilterSweepGeometry"/>'s own remarks).</para>
+        ///
+        /// <para>Null and "unset" are deliberately DIFFERENT states here. Null means the file says nothing about the
+        /// sweep, so an import leaves the receiving filter's override alone; an unset (both-inherit) instance means
+        /// the exported filter explicitly inherited the profile, so an import clears a stale override on the
+        /// receiving side. Collapsing the two would make a legacy file silently wipe a filter's sweep.</para>
+        /// </summary>
+        [JsonProperty(NullValueHandling = NullValueHandling.Ignore)]
+        public PerFilterSweepGeometry SweepGeometry { get; set; }
+
         /// <summary>Captures the live options into a portable export. The machine-local intermediate-image path and
         /// save-intermediate flag are blanked: they are never applied on import and the path would otherwise leak a
         /// local user directory into the shared file. <paramref name="filterName"/> is the edited filter when
-        /// per-filter star detection is on; null/empty leaves the provenance field absent.</summary>
-        public static StarDetectionSettingsExport FromOptions(IStarDetectionOptions options, string filterName = null) {
+        /// per-filter star detection is on; null/empty leaves the provenance field absent.
+        /// <paramref name="sweepGeometry"/> is that filter's sweep override (pass null when there is no per-filter
+        /// context at all); it is normalized and copied, so a later edit to the caller's instance cannot reach the
+        /// file.</summary>
+        public static StarDetectionSettingsExport FromOptions(
+                IStarDetectionOptions options, string filterName = null, PerFilterSweepGeometry sweepGeometry = null) {
             if (options == null) {
                 throw new ArgumentNullException(nameof(options));
             }
@@ -83,7 +114,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 CreatedAtUtc = DateTime.UtcNow,
                 PluginVersion = typeof(StarDetectionSettingsExport).Assembly.GetName().Version?.ToString(),
                 FilterName = string.IsNullOrEmpty(filterName) ? null : filterName,
-                StarDetection = snapshot
+                StarDetection = snapshot,
+                SweepGeometry = sweepGeometry?.Normalized()
             };
         }
 

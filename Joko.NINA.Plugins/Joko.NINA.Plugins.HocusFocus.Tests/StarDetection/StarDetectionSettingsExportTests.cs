@@ -5,6 +5,7 @@ using NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization;
+using NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Profile.Interfaces;
 using NSubstitute;
@@ -279,6 +280,142 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             var options = new StarDetectionOptions(Substitute.For<IProfileService>(), new InMemoryPluginOptionsAccessor());
             var export = StarDetectionSettingsExport.FromOptions(options);
             Assert.That(export.FilterName, Is.Null);
+        }
+
+        // --- Sweep geometry travels in the file --------------------------------------------------------------
+        //
+        // A sibling node, not part of the starDetection snapshot: that type is also the AF replay payload and the
+        // engine's in-memory detector override, where a focuser sweep would be meaningless.
+
+        [Test]
+        public void FromOptions_StampsSweepGeometry_WhenProvided() {
+            var options = new StarDetectionOptions(Substitute.For<IProfileService>(), new InMemoryPluginOptionsAccessor());
+
+            var export = StarDetectionSettingsExport.FromOptions(
+                options, "Ha", new PerFilterSweepGeometry() { StepSize = 25, InitialOffsetSteps = 8 });
+
+            Assert.Multiple(() => {
+                Assert.That(export.SweepGeometry, Is.Not.Null);
+                Assert.That(export.SweepGeometry.StepSize, Is.EqualTo(25));
+                Assert.That(export.SweepGeometry.InitialOffsetSteps, Is.EqualTo(8));
+            });
+        }
+
+        [Test]
+        public void FromOptions_LeavesSweepGeometryNull_ByDefault() {
+            var options = new StarDetectionOptions(Substitute.For<IProfileService>(), new InMemoryPluginOptionsAccessor());
+            var export = StarDetectionSettingsExport.FromOptions(options);
+            Assert.That(export.SweepGeometry, Is.Null);
+        }
+
+        [Test]
+        public void FromOptions_NormalizesUnusableSweepGeometry() {
+            // A 0 step size must never reach the file (nor, from there, the engine): it is written as "inherit".
+            var options = new StarDetectionOptions(Substitute.For<IProfileService>(), new InMemoryPluginOptionsAccessor());
+
+            var export = StarDetectionSettingsExport.FromOptions(
+                options, "Ha", new PerFilterSweepGeometry() { StepSize = 0, InitialOffsetSteps = 0 });
+
+            Assert.Multiple(() => {
+                Assert.That(export.SweepGeometry.StepSize, Is.EqualTo(PerFilterSweepGeometry.Inherit));
+                Assert.That(export.SweepGeometry.InitialOffsetSteps, Is.EqualTo(PerFilterSweepGeometry.Inherit));
+            });
+        }
+
+        [Test]
+        public void FromOptions_DoesNotAliasTheCallersSweepGeometry() {
+            var options = new StarDetectionOptions(Substitute.For<IProfileService>(), new InMemoryPluginOptionsAccessor());
+            var geometry = new PerFilterSweepGeometry() { StepSize = 25, InitialOffsetSteps = 8 };
+
+            var export = StarDetectionSettingsExport.FromOptions(options, "Ha", geometry);
+            geometry.StepSize = 99;
+
+            Assert.That(export.SweepGeometry.StepSize, Is.EqualTo(25));
+        }
+
+        [Test]
+        public void RoundTrips_SweepGeometry() {
+            var original = BuildPopulated();
+            original.SweepGeometry = new PerFilterSweepGeometry() { StepSize = 25, InitialOffsetSteps = 8 };
+
+            var json = original.Serialize();
+            Assert.Multiple(() => {
+                Assert.That(json, Does.Contain("\"sweepGeometry\""));
+                // The resolution predicates are computed; only the two stored fields belong in the file.
+                Assert.That(json, Does.Not.Contain("hasStepSize"));
+                Assert.That(json, Does.Not.Contain("isUnset"));
+            });
+
+            var restored = StarDetectionSettingsExport.Deserialize(json);
+            restored.Validate();
+
+            Assert.Multiple(() => {
+                Assert.That(restored.SweepGeometry.StepSize, Is.EqualTo(25));
+                Assert.That(restored.SweepGeometry.InitialOffsetSteps, Is.EqualTo(8));
+            });
+        }
+
+        [Test]
+        public void RoundTrips_InheritSweepGeometry() {
+            // "This filter inherits the profile" is a real state that has to survive the file, so that importing it
+            // can CLEAR a stale override on the receiving machine rather than silently leaving it in place.
+            var original = BuildPopulated();
+            original.SweepGeometry = PerFilterSweepGeometry.Unset();
+
+            var restored = StarDetectionSettingsExport.Deserialize(original.Serialize());
+
+            Assert.Multiple(() => {
+                Assert.That(restored.SweepGeometry, Is.Not.Null);
+                Assert.That(restored.SweepGeometry.IsUnset, Is.True);
+            });
+        }
+
+        [Test]
+        public void Serialize_OmitsSweepGeometry_WhenNotSet() {
+            // Exports written with per-filter mode off must stay byte-compatible with the pre-geometry schema.
+            var json = BuildPopulated().Serialize();
+
+            Assert.That(json, Does.Not.Contain("sweepGeometry"));
+
+            var restored = StarDetectionSettingsExport.Deserialize(json);
+            restored.Validate();
+            Assert.That(restored.SweepGeometry, Is.Null);
+        }
+
+        [Test]
+        public void TryLoad_LoadsLegacyFileWithoutSweepGeometry() {
+            var path = Path.Combine(Path.GetTempPath(), "HFExport_" + Guid.NewGuid().ToString("N") + ".json");
+            try {
+                // Written by a plugin version that predates the sweep-geometry node. Additive and optional, so the
+                // schema version is deliberately unchanged — an older plugin can still read a newer file.
+                File.WriteAllText(path, @"{
+  ""fileType"": ""HocusFocusStarDetectionSettings"",
+  ""schemaVersion"": 1,
+  ""createdAtUtc"": ""2026-06-28T01:02:03Z"",
+  ""pluginVersion"": ""3.0.0.99"",
+  ""filterName"": ""Ha"",
+  ""starDetection"": { ""brightnessSensitivity"": 7.25 }
+}");
+
+                var ok = StarDetectionSettingsExport.TryLoad(path, out var export, out var error);
+
+                Assert.Multiple(() => {
+                    Assert.That(ok, Is.True);
+                    Assert.That(error, Is.Null);
+                    Assert.That(export.SweepGeometry, Is.Null, "a file with no geometry node must not fabricate one");
+                });
+            } finally {
+                File.Delete(path);
+            }
+        }
+
+        [Test]
+        public void FromOptimizedLanding_CarriesNoSweepGeometry() {
+            // The optimizer's run-folder handoff is written from a headless pass with no filter context, and its
+            // consumer (ImportFromRunFolderAsync) has no per-filter target, so it must not claim one.
+            var options = new StarDetectionOptions(Substitute.For<IProfileService>(), new InMemoryPluginOptionsAccessor());
+            var export = StarDetectionSettingsExport.FromOptimizedLanding(options, new OptimizedStarDetectionSettings());
+            Assert.That(export.SweepGeometry, Is.Null);
         }
     }
 }
