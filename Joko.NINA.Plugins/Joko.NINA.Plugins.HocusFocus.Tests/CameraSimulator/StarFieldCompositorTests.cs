@@ -191,6 +191,139 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 () => compositor.Render(SyntheticCameraTestScene.Request(SyntheticCameraTestScene.OptimalFocuserPosition), cts.Token));
         }
 
+        // -----------------------------------------------------------------------------------------------
+        // Astigmatism: the elliptical kernel path through the compositor.
+        // -----------------------------------------------------------------------------------------------
+
+        private static List<CatalogStar> AstigmatismScene() {
+            var projection = SyntheticCameraTestScene.Projection();
+            return new List<CatalogStar> {
+                SyntheticCameraTestScene.StarAtPixel(projection, 300, 1504, 10.2),
+                SyntheticCameraTestScene.StarAtPixel(projection, 2700, 1504, 10.2),
+                SyntheticCameraTestScene.StarAtPixel(projection, 1504, 300, 10.4),
+                SyntheticCameraTestScene.StarAtPixel(projection, 1504, 2700, 10.4),
+                SyntheticCameraTestScene.StarAtPixel(projection, 1504, 1504, 10.0),
+                SyntheticCameraTestScene.StarAtPixel(projection, 700, 700, 10.6),
+                SyntheticCameraTestScene.StarAtPixel(projection, 2300, 2300, 10.6),
+            };
+        }
+
+        [Test]
+        public void Render_AstigmatismDisabled_IsByteIdenticalToBefore() {
+            // The toggle ships enabled, so this is the guard that it cannot move a frame it was not asked to.
+            // With the ratio at zero the split is literally 0.0, every star collapses onto the same quantized
+            // level it always had, and the compositor takes the circular generator -- so the frames must agree
+            // to the byte, not merely closely.
+            var stars = AstigmatismScene();
+            var steps = SyntheticCameraTestScene.OptimalFocuserPosition + 120;
+            var withoutFeature = SyntheticCameraTestScene.Request(steps,
+                aberrationsEnabled: true, tiltAngleDegrees: 30.0, tiltAmountMicrons: 90.0, backfocusErrorMicrons: 40.0);
+            var featureOnRatioZero = withoutFeature with { AstigmatismEnabled = true, AstigmatismRatio = 0.0 };
+
+            var a = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(withoutFeature, CancellationToken.None);
+            var b = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(featureOnRatioZero, CancellationToken.None);
+            Assert.That(b, Is.EqualTo(a).AsCollection);
+        }
+
+        [Test]
+        public void Render_AstigmatismChangesPixels_WhenTheRatioIsNonzero() {
+            // The complement of the byte-identity guard: with a real ratio the frame must actually differ, or
+            // the feature is wired up but inert.
+            var stars = AstigmatismScene();
+            var steps = SyntheticCameraTestScene.OptimalFocuserPosition + 120;
+            var off = SyntheticCameraTestScene.Request(steps,
+                aberrationsEnabled: true, tiltAngleDegrees: 30.0, tiltAmountMicrons: 90.0, backfocusErrorMicrons: 40.0);
+            var on = off with { AstigmatismEnabled = true, AstigmatismRatio = 0.7 };
+
+            var a = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(off, CancellationToken.None);
+            var b = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(on, CancellationToken.None);
+            Assert.That(b, Is.Not.EqualTo(a).AsCollection);
+        }
+
+        [Test]
+        public void Render_WithAstigmatism_IsDeterministicAndPure() {
+            // The kernels are now built on a Parallel.For over the distinct cache keys. Determinism is what
+            // proves each one lands in its own slot and is a pure function of its key -- and purity is the
+            // contract the camera relies on when it prefetches the render at StartExposure.
+            var stars = AstigmatismScene();
+            var request = SyntheticCameraTestScene.Request(SyntheticCameraTestScene.OptimalFocuserPosition + 120,
+                aberrationsEnabled: true, tiltAngleDegrees: 30.0, tiltAmountMicrons: 90.0, backfocusErrorMicrons: 40.0,
+                astigmatismEnabled: true, astigmatismRatio: 0.7);
+            var compositor = new StarFieldCompositor(new FakeCatalogReader(stars));
+
+            var inline = compositor.Render(request, CancellationToken.None);
+            var again = compositor.Render(request, CancellationToken.None);
+            var offThread = Task.Run(() => compositor.Render(request, CancellationToken.None)).GetAwaiter().GetResult();
+
+            Assert.Multiple(() => {
+                Assert.That(again, Is.EqualTo(inline).AsCollection, "same request, same pixels");
+                Assert.That(offThread, Is.EqualTo(inline).AsCollection, "and on any thread");
+            });
+        }
+
+        [Test]
+        public void Render_KernelCacheCardinality_StaysBounded() {
+            // Pure counting, no clock: the wall-clock benchmark lives in TestApp, but cardinality and bytes are
+            // what actually regress if someone halves a quantum, and they are deterministic enough to gate on.
+            var stars = AstigmatismScene();
+            var request = SyntheticCameraTestScene.Request(SyntheticCameraTestScene.OptimalFocuserPosition + 350,
+                aberrationsEnabled: true, tiltAngleDegrees: 30.0, tiltAmountMicrons: 200.0, backfocusErrorMicrons: 120.0,
+                astigmatismEnabled: true, astigmatismRatio: 1.5);
+            var timings = new RenderPhaseTimings();
+            new StarFieldCompositor(new FakeCatalogReader(stars)).Render(request, null, timings, CancellationToken.None);
+
+            Assert.Multiple(() => {
+                Assert.That(timings.DistinctKernels, Is.LessThanOrEqualTo(stars.Count),
+                    "no more kernels than stars -- each star needs at most one");
+                Assert.That(timings.DistinctKernels, Is.GreaterThan(1), "an aggressive field really is multi-kernel");
+                Assert.That(timings.KernelCacheBytes, Is.LessThan(128L * 1024 * 1024), "inside the cache budget");
+            });
+        }
+
+        [Test]
+        public void Render_TruthSink_CarriesTheAstigmaticShape() {
+            var stars = AstigmatismScene();
+            var request = SyntheticCameraTestScene.Request(SyntheticCameraTestScene.OptimalFocuserPosition + 120,
+                aberrationsEnabled: true, tiltAngleDegrees: 0.0, tiltAmountMicrons: 120.0, backfocusErrorMicrons: 40.0,
+                astigmatismEnabled: true, astigmatismRatio: 0.7);
+            var truth = new List<StarTruth>();
+            new StarFieldCompositor(new FakeCatalogReader(stars)).Render(request, truth, CancellationToken.None);
+
+            Assert.That(truth, Is.Not.Empty);
+            var elongated = 0;
+            foreach (var t in truth) {
+                Assert.That(t.OuterRadiusPixels,
+                    Is.EqualTo(Math.Max(t.OuterRadiusRadialPixels, t.OuterRadiusTangentialPixels)).Within(1e-12),
+                    "OuterRadiusPixels is the enclosing extent, which is what golden box sizing depends on");
+                Assert.That(t.QuantizedDefocusMicrons,
+                    Is.EqualTo(0.5 * (t.QuantizedTangentialDefocusMicrons + t.QuantizedSagittalDefocusMicrons)).Within(1e-9),
+                    "the reported defocus stays the mean of the pair");
+                if (t.OuterRadiusRadialPixels != t.OuterRadiusTangentialPixels) {
+                    ++elongated;
+                    Assert.That(t.PredictedEccentricity, Is.GreaterThan(0.0));
+                    Assert.That(t.OrientationBin, Is.GreaterThanOrEqualTo(0));
+                }
+            }
+            Assert.That(elongated, Is.GreaterThan(0), "an off-axis star in this field must render elliptical");
+        }
+
+        [Test]
+        public void Render_WingSpillStarAtAnAstigmaticCorner_IsStillStamped() {
+            // The projection margin is sized from |Δ| + |A|, since the larger semi-axis is what actually spills
+            // onto the sensor. Sizing it from |Δ| alone would silently drop this star.
+            var projection = SyntheticCameraTestScene.Projection();
+            var offFrame = new List<CatalogStar> {
+                SyntheticCameraTestScene.StarAtPixel(projection, -14, -14, 8.5)
+            };
+            var request = SyntheticCameraTestScene.Request(SyntheticCameraTestScene.OptimalFocuserPosition + 350,
+                aberrationsEnabled: true, tiltAngleDegrees: 225.0, tiltAmountMicrons: 200.0, backfocusErrorMicrons: 120.0,
+                astigmatismEnabled: true, astigmatismRatio: 1.5);
+
+            var truth = new List<StarTruth>();
+            new StarFieldCompositor(new FakeCatalogReader(offFrame)).Render(request, truth, CancellationToken.None);
+            Assert.That(truth, Has.Count.EqualTo(1), "an off-frame star whose donut reaches the sensor is still stamped");
+        }
+
         private static long WindowSum(ushort[] pixels, int width, int cx, int cy, int radius) {
             long sum = 0;
             var height = pixels.Length / width;

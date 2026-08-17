@@ -91,6 +91,37 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <summary>Target rows per stripe used to size the row-stripe partition (bounds boundary re-stamping).</summary>
         private const int TargetRowsPerStripe = 128;
 
+        /// <summary>
+        /// How far (px) the quantized orientation is allowed to displace an ellipse's rim. Deliberately the
+        /// same number as <see cref="DonutRadiusQuantumPixels"/>, so the angular and radial quantization errors
+        /// are budgeted alike rather than one silently dominating.
+        /// </summary>
+        private const double OrientationRimQuantumPixels = 0.25;
+
+        /// <summary>
+        /// Ceiling on orientation bins. At 64 the position angle is quantized to ±1.4°, comfortably under the
+        /// scatter of the detector's own fitted θ, so finer bins would only cost cache.
+        /// </summary>
+        private const int MaxOrientationBins = 64;
+
+        /// <summary>
+        /// Byte budget for one render's PSF kernel cache. The 3-D key is the first thing in this pipeline that
+        /// can allocate unboundedly — with one quantized defocus the level count was bounded by the field's own
+        /// Δ spread and never needed a guard. One kernel is <c>S²·(2R+1)²·4</c> bytes: 223 KB at R = 29 and
+        /// 817 KB at R = 56, on top of a 244 MB accumulator and a 122 MB output for a 61 MP frame.
+        /// </summary>
+        private const long MaxKernelCacheBytes = 128L * 1024 * 1024;
+
+        /// <summary>Largest factor by which the defocus quantum may be coarsened (and the bins thinned) to fit the budget.</summary>
+        private const int MaxCoarseningFactor = 16;
+
+        /// <summary>
+        /// Belt-and-braces cap on distinct kernels per render. The up-front budget is the real control; this
+        /// catches an estimate that turned out optimistic, by collapsing further stars onto the circular kernel
+        /// for their mean defocus — a bounded, well-defined degradation rather than an unbounded allocation.
+        /// </summary>
+        private const int HardKernelCount = 4096;
+
         private readonly Func<string, IAstapCatalogReader> catalogReaderFactory;
 
         /// <param name="catalogReaderFactory">Resolves the ASTAP catalog reader for a catalog directory. Invoked
@@ -128,6 +159,98 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             public double Cy { get; }
             public PsfKernel Kernel { get; }
             public double Flux { get; }
+        }
+
+        /// <summary>
+        /// The PSF kernel cache key. With astigmatism the blur is an ellipse, so one quantized defocus no
+        /// longer identifies a kernel: the tangential and sagittal defocuses set the two semi-axes and the
+        /// orientation bin sets the position angle.
+        ///
+        /// <para><b>Isotropy is decided from the quantized levels, never from the raw Δ.</b> Branching on
+        /// "the semi-axes are nearly equal" while keying on levels would let two stars share a key and want
+        /// different kernels — the cache would stop being a function of its key. With the level rule, equal
+        /// |levels| means <see cref="IsotropicOrientationBin"/> and the existing circular generator. And the
+        /// collapse lands on exactly today's level: if <c>round((Δ−A)/q) == round((Δ+A)/q) == L</c> then
+        /// <c>|Δ − Lq| ≤ q/2</c>, so <c>L == round(Δ/q)</c>. Since A is literally 0.0 when astigmatism is off,
+        /// "astigmatism off renders byte-identically" is a proof rather than a hope.</para>
+        /// </summary>
+        private readonly record struct PsfKernelKey(long LevelT, long LevelS, int OrientationBin);
+
+        /// <summary>Orientation bin meaning "the semi-axes are equal, so this kernel is circular".</summary>
+        private const int IsotropicOrientationBin = -1;
+
+        /// <summary>
+        /// Everything about the aberration surface that has to be known <b>before</b> the star loop: the
+        /// projection margin, the orientation quantization, and the kernel-cache budget all depend on the
+        /// field's extremes. Deciding them up front is what keeps fidelity uniform across one frame — a
+        /// mid-loop adjustment would render one corner at a different quality from another.
+        /// </summary>
+        private readonly struct FieldSurvey {
+            public FieldSurvey(double maxAbsDefocus, double maxAbsSplit, double defocusRange, double splitRange, double maxCombined) {
+                MaxAbsDefocusMicrons = maxAbsDefocus;
+                MaxAbsSplitMicrons = maxAbsSplit;
+                DefocusRangeMicrons = defocusRange;
+                SplitRangeMicrons = splitRange;
+                MaxCombinedMicrons = maxCombined;
+            }
+
+            /// <summary>Largest |Δ| over the sample points.</summary>
+            public double MaxAbsDefocusMicrons { get; }
+
+            /// <summary>Largest |A| over the sample points.</summary>
+            public double MaxAbsSplitMicrons { get; }
+
+            /// <summary>Peak-to-peak spread of Δ over the sample points.</summary>
+            public double DefocusRangeMicrons { get; }
+
+            /// <summary>Peak-to-peak spread of A over the sample points.</summary>
+            public double SplitRangeMicrons { get; }
+
+            /// <summary>Largest |Δ| + |A|, i.e. the largest <c>max(|Δ_T|, |Δ_S|)</c> and so the largest semi-axis.</summary>
+            public double MaxCombinedMicrons { get; }
+        }
+
+        /// <summary>A star that survived projection, before its kernel-cache key is assigned.</summary>
+        private readonly struct ProjectedStar {
+            public ProjectedStar(double cx, double cy, int px, int py, double flux, double raDegrees, double decDegrees, double magnitude) {
+                Cx = cx; Cy = cy; Px = px; Py = py; Flux = flux;
+                RaDegrees = raDegrees; DecDegrees = decDegrees; Magnitude = magnitude;
+            }
+
+            public double Cx { get; }
+            public double Cy { get; }
+            public int Px { get; }
+            public int Py { get; }
+            public double Flux { get; }
+            public double RaDegrees { get; }
+            public double DecDegrees { get; }
+            public double Magnitude { get; }
+        }
+
+        /// <summary>A projected star, resolved down to its kernel-cache slot. Pass 1 of the three-pass build.</summary>
+        private readonly struct StarPlacement {
+            public StarPlacement(double cx, double cy, double flux, int kernelIndex,
+                    double defocusMicrons, double splitMicrons, double quantizedTangential, double quantizedSagittal,
+                    int orientationBin, double raDegrees, double decDegrees, double magnitude) {
+                Cx = cx; Cy = cy; Flux = flux; KernelIndex = kernelIndex;
+                DefocusMicrons = defocusMicrons; SplitMicrons = splitMicrons;
+                QuantizedTangentialMicrons = quantizedTangential; QuantizedSagittalMicrons = quantizedSagittal;
+                OrientationBin = orientationBin;
+                RaDegrees = raDegrees; DecDegrees = decDegrees; Magnitude = magnitude;
+            }
+
+            public double Cx { get; }
+            public double Cy { get; }
+            public double Flux { get; }
+            public int KernelIndex { get; }
+            public double DefocusMicrons { get; }
+            public double SplitMicrons { get; }
+            public double QuantizedTangentialMicrons { get; }
+            public double QuantizedSagittalMicrons { get; }
+            public int OrientationBin { get; }
+            public double RaDegrees { get; }
+            public double DecDegrees { get; }
+            public double Magnitude { get; }
         }
 
         /// <inheritdoc/>
@@ -241,9 +364,14 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             var quantumMicrons = DefocusQuantumMicrons(defocusModel);
             var maxAbsMicrons = MaxAbsDefocusMicrons(defocusModel);
 
-            // PSF margin: the worst-case kernel radius over the field (evaluated at the corners for this focuser
-            // position). Stars whose centres fall up to this far off-frame still spill their donut onto the sensor.
-            var psfMargin = WorstCaseKernelRadius(request, sensor, defocusModel, aberration, quantumMicrons, maxAbsMicrons);
+            // Everything that must be settled before the star loop, from a handful of field extrema.
+            var field = SurveyField(request, sensor, aberration);
+            var astigmatic = aberration.AstigmatismCoefficient != 0.0;
+            var orientationBins = astigmatic ? OrientationBinCount(field, defocusModel) : 1;
+
+            // PSF margin: the worst-case kernel radius over the field for this focuser position. Stars whose
+            // centres fall up to this far off-frame still spill their donut onto the sensor.
+            var psfMargin = WorstCaseKernelRadius(defocusModel, field, quantumMicrons, maxAbsMicrons);
 
             var catalogStart = timings != null ? Stopwatch.GetTimestamp() : 0L;
             var stars = QueryCatalogStars(request, fovDeg);
@@ -252,8 +380,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 timings.StarsQueried = stars.Count;
             }
 
-            var jobs = new List<StampJob>(stars.Count);
-            var kernelCache = new Dictionary<long, PsfKernel>();
+            // --- pass 1a: project every star once ---
+            // Projection is the expensive part of the star loop, so it is done once and the cheap key
+            // assignment (pass 1b) can be repeated while the cache budget is being resolved.
+            var projected = new List<ProjectedStar>(stars.Count);
             var processed = 0;
             foreach (var star in stars) {
                 if ((++processed & 0x3FFF) == 0) {
@@ -272,42 +402,114 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                     continue;
                 }
 
-                var px = (int)Math.Round(x);
-                var py = (int)Math.Round(y);
-                var delta = aberration.LocalDefocusMicrons(px, py, request.FocuserPosition);
-                var level = QuantizeLevel(delta, quantumMicrons, maxAbsMicrons);
-                if (!kernelCache.TryGetValue(level, out var kernel)) {
-                    var kernelStart = timings != null ? Stopwatch.GetTimestamp() : 0L;
-                    kernel = PsfKernelGenerator.Generate(defocusModel, level * quantumMicrons);
-                    if (timings != null) {
-                        timings.KernelGenerateMs += RenderPhaseTimings.ElapsedMs(kernelStart);
-                    }
-                    kernelCache[level] = kernel;
-                }
-
+                // Flux first: a star that contributes nothing must not register a kernel nobody stamps with.
                 var flux = radiometry.StarElectrons(star.Magnitude);
                 if (flux <= 0.0) {
                     continue;
                 }
-                jobs.Add(new StampJob(x, y, kernel, flux));
+
+                projected.Add(new ProjectedStar(
+                    x, y, (int)Math.Round(x), (int)Math.Round(y), flux,
+                    coordinates.RADegrees, coordinates.Dec, star.Magnitude));
+            }
+
+            // --- pass 1b: assign kernel-cache keys, resolving the cache budget by exact count ---
+            // The keys are computed from arithmetic alone -- no kernel is built here -- so the budget can be
+            // checked against what the cache would ACTUALLY hold rather than against an upper bound. That
+            // matters: bounding the count by (Δ cells x A cells x orientation bins) over-counts by several
+            // times, because Δ and A are both smooth functions of field position and so are far from
+            // independent. Coarsening on that estimate would degrade every frame's fidelity to fit a cache
+            // that was never going to be allocated.
+            List<PsfKernelKey> keys = null;
+            List<StarPlacement> placements = null;
+            for (var coarsening = 1; ; coarsening *= 2) {
+                var attemptQuantum = quantumMicrons * coarsening;
+                var attemptBins = Math.Max(1, orientationBins / coarsening);
+                var lastAttempt = coarsening >= MaxCoarseningFactor;
+                var attemptAstigmatic = astigmatic;
+
+                (placements, keys) = AssignKernelKeys(
+                    projected, aberration, request.FocuserPosition, attemptQuantum, maxAbsMicrons,
+                    attemptBins, attemptAstigmatic);
+
+                var bytes = EstimateKernelCacheBytes(keys, defocusModel, attemptQuantum);
+                if (bytes <= MaxKernelCacheBytes || !attemptAstigmatic) {
+                    if (coarsening > 1) {
+                        Logger.Info(
+                            $"Synthetic camera: the astigmatic PSF cache needed coarsening to fit the "
+                            + $"{MaxKernelCacheBytes / 1048576} MB budget — defocus quantum {attemptQuantum:F1} µm, "
+                            + $"{attemptBins} orientation bins, {keys.Count} kernels ({bytes / 1048576.0:F0} MB).");
+                    }
+                    quantumMicrons = attemptQuantum;
+                    orientationBins = attemptBins;
+                    break;
+                }
+                if (lastAttempt) {
+                    Logger.Warning(
+                        $"Synthetic camera: the astigmatic PSF cache still needs {bytes / 1048576.0:F0} MB at the maximum "
+                        + $"{MaxCoarseningFactor}x coarsening, over the {MaxKernelCacheBytes / 1048576} MB budget "
+                        + $"(Δ spread {field.DefocusRangeMicrons:F0} µm, astigmatism spread {field.SplitRangeMicrons:F0} µm). "
+                        + "Rendering this frame with circular donuts — reduce the injected tilt, backfocus error, or "
+                        + "astigmatism ratio to get the elliptical model back.");
+                    astigmatic = false;
+                    (placements, keys) = AssignKernelKeys(
+                        projected, aberration, request.FocuserPosition, quantumMicrons, maxAbsMicrons, 1, false);
+                    orientationBins = 1;
+                    break;
+                }
+            }
+
+            // --- pass 2: build the distinct kernels in parallel ---
+            // Deterministic: the key list order is the deterministic star order, each kernel is a pure function
+            // of its key, and every write lands in its own pre-indexed slot. Routed through the shared CPU
+            // governor for the same reason the stamp and development loops are -- a render is kicked off at
+            // StartExposure and runs alongside the star detection of the previous autofocus point.
+            var kernels = new PsfKernel[keys.Count];
+            var kernelStart = timings != null ? Stopwatch.GetTimestamp() : 0L;
+            var kernelOptions = ParallelExecution.CreateOptions(0, token);
+            Parallel.For(0, keys.Count, kernelOptions, i => {
+                var key = keys[i];
+                kernels[i] = key.OrientationBin == IsotropicOrientationBin
+                    ? PsfKernelGenerator.Generate(defocusModel, key.LevelT * quantumMicrons)
+                    : PsfKernelGenerator.GenerateAstigmatic(
+                        defocusModel, key.LevelT * quantumMicrons, key.LevelS * quantumMicrons,
+                        OrientationBinAngle(key.OrientationBin, orientationBins));
+            });
+            if (timings != null) {
+                timings.KernelGenerateMs = RenderPhaseTimings.ElapsedMs(kernelStart);
+            }
+
+            // --- pass 3: attach kernels to jobs, and emit truth ---
+            var jobs = new List<StampJob>(placements.Count);
+            foreach (var placement in placements) {
+                var kernel = kernels[placement.KernelIndex];
+                jobs.Add(new StampJob(placement.Cx, placement.Cy, kernel, placement.Flux));
 
                 if (truthSink != null) {
                     // Same phase selection Stamp itself will make for this exact (x, y) and kernel — see
                     // StarStamper.SelectPhase's doc for why this can never disagree with the actual stamp.
-                    StarStamper.SelectPhase(x, y, kernel.PhasesPerAxis, out var phaseX, out var phaseY);
+                    StarStamper.SelectPhase(placement.Cx, placement.Cy, kernel.PhasesPerAxis, out var phaseX, out var phaseY);
                     truthSink.Add(new StarTruth {
-                        CxPixels = x,
-                        CyPixels = y,
-                        RaDegrees = coordinates.RADegrees,
-                        DecDegrees = coordinates.Dec,
-                        MagnitudeV = star.Magnitude,
-                        FluxElectrons = flux,
-                        LocalDefocusMicrons = delta,
-                        QuantizedDefocusMicrons = level * quantumMicrons,
+                        CxPixels = placement.Cx,
+                        CyPixels = placement.Cy,
+                        RaDegrees = placement.RaDegrees,
+                        DecDegrees = placement.DecDegrees,
+                        MagnitudeV = placement.Magnitude,
+                        FluxElectrons = placement.Flux,
+                        LocalDefocusMicrons = placement.DefocusMicrons,
+                        QuantizedDefocusMicrons = 0.5 * (placement.QuantizedTangentialMicrons + placement.QuantizedSagittalMicrons),
+                        AstigmatismSplitMicrons = placement.SplitMicrons,
+                        QuantizedTangentialDefocusMicrons = placement.QuantizedTangentialMicrons,
+                        QuantizedSagittalDefocusMicrons = placement.QuantizedSagittalMicrons,
+                        OrientationBin = placement.OrientationBin,
                         AnalyticHfrPixels = kernel.AnalyticHfrPixels,
                         MeasuredHfrPixels = kernel.MeasuredHfrPixels,
                         OuterRadiusPixels = kernel.OuterRadiusPixels,
                         InnerRadiusPixels = kernel.InnerRadiusPixels,
+                        OuterRadiusRadialPixels = kernel.OuterRadiusRadialPixels,
+                        OuterRadiusTangentialPixels = kernel.OuterRadiusTangentialPixels,
+                        PositionAngleRadians = kernel.PositionAngleRadians,
+                        PredictedEccentricity = kernel.PredictedEccentricity,
                         KernelSupportRadiusPixels = kernel.Radius,
                         PhaseX = phaseX,
                         PhaseY = phaseY,
@@ -317,10 +519,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             }
 
             if (timings != null) {
-                timings.DistinctKernels = kernelCache.Count;
+                timings.DistinctKernels = kernels.Length;
                 long cacheBytes = 0;
                 var maxRadius = 0;
-                foreach (var cached in kernelCache.Values) {
+                foreach (var cached in kernels) {
                     cacheBytes += cached.ApproximateByteSize;
                     if (cached.Radius > maxRadius) maxRadius = cached.Radius;
                 }
@@ -328,6 +530,158 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 timings.MaxKernelRadius = maxRadius;
             }
             return jobs;
+        }
+
+        /// <summary>
+        /// Samples the aberration surface at the field's extremes: the four corners, the sensor centre, and the
+        /// interior stationary point of the plane-plus-paraboloid.
+        ///
+        /// <para>That last point matters and used to be missing. <c>z = Gx·x' + Gy·y' + K·r'²</c> is stationary
+        /// at <c>x' = −Gx/(2K), y' = −Gy/(2K)</c>, which coincides with the sensor centre only when the
+        /// gradients and the optical-axis offset all vanish. With a large axis offset the true extremum sits
+        /// away from both, so a corners-plus-centre sample undersizes the projection margin and silently drops
+        /// wing-spilling stars.</para>
+        /// </summary>
+        private static FieldSurvey SurveyField(RenderRequest request, SensorDefinition sensor, AberrationSurface aberration) {
+            int w = sensor.Width, h = sensor.Height;
+            var samples = new List<(int px, int py)>(6) {
+                (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (w / 2, h / 2)
+            };
+            if (aberration.K != 0.0) {
+                var stationaryX = aberration.X0 - aberration.Gx / (2.0 * aberration.K);
+                var stationaryY = aberration.Y0 - aberration.Gy / (2.0 * aberration.K);
+                var px = (int)Math.Round(stationaryX / sensor.PixelSizeMicrons + w / 2.0);
+                var py = (int)Math.Round(stationaryY / sensor.PixelSizeMicrons + h / 2.0);
+                samples.Add((Math.Clamp(px, 0, w - 1), Math.Clamp(py, 0, h - 1)));
+            }
+
+            double maxAbsDefocus = 0.0, maxAbsSplit = 0.0, maxCombined = 0.0;
+            double minDefocus = double.MaxValue, maxDefocus = double.MinValue;
+            double minSplit = double.MaxValue, maxSplit = double.MinValue;
+            foreach (var (px, py) in samples) {
+                var defocus = aberration.LocalDefocusMicrons(px, py, request.FocuserPosition);
+                var split = aberration.AstigmatismSplitMicrons(px, py);
+                maxAbsDefocus = Math.Max(maxAbsDefocus, Math.Abs(defocus));
+                maxAbsSplit = Math.Max(maxAbsSplit, Math.Abs(split));
+                // max(|Δ−A|, |Δ+A|) == |Δ| + |A|, so this is the largest semi-axis anywhere in the field.
+                maxCombined = Math.Max(maxCombined, Math.Abs(defocus) + Math.Abs(split));
+                minDefocus = Math.Min(minDefocus, defocus);
+                maxDefocus = Math.Max(maxDefocus, defocus);
+                minSplit = Math.Min(minSplit, split);
+                maxSplit = Math.Max(maxSplit, split);
+            }
+            return new FieldSurvey(maxAbsDefocus, maxAbsSplit, maxDefocus - minDefocus, maxSplit - minSplit, maxCombined);
+        }
+
+        /// <summary>
+        /// How finely the ellipse orientation must be quantized, from how elliptical the field actually gets.
+        ///
+        /// <para>Rotating an ellipse by δ displaces its rim by at most <c>√2·δ·(a − b)</c>. Generating each
+        /// kernel at its <b>bin centre</b> bounds <c>δ ≤ π/(2n)</c> — orientation is mod π for an ellipse,
+        /// which halves the bin count for free — so holding the rim error to
+        /// <see cref="OrientationRimQuantumPixels"/> needs <c>n ≥ π·s_max/(√2·ε)</c>. The axis difference is
+        /// <c>|a_rad − a_tan| = min(|Δ|, |A|)/(N·p)</c>, bounded here by the field's separate maxima.</para>
+        ///
+        /// <para>As the field becomes round <c>s_max → 0</c> and this returns 1 — and in that regime every star
+        /// also collapses to equal levels, so the frame degenerates to exactly today's kernel set.</para>
+        /// </summary>
+        private static int OrientationBinCount(in FieldSurvey field, DefocusModel model) {
+            var separationPixels = Math.Min(field.MaxAbsDefocusMicrons, field.MaxAbsSplitMicrons)
+                                 / (model.FocalRatio * model.PixelSizeMicrons);
+            if (!(separationPixels > 0.0)) {
+                return 1;
+            }
+            var bins = (int)Math.Ceiling(Math.PI * separationPixels / (Math.Sqrt(2.0) * OrientationRimQuantumPixels));
+            return Math.Clamp(bins, 1, MaxOrientationBins);
+        }
+
+        /// <summary>The orientation bin for a field angle. Orientation is mod π: an ellipse is unchanged by a half turn.</summary>
+        private static int OrientationBin(double thetaRadians, int bins) {
+            if (bins <= 1) {
+                return 0;
+            }
+            var wrapped = thetaRadians - Math.PI * Math.Floor(thetaRadians / Math.PI);
+            return Math.Clamp((int)(wrapped / Math.PI * bins), 0, bins - 1);
+        }
+
+        /// <summary>The centre angle of an orientation bin — where its one shared kernel is generated.</summary>
+        private static double OrientationBinAngle(int bin, int bins) => (bin + 0.5) * Math.PI / bins;
+
+        /// <summary>
+        /// Assigns every projected star its kernel-cache key, and returns the placements alongside the distinct
+        /// keys in first-seen (i.e. deterministic star) order. Pure arithmetic — no kernel is built here, which
+        /// is what lets the caller try a quantization, measure the cache it would really produce, and try again.
+        /// </summary>
+        private static (List<StarPlacement> placements, List<PsfKernelKey> keys) AssignKernelKeys(
+                List<ProjectedStar> projected, AberrationSurface aberration, int focuserSteps,
+                double quantumMicrons, double maxAbsMicrons, int orientationBins, bool astigmatic) {
+
+            var placements = new List<StarPlacement>(projected.Count);
+            var keys = new List<PsfKernelKey>();
+            var keyIndices = new Dictionary<PsfKernelKey, int>();
+
+            foreach (var star in projected) {
+                double defocusT, defocusS, theta, split;
+                if (astigmatic) {
+                    aberration.AstigmaticDefocusMicrons(star.Px, star.Py, focuserSteps, out defocusT, out defocusS, out theta);
+                    split = 0.5 * (defocusS - defocusT);
+                } else {
+                    defocusT = defocusS = aberration.LocalDefocusMicrons(star.Px, star.Py, focuserSteps);
+                    theta = 0.0;
+                    split = 0.0;
+                }
+
+                var levelT = QuantizeLevel(defocusT, quantumMicrons, maxAbsMicrons);
+                var levelS = QuantizeLevel(defocusS, quantumMicrons, maxAbsMicrons);
+                // Equal |levels| means equal semi-axes -- including the sensor sitting midway between the two
+                // focal surfaces, where the blur is the round circle of least confusion.
+                var bin = Math.Abs(levelT) == Math.Abs(levelS)
+                    ? IsotropicOrientationBin
+                    : OrientationBin(theta, orientationBins);
+                var key = new PsfKernelKey(levelT, levelS, bin);
+
+                if (!keyIndices.TryGetValue(key, out var kernelIndex)) {
+                    if (keys.Count >= HardKernelCount) {
+                        // Collapse onto the circular kernel for this star's mean defocus: bounded (there are at
+                        // most as many of those as there are Δ levels), well defined, and it renders the star
+                        // round at the right size rather than at an arbitrary neighbour's shape.
+                        var meanLevel = QuantizeLevel(0.5 * (defocusT + defocusS), quantumMicrons, maxAbsMicrons);
+                        key = new PsfKernelKey(meanLevel, meanLevel, IsotropicOrientationBin);
+                    }
+                    if (!keyIndices.TryGetValue(key, out kernelIndex)) {
+                        kernelIndex = keys.Count;
+                        keys.Add(key);
+                        keyIndices[key] = kernelIndex;
+                    }
+                }
+
+                placements.Add(new StarPlacement(
+                    star.Cx, star.Cy, star.Flux, kernelIndex, 0.5 * (defocusT + defocusS), split,
+                    levelT * quantumMicrons, levelS * quantumMicrons, key.OrientationBin,
+                    star.RaDegrees, star.DecDegrees, star.Magnitude));
+            }
+            return (placements, keys);
+        }
+
+        /// <summary>
+        /// Bytes the cache will hold for a resolved key set — summed per key from the support radius that key
+        /// implies, so it is what the render is actually about to allocate rather than a bound on it.
+        /// </summary>
+        private static long EstimateKernelCacheBytes(List<PsfKernelKey> keys, DefocusModel model, double quantumMicrons) {
+            var phases = (long)PsfKernelGenerator.DefaultPhasesPerAxis * PsfKernelGenerator.DefaultPhasesPerAxis;
+            long total = 0;
+            foreach (var key in keys) {
+                var largestDefocus = Math.Max(Math.Abs(key.LevelT), Math.Abs(key.LevelS)) * quantumMicrons;
+                var edge = 2L * KernelRadiusPixels(model, largestDefocus) + 1;
+                total += phases * edge * edge * sizeof(float);
+            }
+            return total;
+        }
+
+        /// <summary>Kernel support radius (px) for a defocus, clamped to the safe cap.</summary>
+        private static int KernelRadiusPixels(DefocusModel model, double defocusMicrons) {
+            var radius = (int)Math.Ceiling(model.OuterAnnulusRadiusPixels(defocusMicrons) + 5.0 * model.SigmaMinPixels);
+            return Math.Clamp(radius, 1, MaxSafeKernelRadius);
         }
 
         /// <summary>
@@ -458,29 +812,16 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         }
 
         /// <summary>
-        /// The worst-case kernel support radius (px) over the field for this focuser position, evaluated at the
-        /// sensor corners (where the tilted/curved best-focus surface is farthest from the current focus). Used as
-        /// the projection PSF margin so wing-spilling corner stars are not dropped.
+        /// The worst-case kernel support radius (px) over the field for this focuser position. Used as the
+        /// projection PSF margin so wing-spilling corner stars are not dropped.
+        ///
+        /// <para>Sized from <c>|Δ| + |A|</c>, not from <c>|Δ|</c>: the two semi-axes are <c>|Δ − A|</c> and
+        /// <c>|Δ + A|</c>, so the larger one — the one that sets the support — is <c>|Δ| + |A|</c>. With
+        /// astigmatism off, A is 0 and this is exactly what it always was.</para>
         /// </summary>
-        private static int WorstCaseKernelRadius(
-                RenderRequest request, SensorDefinition sensor, DefocusModel model, AberrationSurface aberration,
-                double quantumMicrons, double maxAbsMicrons) {
-
-            int w = sensor.Width, h = sensor.Height;
-            var corners = new (int px, int py)[] {
-                (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (w / 2, h / 2)
-            };
-            var worstAbsDelta = 0.0;
-            foreach (var (px, py) in corners) {
-                var delta = Math.Abs(aberration.LocalDefocusMicrons(px, py, request.FocuserPosition));
-                if (delta > worstAbsDelta) {
-                    worstAbsDelta = delta;
-                }
-            }
-            var level = QuantizeLevel(worstAbsDelta, quantumMicrons, maxAbsMicrons);
-            var quantizedDelta = level * quantumMicrons;
-            var radius = (int)Math.Ceiling(model.OuterAnnulusRadiusPixels(quantizedDelta) + 5.0 * model.SigmaMinPixels);
-            return Math.Clamp(radius, 1, MaxSafeKernelRadius);
+        private static int WorstCaseKernelRadius(DefocusModel model, in FieldSurvey field, double quantumMicrons, double maxAbsMicrons) {
+            var level = QuantizeLevel(field.MaxCombinedMicrons, quantumMicrons, maxAbsMicrons);
+            return KernelRadiusPixels(model, level * quantumMicrons);
         }
 
         /// <summary>Number of row-stripes for the parallel stamp, bounded by the CPU count and the frame height.</summary>

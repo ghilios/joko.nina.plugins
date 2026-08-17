@@ -11,6 +11,8 @@
 #endregion "copyright"
 
 using System;
+using System.Buffers;
+using System.Numerics;
 
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
 
@@ -58,6 +60,20 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
 
         /// <summary>Cap on the rim sub-sampling factor per axis; 8 costs 64 cheap evaluations per fine cell.</summary>
         private const int MaxRimSubSamples = 8;
+
+        /// <summary>
+        /// How many fine cells of margin the cheap interior/exterior classification leaves around each rim
+        /// before it stops trusting the first-order distance. A cell's half-diagonal is 0.707 cells, so 1.5
+        /// leaves ample room for the linearization to be off without a cell being misclassified.
+        /// </summary>
+        private const double CellClassificationMarginCells = 1.5;
+
+        /// <summary>
+        /// Simpson intervals for the <b>angular</b> half of the elliptical Rice integral. Far fewer than the
+        /// radial <see cref="SimpsonIntervals"/> because the integrand is a smooth √(a²cos²φ + b²sin²φ) over a
+        /// quarter turn; the full count would quadruple the Bessel evaluations for no measurable accuracy.
+        /// </summary>
+        private const int EllipticalHfrAngularIntervals = 24;
 
         /// <summary>
         /// Hard cap on the kernel support radius (px). A (2R+1)²-per-phase kernel plus its S×-oversampled fine
@@ -292,13 +308,39 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             var subNormalization = 1.0 / (subSamples * subSamples);
 
             // --- pass 1: antialiased elliptical-annulus coverage mask, in the ellipse's own frame ---
-            var mask = new float[fineCount * fineCount];
+            // The two fine-grid buffers are pooled. At a typical support they are ~360 KB each, which is past
+            // the 85 KB large-object-heap threshold -- so a frame that builds a few hundred kernels would
+            // otherwise churn hundreds of megabytes through the LOH, which is neither compacted nor cheap.
+            var length = fineCount * fineCount;
+            var pool = ArrayPool<float>.Shared;
+            var mask = pool.Rent(length);
+            var temp = pool.Rent(length);
+            try {
+            Array.Clear(mask, 0, length);
             int minX = fineCount, maxX = -1, minY = fineCount, maxY = -1;
             for (var my = 0; my < fineCount; ++my) {
                 var cy = coords[my];
                 var rowBase = my * fineCount;
                 for (var mx = 0; mx < fineCount; ++mx) {
                     var cx = coords[mx];
+
+                    // Cheap interior/exterior test at the cell centre. Only cells straddling a rim need the
+                    // sub-sampled ramp, and for any real kernel that is a thin band around the perimeter --
+                    // a couple of thousand cells out of ninety thousand. Without this the sub-sampling cost is
+                    // paid on every cell and dominates kernel generation.
+                    var classification = ClassifyCell(cx, cy, cos, sin, invAR, invAT, invAR2, invAT2, eps, h);
+                    if (classification == CellClassification.Outside) {
+                        continue;
+                    }
+                    if (classification == CellClassification.Inside) {
+                        mask[rowBase + mx] = 1f;
+                        if (mx < minX) minX = mx;
+                        if (mx > maxX) maxX = mx;
+                        if (my < minY) minY = my;
+                        if (my > maxY) maxY = my;
+                        continue;
+                    }
+
                     var coverSum = 0.0;
                     for (var sy = 0; sy < subSamples; ++sy) {
                         var py = cy + subOffsets[sy];
@@ -354,16 +396,15 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             var sigmaTapsPixels = Math.Sqrt(Math.Max(sigmaPixels * sigmaPixels - h * h / 12.0, 0.25 * sigmaPixels * sigmaPixels));
             var sigmaTapsFine = sigmaTapsPixels * s;
             var tapRadius = Math.Max(1, (int)Math.Ceiling(SupportSigmaMargin * sigmaTapsFine));
-            var taps = new double[2 * tapRadius + 1];
+            var taps = new float[2 * tapRadius + 1];
             var tapSum = 0.0;
             for (var k = -tapRadius; k <= tapRadius; ++k) {
                 var t = Math.Exp(-(k * k) / (2.0 * sigmaTapsFine * sigmaTapsFine));
-                taps[k + tapRadius] = t;
+                taps[k + tapRadius] = (float)t;
                 tapSum += t;
             }
-            for (var k = 0; k < taps.Length; ++k) taps[k] /= tapSum;
+            for (var k = 0; k < taps.Length; ++k) taps[k] = (float)(taps[k] / tapSum);
 
-            var temp = new float[mask.Length];
             if (maxX >= 0) {
                 // Only the mask's bounding box dilated by the tap radius can be nonzero. For a thin ellipse in a
                 // square support that is a small fraction of the grid.
@@ -372,30 +413,31 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 var y0 = Math.Max(0, minY - tapRadius);
                 var y1 = Math.Min(fineCount - 1, maxY + tapRadius);
 
+                // Both passes are written tap-outer rather than tap-inner: for a fixed tap the destination
+                // span is a straight shifted multiply-accumulate over x, which vectorizes without any gather.
+                // Each output still accumulates its taps in the same order whatever the vector width, so the
+                // result does not depend on which SIMD path the CPU offers -- which matters, because Render is
+                // contractually a pure function whose byte-for-byte determinism is asserted.
+                var width = x1 - x0 + 1;
                 for (var y = minY; y <= maxY; ++y) {
                     var rowBase = y * fineCount;
-                    for (var x = x0; x <= x1; ++x) {
-                        var kFrom = Math.Max(-tapRadius, minX - x);
-                        var kTo = Math.Min(tapRadius, maxX - x);
-                        var acc = 0.0;
-                        for (var k = kFrom; k <= kTo; ++k) {
-                            acc += mask[rowBase + x + k] * taps[k + tapRadius];
-                        }
-                        temp[rowBase + x] = (float)acc;
+                    Array.Clear(temp, rowBase + x0, width);
+                    for (var k = -tapRadius; k <= tapRadius; ++k) {
+                        var tap = taps[k + tapRadius];
+                        var from = Math.Max(x0, minX - k);
+                        var to = Math.Min(x1, maxX - k);
+                        if (from > to) continue;
+                        AccumulateScaled(temp, rowBase, mask, rowBase + k, from, to, tap);
                     }
                 }
-                // Column pass writes back into `mask`, so the two buffers are all this path ever allocates.
-                Array.Clear(mask, 0, mask.Length);
+                // Column pass writes back into `mask`, so the two buffers are all this path ever needs.
+                Array.Clear(mask, 0, length);
                 for (var y = y0; y <= y1; ++y) {
                     var rowBase = y * fineCount;
                     var kFrom = Math.Max(-tapRadius, minY - y);
                     var kTo = Math.Min(tapRadius, maxY - y);
-                    for (var x = x0; x <= x1; ++x) {
-                        var acc = 0.0;
-                        for (var k = kFrom; k <= kTo; ++k) {
-                            acc += temp[(y + k) * fineCount + x] * taps[k + tapRadius];
-                        }
-                        mask[rowBase + x] = (float)acc;
+                    for (var k = kFrom; k <= kTo; ++k) {
+                        AccumulateScaled(mask, rowBase, temp, (y + k) * fineCount, x0, x1, taps[k + tapRadius]);
                     }
                 }
             }
@@ -470,6 +512,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 s, radius, radialSemiAxisPixels, tangentialSemiAxisPixels, positionAngleRadians,
                 eps * Math.Max(radialSemiAxisPixels, tangentialSemiAxisPixels),
                 measuredHfr, analyticHfr, eccentricity, phases, radialLut, tangentialLut, radialStep);
+            } finally {
+                pool.Return(mask);
+                pool.Return(temp);
+            }
         }
 
         /// <summary>
@@ -491,9 +537,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             }
 
             var rhoStep = (1.0 - eps) / SimpsonIntervals;
-            var phiStep = (Math.PI / 2.0) / SimpsonIntervals;
+            var phiStep = (Math.PI / 2.0) / EllipticalHfrAngularIntervals;
             double outer = 0.0;
-            for (var i = 0; i <= SimpsonIntervals; ++i) {
+            for (var i = 0; i <= EllipticalHfrAngularIntervals; ++i) {
                 var phi = i * phiStep;
                 var cosPhi = Math.Cos(phi);
                 var sinPhi = Math.Sin(phi);
@@ -508,13 +554,87 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 }
                 inner *= rhoStep / 3.0;
 
-                var wo = (i == 0 || i == SimpsonIntervals) ? 1.0 : (i % 2 == 1 ? 4.0 : 2.0);
+                var wo = (i == 0 || i == EllipticalHfrAngularIntervals) ? 1.0 : (i % 2 == 1 ? 4.0 : 2.0);
                 outer += wo * inner;
             }
             outer *= phiStep / 3.0;
 
             // ×4 for the quarter-plane symmetry, ÷ the pupil area π(1−ε²).
             return 4.0 * outer / (Math.PI * (1.0 - eps * eps));
+        }
+
+        /// <summary>
+        /// <c>destination[destBase + x] += source[srcBase + x] * scale</c> for x in [from, to], vectorized.
+        /// The scalar tail runs the identical arithmetic, so the vector width changes only how many elements
+        /// are handled at once, never the value any one of them gets.
+        /// </summary>
+        private static void AccumulateScaled(float[] destination, int destBase, float[] source, int srcBase, int from, int to, float scale) {
+            var x = from;
+            if (Vector.IsHardwareAccelerated) {
+                var vScale = new Vector<float>(scale);
+                var lanes = Vector<float>.Count;
+                for (; x <= to - lanes + 1; x += lanes) {
+                    var accumulated = new Vector<float>(destination, destBase + x) + new Vector<float>(source, srcBase + x) * vScale;
+                    accumulated.CopyTo(destination, destBase + x);
+                }
+            }
+            for (; x <= to; ++x) {
+                destination[destBase + x] += source[srcBase + x] * scale;
+            }
+        }
+
+        /// <summary>Where a fine cell sits relative to the elliptical annulus.</summary>
+        private enum CellClassification {
+
+            /// <summary>Entirely outside the outer rim, or entirely inside the obstruction hole. Coverage 0.</summary>
+            Outside,
+
+            /// <summary>Entirely within the bright annulus. Coverage 1.</summary>
+            Inside,
+
+            /// <summary>Straddles a rim; needs the sub-sampled coverage ramp.</summary>
+            Straddling
+        }
+
+        /// <summary>
+        /// Classifies a fine cell from its centre alone. Uses the same first-order rim distance the ramp does,
+        /// with a margin of <see cref="CellClassificationMarginCells"/> cells — comfortably more than a cell's
+        /// half-diagonal (0.707 h), so the linearization has room to be wrong without misclassifying.
+        /// </summary>
+        private static CellClassification ClassifyCell(
+                double cx, double cy, double cos, double sin,
+                double invAR, double invAT, double invAR2, double invAT2, double eps, double h) {
+            var u = cx * cos + cy * sin;
+            var v = -cx * sin + cy * cos;
+            var qx = u * invAR;
+            var qy = v * invAT;
+            var q = Math.Sqrt(qx * qx + qy * qy);
+            if (q <= QuadricOriginEpsilon) {
+                return eps > 0.0 ? CellClassification.Outside : CellClassification.Straddling;
+            }
+            var gx = u * invAR2;
+            var gy = v * invAT2;
+            var g = Math.Sqrt(gx * gx + gy * gy);
+            if (g < QuadricOriginEpsilon) {
+                return CellClassification.Straddling;
+            }
+
+            var margin = CellClassificationMarginCells * h;
+            var distanceToOuterRim = (q - 1.0) * q / g;
+            if (distanceToOuterRim > margin) {
+                return CellClassification.Outside;
+            }
+            if (distanceToOuterRim > -margin) {
+                return CellClassification.Straddling;
+            }
+            if (eps <= 0.0) {
+                return CellClassification.Inside;
+            }
+            var distanceToInnerRim = (q - eps) * q / g;
+            if (distanceToInnerRim < -margin) {
+                return CellClassification.Outside;   // deep inside the obstruction hole
+            }
+            return distanceToInnerRim > margin ? CellClassification.Inside : CellClassification.Straddling;
         }
 
         /// <summary>Bilinear sample of the fine grid at a continuous coordinate; 0 outside the rasterized support.</summary>

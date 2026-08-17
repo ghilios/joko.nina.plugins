@@ -85,6 +85,44 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         public double InnerRadiusPixels { get; init; }
 
         /// <summary>
+        /// Raw astigmatism half-split A (µm) at this star's pixel, <b>before</b> quantization — 0 when
+        /// astigmatism is off. Alongside <see cref="LocalDefocusMicrons"/> this is the full injected truth: the
+        /// star is elongated radially where the two disagree in sign and tangentially where they agree.
+        /// </summary>
+        public double AstigmatismSplitMicrons { get; init; }
+
+        /// <summary>Quantized tangential-ray defocus Δ_T (µm) the kernel was built from; sets the radial semi-axis.</summary>
+        public double QuantizedTangentialDefocusMicrons { get; init; }
+
+        /// <summary>Quantized sagittal-ray defocus Δ_S (µm) the kernel was built from; sets the tangential semi-axis.</summary>
+        public double QuantizedSagittalDefocusMicrons { get; init; }
+
+        /// <summary>
+        /// Orientation bin this star's kernel was cached under, or −1 when the two quantized defocuses gave
+        /// equal semi-axes and the kernel collapsed to the circular one. Together with the two quantized
+        /// defocuses this is the full kernel-cache key, so an external census of distinct kernels can be taken
+        /// from the truth sink alone.
+        /// </summary>
+        public int OrientationBin { get; init; }
+
+        /// <summary>Semi-axis along the radial direction (px) — <see cref="PsfKernel.OuterRadiusRadialPixels"/>.</summary>
+        public double OuterRadiusRadialPixels { get; init; }
+
+        /// <summary>Semi-axis perpendicular to the radius (px) — <see cref="PsfKernel.OuterRadiusTangentialPixels"/>.</summary>
+        public double OuterRadiusTangentialPixels { get; init; }
+
+        /// <summary>Direction of the radial semi-axis in image coordinates (rad) — the kernel's position angle.</summary>
+        public double PositionAngleRadians { get; init; }
+
+        /// <summary>
+        /// Closed-form second-moment eccentricity of this star's kernel —
+        /// <see cref="PsfKernel.PredictedEccentricity"/>. The prediction a measured
+        /// <c>PSFModel.Eccentricity</c> is scored against, bearing in mind the two use different definitions
+        /// (second moment vs Moffat FWHM ratio) and so agree in ordering rather than magnitude.
+        /// </summary>
+        public double PredictedEccentricity { get; init; }
+
+        /// <summary>
         /// Kernel support radius (px) of this star's kernel — <see cref="PsfKernel.Radius"/>. The stamped
         /// footprint is <c>(2·KernelSupportRadiusPixels + 1)²</c> pixels centred on the star.
         /// </summary>

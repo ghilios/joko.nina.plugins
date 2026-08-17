@@ -66,6 +66,12 @@ namespace TestApp {
         private const double DefaultSensorTemperatureCelsius = -10.0;
         private const int DefaultNoiseSeed = 42;
 
+        /// <summary>The shipped AstigmatismRatio default -- what a user who enables the feature actually gets.</summary>
+        private const double DefaultAstigmatismRatio = 0.7;
+
+        /// <summary>An aggressive ratio, for headroom.</summary>
+        private const double StrongAstigmatismRatio = 1.5;
+
         /// <summary>A named pointing plus the optics to observe it with. Sensor is fixed to the QHY600/IMX455.</summary>
         private sealed record BenchField(
             string Name, double RaDegrees, double DecDegrees, double FocalLengthMm, double FocalRatio, string Note);
@@ -104,7 +110,9 @@ namespace TestApp {
             var fieldsArg = DiagnosticUtil.GetArg(args, "--field") ?? "dense-wide,dense,sparse";
             var defocusArg = DiagnosticUtil.GetArg(args, "--defocus-steps") ?? "0,150,350";
             var aberrArg = DiagnosticUtil.GetArg(args, "--aberr") ?? "A0,A1,A2";
-            var armsArg = DiagnosticUtil.GetArg(args, "--arms") ?? "off";
+            var armsArg = DiagnosticUtil.GetArg(args, "--arms") ?? "off,on-zero,on,on-strong";
+            var nominalRatio = ParseDouble(DiagnosticUtil.GetArg(args, "--ratio"), DefaultAstigmatismRatio);
+            var strongRatio = ParseDouble(DiagnosticUtil.GetArg(args, "--ratio-strong"), StrongAstigmatismRatio);
             var iters = ParseInt(DiagnosticUtil.GetArg(args, "--iters"), 3);
             var warmup = ParseInt(DiagnosticUtil.GetArg(args, "--warmup"), 1);
             // Mag 17 is the cut that makes `dense-wide` genuinely dense (~34k on-frame stars on a 61 MP frame).
@@ -151,7 +159,8 @@ namespace TestApp {
                         foreach (var arm in arms) {
                             RenderRequest request;
                             try {
-                                request = BuildRequest(field, aberration, arm, offset, limitMag, exposureSeconds, catalogPath);
+                                request = BuildRequest(field, aberration, arm, offset, limitMag, exposureSeconds, catalogPath,
+                                                       nominalRatio, strongRatio);
                             } catch (NotSupportedException ex) {
                                 Console.Error.WriteLine($"arm '{arm}': {ex.Message}");
                                 Environment.ExitCode = 2;
@@ -308,7 +317,8 @@ namespace TestApp {
 
         private static RenderRequest BuildRequest(
                 BenchField field, AberrationConfig aberration, string arm, int defocusOffsetSteps,
-                double limitMag, double exposureSeconds, string catalogPath) {
+                double limitMag, double exposureSeconds, string catalogPath,
+                double nominalRatio, double strongRatio) {
 
             // Constructed directly rather than through SynthRenderRequestFactory: that factory maps a *bank
             // dataset spec* onto a request and hard-codes AberrationsEnabled = false, and the whole point of this
@@ -347,27 +357,31 @@ namespace TestApp {
                 OpticalAxisOffsetYMicrons = 0.0,
                 ExposureSeconds = exposureSeconds
             };
-            return ApplyArm(request, arm);
+            return ApplyArm(request, arm, nominalRatio, strongRatio);
         }
 
         /// <summary>
-        /// Applies the feature arm to a request. The arms separate three costs that a single on/off comparison
-        /// would conflate: today's isotropic renderer (<c>off</c>), the elliptical code path carrying no
-        /// ellipticity (<c>on-zero</c>), and the elliptical path actually doing work (<c>on</c>,
-        /// <c>on-strong</c>).
+        /// Applies the feature arm to a request.
+        ///
+        /// <para><c>on-zero</c> is a <b>verification</b> arm, not a cost arm. A zero ratio makes the
+        /// astigmatism coefficient literally 0.0, so every star's two quantized defocus levels coincide and the
+        /// compositor takes the circular generator — it must therefore measure the same as <c>off</c>, and a
+        /// divergence means the level-collapse rule broke. There is no separate "code path" overhead to isolate:
+        /// the cost is entirely a function of how many distinct elliptical kernels the field demands.</para>
         /// </summary>
-        private static RenderRequest ApplyArm(RenderRequest request, string arm) {
+        private static RenderRequest ApplyArm(RenderRequest request, string arm, double nominalRatio, double strongRatio) {
             switch (arm.ToLowerInvariant()) {
                 case "off":
-                    return request;
+                    return request with { AstigmatismEnabled = false, AstigmatismRatio = 0.0 };
 
                 case "on-zero":
+                    return request with { AstigmatismEnabled = true, AstigmatismRatio = 0.0 };
+
                 case "on":
+                    return request with { AstigmatismEnabled = true, AstigmatismRatio = nominalRatio };
+
                 case "on-strong":
-                    throw new NotSupportedException(
-                        "the astigmatic render path is not implemented yet; only --arms off is available. "
-                        + "This runner exists first so today's cost can be recorded as the baseline before the "
-                        + "PSF changes -- once it does, that measurement is unrecoverable.");
+                    return request with { AstigmatismEnabled = true, AstigmatismRatio = strongRatio };
 
                 default:
                     throw new NotSupportedException($"unknown arm '{arm}' (expected off, on-zero, on, on-strong)");
