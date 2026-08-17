@@ -42,15 +42,16 @@ namespace TestApp {
     /// compositor reports its own phases through the internal <see cref="RenderPhaseTimings"/> sink, and this
     /// runner reads them.</para>
     ///
-    /// <para>Development is roughly 90 % of a 61 MP render, so the total wall clock is an insensitive
-    /// instrument for anything the PSF does. Read <c>kernelGen</c> and <c>kernels</c>, not just
+    /// <para>Development is 50–90 % of a 61 MP render depending on the field, so the total wall clock is an
+    /// insensitive instrument for anything the PSF does. Read <c>kernelGen</c> and <c>kernels</c>, not just
     /// <c>total</c>.</para>
     ///
     /// Usage:
     /// <code>
-    /// TestApp bench-simrender [--catalog "C:\Program Files\astap"] [--field dense,sparse]
-    ///                         [--defocus-steps 0,150,350] [--aberr A0,A1,A2] [--arms off]
-    ///                         [--iters 3] [--warmup 1] [--limit-mag 16] [--census] [--kernel-ladder]
+    /// TestApp bench-simrender [--catalog "C:\Program Files\astap"] [--field dense-wide,dense,sparse|all]
+    ///                         [--defocus-steps 0,150,350] [--aberr A0,A1,A2] [--arms off,on-zero,on,on-strong]
+    ///                         [--ratio 0.7] [--ratio-strong 1.5] [--limit-mag 17] [--exposure 5]
+    ///                         [--iters 3] [--warmup 1] [--census] [--kernel-ladder] [--with-detection]
     ///                         [--csv out.csv]
     /// </code>
     /// </summary>
