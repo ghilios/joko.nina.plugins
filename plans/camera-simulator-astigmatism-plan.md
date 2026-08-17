@@ -54,25 +54,22 @@ Do **not** fold astigmatism into `LocalDefocusMicrons` — that method's contrac
 algebraic inverse") is load-bearing and must stay literally true.
 
 ```csharp
-public const double NominalCurvaturePerSpacingPerAreaMicrons = 1.0684e-10;  // c_m0; derivation in the spec
-public double EffectiveSpacingErrorMicrons { get; }   // e_c, inferred as K / c_m0 when the option is unset
-public double CurvaturePerSpacing { get; }            // c_m
-public double AstigmatismCoefficient { get; }         // rho * c_m; literally 0.0 when disabled
-public double PredictedAstigmatismEffectMicrons { get; }
+public double AstigmatismCoefficient { get; }         // a2 = K/2 + a_c/r_c^2; literally 0.0 when disabled
+public double PredictedAstigmatismEffectMicrons { get; }   // a2 * r_c^2, i.e. the corner half-split
 
-public double LocalSpacingErrorMicrons(int px, int py);   // e(x,y)
-public double AstigmatismSplitMicrons(int px, int py);    // A(x,y)
+public double AstigmatismSplitMicrons(int px, int py);    // A(x,y) = a2 * r'^2
 public double FieldAngleRadians(int px, int py);          // theta about the optical axis; 0 at r'=0
 public void AstigmaticDefocusMicrons(int px, int py, int steps,
         out double tangentialMicrons, out double sagittalMicrons, out double thetaRadians);
 ```
 
-New ctor params (`astigmatismEnabled`, `backfocusSpacingErrorMicrons`, `astigmatismRatio`) default to the
-**off** state on the plain-number constructor, so every existing caller and test compiles and behaves
-identically; `FromRequest` passes the real values. Reject a negative or NaN ratio with the file's existing
-`!(x >= 0)` idiom. Factor the inline pixel→centered-micron conversion into a shared private helper. Update
-the class doc: it is no longer a pure local-defocus surface, it is a *pair* of surfaces whose **mean** is
-that surface.
+**No tilt term** — `Gx/Gy` appear in the mean surface and nowhere else; see the spec's *No tilt term,
+deliberately*. New ctor params (`astigmatismEnabled`, `cornerAstigmatismMicrons`) default to the **off**
+state on the plain-number constructor, so every existing caller and test compiles and behaves identically;
+`FromRequest` passes the real values. Reject a non-finite residual (`!double.IsFinite`) — the value is
+signed, so a `< 0` guard would be wrong. Factor the inline pixel→centered-micron conversion into a shared
+private helper. Update the class doc: it is no longer a pure local-defocus surface, it is a *pair* of
+surfaces whose **mean** is that surface.
 
 ---
 
@@ -142,27 +139,24 @@ kernels, failing loudly on an elliptical one rather than silently returning a me
 | Option | Type | Default |
 |---|---|---|
 | `EnableFieldAstigmatism` | bool | `true` |
-| `BackfocusSpacingErrorMicrons` | double | `-1` (unset ⇒ infer) |
-| `AstigmatismRatio` | double | `0.7` |
+| `CornerAstigmatismMicrons` | double | `15.0` (signed, ±1000) |
 
 Plus `BackfocusErrorMicrons` default **0.0 → 50.0** in both `InitializeOptions` and `ResetDefaults`.
 
 - `Interfaces/ICameraSimulatorOptions.cs` + `CameraSimulator/CameraSimulatorOptions.cs` — the five edit
-  sites per option, plus a read-only `EffectiveBackfocusSpacingErrorMicrons` for the hint text.
-- `CameraSimulator/RenderRequest.cs` — three fields in the `// --- Aberrations ---` group (the
+  sites per option.
+- `CameraSimulator/RenderRequest.cs` — two fields in the `// --- Aberrations ---` group (the
   enabled+value pair mirrors the existing `CentralObstructionEnabled` + `CentralObstructionFraction`).
-- `CameraSimulator/HocusFocusSimulatorCamera.cs` `BuildRenderRequest` — copy all three. An option not
+- `CameraSimulator/HocusFocusSimulatorCamera.cs` `BuildRenderRequest` — copy both. An option not
   copied here is invisible to exposures.
-- `Resources/OptionsDataTemplates.xaml` — three controls in the Field Aberrations group (~3597-3690),
-  three `CamSim_<Prop>_Tooltip` resources (~3261-3282), and a `<RowDefinition />` per new row
+- `Resources/OptionsDataTemplates.xaml` — two controls in the Field Aberrations group (~3597-3690), two
+  `CamSim_<Prop>_Tooltip` resources (~3261-3282), and a `<RowDefinition />` per new row
   (`Tests/Resources/OptionsDataTemplatesLayoutTests.cs` fails the build if two column-0 children share a
-  row). The spacing field copies the blank-means-infer pattern from the Focuser Step Size row (`:3330-3349`):
-  `ninactrl:HintTextBox` + `HF_DoubleNegativeToEmptyStringConverter`, `HintText` bound to the Effective
-  property, and **no** `ValidationRules` (they run on raw text and reject an empty box). `AstigmatismRatio`
-  copies the Tilt Amount row (`:3639-3650`) with `Minimum="0" Maximum="3"`.
-- `CameraSimulator/TiltAdapter/SimulatedTiltInjection.cs` — `Fold` also adds `pistonMicrons` to
-  `BackfocusSpacingErrorMicrons` **only when that option is explicitly set**. Never silently convert blank
-  to explicit.
+  row). `CornerAstigmatismMicrons` copies the Backfocus Error row's `ninactrl:UnitTextBox` +
+  `FloatRangeRule` shape with `Minimum="-1000" Maximum="1000"`.
+- `CameraSimulator/TiltAdapter/SimulatedTiltInjection.cs` — **unchanged**. A piston is already encoded by
+  `BackfocusErrorMicrons`, whose $K$ drives the induced split; the corrector's residual is a property of
+  the glass that no screw move can alter.
 - `CameraSimulator/Rendering/StarTruth.cs` — `OuterRadiusRadialPixels`, `OuterRadiusTangentialPixels`,
   `PositionAngleRadians`, `PredictedEccentricity`, `AstigmatismSplitMicrons`, and the quantized triple key
   (the benchmark's census cross-check reads it). `OuterRadiusPixels` keeps its name and now carries the
@@ -222,7 +216,7 @@ f/5 — an FSQ-106-class widefield astrograph, a common QHY600 pairing — cover
 target comfortably. Mag 17 is the chosen cut (mag 18 gives 61 214 and is available as a stress).
 
 **Matrix**: 3 aberration configs (`A0` clean / `A1` backfocus only / `A2` tilt + backfocus) × 3 defocus
-points (0, 150, 350 steps ≈ 1×, 3.6×, 8× HFR_min) × 4 arms (`off`, `on-zero`, `on`, `on-strong`), plus the
+points (0, 150, 350 steps ≈ 1×, 3.6×, 8× HFR_min) × 4 arms (`off`, `on-zero`, `on` at a_c = 15 µm, `on-strong` at 40 µm), plus the
 sparse and oversampled controls and one `--with-detection` contention cell. 54 cells, ~15-30 min at
 `--iters 3`. The `on-zero` arm matters: "elliptical code path with zero ellipticity" is a different cost
 from "no elliptical code path", and conflating them hides fixed overhead.
@@ -277,15 +271,17 @@ WSL — build and run via Windows `dotnet.exe` through WSL interop (`wslpath -w`
 - `InjectRecover_IsIdentity` unchanged and still passing, plus cases with astigmatism enabled proving
   `Gx/Gy/K/Phi` are untouched.
 - `MeanOfTangentialAndSagittal == LocalDefocusMicrons` to 1e-12.
-- `A == 0.0` exactly when the toggle or aberrations are off or ρ = 0.
-- `A != 0` for pure tilt with zero backfocus — the reason this model was chosen.
-- Inference consistency: `c_m == c_m0` when the spacing field is blank.
+- `A == 0.0` exactly when the toggle or aberrations are off, or on a perfect optic (`a_c = 0`, `C = 0`).
+- `A` is **independent of tilt** — the model's central physical claim, pinned directly.
+- Pure tilt with zero backfocus still elongates: tangential on one edge, radial on the opposite.
+- The induced split is exactly `K/2` (Seidel 3:1), and the residual adds to it.
 - `A` scales as r'² about the *optical axis* with nonzero `X0/Y0`, and is exactly 0 there.
-- Sign flips with the spacing sign; negative ρ throws.
+- The spacing flip appears inside `|C| < 2·a_c` and is gone outside it; the sign of `a_c` selects which
+  direction is radial; a non-finite residual throws.
 - The orientation rule (`sign(Δ·A) < 0 ⇒ a_rad > a_tan`) on a field grid, no rendering.
 
 **`StarFieldCompositorTests`**
-- Astigmatism **disabled** renders byte-identically to today (and with ρ = 0).
+- Astigmatism **disabled** renders byte-identically to today (and so does a perfect optic at design spacing).
 - `Render_NullTimings_IsByteIdenticalToPublicOverload`.
 - Determinism and purity with astigmatism on — proves the parallel kernel build.
 - `Render_KernelCacheCardinality_StaysBounded` — `DistinctKernels` and `KernelCacheBytes` against the caps,
@@ -293,19 +289,28 @@ WSL — build and run via Windows `dotnet.exe` through WSL interop (`wslpath -w`
 - Truth sink carries the new fields with `OuterRadiusPixels == max(...)`.
 - A wing-spill star at an astigmatic corner is still stamped — guards the `|Δ| + |A|` change.
 
-**Capstone** — `AstigmatismRendersRadialAndTangentialCornersThroughFullPipeline` on
-`SyntheticCameraTestScene` (IMX533 3008², N = 7, σ_min = 1.324 px, 2Np = 52.64 µm/px). Inject tilt 120 µm
-at 0°, backfocus 40 µm, ρ = 0.7, focuser **at** `OptimalFocuserPosition`:
+**Capstones** — on `SyntheticCameraTestScene` (IMX533 3008², N = 7, σ_min = 1.324 px, 2Np = 52.64 µm/px,
+corner r'² = 63.96e6 µm²), focuser **at** `OptimalFocuserPosition`. Three of them, because they pin three
+different things:
 
-| region | Δ (µm) | A (µm) | a_rad, a_tan (px) | orientation | predicted e |
-|---|---|---|---|---|---|
-| left, x ≈ 300 | +83.3 | +8.97 | 1.41, 1.75 | tangential | 0.33 |
-| right, x ≈ 2700 | −108.1 | +8.86 | 2.22, 1.89 | radial | 0.34 |
-| centre | 0 | 0 | equal | round | ≈ 0 |
+1. `AstigmatismRendersRadialAndTangentialEdgesThroughFullPipeline` — tilt 120 µm at 0°, backfocus 40 µm,
+   a_c = 15 µm. Here a₂ = 5.47e-7, so A is the same at both edges and it is Δ that changes sign:
 
-Assert `S = median cos(2·Δθ)` < −0.5 left, > +0.5 right; median eccentricity > 0.20 at the edges and
-< 0.15 at centre. Then re-render with backfocus −40 µm and assert both signs flip — that pins the sign
-convention against a whole-model inversion, which a relative-only test cannot catch.
+   | region | Δ (µm) | A (µm) | a_rad, a_tan (px) | orientation |
+   |---|---|---|---|---|
+   | left, x ≈ 300 | +83.2 | +11.2 | 1.37, 1.79 | tangential |
+   | right, x ≈ 2700 | −108.1 | +11.1 | 2.26, 1.84 | radial |
+   | centre | 0 | 0 | equal | round |
+
+2. `PureTilt_WithPerfectSpacing_StillFlipsRadialToTangentialAcrossTheField` — **backfocus 0**, tilt 120 µm,
+   a_c = 40 µm. This is the case a user hits first and the one the earlier local-spacing model could not
+   produce at any parameter setting, so it is not redundant with (1).
+3. `ReversingTheBackfocusError_FlipsRadialToTangential_OnlyInsideTheResidualWindow` — a_c = 120 µm, so the
+   window reaches |C| < 240 µm. Asserts the flip at ±100 µm **and its absence** at ±300 µm; a model that
+   flipped at every magnitude would pass the first half and still be wrong.
+
+Assert `S = median cos(2·Δθ)` < −0.5 tangential, > +0.5 radial; median eccentricity > 0.20 at the edges
+and < 0.15 at centre.
 
 **The y-flip, by derivation not trial**: `PSFModeler.Solve` returns θ for the major axis in [−π/2, π/2]
 and `InspectorVM` draws it as `(cos θ, −sin θ)` "since y is inverted to render top-down", so

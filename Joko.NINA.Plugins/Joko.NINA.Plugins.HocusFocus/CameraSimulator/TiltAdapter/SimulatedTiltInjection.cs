@@ -106,19 +106,6 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
                     options.BackfocusErrorMicrons = Math.Clamp(backfocus, -AberrationBoundMicrons, AberrationBoundMicrons);
                 }
 
-                // ...and moves the sensor bodily along the axis, so the spacing error changes by exactly the
-                // piston. Only when the user entered a spacing explicitly: left blank it is inferred from the
-                // backfocus error just updated, so it already followed. Blank is never silently made explicit.
-                // The option stores a magnitude and takes its sign from the backfocus error, so a piston that
-                // would drive the two to disagree in sign lands at the magnitude and defers to that sign.
-                if (options.BackfocusSpacingErrorMicrons >= 0.0) {
-                    var signedSpacing = options.BackfocusErrorMicrons < 0.0
-                        ? -options.BackfocusSpacingErrorMicrons
-                        : options.BackfocusSpacingErrorMicrons;
-                    var moved = Math.Abs(signedSpacing + pistonMicrons);
-                    clamped |= moved > AberrationBoundMicrons;
-                    options.BackfocusSpacingErrorMicrons = Math.Min(moved, AberrationBoundMicrons);
-                }
             }
 
             return clamped;

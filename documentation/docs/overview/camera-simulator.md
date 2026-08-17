@@ -105,9 +105,8 @@ merely soft ones:
 
 | Option | Default | What it does |
 |---|---|---|
-| **Model Astigmatism** | on | Splits the best-focus surface into the tangential and sagittal surfaces a mis-spaced corrector produces, so stars render elliptical: radial in one corner, tangential in the opposite, round in between. Does nothing until there is a spacing error to work from. |
-| **Backfocus Spacing Error** | blank | How far the sensor sits from the corrector's design spacing, in microns — the *cause*, where **Backfocus Error** is the corner curvature it *produces*. Enter a magnitude; the direction follows the sign of Backfocus Error. Blank infers it from Backfocus Error. |
-| **Astigmatism Ratio** | 0.7 | How much astigmatism accompanies the field curvature. It alone sets how *elongated* stars get — the backfocus error sets their *size*, so a few hundred microns is enough to see the effect. Its **sign** says which way round the corrector responds: which side of design spacing gives radial stars and which gives tangential. A magnitude near 1 is physical; 0 disables the effect without touching the toggle. |
+| **Model Astigmatism** | on | Splits the best-focus surface into the separate tangential and sagittal surfaces a real corrector produces, so stars render elliptical: radial along one edge, tangential along the opposite, round in between. Does nothing until there is either a **Corner Astigmatism** or a **Backfocus Error** for it to work from. |
+| **Corner Astigmatism** | 15 µm | The astigmatism your corrector still leaves at the sensor corner when it is perfectly spaced, as microns of focuser travel between the tangential and sagittal focal surfaces. This is the term a tilted sensor *reveals* — tilt cannot create astigmatism, only reposition the sensor against a focal surface that is already split — so it is what a perfectly spaced but tilted rig shows. Mis-spacing adds its own split on top, fixed by the optics at half the **Backfocus Error**. Around 10–20 µm is typical of a decent flattener at f/5–f/7; the **sign** says which side of design spacing gives radially elongated stars, and 0 models a flawless corrector. |
 
 **Backfocus Error** ships at 50 µm rather than zero, so switching aberrations on shows the effect
 immediately instead of leaving you wondering whether it works. Set it to 0 for a perfectly spaced

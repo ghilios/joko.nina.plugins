@@ -263,7 +263,7 @@ cardinality — the quantity that actually grows when the cache key gains axes.
 ```
 TestApp bench-simrender [--catalog "C:\Program Files\astap"] [--field dense-wide,dense,sparse|all]
                         [--defocus-steps 0,150,350] [--aberr A0,A1,A2] [--arms off,on-zero,on,on-strong]
-                        [--ratio 0.7] [--ratio-strong 1.5] [--limit-mag 17] [--exposure 5]
+                        [--corner-astig 15] [--corner-astig-strong 40] [--limit-mag 17] [--exposure 5]
                         [--iters 5] [--warmup 1] [--census] [--kernel-ladder] [--with-detection]
                         [--csv <path>]
 ```

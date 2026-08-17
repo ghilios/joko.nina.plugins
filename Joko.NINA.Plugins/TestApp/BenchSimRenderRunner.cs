@@ -50,7 +50,7 @@ namespace TestApp {
     /// <code>
     /// TestApp bench-simrender [--catalog "C:\Program Files\astap"] [--field dense-wide,dense,sparse|all]
     ///                         [--defocus-steps 0,150,350] [--aberr A0,A1,A2] [--arms off,on-zero,on,on-strong]
-    ///                         [--ratio 0.7] [--ratio-strong 1.5] [--limit-mag 17] [--exposure 5]
+    ///                         [--corner-astig 15] [--corner-astig-strong 40] [--limit-mag 17] [--exposure 5]
     ///                         [--iters 3] [--warmup 1] [--census] [--kernel-ladder] [--with-detection]
     ///                         [--csv out.csv]
     /// </code>
@@ -70,11 +70,11 @@ namespace TestApp {
         private const double DefaultSensorTemperatureCelsius = -10.0;
         private const int DefaultNoiseSeed = 42;
 
-        /// <summary>The shipped AstigmatismRatio default -- what a user who enables the feature actually gets.</summary>
-        private const double DefaultAstigmatismRatio = 0.7;
+        /// <summary>The shipped corner-astigmatism residual (µm) -- what a user who enables the feature gets.</summary>
+        private const double DefaultCornerAstigmatismMicrons = 15.0;
 
-        /// <summary>An aggressive ratio, for headroom.</summary>
-        private const double StrongAstigmatismRatio = 1.5;
+        /// <summary>An aggressive residual, for headroom.</summary>
+        private const double StrongCornerAstigmatismMicrons = 40.0;
 
         /// <summary>A named pointing plus the optics to observe it with. Sensor is fixed to the QHY600/IMX455.</summary>
         private sealed record BenchField(
@@ -115,8 +115,8 @@ namespace TestApp {
             var defocusArg = DiagnosticUtil.GetArg(args, "--defocus-steps") ?? "0,150,350";
             var aberrArg = DiagnosticUtil.GetArg(args, "--aberr") ?? "A0,A1,A2";
             var armsArg = DiagnosticUtil.GetArg(args, "--arms") ?? "off,on-zero,on,on-strong";
-            var nominalRatio = ParseDouble(DiagnosticUtil.GetArg(args, "--ratio"), DefaultAstigmatismRatio);
-            var strongRatio = ParseDouble(DiagnosticUtil.GetArg(args, "--ratio-strong"), StrongAstigmatismRatio);
+            var nominalResidual = ParseDouble(DiagnosticUtil.GetArg(args, "--corner-astig"), DefaultCornerAstigmatismMicrons);
+            var strongResidual = ParseDouble(DiagnosticUtil.GetArg(args, "--corner-astig-strong"), StrongCornerAstigmatismMicrons);
             var iters = ParseInt(DiagnosticUtil.GetArg(args, "--iters"), 3);
             var warmup = ParseInt(DiagnosticUtil.GetArg(args, "--warmup"), 1);
             // Mag 17 is the cut that makes `dense-wide` genuinely dense (~34k on-frame stars on a 61 MP frame).
@@ -179,7 +179,7 @@ namespace TestApp {
                             RenderRequest request;
                             try {
                                 request = BuildRequest(field, aberration, arm, offset, limitMag, exposureSeconds, catalogPath,
-                                                       nominalRatio, strongRatio);
+                                                       nominalResidual, strongResidual);
                             } catch (NotSupportedException ex) {
                                 Console.Error.WriteLine($"arm '{arm}': {ex.Message}");
                                 Environment.ExitCode = 2;
@@ -381,7 +381,7 @@ namespace TestApp {
         private static RenderRequest BuildRequest(
                 BenchField field, AberrationConfig aberration, string arm, int defocusOffsetSteps,
                 double limitMag, double exposureSeconds, string catalogPath,
-                double nominalRatio, double strongRatio) {
+                double nominalResidual, double strongResidual) {
 
             // Constructed directly rather than through SynthRenderRequestFactory: that factory maps a *bank
             // dataset spec* onto a request and hard-codes AberrationsEnabled = false, and the whole point of this
@@ -420,31 +420,33 @@ namespace TestApp {
                 OpticalAxisOffsetYMicrons = 0.0,
                 ExposureSeconds = exposureSeconds
             };
-            return ApplyArm(request, arm, nominalRatio, strongRatio);
+            return ApplyArm(request, arm, nominalResidual, strongResidual);
         }
 
         /// <summary>
         /// Applies the feature arm to a request.
         ///
-        /// <para><c>on-zero</c> is a <b>verification</b> arm, not a cost arm. A zero ratio makes the
-        /// astigmatism coefficient literally 0.0, so every star's two quantized defocus levels coincide and the
-        /// compositor takes the circular generator — it must therefore measure the same as <c>off</c>, and a
-        /// divergence means the level-collapse rule broke. There is no separate "code path" overhead to isolate:
-        /// the cost is entirely a function of how many distinct elliptical kernels the field demands.</para>
+        /// <para><c>on-zero</c> models a <b>perfectly corrected optic</b> (residual 0), which is not the same
+        /// thing as the feature being off: mis-spacing still splits the focal surfaces by exactly half the
+        /// curvature it induces, so this arm is elliptical wherever the backfocus error is nonzero. On the clean
+        /// <c>A0</c> config it IS a verification arm — with no residual and no spacing error the coefficient is
+        /// literally 0.0, every star's two quantized levels coincide, the compositor takes the circular
+        /// generator, and it must measure the same as <c>off</c>; a divergence there means the level-collapse
+        /// rule broke. On <c>A1</c>/<c>A2</c> it is instead the floor of what a well-corrected rig costs.</para>
         /// </summary>
-        private static RenderRequest ApplyArm(RenderRequest request, string arm, double nominalRatio, double strongRatio) {
+        private static RenderRequest ApplyArm(RenderRequest request, string arm, double nominalResidual, double strongResidual) {
             switch (arm.ToLowerInvariant()) {
                 case "off":
-                    return request with { AstigmatismEnabled = false, AstigmatismRatio = 0.0 };
+                    return request with { AstigmatismEnabled = false, CornerAstigmatismMicrons = 0.0 };
 
                 case "on-zero":
-                    return request with { AstigmatismEnabled = true, AstigmatismRatio = 0.0 };
+                    return request with { AstigmatismEnabled = true, CornerAstigmatismMicrons = 0.0 };
 
                 case "on":
-                    return request with { AstigmatismEnabled = true, AstigmatismRatio = nominalRatio };
+                    return request with { AstigmatismEnabled = true, CornerAstigmatismMicrons = nominalResidual };
 
                 case "on-strong":
-                    return request with { AstigmatismEnabled = true, AstigmatismRatio = strongRatio };
+                    return request with { AstigmatismEnabled = true, CornerAstigmatismMicrons = strongResidual };
 
                 default:
                     throw new NotSupportedException($"unknown arm '{arm}' (expected off, on-zero, on, on-strong)");

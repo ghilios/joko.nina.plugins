@@ -768,8 +768,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 OpticalAxisOffsetXMicrons = options.OpticalAxisOffsetXMicrons,
                 OpticalAxisOffsetYMicrons = options.OpticalAxisOffsetYMicrons,
                 AstigmatismEnabled = options.EnableFieldAstigmatism,
-                BackfocusSpacingErrorMicrons = options.BackfocusSpacingErrorMicrons,
-                AstigmatismRatio = options.AstigmatismRatio,
+                CornerAstigmatismMicrons = options.CornerAstigmatismMicrons,
                 ExposureSeconds = exposureSeconds
             };
         }

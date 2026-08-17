@@ -199,26 +199,25 @@ the rotator.
 
 ## Field astigmatism
 
-A corrector at the wrong spacing does not simply defocus the corners — it splits focus in two. Rays
-in the plane containing the optical axis and the star come to a focus at a different distance from
-rays in the perpendicular plane, so instead of one best-focus surface there are two, and a sensor
-placed between them sees stars stretched into short lines. **Model Astigmatism** renders that, which
-is what makes simulated stars go *eccentric* rather than merely soft.
+A real corrector does not bring a star to one focus. Rays in the plane containing the optical axis
+and the star come to a focus at a slightly different distance from rays in the perpendicular plane,
+so instead of one best-focus surface there are two, and a sensor placed between them sees stars
+stretched into short lines. **Model Astigmatism** renders that, which is what makes simulated stars
+go *eccentric* rather than merely soft.
 
 The two surfaces straddle the surface above, separated by a half-split \(A\):
 
 \[
 z_T = z + A, \qquad z_S = z - A, \qquad
-A(x,y) = 
-ho \, c_m \, e(x,y) \, r'^2 ,
+A(x,y) = \left( \tfrac{K}{2} + \frac{a_c}{r_c^2} \right) r'^2 ,
 \]
 
-where \(r'\) is the distance from the optical axis and \(e(x,y)\) is the **local** axial spacing
-error — the centre spacing error plus the tilt plane, because the tilt plane is literally how far
-that patch of sensor has moved along the axis. A star's blur is then an ellipse: its radial extent
-comes from \(\lvert \Delta - A 
-vert\) and its tangential extent from \(\lvert \Delta + A 
-vert\),
+where \(r'\) is the distance from the optical axis, \(K\) is the field curvature the backfocus error
+produces, \(a_c\) is the corrector's own residual split at the corner radius \(r_c\), and the
+\(K/2\) is not a tunable fraction — for a Seidel corrector the tangential surface departs from the
+Petzval surface exactly three times as far as the sagittal one, which puts the half-split at exactly
+half the curvature the same mis-spacing induces. A star's blur is then an ellipse: its radial extent
+comes from \(\lvert \Delta - A \rvert\) and its tangential extent from \(\lvert \Delta + A \rvert\),
 where \(\Delta\) is the local defocus from the surface above.
 
 That crossing is the whole behaviour, and it reduces to one rule:
@@ -226,47 +225,49 @@ That crossing is the whole behaviour, and it reduces to one rule:
 > Stars stretch **radially** where the local defocus and the astigmatism disagree in sign,
 > **tangentially** where they agree, and stay round wherever either is zero.
 
-Which way stars point depends on two things: which side of design spacing you are on, and the **sign
-of the Astigmatism Ratio**, which says which way round a given corrector responds. Tilt makes both
-directions appear in the same frame: it drives the local defocus positive on one side of the sensor
-and negative on the other, so a sensor tilted enough for that to outweigh the field curvature shows
-stars pointing at the corners on one edge and lying across the radius on the opposite edge — the
-pattern the [Aberration Inspector](tilt-aberration-inspector.md)'s eccentricity vector field is built
-to reveal. Where the surface crosses focus the two extents are equal and the star is round again, but
-not a point: that is the circle of least confusion, and it is why a corner on a badly spaced rig
-never comes to a sharp focus at any focuser position.
+**Tilt does not create astigmatism — it reveals it.** A tilted sensor is a passive sampling plane: it
+cannot change what the beam ahead of it is doing, only where along each beam it takes its slice. So
+\(A\) does not depend on tilt at all. What tilt does is drive \(\Delta\) positive on one side of the
+sensor and negative on the other, against a split that is the same on both, so one edge lands on the
+tangential side of the pair and the opposite edge on the sagittal side. That is why a tilted rig
+shows stars pointing at the corners along one edge and lying across the radius along the opposite
+one — the pattern the [Aberration Inspector](tilt-aberration-inspector.md)'s eccentricity vector
+field is built to reveal — and it is why a perfectly corrected optic (\(a_c = 0\)) at design spacing
+shows no elongation no matter how far it is tilted. Where the surface crosses focus the two extents
+are equal and the star is round again, but not a point: that is the circle of least confusion, and it
+is why a corner on a badly spaced rig never comes to a sharp focus at any focuser position.
 
-**Reversing the backfocus error rotates every star by a quarter turn.** Swapping a spacer flips the
-local defocus but not which of the two foci lies nearer — that is fixed by the corrector — so radial
-corners become tangential ones at identical size. This is the behaviour that makes the elongation
-direction diagnostic on a real rig, and reproducing it is much of the point of the model.
+**Reversing the backfocus error rotates every star by a quarter turn — but only near design
+spacing.** Swapping a spacer flips \(\Delta\), and it flips the \(K/2\) part of the split with it,
+but it cannot touch the corrector's residual \(a_c\). So the flip survives only while the residual
+still outvotes the induced term, i.e. while \(\lvert C \rvert < 2 a_c\) for a backfocus error \(C\);
+past that both spacing directions read radial. That window is the honest form of a widely repeated
+piece of field lore — reports of the flip and flat denials of it are both consistent with it, and
+which one an observer sees depends on how their spacing error compares with their corrector's
+residual astigmatism.
 
-Two things that follow, and that catch people out. The **elongation does not grow with the backfocus
-error**: the axis ratio is set by the Astigmatism Ratio alone, so a larger error gives *larger* stars
-rather than more eccentric ones — a couple of hundred microns is enough to see the effect clearly.
-And with tilt large enough to outweigh the field curvature, reversing the backfocus stops flipping
-anything, because there it is the tilt that decides the local defocus's sign.
+One thing that follows, and that catches people out: with a large backfocus error the elongation
+saturates rather than growing without bound. The axis ratio approaches \(\lvert \Delta - A \rvert /
+\lvert \Delta + A \rvert \to 3\) as the induced term dominates — the Seidel 3:1 ratio showing through
+directly — so a huge error gives *larger* stars, not indefinitely more eccentric ones.
 
-Three options control it, inside the Field Aberrations group:
+Two options control it, inside the Field Aberrations group:
 
-- **Model Astigmatism** turns it on. It is on by default, and does nothing at all until there is a
-  spacing error for it to work from.
-- **Backfocus Spacing Error** is how far the sensor sits from the corrector's design spacing, in
-  microns — the *cause*, where Backfocus Error above is the corner curvature it *produces*. Enter a
-  magnitude; the direction comes from the sign of Backfocus Error. Leave it blank and it is inferred
-  from Backfocus Error, assuming a nominal flattener where 1 mm of spacing error gives 50 µm of
-  corner curvature on a full-frame sensor.
-- **Astigmatism Ratio** is how much astigmatism accompanies the field curvature, and it alone sets
-  how *elongated* stars get — the backfocus error sets their size. Its **sign** says which way round
-  the corrector responds, i.e. which side of design spacing gives radial and which gives tangential.
-  A magnitude near 1 is the physical starting point; the default is 0.7, and 0 disables the effect
-  without touching the toggle.
+- **Model Astigmatism** turns it on. It is on by default, and does nothing at all until there is
+  either a corner astigmatism or a backfocus error for it to work from.
+- **Corner Astigmatism** is the split your corrector still leaves at the sensor corner when it is
+  perfectly spaced, in microns of focuser travel. This is the term a tilted sensor reveals, so it is
+  what a perfectly spaced but tilted rig shows. Around 10–20 µm is typical of a decent field
+  flattener at f/5–f/7; the default is 15 µm. Its **sign** says which way round the corrector
+  responds — which side of design spacing gives radially elongated stars — and 0 models a flawless
+  corrector, which disables the effect on a perfectly spaced rig without touching the toggle.
 
 Two things this deliberately does not change. The **inspector still recovers exactly what you
 inject**: the two surfaces' mean is the surface it fits, and reversing the defocus swaps the two
 extents — which rotates the star 90° without resizing it — so HFR stays symmetric about the same
 best focus and the tilt and curvature it reports are unmoved. And with astigmatism switched off, or
-its ratio at zero, frames render bit-for-bit as they did before the model existed.
+on a perfectly corrected optic at design spacing, frames render bit-for-bit as they did before the
+model existed.
 
 ## Noise and readout
 

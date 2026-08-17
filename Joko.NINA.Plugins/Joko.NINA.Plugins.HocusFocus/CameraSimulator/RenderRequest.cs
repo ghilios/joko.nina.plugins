@@ -101,14 +101,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         public bool AstigmatismEnabled { get; init; }
 
         /// <summary>
-        /// Axial spacing error magnitude e_c (µm) — how far the sensor sits from the corrector's design
-        /// spacing. Defaults to the "not entered" sentinel, in which case it is inferred from the backfocus
-        /// error; the sign is inherited from that error, not carried here.
+        /// The corrector's design-residual T–S half-split at the sensor corner (µm, signed) — what survives
+        /// at perfect spacing, and what a tilted sensor reveals by defocusing it.
         /// </summary>
-        public double BackfocusSpacingErrorMicrons { get; init; } = AberrationSurface.UnsetSpacingErrorMicrons;
-
-        /// <summary>ρ = c_a/c_m, the astigmatism-to-curvature ratio. Non-negative.</summary>
-        public double AstigmatismRatio { get; init; }
+        public double CornerAstigmatismMicrons { get; init; }
 
         // --- Exposure ---
 

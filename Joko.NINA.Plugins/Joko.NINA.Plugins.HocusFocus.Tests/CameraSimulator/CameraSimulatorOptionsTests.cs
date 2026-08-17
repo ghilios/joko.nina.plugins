@@ -472,31 +472,8 @@ public class CameraSimulatorOptionsTests {
             Assert.That(options.OpticalAxisOffsetXMicrons, Is.EqualTo(0.0));
             Assert.That(options.OpticalAxisOffsetYMicrons, Is.EqualTo(0.0));
             Assert.That(options.EnableFieldAstigmatism, Is.True);
-            Assert.That(options.BackfocusSpacingErrorMicrons, Is.EqualTo(AberrationSurface.UnsetSpacingErrorMicrons),
-                "the spacing error ships unset, so it is inferred from the backfocus error");
-            Assert.That(options.AstigmatismRatio, Is.EqualTo(CameraSimulatorOptions.DefaultAstigmatismRatio));
+            Assert.That(options.CornerAstigmatismMicrons, Is.EqualTo(CameraSimulatorOptions.DefaultCornerAstigmatismMicrons));
         });
-    }
-
-    [Test]
-    public void EffectiveBackfocusSpacingError_InfersFromTheBackfocusErrorWhenUnset() {
-        var (options, _, _) = Build();
-        options.SensorModel = SonySensorModel.IMX455;
-
-        // Under the nominal flattener the inference assumes, 50 µm of corner curvature on a full frame comes
-        // from a 1 mm spacer error -- which is the story the shipped default is chosen to tell.
-        options.BackfocusErrorMicrons = 50.0;
-        Assert.That(options.EffectiveBackfocusSpacingErrorMicrons, Is.EqualTo(1000.0).Within(20.0));
-
-        // The sign follows the backfocus error, since a corrector's curvature response to spacing has one sign.
-        options.BackfocusErrorMicrons = -50.0;
-        Assert.That(options.EffectiveBackfocusSpacingErrorMicrons, Is.EqualTo(-1000.0).Within(20.0));
-
-        // Once entered, the magnitude is used verbatim and only the sign is inherited.
-        options.BackfocusSpacingErrorMicrons = 400.0;
-        Assert.That(options.EffectiveBackfocusSpacingErrorMicrons, Is.EqualTo(-400.0));
-        options.BackfocusErrorMicrons = 50.0;
-        Assert.That(options.EffectiveBackfocusSpacingErrorMicrons, Is.EqualTo(400.0));
     }
 
     [Test]

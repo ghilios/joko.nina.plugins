@@ -211,29 +211,38 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         [Test]
         public void Render_AstigmatismDisabled_IsByteIdenticalToBefore() {
             // The toggle ships enabled, so this is the guard that it cannot move a frame it was not asked to.
-            // With the ratio at zero the split is literally 0.0, every star collapses onto the same quantized
-            // level it always had, and the compositor takes the circular generator -- so the frames must agree
-            // to the byte, not merely closely.
+            // Two ways to get a zero split -- the toggle off, and a perfectly corrected optic at design spacing
+            // -- and both must collapse every star onto the quantized level it always had, so the compositor
+            // takes the circular generator and the frames agree to the byte rather than merely closely.
             var stars = AstigmatismScene();
             var steps = SyntheticCameraTestScene.OptimalFocuserPosition + 120;
             var withoutFeature = SyntheticCameraTestScene.Request(steps,
                 aberrationsEnabled: true, tiltAngleDegrees: 30.0, tiltAmountMicrons: 90.0, backfocusErrorMicrons: 40.0);
-            var featureOnRatioZero = withoutFeature with { AstigmatismEnabled = true, AstigmatismRatio = 0.0 };
+            var featureOffWithResidual = withoutFeature with { CornerAstigmatismMicrons = 15.0 };
+
+            var perfectOpticOff = SyntheticCameraTestScene.Request(steps,
+                aberrationsEnabled: true, tiltAngleDegrees: 30.0, tiltAmountMicrons: 90.0, backfocusErrorMicrons: 0.0);
+            var perfectOpticOn = perfectOpticOff with { AstigmatismEnabled = true, CornerAstigmatismMicrons = 0.0 };
 
             var a = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(withoutFeature, CancellationToken.None);
-            var b = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(featureOnRatioZero, CancellationToken.None);
-            Assert.That(b, Is.EqualTo(a).AsCollection);
+            var b = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(featureOffWithResidual, CancellationToken.None);
+            var c = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(perfectOpticOff, CancellationToken.None);
+            var d = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(perfectOpticOn, CancellationToken.None);
+            Assert.Multiple(() => {
+                Assert.That(b, Is.EqualTo(a).AsCollection, "the toggle off ignores the residual entirely");
+                Assert.That(d, Is.EqualTo(c).AsCollection, "a perfect optic at design spacing has nothing to split");
+            });
         }
 
         [Test]
-        public void Render_AstigmatismChangesPixels_WhenTheRatioIsNonzero() {
-            // The complement of the byte-identity guard: with a real ratio the frame must actually differ, or
-            // the feature is wired up but inert.
+        public void Render_AstigmatismChangesPixels_WhenTheOpticHasAResidual() {
+            // The complement of the byte-identity guard: with a real residual the frame must actually differ,
+            // or the feature is wired up but inert.
             var stars = AstigmatismScene();
             var steps = SyntheticCameraTestScene.OptimalFocuserPosition + 120;
             var off = SyntheticCameraTestScene.Request(steps,
                 aberrationsEnabled: true, tiltAngleDegrees: 30.0, tiltAmountMicrons: 90.0, backfocusErrorMicrons: 40.0);
-            var on = off with { AstigmatismEnabled = true, AstigmatismRatio = 0.7 };
+            var on = off with { AstigmatismEnabled = true, CornerAstigmatismMicrons = 15.0 };
 
             var a = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(off, CancellationToken.None);
             var b = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(on, CancellationToken.None);
@@ -248,7 +257,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             var stars = AstigmatismScene();
             var request = SyntheticCameraTestScene.Request(SyntheticCameraTestScene.OptimalFocuserPosition + 120,
                 aberrationsEnabled: true, tiltAngleDegrees: 30.0, tiltAmountMicrons: 90.0, backfocusErrorMicrons: 40.0,
-                astigmatismEnabled: true, astigmatismRatio: 0.7);
+                astigmatismEnabled: true, cornerAstigmatismMicrons: 15.0);
             var compositor = new StarFieldCompositor(new FakeCatalogReader(stars));
 
             var inline = compositor.Render(request, CancellationToken.None);
@@ -268,7 +277,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             var stars = AstigmatismScene();
             var request = SyntheticCameraTestScene.Request(SyntheticCameraTestScene.OptimalFocuserPosition + 350,
                 aberrationsEnabled: true, tiltAngleDegrees: 30.0, tiltAmountMicrons: 200.0, backfocusErrorMicrons: 120.0,
-                astigmatismEnabled: true, astigmatismRatio: 1.5);
+                astigmatismEnabled: true, cornerAstigmatismMicrons: 40.0);
             var timings = new RenderPhaseTimings();
             new StarFieldCompositor(new FakeCatalogReader(stars)).Render(request, null, timings, CancellationToken.None);
 
@@ -285,7 +294,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             var stars = AstigmatismScene();
             var request = SyntheticCameraTestScene.Request(SyntheticCameraTestScene.OptimalFocuserPosition + 120,
                 aberrationsEnabled: true, tiltAngleDegrees: 0.0, tiltAmountMicrons: 120.0, backfocusErrorMicrons: 40.0,
-                astigmatismEnabled: true, astigmatismRatio: 0.7);
+                astigmatismEnabled: true, cornerAstigmatismMicrons: 15.0);
             var truth = new List<StarTruth>();
             new StarFieldCompositor(new FakeCatalogReader(stars)).Render(request, truth, CancellationToken.None);
 
@@ -317,7 +326,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             };
             var request = SyntheticCameraTestScene.Request(SyntheticCameraTestScene.OptimalFocuserPosition + 350,
                 aberrationsEnabled: true, tiltAngleDegrees: 225.0, tiltAmountMicrons: 200.0, backfocusErrorMicrons: 120.0,
-                astigmatismEnabled: true, astigmatismRatio: 1.5);
+                astigmatismEnabled: true, cornerAstigmatismMicrons: 40.0);
 
             var truth = new List<StarTruth>();
             new StarFieldCompositor(new FakeCatalogReader(offFrame)).Render(request, truth, CancellationToken.None);

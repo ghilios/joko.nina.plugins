@@ -153,28 +153,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double OpticalAxisOffsetYMicrons { get; set; }
 
         // Field astigmatism — splits the best-focus surface into tangential and sagittal surfaces, so stars
-        // render elliptical rather than merely soft. The elongation direction is set by the sign of
-        // AstigmatismRatio; a tilt large enough to dominate the local defocus makes it differ between
-        // opposite edges of the sensor.
+        // render elliptical rather than merely soft. Tilt does not create astigmatism; it reveals the
+        // corrector's residual by defocusing the field, which is what makes opposite edges elongate in
+        // perpendicular directions.
         bool EnableFieldAstigmatism { get; set; }
 
         /// <summary>
-        /// Axial spacing error magnitude e_c (µm) — how far the sensor sits from the corrector's design
-        /// spacing. Negative means "not entered", in which case it is inferred from
-        /// <see cref="BackfocusErrorMicrons"/>; the direction is always taken from that error's sign, since a
-        /// corrector's curvature response to spacing has one fixed sign.
+        /// The corrector's design-residual T–S half-split at the sensor corner (µm, <b>signed</b>) — the
+        /// astigmatism it still leaves at perfect spacing. This is what a tilted sensor reveals, and its sign
+        /// is what selects radial versus tangential elongation for a given spacing direction.
         /// </summary>
-        double BackfocusSpacingErrorMicrons { get; set; }
-
-        /// <summary>Resolved spacing error (µm) after inference — the hint shown when the box is left blank.</summary>
-        double EffectiveBackfocusSpacingErrorMicrons { get; }
-
-        /// <summary>
-        /// ρ = c_a/c_m, how much astigmatism accompanies the residual field curvature. <b>Signed</b>: its sign
-        /// is what selects radial versus tangential elongation, which first-order theory makes a property of
-        /// the corrector rather than of the spacing error.
-        /// </summary>
-        double AstigmatismRatio { get; set; }
+        double CornerAstigmatismMicrons { get; set; }
 
         // Simulated tilt adapter. Deliberately separate from the user's real ITiltAdapterOptions: the inspector
         // guides from the REAL calibration, so the two must be comparable but must never implicitly overwrite

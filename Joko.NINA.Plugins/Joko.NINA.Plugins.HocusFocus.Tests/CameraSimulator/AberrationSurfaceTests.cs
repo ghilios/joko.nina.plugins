@@ -30,10 +30,9 @@ public class AberrationSurfaceTests {
         double offsetXUm = 0.0,
         double offsetYUm = 0.0,
         bool astigmatism = false,
-        double spacingUm = AberrationSurface.UnsetSpacingErrorMicrons,
-        double ratio = 0.0) {
+        double cornerAstigUm = 0.0) {
         return new AberrationSurface(enabled, tiltAngleDeg, tiltAmountUm, backfocusUm, offsetXUm, offsetYUm,
-            W, H, P, K_MicronsPerStep, X0Steps, astigmatism, spacingUm, ratio);
+            W, H, P, K_MicronsPerStep, X0Steps, astigmatism, cornerAstigUm);
     }
 
     [TestCase(0.0, 20.0, 15.0)]
@@ -198,6 +197,12 @@ public class AberrationSurfaceTests {
 
     // ---------------------------------------------------------------------------------------------------
     // Astigmatism: the surface becomes a PAIR whose mean is the surface above.
+    //
+    // A(x,y) = a2 * r'^2,  a2 = K/2 + a_c/r_c^2. Two things this deliberately does NOT contain: tilt, and a
+    // free ratio. Tilt cannot change the beam's aberrations -- a tilted sensor only chooses where along each
+    // beam it samples -- and Seidel's 3:1 rule pins the spacing-induced split to exactly half the induced
+    // mean curvature. What makes a tilted rig show eccentric corners is the corrector's RESIDUAL split a_c,
+    // which tilt reveals by defocusing the field.
     // ---------------------------------------------------------------------------------------------------
 
     /// <summary>A spread of field points, including the exact centre and all four corners.</summary>
@@ -207,21 +212,25 @@ public class AberrationSurfaceTests {
         (W / 2, 0), (W / 2, H - 1), (0, H / 2), (W - 1, H / 2),
     };
 
+    /// <summary>Semi-axes of the blur at a field point, up to the shared 1/(2Np) scale factor.</summary>
+    private static (double radial, double tangential) SemiAxes(AberrationSurface surface, int px, int py, int steps) {
+        surface.AstigmaticDefocusMicrons(px, py, steps, out var dT, out var dS, out _);
+        return (Math.Abs(dT), Math.Abs(dS));
+    }
+
     [TestCase(0.0, 20.0, 15.0)]
     [TestCase(30.0, 50.0, -30.0)]
     [TestCase(120.0, 40.0, 25.0)]
     public void InjectRecover_IsIdentity_WithAstigmatismEnabled(double phiDeg, double tiltUm, double backfocusUm) {
-        // The whole safety argument rests on astigmatism not touching the surface the inspector fits. Splitting
-        // it into z_T = z + A and z_S = z - A leaves (Gx, Gy, K, Phi) alone by construction; this pins that.
+        // The whole safety argument rests on astigmatism not touching the surface the inspector fits.
         var plain = Build(tiltAngleDeg: phiDeg, tiltAmountUm: tiltUm, backfocusUm: backfocusUm);
         var astigmatic = Build(tiltAngleDeg: phiDeg, tiltAmountUm: tiltUm, backfocusUm: backfocusUm,
-                               astigmatism: true, ratio: 0.7);
+                               astigmatism: true, cornerAstigUm: 15.0);
         Assert.Multiple(() => {
             Assert.That(astigmatic.Gx, Is.EqualTo(plain.Gx).Within(1e-15));
             Assert.That(astigmatic.Gy, Is.EqualTo(plain.Gy).Within(1e-15));
             Assert.That(astigmatic.K, Is.EqualTo(plain.K).Within(1e-15));
             Assert.That(astigmatic.Z0, Is.EqualTo(plain.Z0).Within(1e-15));
-            Assert.That(astigmatic.Phi, Is.EqualTo(phiDeg * Math.PI / 180.0).Within(1e-9));
             Assert.That(astigmatic.PredictedTiltEffectMicrons, Is.EqualTo(tiltUm).Within(1e-9));
             Assert.That(astigmatic.PredictedCurvatureEffectMicrons, Is.EqualTo(backfocusUm).Within(1e-9));
         });
@@ -229,10 +238,8 @@ public class AberrationSurfaceTests {
 
     [Test]
     public void MeanOfTangentialAndSagittal_EqualsLocalDefocus() {
-        // Δ_T = Δ − A and Δ_S = Δ + A, so their mean is Δ exactly. This identity is what makes the PSF at −Δ
-        // the PSF at +Δ rotated 90°, hence HFR(Δ) still even about the same best focus.
         var surface = Build(tiltAngleDeg: 30.0, tiltAmountUm: 60.0, backfocusUm: 40.0,
-                            astigmatism: true, ratio: 0.7);
+                            astigmatism: true, cornerAstigUm: 15.0);
         foreach (var (px, py) in FieldGrid()) {
             foreach (var steps in new[] { X0Steps - 400, X0Steps, X0Steps + 250 }) {
                 surface.AstigmaticDefocusMicrons(px, py, steps, out var dT, out var dS, out _);
@@ -243,148 +250,144 @@ public class AberrationSurfaceTests {
     }
 
     [Test]
-    public void AstigmatismSplit_IsExactlyZero_WhenDisabled() {
-        // Exactly 0.0, not merely small: the "astigmatism off renders byte-identically" guarantee depends on
-        // every star collapsing onto the same quantized defocus level it would have had before.
-        var offByToggle = Build(tiltAngleDeg: 30.0, tiltAmountUm: 60.0, backfocusUm: 40.0, astigmatism: false, ratio: 0.7);
-        var offByAberrations = Build(enabled: false, tiltAngleDeg: 30.0, tiltAmountUm: 60.0, backfocusUm: 40.0, astigmatism: true, ratio: 0.7);
-        var offByRatio = Build(tiltAngleDeg: 30.0, tiltAmountUm: 60.0, backfocusUm: 40.0, astigmatism: true, ratio: 0.0);
+    public void AstigmatismSplit_IsExactlyZero_WhenDisabledOrWhenTheOpticIsPerfect() {
+        // Exactly 0.0, not merely small: "astigmatism off renders byte-identically" depends on every star
+        // collapsing onto the same quantized defocus level it would have had before.
+        var offByToggle = Build(tiltAmountUm: 60.0, backfocusUm: 40.0, astigmatism: false, cornerAstigUm: 15.0);
+        var offByAberrations = Build(enabled: false, tiltAmountUm: 60.0, backfocusUm: 40.0, astigmatism: true, cornerAstigUm: 15.0);
+        // A perfectly corrected optic perfectly spaced: no residual, no induced split.
+        var perfectOptic = Build(tiltAmountUm: 500.0, backfocusUm: 0.0, astigmatism: true, cornerAstigUm: 0.0);
 
-        foreach (var surface in new[] { offByToggle, offByAberrations, offByRatio }) {
-            Assert.That(surface.AstigmatismCoefficient, Is.EqualTo(0.0));
+        foreach (var surface in new[] { offByToggle, offByAberrations, perfectOptic }) {
             foreach (var (px, py) in FieldGrid()) {
                 Assert.That(surface.AstigmatismSplitMicrons(px, py), Is.EqualTo(0.0));
-                surface.AstigmaticDefocusMicrons(px, py, X0Steps + 200, out var dT, out var dS, out var theta);
+                surface.AstigmaticDefocusMicrons(px, py, X0Steps + 200, out var dT, out var dS, out _);
                 var delta = surface.LocalDefocusMicrons(px, py, X0Steps + 200);
                 Assert.That(dT, Is.EqualTo(delta));
                 Assert.That(dS, Is.EqualTo(delta));
-                Assert.That(theta, Is.EqualTo(0.0));
             }
         }
     }
 
     [Test]
-    public void PureTilt_WithZeroBackfocus_StillProducesAstigmatism() {
-        // The reason this model was chosen over "astigmatism proportional to the backfocus knob": a tilted
-        // sensor is genuinely mis-spaced over most of its area, so it is astigmatic on its own. With K = 0 the
-        // inferred spacing is 0 too, and c_m falls back to the nominal constant rather than dividing by zero.
-        var surface = Build(tiltAngleDeg: 0.0, tiltAmountUm: 200.0, backfocusUm: 0.0, astigmatism: true, ratio: 0.7);
+    public void PureTilt_RevealsTheResidual_RadialOnOneEdgeAndTangentialOnTheOther() {
+        // The headline behaviour, and the one the previous model could not produce at any setting. Tilt does
+        // not create astigmatism -- it injects defocus, which drags each edge to a different Δ against a FIXED
+        // residual split. Δ and A disagree in sign on one edge and agree on the other, so the two edges
+        // elongate perpendicular to each other.
+        var surface = Build(tiltAngleDeg: 0.0, tiltAmountUm: 100.0, backfocusUm: 0.0,
+                            astigmatism: true, cornerAstigUm: 15.0);
 
-        Assert.That(surface.CurvaturePerSpacing, Is.EqualTo(AberrationSurface.NominalCurvaturePerSpacingPerAreaMicrons).Within(1e-20));
-        Assert.That(surface.EffectiveSpacingErrorMicrons, Is.EqualTo(0.0).Within(1e-12));
-
-        // Tilt is along +x, so the two x-edges sit at equal and opposite LOCAL SPACING ERRORS -- and since the
-        // split is built from the magnitude, both edges get the same split. What differs is the local defocus,
-        // which is what makes one edge radial and the other tangential.
         var left = SemiAxes(surface, 0, H / 2, X0Steps);
         var right = SemiAxes(surface, W - 1, H / 2, X0Steps);
+        var centre = SemiAxes(surface, W / 2, H / 2, X0Steps);
+
         Assert.Multiple(() => {
-            Assert.That(surface.AstigmatismSplitMicrons(0, H / 2), Is.GreaterThan(0.0), "pure tilt must produce a nonzero split");
-            // Relative, because the pixel grid is not exactly symmetric: with an even width the two edge
-            // columns sit 4788 and 4787 px from the centre, so r'² differs by ~0.04%.
-            Assert.That(surface.AstigmatismSplitMicrons(W - 1, H / 2),
-                Is.EqualTo(surface.AstigmatismSplitMicrons(0, H / 2)).Within(0.5).Percent, "and the same one on both edges");
-            Assert.That(left.tangential, Is.GreaterThan(left.radial), "one edge elongates tangentially");
-            Assert.That(right.radial, Is.GreaterThan(right.tangential), "the opposite edge radially");
-            Assert.That(surface.AstigmatismSplitMicrons(W / 2, H / 2), Is.EqualTo(0.0).Within(1e-12), "round on axis");
+            Assert.That(left.tangential, Is.GreaterThan(left.radial * 1.05), "one edge elongates tangentially");
+            Assert.That(right.radial, Is.GreaterThan(right.tangential * 1.05), "the opposite edge radially");
+            Assert.That(centre.radial, Is.EqualTo(0.0).Within(1e-9), "and the on-axis star stays a point");
+            Assert.That(centre.tangential, Is.EqualTo(0.0).Within(1e-9));
         });
     }
 
     [Test]
-    public void BlankSpacing_InfersTheNominalCurvaturePerSpacing() {
-        // Leaving the spacing unset must land exactly on c_m0 -- e_c = K/c_m0 makes c_m = K/e_c = c_m0 by
-        // construction. If that identity ever breaks, the inferred and explicit paths stop agreeing.
-        var surface = Build(backfocusUm: 50.0, astigmatism: true, ratio: 0.7);
-        var expectedSpacing = surface.K / AberrationSurface.NominalCurvaturePerSpacingPerAreaMicrons;
-        Assert.Multiple(() => {
-            Assert.That(surface.EffectiveSpacingErrorMicrons, Is.EqualTo(expectedSpacing).Within(1e-9 * Math.Abs(expectedSpacing)));
-            Assert.That(surface.CurvaturePerSpacing, Is.EqualTo(AberrationSurface.NominalCurvaturePerSpacingPerAreaMicrons)
-                .Within(1e-6 * AberrationSurface.NominalCurvaturePerSpacingPerAreaMicrons));
-            // With c_m derived (or nominal, which is the same here), the corner split is just ρ × the curvature effect.
-            Assert.That(surface.PredictedAstigmatismEffectMicrons, Is.EqualTo(0.7 * 50.0).Within(1e-6));
-        });
-    }
-
-    [TestCase(200.0)]
-    [TestCase(1000.0)]
-    [TestCase(2500.0)]
-    public void ExplicitSpacing_DerivesCurvaturePerSpacingFromTheUsersOwnNumbers(double spacingUm) {
-        var surface = Build(backfocusUm: 50.0, astigmatism: true, spacingUm: spacingUm, ratio: 0.7);
-        Assert.Multiple(() => {
-            Assert.That(surface.EffectiveSpacingErrorMicrons, Is.EqualTo(spacingUm).Within(1e-12));
-            Assert.That(surface.CurvaturePerSpacing, Is.EqualTo(surface.K / spacingUm).Within(1e-18));
-            // Whatever the spacing, c_m·e_c == K, so the corner split stays ρ × the curvature effect.
-            Assert.That(surface.PredictedAstigmatismEffectMicrons, Is.EqualTo(0.7 * 50.0).Within(1e-6));
-        });
-    }
-
-    [Test]
-    public void ExplicitSpacing_InheritsTheSignOfTheBackfocusError() {
-        // The option is a magnitude -- its negative range is the "not entered" sentinel -- so the direction has
-        // to come from K. A corrector's curvature response to spacing has one fixed sign, so c_m stays positive.
-        var negative = Build(backfocusUm: -50.0, astigmatism: true, spacingUm: 1000.0, ratio: 0.7);
-        Assert.Multiple(() => {
-            Assert.That(negative.EffectiveSpacingErrorMicrons, Is.EqualTo(-1000.0).Within(1e-12));
-            Assert.That(negative.CurvaturePerSpacing, Is.GreaterThan(0.0), "c_m is a positive corrector property");
-        });
-    }
-
-    [Test]
-    public void AstigmatismSplit_DoesNotFlipWithTheBackfocusSign() {
-        // Which of the two foci lies nearer is a property of the corrector, so the split keeps its sign when
-        // a spacer is swapped. What reverses is the local defocus -- and that is what rotates the star.
-        var positive = Build(backfocusUm: 50.0, astigmatism: true, ratio: 0.7);
-        var negative = Build(backfocusUm: -50.0, astigmatism: true, ratio: 0.7);
+    public void AstigmatismSplit_IsIndependentOfTilt() {
+        // The physical claim, pinned: the sensor's own position cannot alter the beam's aberrations. Only the
+        // mean surface sees tilt.
+        var noTilt = Build(tiltAmountUm: 0.0, backfocusUm: 40.0, astigmatism: true, cornerAstigUm: 15.0);
+        var hugeTilt = Build(tiltAngleDeg: 37.0, tiltAmountUm: 2000.0, backfocusUm: 40.0, astigmatism: true, cornerAstigUm: 15.0);
         foreach (var (px, py) in FieldGrid()) {
-            Assert.That(negative.AstigmatismSplitMicrons(px, py),
-                Is.EqualTo(positive.AstigmatismSplitMicrons(px, py)).Within(1e-9),
-                $"split at ({px},{py}) is unchanged by the spacing direction");
+            Assert.That(hugeTilt.AstigmatismSplitMicrons(px, py),
+                Is.EqualTo(noTilt.AstigmatismSplitMicrons(px, py)).Within(1e-12),
+                $"split at ({px},{py}) must not depend on tilt");
         }
     }
 
     [Test]
+    public void SpacingInducedSplit_IsExactlyHalfTheCurvature() {
+        // Seidel's 3:1 rule: the tangential surface departs from Petzval three times as far as the sagittal,
+        // so the medial surface moves 2s·r² while the half-split moves s·r². The ratio is not a free knob.
+        foreach (var backfocus in new[] { 20.0, 50.0, -80.0, 200.0 }) {
+            var surface = Build(backfocusUm: backfocus, astigmatism: true, cornerAstigUm: 0.0);
+            Assert.That(surface.PredictedAstigmatismEffectMicrons, Is.EqualTo(0.5 * backfocus).Within(1e-9),
+                $"corner split at backfocus {backfocus} µm");
+        }
+    }
+
+    [Test]
+    public void CornerResidual_AddsToTheSpacingInducedSplit() {
+        var surface = Build(backfocusUm: 50.0, astigmatism: true, cornerAstigUm: 15.0);
+        Assert.That(surface.PredictedAstigmatismEffectMicrons, Is.EqualTo(25.0 + 15.0).Within(1e-9));
+    }
+
+    [Test]
+    public void ReversingTheBackfocusError_FlipsTheOrientation_InsideTheResidualWindow() {
+        // Near design spacing the residual dominates the induced split, so reversing the spacer moves the
+        // corner from one side of the astigmatic pair to the other and the orientation flips. The window is
+        // |C| < 2·a_c; beyond it both signs converge to radial, which is what several bench reports describe.
+        const double residual = 15.0;
+        var tooLong = Build(backfocusUm: 12.5, astigmatism: true, cornerAstigUm: residual);
+        var tooShort = Build(backfocusUm: -12.5, astigmatism: true, cornerAstigUm: residual);
+        var farOutPositive = Build(backfocusUm: 200.0, astigmatism: true, cornerAstigUm: residual);
+        var farOutNegative = Build(backfocusUm: -200.0, astigmatism: true, cornerAstigUm: residual);
+
+        var a = SemiAxes(tooLong, 0, 0, X0Steps);
+        var b = SemiAxes(tooShort, 0, 0, X0Steps);
+        var c = SemiAxes(farOutPositive, 0, 0, X0Steps);
+        var d = SemiAxes(farOutNegative, 0, 0, X0Steps);
+
+        Assert.Multiple(() => {
+            Assert.That(a.radial, Is.GreaterThan(a.tangential), "inside the window: one sign is radial");
+            Assert.That(b.tangential, Is.GreaterThan(b.radial), "and the other tangential");
+            Assert.That(c.radial, Is.GreaterThan(c.tangential), "far outside it, both signs are radial");
+            Assert.That(d.radial, Is.GreaterThan(d.tangential));
+        });
+    }
+
+    [Test]
     public void AstigmatismSplit_ScalesAsRadiusSquaredAboutTheOpticalAxis() {
-        // Not about the sensor centre: with an offset optical axis the split must vanish at (X0, Y0) and grow
-        // as r'² from there. Offsetting by a quarter frame makes the two indistinguishable if r were measured
-        // from the chip centre.
         var offsetX = W * P / 4.0;
-        var surface = Build(backfocusUm: 50.0, offsetXUm: offsetX, astigmatism: true, ratio: 0.7);
+        var surface = Build(backfocusUm: 50.0, offsetXUm: offsetX, astigmatism: true, cornerAstigUm: 15.0);
 
         var axisPx = (int)Math.Round(W / 2.0 + offsetX / P);
         Assert.That(surface.AstigmatismSplitMicrons(axisPx, H / 2), Is.EqualTo(0.0).Within(1e-9),
             "the split vanishes on the optical axis, not the sensor centre");
         Assert.That(surface.FieldAngleRadians(axisPx, H / 2), Is.EqualTo(0.0), "angle is defined as 0 on the axis");
 
-        // Doubling the radius from the axis quadruples the split (no tilt, so e(x,y) is constant).
         var near = surface.AstigmatismSplitMicrons(axisPx + 500, H / 2);
         var far = surface.AstigmatismSplitMicrons(axisPx + 1000, H / 2);
         Assert.That(far / near, Is.EqualTo(4.0).Within(1e-6));
     }
 
     [Test]
+    public void TheSignOfTheResidual_SelectsWhichSpacingDirectionIsRadial() {
+        var positive = Build(backfocusUm: 12.5, astigmatism: true, cornerAstigUm: 15.0);
+        var negative = Build(backfocusUm: 12.5, astigmatism: true, cornerAstigUm: -15.0);
+        var p = SemiAxes(positive, 0, 0, X0Steps);
+        var n = SemiAxes(negative, 0, 0, X0Steps);
+        Assert.Multiple(() => {
+            Assert.That(p.radial, Is.GreaterThan(p.tangential), "positive residual elongates radially here");
+            Assert.That(n.tangential, Is.GreaterThan(n.radial), "negative residual flips it");
+        });
+    }
+
+    [Test]
     public void OrientationRule_RadialWhereDeltaAndSplitDisagreeInSign() {
-        // The one-line statement of the whole feature: a_rad > a_tan  <=>  |Δ−A| > |Δ+A|  <=>  Δ·A < 0.
-        // Checked directly on the defocus pair, with no rendering involved.
-        var surface = Build(tiltAngleDeg: 0.0, tiltAmountUm: 120.0, backfocusUm: 40.0, astigmatism: true, ratio: 0.7);
+        var surface = Build(tiltAngleDeg: 0.0, tiltAmountUm: 120.0, backfocusUm: 40.0,
+                            astigmatism: true, cornerAstigUm: 15.0);
         var sawRadial = false;
         var sawTangential = false;
 
         foreach (var (px, py) in FieldGrid()) {
             foreach (var steps in new[] { X0Steps - 300, X0Steps - 100, X0Steps, X0Steps + 100, X0Steps + 300 }) {
                 surface.AstigmaticDefocusMicrons(px, py, steps, out var dT, out var dS, out _);
-                var delta = surface.LocalDefocusMicrons(px, py, steps);
-                var split = surface.AstigmatismSplitMicrons(px, py);
-                var product = delta * split;
-
-                // |Δ_T| sets the radial semi-axis, |Δ_S| the tangential one.
+                var product = surface.LocalDefocusMicrons(px, py, steps) * surface.AstigmatismSplitMicrons(px, py);
                 if (product < 0.0) {
                     Assert.That(Math.Abs(dT), Is.GreaterThan(Math.Abs(dS)), $"radial at ({px},{py}) step {steps}");
                     sawRadial = true;
                 } else if (product > 0.0) {
                     Assert.That(Math.Abs(dT), Is.LessThan(Math.Abs(dS)), $"tangential at ({px},{py}) step {steps}");
                     sawTangential = true;
-                } else {
-                    Assert.That(Math.Abs(dT), Is.EqualTo(Math.Abs(dS)).Within(1e-9), $"round at ({px},{py}) step {steps}");
                 }
             }
         }
@@ -395,117 +398,36 @@ public class AberrationSurfaceTests {
         });
     }
 
-    /// <summary>Semi-axes (px) of the blur at a field point, up to the shared 1/(2Np) scale factor.</summary>
-    private static (double radial, double tangential) SemiAxes(AberrationSurface surface, int px, int py, int steps) {
-        surface.AstigmaticDefocusMicrons(px, py, steps, out var dT, out var dS, out _);
-        return (Math.Abs(dT), Math.Abs(dS));
-    }
-
-    [TestCase(0.3)]
-    [TestCase(0.7)]
-    [TestCase(2.0)]
-    public void AxisRatio_DependsOnTheRatioAlone_NotOnHowBadlySpacedTheRigIs(double ratio) {
-        // The semi-axes are |(1 ∓ ρ)·c_m·Δb·r'²|, so the elongation is |1+ρ| / |1−ρ| however large the
-        // spacing error is: Δb sets how BIG the stars are, ρ alone sets how ELONGATED. Worth pinning because
-        // the natural assumption is that a bigger backfocus error gives a more eccentric star, and it does
-        // not -- it gives a larger one.
-        var expected = Math.Abs(1.0 + ratio) / Math.Abs(1.0 - ratio);
-        foreach (var backfocus in new[] { 50.0, 500.0, 2000.0 }) {
-            var surface = Build(backfocusUm: backfocus, astigmatism: true, ratio: ratio);
-            var (radial, tangential) = SemiAxes(surface, 0, 0, X0Steps);   // corner, focuser at best focus
-            Assert.That(radial / tangential, Is.EqualTo(expected).Within(1e-6 * expected),
-                $"axis ratio at backfocus {backfocus} µm");
-        }
-    }
-
-    [TestCase(200.0)]
-    [TestCase(2000.0)]
-    public void ReversingTheBackfocusError_RotatesEveryStarByAQuarterTurn(double backfocusUm) {
-        // The headline diagnostic: swapping a spacer turns radial corners into tangential ones. The split is
-        // built from the MAGNITUDE of the local spacing error, so reversing the spacer flips only the local
-        // defocus -- and swapping the sign of Δ swaps |Δ−A| with |Δ+A|, which is a 90° rotation of the same
-        // ellipse. Same size, same elongation, perpendicular.
-        var positive = Build(backfocusUm: backfocusUm, astigmatism: true, ratio: 0.7);
-        var negative = Build(backfocusUm: -backfocusUm, astigmatism: true, ratio: 0.7);
-        foreach (var (px, py) in FieldGrid()) {
-            var a = SemiAxes(positive, px, py, X0Steps);
-            var b = SemiAxes(negative, px, py, X0Steps);
-            Assert.That(b.radial, Is.EqualTo(a.tangential).Within(1e-9), $"axes swap at ({px},{py})");
-            Assert.That(b.tangential, Is.EqualTo(a.radial).Within(1e-9), $"axes swap at ({px},{py})");
-        }
+    [TestCase(double.NaN)]
+    [TestCase(double.PositiveInfinity)]
+    public void NonFiniteCornerAstigmatism_Throws(double value) {
+        // NaN fails every ordering comparison and an infinity sails through a naive `< 0` guard; either one
+        // renders an all-NaN frame with no error anywhere.
+        Assert.Throws<ArgumentOutOfRangeException>(() => Build(astigmatism: true, cornerAstigUm: value));
     }
 
     [Test]
-    public void ReversingTheBackfocusError_FlipsRadialToTangentialAtTheCorners() {
-        // The same thing stated the way a user sees it, rather than as an axis swap.
-        var positive = Build(backfocusUm: 2000.0, astigmatism: true, ratio: 0.7);
-        var negative = Build(backfocusUm: -2000.0, astigmatism: true, ratio: 0.7);
-        foreach (var (px, py) in new[] { (0, 0), (W - 1, 0), (0, H - 1), (W - 1, H - 1) }) {
-            var a = SemiAxes(positive, px, py, X0Steps);
-            var b = SemiAxes(negative, px, py, X0Steps);
-            Assert.That(a.radial, Is.GreaterThan(a.tangential), $"+2000 µm is radial at ({px},{py})");
-            Assert.That(b.tangential, Is.GreaterThan(b.radial), $"−2000 µm is tangential at ({px},{py})");
-        }
-    }
-
-    [Test]
-    public void TheSignOfTheRatio_SelectsRadialVersusTangential() {
-        // The one knob that does change the direction. A negative ratio models a corrector whose astigmatism
-        // opposes its field curvature; the two cases are the same ellipse rotated by 90 degrees.
-        var radialCorrector = Build(backfocusUm: 500.0, astigmatism: true, ratio: 0.7);
-        var tangentialCorrector = Build(backfocusUm: 500.0, astigmatism: true, ratio: -0.7);
-
-        var r = SemiAxes(radialCorrector, 0, 0, X0Steps);
-        var t = SemiAxes(tangentialCorrector, 0, 0, X0Steps);
-        Assert.Multiple(() => {
-            Assert.That(r.radial, Is.GreaterThan(r.tangential), "positive ratio elongates radially");
-            Assert.That(t.tangential, Is.GreaterThan(t.radial), "negative ratio elongates tangentially");
-            Assert.That(t.radial, Is.EqualTo(r.tangential).Within(1e-9), "and it is the same ellipse, rotated");
-            Assert.That(t.tangential, Is.EqualTo(r.radial).Within(1e-9));
-        });
-    }
-
-    [Test]
-    public void NaNAstigmatismRatio_Throws() {
-        // NaN fails every ordering comparison, so a naive `< 0` guard waves it through and the whole frame
-        // renders NaN. The ratio is otherwise unrestricted in sign.
-        Assert.Throws<ArgumentOutOfRangeException>(() => Build(astigmatism: true, ratio: double.NaN));
-    }
-
-    [Test]
-    public void FromRequest_CarriesTheAstigmatismKnobs() {
-        var request = new RenderRequest {
+    public void FromRequest_CarriesTheResidual_AndDefaultsToNoAstigmatism() {
+        var withAstigmatism = new RenderRequest {
             AberrationsEnabled = true,
-            TiltAngleDegrees = 30.0,
-            TiltAmountMicrons = 50.0,
             BackfocusErrorMicrons = 20.0,
             FocuserStepSizeMicrons = K_MicronsPerStep,
             OptimalFocuserPosition = X0Steps,
             AstigmatismEnabled = true,
-            BackfocusSpacingErrorMicrons = 800.0,
-            AstigmatismRatio = 0.7,
+            CornerAstigmatismMicrons = 15.0,
         };
-        var surface = AberrationSurface.FromRequest(request, SensorRegistry.Get(SonySensorModel.IMX455));
-        Assert.Multiple(() => {
-            Assert.That(surface.EffectiveSpacingErrorMicrons, Is.EqualTo(800.0).Within(1e-12));
-            Assert.That(surface.AstigmatismCoefficient, Is.EqualTo(0.7 * surface.K / 800.0).Within(1e-20));
-            Assert.That(surface.PredictedAstigmatismEffectMicrons, Is.EqualTo(0.7 * 20.0).Within(1e-6));
-        });
-    }
+        var surface = AberrationSurface.FromRequest(withAstigmatism, SensorRegistry.Get(SonySensorModel.IMX455));
+        Assert.That(surface.PredictedAstigmatismEffectMicrons, Is.EqualTo(10.0 + 15.0).Within(1e-6));
 
-    [Test]
-    public void FromRequest_DefaultsToNoAstigmatism() {
-        // A request that says nothing about astigmatism -- every existing caller, including the synthetic bank
-        // -- must render exactly as it did before.
-        var request = new RenderRequest {
+        // A request that says nothing about astigmatism -- every existing caller, the synthetic bank included --
+        // must render exactly as it did before.
+        var silent = new RenderRequest {
             AberrationsEnabled = true,
-            TiltAngleDegrees = 30.0,
-            TiltAmountMicrons = 50.0,
             BackfocusErrorMicrons = 20.0,
             FocuserStepSizeMicrons = K_MicronsPerStep,
             OptimalFocuserPosition = X0Steps,
         };
-        var surface = AberrationSurface.FromRequest(request, SensorRegistry.Get(SonySensorModel.IMX455));
-        Assert.That(surface.AstigmatismCoefficient, Is.EqualTo(0.0));
+        Assert.That(AberrationSurface.FromRequest(silent, SensorRegistry.Get(SonySensorModel.IMX455)).AstigmatismCoefficient,
+            Is.EqualTo(0.0));
     }
 }

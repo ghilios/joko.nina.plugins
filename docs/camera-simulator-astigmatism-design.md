@@ -24,19 +24,21 @@ explicit non-goal — see [Non-goals](#non-goals).
 
 ## Key decisions
 
-- **Astigmatism is driven by the *local* axial spacing error**, not by the backfocus knob alone. A tilted
-  sensor genuinely sits at the wrong spacing over most of its area, so pure tilt produces eccentricity on
-  its own. The reference doc's Tier 1 puts tilt only in the common plane term, which makes pure tilt
-  perfectly round; that is a simplification we deliberately do not adopt.
+- **Tilt does not create astigmatism; it reveals it.** A sensor is a passive sampling plane — it cannot
+  change what the beam in front of it is doing, only where along that beam it takes its slice. So the
+  split $A$ carries no tilt term at all. What makes a *tilted* rig show eccentric stars is that tilt
+  drives the local defocus $\Delta$ positive on one edge and negative on the other against a split that
+  is the same on both, so the two edges land on opposite sides of the astigmatic pair. This corrects an
+  earlier version of this design (see [What changed, and why](#what-changed-and-why)).
+- **The split has exactly two terms, and neither is a free knob.** The corrector's *residual* astigmatism
+  at design spacing, $a_c$ — a real, measurable property of every corrector — plus the *induced* split
+  from mis-spacing, which Seidel's 3:1 rule pins at exactly half the induced field curvature.
 - **The two astigmatic surfaces straddle today's surface.** Their mean is exactly the existing
   tilted-paraboloid best-focus surface, which is what preserves the inspector's inject ⇄ recover identity
   (proved below, not merely asserted).
 - **The rendered kernel is an elliptical annulus ⊛ isotropic Gaussian** — the exact Tier-1 kernel, not the
   reference doc's Gaussian-covariance approximation, and it keeps the central-obstruction donut hole that
   the current renderer models exactly.
-- **Blank-means-infer for the spacing error.** The existing `BackfocusErrorMicrons` knob is the *corner
-  curvature effect*, not the spacer error; rather than redefine a persisted option, a new spacing field
-  defaults to unset and is inferred from a documented nominal constant.
 - **`BackfocusErrorMicrons` ships nonzero (50 µm)** so the effect is visible without hunting for knobs.
 
 ## The model
@@ -51,39 +53,47 @@ $$z_{\text{mean}}(x,y) = G_x x' + G_y y' + K r'^2 + Z_0$$
 unchanged — this is `AberrationSurface.ZBestFocusMicrons`, the algebraic inverse of
 `Inspection.SensorParaboloidModel`. The astigmatic half-split is
 
-$$e(x,y) = e_c + G_x x' + G_y y' \qquad [\mu m]$$
-$$c_m = \begin{cases} K / e_c & e_c > 0 \\ c_{m0} & \text{otherwise}\end{cases} \qquad [\mu m^{-2}]$$
-$$A(x,y) = \rho \, c_m \, e(x,y) \, r'^2 \qquad [\mu m]$$
+$$A(x,y) = a_2 \, r'^2 , \qquad a_2 = \underbrace{\tfrac{1}{2} K}_{\text{induced by mis-spacing}} + \underbrace{\frac{a_c}{r_c^2}}_{\text{corrector residual}} \qquad [\mu m]$$
 
 and the two focal surfaces are
 
 $$z_T = z_{\text{mean}} + A \qquad z_S = z_{\text{mean}} - A \qquad \tfrac{1}{2}(z_T + z_S) \equiv z_{\text{mean}}$$
 
-- $e(x,y)$ is the **local** axial spacing error: the configured center spacing error $e_c$ plus the tilt
-  plane, which is literally how far that patch of sensor has moved along the optical axis.
-- $c_m$ is the corrector's residual field curvature per µm of spacing error, and $\rho = c_a/c_m$ is the
-  reference doc's dimensionless astigmatism-to-curvature ratio — the constant it says to calibrate
-  empirically.
+where $a_c$ is the configured corner residual and $r_c^2 = \text{halfW}^2 + \text{halfH}^2$ is the
+sensor's corner radius squared — the same radius `PredictedCurvatureEffectMicrons` reports $K$ at, so
+both knobs are quoted at the same place on the sensor.
 
-**There is no singularity.** Leaving the spacing field blank infers $e_c = K / c_{m0}$, which makes
-$c_m \equiv c_{m0}$ identically. And when `BackfocusErrorMicrons = 0` — so $K = 0$ and the inferred
-$e_c = 0$ — the fallback keeps $c_m = c_{m0}$ and
+**No tilt term, deliberately.** $G_x, G_y$ appear in $z_{\text{mean}}$ and nowhere else. Sensor tilt is a
+rigid-body motion of the detector; it changes which plane of the converging beam is sampled, not the
+beam's aberration content. Schechter & Levinson (2011, PASP; arXiv:1009.0708) §6.3 state the same result
+from the third-order side: *"a tilted detector produces a field pattern identical to misalignment
+curvature of field"* — pure defocus, no astigmatism.
 
-$$A(x,y) = \rho \, c_{m0} \, (G_x x' + G_y y') \, r'^2 \neq 0$$
+### The induced term: why exactly $K/2$
 
-i.e. **pure tilt still produces eccentricity**, which is the whole reason this model was chosen over the
-simpler backfocus-only form.
+For a Seidel system the tangential and sagittal focal surfaces sit on either side of the Petzval surface
+in the fixed ratio 3:1,
 
-### The inference constant $c_{m0}$
+$$z_T = z_P + 3 s r^2, \qquad z_S = z_P + s r^2 ,$$
 
-Pinned to a nominal flattener: 1 mm of spacing error produces 50 µm of corner curvature effect on a
-full-frame corner ($R_c = 21.63$ mm for a 36 × 24 mm sensor):
+so the *medial* surface — the one a focus run finds — is at $z_P + 2 s r^2$ while the half-split is
+$s r^2$. Petzval curvature depends only on the elements' powers and indices, not on their separations,
+so it does **not** move when a spacer changes; all of the spacing-induced change lands in the
+astigmatism term $s$. Therefore a mis-spacing that shifts the medial surface by $K r'^2$ necessarily
+splits the pair by exactly $\tfrac{1}{2} K r'^2$. The ratio is fixed by the optics, which is why the
+free "astigmatism ratio" knob of the earlier design was removed rather than re-tuned.
 
-$$c_{m0} = \frac{50}{1000 \times 21633^2} = 1.0684 \times 10^{-10} \ \mu m^{-2}$$
+### The residual term $a_c$
 
-It multiplies $r'^2$, so it scales correctly to smaller sensors — the same spacing error produces less
-corner curvature on a smaller chip, as it should. Exposed as
-`AberrationSurface.NominalCurvaturePerSpacingPerAreaMicrons`.
+Every real corrector leaves *some* astigmatism at the corner even at its design spacing. That residual
+is what a tilted-but-well-spaced rig reveals, and it is the only reason such a rig shows eccentric stars
+at all. An order-of-magnitude anchor: a diffraction-limited-at-centre design at f/7 that just reaches
+$\lambda/4$ of astigmatism at the corner corresponds to a longitudinal split of order
+$\lambda N^2 / 2 \approx 13\ \mu m$, which is where the 15 µm default comes from. Field flatteners in the
+f/5–f/7 range typically sit in the 10–20 µm band; a poor one is several times that.
+
+Because $a_c$ is quoted *at the corner* and divided by $r_c^2$, it scales as $r'^2$ across the field and
+transfers correctly between sensor sizes.
 
 ### Per-star blur geometry
 
@@ -123,10 +133,12 @@ $$a_{\text{rad}} > a_{\text{tan}} \iff \lvert \Delta - A \rvert > \lvert \Delta 
 > **Stars elongate radially where Δ and A have opposite signs, tangentially where they share a sign, and
 > are round wherever Δ = 0 or A = 0.**
 
-Because Δ changes sign across a tilted field, tilt gives tangential elongation on one side and radial on
-the other, with the round-star locus displaced off-centre — the classic tilt signature. And because
-$e(x,y)$ is signed under this model, $A$ gains a **second** flip locus where the local spacing error
-crosses zero, reachable when the tilt plane exceeds $e_c$ (i.e. backfocus nearly right, tilt bad).
+Because Δ changes sign across a tilted field while $A$ does not, tilt gives tangential elongation on one
+side and radial on the other, with the round-star locus displaced off-centre — the classic tilt
+signature, and the thing this model exists to produce. $A$ itself has one sign everywhere on the sensor
+(it is $a_2 r'^2$ with $a_2$ a constant), so every orientation flip in a frame comes from Δ crossing zero.
+That is a falsifiable structural claim, and it is what
+`PureTilt_WithPerfectSpacing_StillFlipsRadialToTangentialAcrossTheField` pins.
 
 ### 2. Round at Δ = 0, but not a point
 
@@ -154,62 +166,82 @@ never to widen the tolerance.
 
 ## Magnitude, stated honestly
 
-With the shipped defaults (`BackfocusError = 50 µm` ⇒ inferred $e_c = 1$ mm) a 20 µm tilt modulates $A$
-by only about ±2 %. For typical rigs the local-spacing term is a small correction, and the visible tilt
-signature comes from the sign of Δ either way. It dominates only in the small-spacing / large-tilt
-regime, where it produces the second flip locus described above. This is recorded here so the term is not
-later "fixed" for being small — it is small by construction for a well-spaced rig, and that is correct.
+Two numbers set the scale, and they compete:
+
+- The **induced** half-split at the corner is $C/2$ for a backfocus error $C$. At the shipped 50 µm
+  default that is 25 µm.
+- The **residual** is $a_c$, 15 µm by default.
+
+So on a shipped-default rig the two are comparable, which is the interesting regime: reversing the
+spacer flips the orientation, because $A_{\text{corner}} = C/2 + a_c$ changes sign between
+$C = +50$ (giving $+40$) and $C = -50$ (giving $-10$) while Δ also flips. Push the spacing error past
+$\lvert C \rvert = 2 a_c$ and the induced term wins outright: $A$ then tracks $C$'s sign, both flip
+together, and **both spacing directions render radially**. The axis ratio in that limit tends to
+$\lvert \Delta - A \rvert / \lvert \Delta + A \rvert \to 3$ — Seidel's 3:1 showing through directly, and
+a hard ceiling on how eccentric a purely mis-spaced rig can look.
+
+For a *tilted* rig the numbers run the other way. $\Delta$ from tilt can be hundreds of µm while $A$
+stays at $a_2 r'^2$, so the axis ratio $\lvert \Delta - A\rvert / \lvert \Delta + A \rvert \to 1$ as tilt
+grows: **more tilt means larger stars and less relative eccentricity**, with the peak eccentricity where
+$\lvert \Delta \rvert \approx \lvert A \rvert$. Worked for the test scene (IMX533, $a_c$ = 15 µm, no
+backfocus error), at the sensor edge: 30 µm tilt → axis ratio 3.0; 100 µm → 1.35; 1000 µm → 1.03. This is
+recorded because it looks like a bug from the outside — cranking tilt to an extreme makes stars *rounder*
+— and it is correct.
 
 ## Options
 
 | Option | Type | Default | Meaning |
 |---|---|---|---|
 | `EnableFieldAstigmatism` | bool | `true` | Master toggle for the model. |
-| `BackfocusSpacingErrorMicrons` | double | unset (`-1`) | $e_c$. Blank ⇒ inferred as $K / c_{m0}$. |
-| `AstigmatismRatio` | double | `0.7` | $\rho = c_a/c_m$, **signed**, range [−3, 3]. Its sign selects radial (+) or tangential (−). |
+| `CornerAstigmatismMicrons` | double | `15.0` | $a_c$, **signed**, range [−1000, 1000] µm. The corrector's residual T–S half-split at the sensor corner. |
 
-Plus one changed default: **`BackfocusErrorMicrons` 0 → 50 µm**. On a full frame that is ≈ 0.75× the
-critical focus zone at f/7 and corresponds to a 1 mm spacer error under $c_{m0}$.
+Plus one changed default: **`BackfocusErrorMicrons` 0 → 50 µm**, so a user who enables aberrations sees
+the effect without hunting for a second knob. On a full frame 50 µm is ≈ 0.75× the critical focus zone at
+f/7.
 
-All three live inside the Field Aberrations group, which is already gated on `EnableAberrations` — with
+Both live inside the Field Aberrations group, which is already gated on `EnableAberrations` — with
 aberrations off the surface is flat and astigmatism is meaningless.
 
-**Sign convention.** The split is built from the **magnitude** of the local spacing error,
+**Sign convention.** $a_c$ is signed, and its sign is what picks which side of design spacing gives
+radial elongation. There is no separate direction knob: the orientation at a field point is fully
+determined by $\operatorname{sign}(\Delta \cdot A)$, and both factors are already signed.
 
-$$A(x,y) = \rho \, c_m \, \lvert e(x,y) \rvert \, r'^2 ,$$
+**The spacing flip, honestly.** Swapping a spacer flips Δ and flips the induced half of $A$, but cannot
+touch $a_c$. So the familiar "reverse the spacer and the corners rotate 90°" holds only while
+$\lvert C \rvert < 2 a_c$; past that both directions read radial. This is the honest form of a widely
+repeated piece of field lore. Published reports of the flip and flat denials of it — Roland Christen's
+among the latter — are both consistent with this window; which one an observer sees depends on how their
+spacing error compares with their corrector's residual astigmatism. The window is pinned end-to-end by
+`ReversingTheBackfocusError_FlipsRadialToTangential_OnlyInsideTheResidualWindow`, which asserts *both*
+halves: the flip inside it and the absence of a flip outside it.
 
-so reversing a spacer flips $\Delta$ and leaves $A$ alone — and by the 90°-rotation argument in
-[Three properties](#3-inject--recover-survives-provably), that rotates every star a quarter turn. Radial
-corners become tangential ones at identical size. That is what makes the elongation direction diagnostic on
-a real rig, and it is the behaviour the model exists to reproduce. The **sign of $\rho$** then chooses which
-spacing direction maps to which elongation — the corrector-design freedom the reference doc describes, and
-the reason $\rho$ is signed rather than a magnitude.
+**Virtual tilt adapter.** `SimulatedTiltInjection.Fold` folds screw piston into `BackfocusErrorMicrons`
+and nothing else. A piston changes the sensor's spacing, which is exactly what `BackfocusErrorMicrons`
+already encodes as its corner effect; the induced split follows from $K$ automatically, and the
+corrector's residual $a_c$ is a property of the glass that no screw move can alter.
 
-Two further consequences, both worth knowing because they surprise people:
+### What changed, and why
 
-- **The axis ratio is $\lvert 1+\rho \rvert / \lvert 1-\rho \rvert$** (or its reciprocal on the other side
-  of design spacing), *independent of how badly the rig is spaced*. The spacing error sets how **large** the
-  stars are; $\rho$ alone sets how **elongated**. A bigger backfocus error does not give a more eccentric
-  star, it gives a larger one.
-- **Tilt makes both directions appear in one frame.** It drives the local defocus positive on one side of the
-  sensor and negative on the other, so a sensor tilted enough for that to outweigh the field curvature shows
-  radial elongation on one edge and tangential on the opposite. Reversing the *backfocus* in that regime does
-  not flip anything, because there it is the tilt that sets $\Delta$'s sign.
+The first version of this design made the split proportional to the **local** axial spacing error,
+$A = \rho\, c_m\, e(x,y)\, r'^2$ with $e$ carrying the tilt plane, on the reasoning that a tilted sensor
+is genuinely mis-spaced across most of its area. It does not work, for a reason that is easy to state
+once seen: under that form $A$ flips sign in lockstep with Δ, so $\Delta \cdot A < 0$ *everywhere* and
+every edge elongates radially by the same modest amount — measured axis ratio 1.07 at every tilt
+magnitude, no perpendicular pair anywhere. Rendered frames confirmed it: pure tilt produced defocus with
+no visible elongation, and ±2000 µm of backfocus error produced near-identical frames.
 
-> **Where this departs from first-order theory, and why.** A coefficient that vanishes at design spacing and
-> is analytic in the spacing error is linear in it, hence changes sign with it — giving $A \propto e$, not
-> $\lvert e \rvert$. Under that form $\Delta$ and $A$ flip together, the semi-axes $\lvert \Delta \mp A \rvert$
-> are invariant, and the two spacing directions render identically. That is what this model originally did,
-> and it is wrong against the bench: real correctors show the flip, which is why the direction is used
-> diagnostically in the first place. The observed behaviour wins. The likely reconciliation is that what makes
-> the direction diagnostic on a real rig is not purely the astigmatism-to-curvature balance this single term
-> models — but that is a hypothesis, not something derived here, and it is recorded as such.
+The physical error underneath was treating the sensor's position as an input to the beam's aberrations.
+It is not. Mis-spacing induces astigmatism because it changes the *corrector's* conjugates, and the
+sensor plane's own tilt has no such effect — it only chooses the sampling plane. Three independent
+reviews converged on this; the details, including the Seidel derivation of the $K/2$ factor and the
+literature on the spacing-flip folklore, are in
+[`camera-simulator-astigmatism-review.md`](camera-simulator-astigmatism-review.md).
 
-**Virtual tilt adapter.** `SimulatedTiltInjection.Fold` folds screw piston into `BackfocusErrorMicrons`.
-A piston is a literal axial displacement, so it changes the spacing error by exactly `pistonMicrons`;
-`Fold` therefore also adds it to `BackfocusSpacingErrorMicrons` **when that option is explicitly set**.
-When blank, the inference already tracks `BackfocusErrorMicrons` and nothing is needed — blank is never
-silently converted to explicit.
+Removed with it: `BackfocusSpacingErrorMicrons` (and its blank-means-infer plumbing), `AstigmatismRatio`,
+and the nominal inference constant $c_{m0}$. The reference doc
+[`backfocus-eccentricity-modeling.md`](backfocus-eccentricity-modeling.md) is retained for its Tier-1
+geometry, which is unchanged and correct; note that its prose implies a tilt-driven split its own
+equations do not contain, and that this design follows its equations rather than its prose.
 
 ## Rasterization
 
@@ -344,12 +376,15 @@ Measured results, methodology, and the pass/fail gates live in
 - **Tier 2 pupil-plane Fourier optics.** `PsfKernelMethod.Fft` remains the reserved, unimplemented seam
   and must keep throwing on the astigmatic path too. It would add diffraction rings and astigmatic cross
   structure at roughly 10–100× the compute per star.
-- **Nodal / binodal astigmatism.** Nodal aberration theory adds a field-*linear* astigmatism term for
-  tilt and decenter, replacing the quadratic magnitude with a vector expression in the field vector.
-  For realistic sensor tilts the plane-defocus term plus quadratic astigmatism captures nearly all of the
-  visual behaviour; the seam is `AberrationSurface.AstigmatismCoefficient`.
+- **Nodal / binodal astigmatism.** Nodal aberration theory adds a field-*linear* astigmatism term when an
+  *optical element* is tilted or decentred, splitting the astigmatic node into two and breaking the
+  rotational symmetry of $A$. That is a real effect and it is what a misaligned corrector (as opposed to a
+  misplaced sensor) produces; modelling it means replacing the scalar $a_2 r'^2$ with a vector expression
+  in the field vector. It is out of scope here — the option surface describes a *sensor* fault, and a
+  rotationally symmetric $A$ is the right model for that. The seam is
+  `AberrationSurface.AstigmatismCoefficient`.
 - **Coma.** Still not modeled. The surface remains a pair of *defocus* surfaces; coma is a third-order
   term with a different field dependence and an asymmetric (not elliptical) PSF.
 - **Fitting astigmatism on the recovery side.** The inspector's `SensorParaboloidModel` stays
-  scalar-valued. This change is inject-only; recovering $\rho$ from measured eccentricity maps is
+  scalar-valued. This change is inject-only; recovering $a_c$ from measured eccentricity maps is
   possible in principle (the reference doc notes the model is directly invertible) but is separate work.
