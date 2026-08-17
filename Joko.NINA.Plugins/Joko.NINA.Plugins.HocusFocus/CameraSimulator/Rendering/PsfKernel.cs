@@ -143,6 +143,15 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// </summary>
         public double RadialIntensity(double radiusPixels) => InterpolateLut(radialLut, radialStepPixels, radiusPixels);
 
+        /// <summary>
+        /// Approximate heap cost of this kernel in bytes: the S² phase rasters plus the radial LUT. The phase
+        /// bank dominates and grows as R², which is why a cache keyed on more than defocus alone needs a byte
+        /// budget rather than a count budget. Reported per-render through <see cref="RenderPhaseTimings"/>.
+        /// </summary>
+        internal long ApproximateByteSize =>
+            (long)PhasesPerAxis * PhasesPerAxis * Size * Size * sizeof(float)
+            + (long)radialLut.Length * sizeof(double);
+
         /// <summary>Linear interpolation of a uniform-step radial LUT; 0 beyond the last entry, clamped at r ≤ 0.</summary>
         internal static double InterpolateLut(double[] lut, double stepPixels, double radiusPixels) {
             if (radiusPixels <= 0.0) return lut[0];

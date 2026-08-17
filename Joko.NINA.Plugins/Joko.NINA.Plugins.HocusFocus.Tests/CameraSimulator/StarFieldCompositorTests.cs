@@ -113,6 +113,42 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         }
 
         [Test]
+        public void Render_TimingsOverload_IsByteIdenticalAndReportsThePhases() {
+            // The internal timings overload carries the same contract the truthSink overload does: passing it
+            // must not change a single pixel. Every instrumentation call site is guarded on a non-null sink, so
+            // a production render never even reads the clock — but "guarded" is a claim, and this is the test
+            // that keeps it true. Stars are injected so the kernel-cache counters have something to count.
+            var projection = SyntheticCameraTestScene.Projection();
+            var stars = new List<CatalogStar> {
+                SyntheticCameraTestScene.StarAtPixel(projection, 700, 700, 10.5),
+                SyntheticCameraTestScene.StarAtPixel(projection, 1504, 1504, 10.0),
+                SyntheticCameraTestScene.StarAtPixel(projection, 2200, 2300, 10.8),
+            };
+            var request = SyntheticCameraTestScene.Request(SyntheticCameraTestScene.OptimalFocuserPosition + 30);
+            var compositor = new StarFieldCompositor(new FakeCatalogReader(stars));
+
+            var withoutTimings = compositor.Render(request, CancellationToken.None);
+            var timings = new RenderPhaseTimings();
+            var withTimings = compositor.Render(request, null, timings, CancellationToken.None);
+
+            Assert.That(withTimings, Is.EqualTo(withoutTimings).AsCollection, "instrumentation must not change any pixel");
+            Assert.Multiple(() => {
+                Assert.That(timings.StarsQueried, Is.EqualTo(stars.Count));
+                Assert.That(timings.StampJobs, Is.EqualTo(stars.Count));
+                // Aberrations are off in the test scene, so every star shares one quantized defocus level and
+                // therefore one kernel. That "1" is the reference point the astigmatic cache key is measured
+                // against.
+                Assert.That(timings.DistinctKernels, Is.EqualTo(1));
+                Assert.That(timings.KernelCacheBytes, Is.GreaterThan(0));
+                Assert.That(timings.MaxKernelRadius, Is.GreaterThan(0));
+                Assert.That(timings.DevelopMs, Is.GreaterThan(0.0));
+                Assert.That(timings.KernelGenerateMs, Is.GreaterThan(0.0));
+                Assert.That(timings.KernelGenerateMs, Is.LessThanOrEqualTo(timings.StampJobBuildMs),
+                    "kernel generation is a subset of the job build");
+            });
+        }
+
+        [Test]
         public void Render_DepositsFluxAtProjectedStarPosition() {
             var projection = SyntheticCameraTestScene.Projection();
             const double px = 1900, py = 1100;

@@ -205,13 +205,20 @@ private readonly record struct PsfKernelKey(long LevelT, long LevelS, int Orient
 
 ## 7. Performance run
 
-**Fields** (all IMX455 = QHY600, 9576×6388, 3.76 µm):
+**Fields** (all IMX455 = QHY600, 9576×6388, 3.76 µm), with **measured** on-frame star counts at mag 17:
 
-| name | pointing | optics | purpose |
-|---|---|---|---|
-| `dense` | γ Cygni, RA 305.5583°, Dec +40.2567° | 1000 mm f/7.1, mag 16 | headline; same pointing as the checked-in `D19_cygnus_deep_shed` bank row. Target ≥ 25 000 on-frame stars (anchor: `D18_m24_deep_shed` measured 27 084 at mag 15.5 over 4.0 sq deg). Report the *measured* count. |
-| `sparse` | North Galactic Pole, RA 192.8595°, Dec +27.1283° | identical | 20-50× density contrast with all else fixed. |
-| `dense-oversampled` | γ Cygni | 2000 mm f/8 | R ≈ 56 px instead of 29 — the R² time/memory stress. |
+| name | pointing | optics | on-frame stars | purpose |
+|---|---|---|---|---|
+| `dense-wide` | γ Cygni, RA 305.5583°, Dec +40.2567° | 530 mm f/5 | **34 193** | the headline dense field. |
+| `dense` | γ Cygni | 1000 mm f/7.1 | 8 377 | same pointing/optics as the checked-in `D19_cygnus_deep_shed` bank row. |
+| `sparse` | North Galactic Pole, RA 192.8595°, Dec +27.1283° | 1000 mm f/7.1 | 980 | 8.5× density contrast against `dense` with all else fixed. |
+| `dense-oversampled` | γ Cygni | 2000 mm f/8 | 1 651 | σ_min 2.78 px vs 1.44 — the R² time/memory stress. |
+
+The plan originally targeted ≥ 25 000 on-frame stars at 1000 mm and mag 16. **That is not reachable**:
+at 1000 mm the frame covers only 2.8 sq deg and the installed G18 database bottoms out near mag 18, so
+even at the catalog's faint limit the 1000 mm field yields 14 237 on-frame stars. `dense-wide` at 530 mm
+f/5 — an FSQ-106-class widefield astrograph, a common QHY600 pairing — covers 3.6× the sky and clears the
+target comfortably. Mag 17 is the chosen cut (mag 18 gives 61 214 and is available as a stress).
 
 **Matrix**: 3 aberration configs (`A0` clean / `A1` backfocus only / `A2` tilt + backfocus) × 3 defocus
 points (0, 150, 350 steps ≈ 1×, 3.6×, 8× HFR_min) × 4 arms (`off`, `on-zero`, `on`, `on-strong`), plus the

@@ -17,6 +17,7 @@ using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -130,7 +131,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         }
 
         /// <inheritdoc/>
-        public ushort[] Render(RenderRequest request, CancellationToken token) => Render(request, null, token);
+        public ushort[] Render(RenderRequest request, CancellationToken token) => Render(request, null, null, token);
 
         /// <summary>
         /// Renders exactly what <see cref="Render(RenderRequest, CancellationToken)"/> does, and — when
@@ -143,7 +144,21 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// skips every truth computation entirely when <paramref name="truthSink"/> is null, so the two calls
         /// run the identical stamp/development pipeline with no extra allocation on the hot path.
         /// </summary>
-        public ushort[] Render(RenderRequest request, ICollection<StarTruth> truthSink, CancellationToken token) {
+        public ushort[] Render(RenderRequest request, ICollection<StarTruth> truthSink, CancellationToken token)
+            => Render(request, truthSink, null, token);
+
+        /// <summary>
+        /// The real render, with an optional <see cref="RenderPhaseTimings"/> sink for the
+        /// <c>bench-simrender</c> harness. It is a second sink rather than a new interface member for the same
+        /// reason <paramref name="truthSink"/> is — <see cref="IStarFieldCompositor"/>, the camera's
+        /// MEF-composed seam, stays untouched — and carries the same contract: <b>passing a null
+        /// <paramref name="timings"/> must render byte-identically to the public overloads</b>. Every timing
+        /// call site is guarded, so a production render never even reads the clock. See
+        /// <see cref="RenderPhaseTimings"/> for why the phases are instrumented here instead of being
+        /// recovered by differencing two whole renders.
+        /// </summary>
+        internal ushort[] Render(
+                RenderRequest request, ICollection<StarTruth> truthSink, RenderPhaseTimings timings, CancellationToken token) {
             if (request == null) throw new ArgumentNullException(nameof(request));
             token.ThrowIfCancellationRequested();
 
@@ -164,7 +179,12 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 var aberration = AberrationSurface.FromRequest(request, sensor);
                 sky = radiometry.SkyElectronsPerPixel();
                 dark = radiometry.DarkElectronsPerPixel();
-                jobs = BuildStampJobs(request, sensor, radiometry, defocusModel, aberration, width, height, truthSink, token);
+                var jobBuildStart = timings != null ? Stopwatch.GetTimestamp() : 0L;
+                jobs = BuildStampJobs(request, sensor, radiometry, defocusModel, aberration, width, height, truthSink, timings, token);
+                if (timings != null) {
+                    timings.StampJobBuildMs = RenderPhaseTimings.ElapsedMs(jobBuildStart);
+                    timings.StampJobs = jobs.Count;
+                }
             } else {
                 Logger.Warning(
                     $"Synthetic camera: focal length is {request.FocalLengthMillimeters} mm (must be > 0). " +
@@ -179,14 +199,23 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             // uniform sky + dark background. Both are per-stripe writes to disjoint rows, so the shared-array
             // accumulation never races.
             var background = (float)(sky + dark);
+            var stampStart = timings != null ? Stopwatch.GetTimestamp() : 0L;
             StampAndAddBackground(accumulator, width, height, jobs, background, token);
+            if (timings != null) {
+                timings.StampMs = RenderPhaseTimings.ElapsedMs(stampStart);
+            }
 
             token.ThrowIfCancellationRequested();
 
             // Development is ~90% of a 61 MP render, so it runs in parallel — deterministically, via a fixed
             // stripe partition with one seeded generator per stripe. See FrameDeveloper.StripeCount.
-            return FrameDeveloper.DevelopToAdu(
+            var developStart = timings != null ? Stopwatch.GetTimestamp() : 0L;
+            var frame = FrameDeveloper.DevelopToAdu(
                 accumulator, sensor, request.Gain, request.BiasPedestalAdu, request.NoiseSeed, token);
+            if (timings != null) {
+                timings.DevelopMs = RenderPhaseTimings.ElapsedMs(developStart);
+            }
+            return frame;
         }
 
         /// <summary>
@@ -201,7 +230,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         private List<StampJob> BuildStampJobs(
                 RenderRequest request, SensorDefinition sensor, RadiometryCalculator radiometry,
                 DefocusModel defocusModel, AberrationSurface aberration, int width, int height,
-                ICollection<StarTruth> truthSink, CancellationToken token) {
+                ICollection<StarTruth> truthSink, RenderPhaseTimings timings, CancellationToken token) {
 
             var projection = new TanProjection(
                 request.RaDegreesJ2000, request.DecDegreesJ2000,
@@ -216,7 +245,12 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             // position). Stars whose centres fall up to this far off-frame still spill their donut onto the sensor.
             var psfMargin = WorstCaseKernelRadius(request, sensor, defocusModel, aberration, quantumMicrons, maxAbsMicrons);
 
+            var catalogStart = timings != null ? Stopwatch.GetTimestamp() : 0L;
             var stars = QueryCatalogStars(request, fovDeg);
+            if (timings != null) {
+                timings.CatalogQueryMs = RenderPhaseTimings.ElapsedMs(catalogStart);
+                timings.StarsQueried = stars.Count;
+            }
 
             var jobs = new List<StampJob>(stars.Count);
             var kernelCache = new Dictionary<long, PsfKernel>();
@@ -243,7 +277,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 var delta = aberration.LocalDefocusMicrons(px, py, request.FocuserPosition);
                 var level = QuantizeLevel(delta, quantumMicrons, maxAbsMicrons);
                 if (!kernelCache.TryGetValue(level, out var kernel)) {
+                    var kernelStart = timings != null ? Stopwatch.GetTimestamp() : 0L;
                     kernel = PsfKernelGenerator.Generate(defocusModel, level * quantumMicrons);
+                    if (timings != null) {
+                        timings.KernelGenerateMs += RenderPhaseTimings.ElapsedMs(kernelStart);
+                    }
                     kernelCache[level] = kernel;
                 }
 
@@ -276,6 +314,18 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                         KernelPeakFraction = kernel.PhasePeak(phaseX, phaseY)
                     });
                 }
+            }
+
+            if (timings != null) {
+                timings.DistinctKernels = kernelCache.Count;
+                long cacheBytes = 0;
+                var maxRadius = 0;
+                foreach (var cached in kernelCache.Values) {
+                    cacheBytes += cached.ApproximateByteSize;
+                    if (cached.Radius > maxRadius) maxRadius = cached.Radius;
+                }
+                timings.KernelCacheBytes = cacheBytes;
+                timings.MaxKernelRadius = maxRadius;
             }
             return jobs;
         }
