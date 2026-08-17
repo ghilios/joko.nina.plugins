@@ -107,7 +107,7 @@ merely soft ones:
 |---|---|---|
 | **Model Astigmatism** | on | Splits the best-focus surface into the tangential and sagittal surfaces a mis-spaced corrector produces, so stars render elliptical: radial in one corner, tangential in the opposite, round in between. Does nothing until there is a spacing error to work from. |
 | **Backfocus Spacing Error** | blank | How far the sensor sits from the corrector's design spacing, in microns — the *cause*, where **Backfocus Error** is the corner curvature it *produces*. Enter a magnitude; the direction follows the sign of Backfocus Error. Blank infers it from Backfocus Error. |
-| **Astigmatism Ratio** | 0.7 | How much astigmatism accompanies the field curvature, and by its **sign**, which way stars elongate: positive radially (pointing at the field centre), negative tangentially. That direction is a property of the corrector, not of which way the spacing is off. A magnitude near 1 is physical; 0 disables the effect without touching the toggle. |
+| **Astigmatism Ratio** | 0.7 | How much astigmatism accompanies the field curvature. It alone sets how *elongated* stars get — the backfocus error sets their *size*, so a few hundred microns is enough to see the effect. Its **sign** says which way round the corrector responds: which side of design spacing gives radial stars and which gives tangential. A magnitude near 1 is physical; 0 disables the effect without touching the toggle. |
 
 **Backfocus Error** ships at 50 µm rather than zero, so switching aberrations on shows the effect
 immediately instead of leaving you wondering whether it works. Set it to 0 for a perfectly spaced

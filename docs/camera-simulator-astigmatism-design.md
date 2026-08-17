@@ -174,31 +174,36 @@ critical focus zone at f/7 and corresponds to a 1 mm spacer error under $c_{m0}$
 All three live inside the Field Aberrations group, which is already gated on `EnableAberrations` — with
 aberrations off the surface is flat and astigmatism is meaningless.
 
-**Sign convention — corrected after the model was first shipped.** $\rho$ is **signed**, and its sign is the
-only thing that selects radial versus tangential elongation. The first draft of this spec had $\rho \ge 0$
-with the direction carried by the sign of the spacing error; that is wrong, and the algebra in
-[Three properties](#3-inject--recover-survives-provably) says why. Substituting
-$\Delta = -c_m \Delta b\, r'^2$ and $A = c_a \Delta b\, r'^2$ into the semi-axes gives
+**Sign convention.** The split is built from the **magnitude** of the local spacing error,
 
-$$a_{\text{rad}} \propto \lvert (c_m + c_a)\,\Delta b\, r'^2 \rvert, \qquad
-  a_{\text{tan}} \propto \lvert (c_m - c_a)\,\Delta b\, r'^2 \rvert,$$
+$$A(x,y) = \rho \, c_m \, \lvert e(x,y) \rvert \, r'^2 ,$$
 
-so the axis ratio is $\lvert 1+\rho \rvert / \lvert 1-\rho \rvert$ — **with no $\Delta b$ in it at all**.
-Two consequences, both of which reliably surprise people and are pinned by tests:
+so reversing a spacer flips $\Delta$ and leaves $A$ alone — and by the 90°-rotation argument in
+[Three properties](#3-inject--recover-survives-provably), that rotates every star a quarter turn. Radial
+corners become tangential ones at identical size. That is what makes the elongation direction diagnostic on
+a real rig, and it is the behaviour the model exists to reproduce. The **sign of $\rho$** then chooses which
+spacing direction maps to which elongation — the corrector-design freedom the reference doc describes, and
+the reason $\rho$ is signed rather than a magnitude.
 
-- **The elongation direction is a property of the corrector, not of the spacing.** It is set by
-  $\operatorname{sign}(\rho)$: positive gives radially elongated stars, negative tangential ones. This is
-  what the reference doc means by *"which physical direction maps to radial vs. tangential depends on the
-  corrector design, but it's consistent for a given optic"* — consistent, i.e. not flipping with the spacer.
-- **Reversing the spacing error renders an identical frame.** It flips $\Delta$ and $A$ together, and the
-  semi-axes are invariant under that pair of flips. Too-much and too-little backfocus are therefore *not*
-  distinguishable from star shapes in a single frame; you tell them apart by refocusing, since the corners
-  come to focus on opposite sides of the centre. That is the optics of a model linear in the spacing error,
-  not a modelling shortcut — no linear model can produce that flip.
+Two further consequences, both worth knowing because they surprise people:
 
-A tilt large enough to dominate the local defocus *does* make the direction differ between opposite edges,
-because there $\Delta$ is set by the tilt plane (which changes sign across the sensor) while $A$ keeps the
-sign of $K$. That is the regime the eccentricity capstone exercises.
+- **The axis ratio is $\lvert 1+\rho \rvert / \lvert 1-\rho \rvert$** (or its reciprocal on the other side
+  of design spacing), *independent of how badly the rig is spaced*. The spacing error sets how **large** the
+  stars are; $\rho$ alone sets how **elongated**. A bigger backfocus error does not give a more eccentric
+  star, it gives a larger one.
+- **Tilt makes both directions appear in one frame.** It drives the local defocus positive on one side of the
+  sensor and negative on the other, so a sensor tilted enough for that to outweigh the field curvature shows
+  radial elongation on one edge and tangential on the opposite. Reversing the *backfocus* in that regime does
+  not flip anything, because there it is the tilt that sets $\Delta$'s sign.
+
+> **Where this departs from first-order theory, and why.** A coefficient that vanishes at design spacing and
+> is analytic in the spacing error is linear in it, hence changes sign with it — giving $A \propto e$, not
+> $\lvert e \rvert$. Under that form $\Delta$ and $A$ flip together, the semi-axes $\lvert \Delta \mp A \rvert$
+> are invariant, and the two spacing directions render identically. That is what this model originally did,
+> and it is wrong against the bench: real correctors show the flip, which is why the direction is used
+> diagnostically in the first place. The observed behaviour wins. The likely reconciliation is that what makes
+> the direction diagnostic on a real rig is not purely the astigmatism-to-curvature balance this single term
+> models — but that is a hypothesis, not something derived here, and it is recorded as such.
 
 **Virtual tilt adapter.** `SimulatedTiltInjection.Fold` folds screw piston into `BackfocusErrorMicrons`.
 A piston is a literal axial displacement, so it changes the spacing error by exactly `pistonMicrons`;

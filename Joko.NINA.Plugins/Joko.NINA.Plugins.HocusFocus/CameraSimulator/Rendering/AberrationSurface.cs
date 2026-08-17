@@ -36,7 +36,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
     /// their mean:
     /// <code>
     /// e(x, y) = e_c + Gx·(x−X0) + Gy·(y−Y0)      local axial spacing error, µm
-    /// A(x, y) = ρ · c_m · e(x, y) · r'²          the T–S half-split, µm
+    /// A(x, y) = ρ · c_m · |e(x, y)| · r'²        the T–S half-split, µm
     /// z_T = zBestFocus + A     z_S = zBestFocus − A
     /// </code>
     /// so the per-star defocus becomes a pair, <c>Δ_T = Δ − A</c> and <c>Δ_S = Δ + A</c>, and the blur is an
@@ -52,20 +52,18 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
     /// did. <see cref="LocalDefocusMicrons"/> deliberately still returns only the mean, so its "this is the
     /// inspector's algebraic inverse" contract stays literally true.</para>
     ///
-    /// <para><b>This is first-order theory, exactly.</b> Substituting <c>Δ = −c_m·Δb·r'²</c> and
-    /// <c>A = c_a·Δb·r'²</c> gives semi-axes <c>|(c_m + c_a)·Δb·r'²|</c> and <c>|(c_m − c_a)·Δb·r'²|</c> —
-    /// the tangential and sagittal focal surfaces themselves, with no approximation. Two consequences follow
-    /// and are worth stating, because both surprise people:</para>
-    /// <list type="bullet">
-    /// <item>The axis ratio is <c>|1 + ρ| / |1 − ρ|</c>, with <b>no Δb in it</b>. Whether stars elongate
-    /// radially or tangentially is a property of the <b>corrector</b> — the sign of <c>ρ = c_a/c_m</c> — and
-    /// does not change with the sign or size of the spacing error. Hence <c>ρ</c> is signed, and a negative
-    /// value models a corrector whose astigmatism opposes its field curvature.</item>
-    /// <item>Reversing the spacing error therefore renders an <b>identical</b> frame: it flips both Δ and A,
-    /// and the semi-axes are invariant under that pair of flips. Too-much and too-little backfocus are not
-    /// distinguishable from star shapes in a single frame — you tell them apart by refocusing, because the
-    /// corners come to focus on opposite sides of the centre. That is the optics, not a modelling shortcut.</item>
-    /// </list>
+    /// <para><b>What the spacing sign does.</b> <c>A</c> is built from the <i>magnitude</i> of the local
+    /// spacing error (see <see cref="AstigmatismSplitMicrons"/>), so reversing a spacer flips <c>Δ</c> and
+    /// leaves <c>A</c> alone — and by the same 90°-rotation argument above, that rotates every star by a
+    /// quarter turn. Radial corners become tangential ones, at identical size. This is the behaviour that
+    /// makes the elongation direction diagnostic on a real rig, and it is why the split uses <c>|e|</c>
+    /// rather than the signed <c>e</c> strict first-order theory would give. The <b>sign of ρ</b> then
+    /// chooses which spacing direction maps to which elongation — the corrector-design freedom the reference
+    /// doc describes.</para>
+    ///
+    /// <para>The axis ratio at a given field point is <c>|1 + ρ| / |1 − ρ|</c> (or its reciprocal, on the
+    /// other side of design spacing), independent of how badly the rig is spaced: the spacing error sets how
+    /// <b>large</b> the stars are, while ρ alone sets how <b>elongated</b> they are.</para>
     ///
     /// It supplies the per-field-point defocus Δ (and, with astigmatism, the pair); <see cref="DefocusModel"/>
     /// turns a defocus into HFR / W20 / donut radii. Full derivation:
@@ -324,8 +322,23 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         }
 
         /// <summary>
-        /// The astigmatism half-split A(x,y) = c_a · e(x,y) · r'², in µm of focuser travel. Exactly 0 when
+        /// The astigmatism half-split A(x,y) = c_a · |e(x,y)| · r'², in µm of focuser travel. Exactly 0 when
         /// astigmatism is disabled, and exactly 0 on the optical axis whatever the configuration.
+        ///
+        /// <para><b>The magnitude of the local spacing error, deliberately.</b> Which of the tangential and
+        /// sagittal foci lies nearer the sensor is a property of the corrector — carried by the sign of ρ —
+        /// while <i>which side of them the sensor sits on</i> is what the spacing error controls. Only the
+        /// latter reverses when a spacer is swapped, so reversing it rotates every star by 90°: radial corners
+        /// become tangential ones. That is the behaviour real correctors show and the reason the elongation
+        /// direction is used diagnostically.</para>
+        ///
+        /// <para><b>This is the one place the model leaves strict first-order theory.</b> A coefficient that
+        /// vanishes at design spacing and is analytic in the spacing error would be linear in it, hence would
+        /// change sign with it — and then <c>Δ</c> and <c>A</c> would flip together and the semi-axes
+        /// <c>|Δ∓A|</c> would be invariant, making the two spacing directions indistinguishable in a single
+        /// frame. Bench experience says they are distinguishable, so the observed behaviour wins over the
+        /// first-order form. The likely reconciliation is that what makes the direction diagnostic on a real
+        /// rig is not purely the astigmatism-to-curvature balance this term models.</para>
         /// </summary>
         public double AstigmatismSplitMicrons(int px, int py) {
             if (AstigmatismCoefficient == 0.0) {
@@ -334,7 +347,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             ToCenteredMicrons(px, py, out var x, out var y);
             var xPrime = x - X0;
             var yPrime = y - Y0;
-            return AstigmatismCoefficient * LocalSpacingErrorMicrons(px, py) * (xPrime * xPrime + yPrime * yPrime);
+            return AstigmatismCoefficient * Math.Abs(LocalSpacingErrorMicrons(px, py)) * (xPrime * xPrime + yPrime * yPrime);
         }
 
         /// <summary>

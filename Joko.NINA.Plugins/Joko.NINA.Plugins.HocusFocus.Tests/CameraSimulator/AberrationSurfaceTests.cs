@@ -273,13 +273,19 @@ public class AberrationSurfaceTests {
         Assert.That(surface.CurvaturePerSpacing, Is.EqualTo(AberrationSurface.NominalCurvaturePerSpacingPerAreaMicrons).Within(1e-20));
         Assert.That(surface.EffectiveSpacingErrorMicrons, Is.EqualTo(0.0).Within(1e-12));
 
-        // Tilt is along +x, so the two x-edges sit at opposite local spacing errors and their splits must be
-        // equal and opposite, while the centre column stays unsplit.
-        var left = surface.AstigmatismSplitMicrons(0, H / 2);
-        var right = surface.AstigmatismSplitMicrons(W - 1, H / 2);
+        // Tilt is along +x, so the two x-edges sit at equal and opposite LOCAL SPACING ERRORS -- and since the
+        // split is built from the magnitude, both edges get the same split. What differs is the local defocus,
+        // which is what makes one edge radial and the other tangential.
+        var left = SemiAxes(surface, 0, H / 2, X0Steps);
+        var right = SemiAxes(surface, W - 1, H / 2, X0Steps);
         Assert.Multiple(() => {
-            Assert.That(Math.Abs(left), Is.GreaterThan(0.0), "pure tilt must produce a nonzero split");
-            Assert.That(Math.Sign(left), Is.EqualTo(-Math.Sign(right)), "opposite edges are oppositely split");
+            Assert.That(surface.AstigmatismSplitMicrons(0, H / 2), Is.GreaterThan(0.0), "pure tilt must produce a nonzero split");
+            // Relative, because the pixel grid is not exactly symmetric: with an even width the two edge
+            // columns sit 4788 and 4787 px from the centre, so r'² differs by ~0.04%.
+            Assert.That(surface.AstigmatismSplitMicrons(W - 1, H / 2),
+                Is.EqualTo(surface.AstigmatismSplitMicrons(0, H / 2)).Within(0.5).Percent, "and the same one on both edges");
+            Assert.That(left.tangential, Is.GreaterThan(left.radial), "one edge elongates tangentially");
+            Assert.That(right.radial, Is.GreaterThan(right.tangential), "the opposite edge radially");
             Assert.That(surface.AstigmatismSplitMicrons(W / 2, H / 2), Is.EqualTo(0.0).Within(1e-12), "round on axis");
         });
     }
@@ -324,13 +330,15 @@ public class AberrationSurfaceTests {
     }
 
     [Test]
-    public void AstigmatismSplit_FlipsSignWithTheBackfocusSign() {
+    public void AstigmatismSplit_DoesNotFlipWithTheBackfocusSign() {
+        // Which of the two foci lies nearer is a property of the corrector, so the split keeps its sign when
+        // a spacer is swapped. What reverses is the local defocus -- and that is what rotates the star.
         var positive = Build(backfocusUm: 50.0, astigmatism: true, ratio: 0.7);
         var negative = Build(backfocusUm: -50.0, astigmatism: true, ratio: 0.7);
         foreach (var (px, py) in FieldGrid()) {
             Assert.That(negative.AstigmatismSplitMicrons(px, py),
-                Is.EqualTo(-positive.AstigmatismSplitMicrons(px, py)).Within(1e-9),
-                $"split at ({px},{py}) reverses with the spacing direction");
+                Is.EqualTo(positive.AstigmatismSplitMicrons(px, py)).Within(1e-9),
+                $"split at ({px},{py}) is unchanged by the spacing direction");
         }
     }
 
@@ -396,13 +404,13 @@ public class AberrationSurfaceTests {
     [TestCase(0.3)]
     [TestCase(0.7)]
     [TestCase(2.0)]
-    public void AxisRatio_IsTheFirstOrderIdentity_AndIndependentOfTheBackfocusError(double ratio) {
-        // Substituting Δ = −c_m·Δb·r'² and A = c_a·Δb·r'² gives semi-axes |(c_m ± c_a)·Δb·r'²|, so the axis
-        // ratio is |1+ρ| / |1−ρ| with NO Δb in it. That identity is the whole first-order content of the
-        // model, and it is why the elongation direction is a property of the corrector rather than of how
-        // badly it is spaced.
+    public void AxisRatio_DependsOnTheRatioAlone_NotOnHowBadlySpacedTheRigIs(double ratio) {
+        // The semi-axes are |(1 ∓ ρ)·c_m·Δb·r'²|, so the elongation is |1+ρ| / |1−ρ| however large the
+        // spacing error is: Δb sets how BIG the stars are, ρ alone sets how ELONGATED. Worth pinning because
+        // the natural assumption is that a bigger backfocus error gives a more eccentric star, and it does
+        // not -- it gives a larger one.
         var expected = Math.Abs(1.0 + ratio) / Math.Abs(1.0 - ratio);
-        foreach (var backfocus in new[] { 50.0, 500.0, 2000.0, -2000.0 }) {
+        foreach (var backfocus in new[] { 50.0, 500.0, 2000.0 }) {
             var surface = Build(backfocusUm: backfocus, astigmatism: true, ratio: ratio);
             var (radial, tangential) = SemiAxes(surface, 0, 0, X0Steps);   // corner, focuser at best focus
             Assert.That(radial / tangential, Is.EqualTo(expected).Within(1e-6 * expected),
@@ -412,19 +420,31 @@ public class AberrationSurfaceTests {
 
     [TestCase(200.0)]
     [TestCase(2000.0)]
-    public void ReversingTheBackfocusError_RendersAnIdenticalEllipse(double backfocusUm) {
-        // Reversing the spacing error flips BOTH the local defocus and the astigmatic split, and the semi-axes
-        // |Δ−A| and |Δ+A| are invariant under that pair of flips. So too-much and too-little backfocus are not
-        // distinguishable from star shapes in a single frame -- you tell them apart by refocusing, because the
-        // corners come to focus on opposite sides of the centre. This is first-order optics, not a shortcut,
-        // and it is pinned here because it reliably surprises people.
+    public void ReversingTheBackfocusError_RotatesEveryStarByAQuarterTurn(double backfocusUm) {
+        // The headline diagnostic: swapping a spacer turns radial corners into tangential ones. The split is
+        // built from the MAGNITUDE of the local spacing error, so reversing the spacer flips only the local
+        // defocus -- and swapping the sign of Δ swaps |Δ−A| with |Δ+A|, which is a 90° rotation of the same
+        // ellipse. Same size, same elongation, perpendicular.
         var positive = Build(backfocusUm: backfocusUm, astigmatism: true, ratio: 0.7);
         var negative = Build(backfocusUm: -backfocusUm, astigmatism: true, ratio: 0.7);
         foreach (var (px, py) in FieldGrid()) {
             var a = SemiAxes(positive, px, py, X0Steps);
             var b = SemiAxes(negative, px, py, X0Steps);
-            Assert.That(b.radial, Is.EqualTo(a.radial).Within(1e-9), $"radial semi-axis at ({px},{py})");
-            Assert.That(b.tangential, Is.EqualTo(a.tangential).Within(1e-9), $"tangential semi-axis at ({px},{py})");
+            Assert.That(b.radial, Is.EqualTo(a.tangential).Within(1e-9), $"axes swap at ({px},{py})");
+            Assert.That(b.tangential, Is.EqualTo(a.radial).Within(1e-9), $"axes swap at ({px},{py})");
+        }
+    }
+
+    [Test]
+    public void ReversingTheBackfocusError_FlipsRadialToTangentialAtTheCorners() {
+        // The same thing stated the way a user sees it, rather than as an axis swap.
+        var positive = Build(backfocusUm: 2000.0, astigmatism: true, ratio: 0.7);
+        var negative = Build(backfocusUm: -2000.0, astigmatism: true, ratio: 0.7);
+        foreach (var (px, py) in new[] { (0, 0), (W - 1, 0), (0, H - 1), (W - 1, H - 1) }) {
+            var a = SemiAxes(positive, px, py, X0Steps);
+            var b = SemiAxes(negative, px, py, X0Steps);
+            Assert.That(a.radial, Is.GreaterThan(a.tangential), $"+2000 µm is radial at ({px},{py})");
+            Assert.That(b.tangential, Is.GreaterThan(b.radial), $"−2000 µm is tangential at ({px},{py})");
         }
     }
 

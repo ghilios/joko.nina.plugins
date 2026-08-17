@@ -109,37 +109,51 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         /// </summary>
         [Test]
         public async Task AstigmatismRendersRadialAndTangentialEdgesThroughFullPipeline() {
-            var (positive, negative) = (
-                await MeasureEdgeElongation(backfocusErrorMicrons: 40.0),
-                await MeasureEdgeElongation(backfocusErrorMicrons: -40.0));
+            var measured = await MeasureEdgeElongation(backfocusErrorMicrons: 40.0, tiltAmountMicrons: 120.0);
 
             Assert.Multiple(() => {
                 // Radial-vs-tangential score: +1 = the major axis points at the optical axis, −1 = across it.
-                Assert.That(positive.LeftScore, Is.LessThan(-0.5), "left edge is tangentially elongated");
-                Assert.That(positive.RightScore, Is.GreaterThan(0.5), "right edge is radially elongated");
-                Assert.That(positive.LeftEccentricity, Is.GreaterThan(0.20), "and measurably elongated at all");
-                Assert.That(positive.RightEccentricity, Is.GreaterThan(0.20));
-                Assert.That(positive.CentreEccentricity, Is.LessThan(0.15), "the on-axis stars stay round");
+                Assert.That(measured.LeftScore, Is.LessThan(-0.5), "left edge is tangentially elongated");
+                Assert.That(measured.RightScore, Is.GreaterThan(0.5), "right edge is radially elongated");
+                Assert.That(measured.LeftEccentricity, Is.GreaterThan(0.20), "and measurably elongated at all");
+                Assert.That(measured.RightEccentricity, Is.GreaterThan(0.20));
+                Assert.That(measured.CentreEccentricity, Is.LessThan(0.15), "the on-axis stars stay round");
+            });
+        }
 
-                // Reversing the backfocus error reverses the pattern HERE, and the reason is specific enough
-                // to be worth stating: at 120 um of tilt against 40 um of backfocus, the tilt dominates the
-                // local defocus, so reversing the backfocus flips the astigmatic split's sign while leaving
-                // the defocus alone -- and it is their relative sign that sets the orientation.
-                //
-                // This is NOT a general property. With the backfocus dominating instead, reversing it flips
-                // BOTH terms and the frame comes out identical; that is first-order optics, and
-                // AberrationSurfaceTests.ReversingTheBackfocusError_RendersAnIdenticalEllipse pins it. What
-                // this assertion buys is a check that the split's sign reaches the rendered pixels at all --
-                // a relative-only test would read as consistent under a whole-model sign inversion.
-                Assert.That(negative.LeftScore, Is.GreaterThan(0.5), "reversed backfocus makes the left edge radial");
-                Assert.That(negative.RightScore, Is.LessThan(-0.5), "and the right edge tangential");
+        /// <summary>
+        /// (d) The spacing-direction diagnostic, end to end: swapping a spacer must turn radial corners into
+        /// tangential ones. Pure backfocus with no tilt, so the local defocus is set by the curvature alone and
+        /// reversing the error reverses it — which swaps the two semi-axes and rotates every star 90°.
+        ///
+        /// <para>±200 µm is chosen to keep the stars near focus (a_rad ≈ 2.1 px, a_tan ≈ 0.4 px at the edges)
+        /// where the Moffat fit is reliable; the elongation itself does not depend on the size of the error,
+        /// only on the astigmatism ratio.</para>
+        /// </summary>
+        [Test]
+        public async Task ReversingTheBackfocusError_FlipsRadialToTangentialThroughFullPipeline() {
+            var (positive, negative) = (
+                await MeasureEdgeElongation(backfocusErrorMicrons: 200.0, tiltAmountMicrons: 0.0),
+                await MeasureEdgeElongation(backfocusErrorMicrons: -200.0, tiltAmountMicrons: 0.0));
+
+            Assert.Multiple(() => {
+                Assert.That(positive.LeftScore, Is.GreaterThan(0.5), "too-long spacing: left edge radial");
+                Assert.That(positive.RightScore, Is.GreaterThan(0.5), "and the right edge too");
+                Assert.That(negative.LeftScore, Is.LessThan(-0.5), "reversed: left edge tangential");
+                Assert.That(negative.RightScore, Is.LessThan(-0.5), "and the right edge too");
+
+                // Same ellipse, rotated -- so the measured elongation should be comparable, not merely present.
+                Assert.That(positive.LeftEccentricity, Is.GreaterThan(0.20));
+                Assert.That(negative.LeftEccentricity, Is.GreaterThan(0.20));
+                Assert.That(positive.CentreEccentricity, Is.LessThan(0.15), "the on-axis stars stay round either way");
+                Assert.That(negative.CentreEccentricity, Is.LessThan(0.15));
             });
         }
 
         private readonly record struct EdgeElongation(
             double LeftScore, double RightScore, double LeftEccentricity, double RightEccentricity, double CentreEccentricity);
 
-        private static async Task<EdgeElongation> MeasureEdgeElongation(double backfocusErrorMicrons) {
+        private static async Task<EdgeElongation> MeasureEdgeElongation(double backfocusErrorMicrons, double tiltAmountMicrons) {
             var sensor = SyntheticCameraTestScene.SensorDef;
             int width = sensor.Width, height = sensor.Height;
             var projection = SyntheticCameraTestScene.Projection();
@@ -155,7 +169,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             // Focuser AT best focus, so the centre is exactly on the surface and the pattern is symmetric.
             var request = SyntheticCameraTestScene.Request(
                 SyntheticCameraTestScene.OptimalFocuserPosition,
-                aberrationsEnabled: true, tiltAngleDegrees: 0.0, tiltAmountMicrons: 120.0,
+                aberrationsEnabled: true, tiltAngleDegrees: 0.0, tiltAmountMicrons: tiltAmountMicrons,
                 backfocusErrorMicrons: backfocusErrorMicrons,
                 astigmatismEnabled: true, astigmatismRatio: 0.7);
 
@@ -206,7 +220,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 Median("left", scores), Median("right", scores),
                 Median("left", eccentricities), Median("right", eccentricities), Median("centre", eccentricities));
             TestContext.WriteLine(
-                $"backfocus {backfocusErrorMicrons:F0} µm: leftScore={measured.LeftScore:F3} rightScore={measured.RightScore:F3} "
+                $"backfocus {backfocusErrorMicrons:F0} µm, tilt {tiltAmountMicrons:F0} µm: leftScore={measured.LeftScore:F3} rightScore={measured.RightScore:F3} "
                 + $"e(left)={measured.LeftEccentricity:F3} e(right)={measured.RightEccentricity:F3} e(centre)={measured.CentreEccentricity:F3}");
             return measured;
         }
