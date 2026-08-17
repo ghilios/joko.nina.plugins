@@ -83,14 +83,144 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         }
 
         /// <summary>
+        /// (c) The eccentricity capstone — the acceptance test for the astigmatism model. Inject a known tilt +
+        /// backfocus error, render one frame, and confirm the <b>real detector</b> measures stars elongated
+        /// <b>tangentially</b> on one edge, <b>radially</b> on the opposite one, and round in the middle.
+        ///
+        /// <para>Predicted for this scene (IMX533, N = 7.0, σ_min = 1.32 px, 2Np = 52.64 µm/px, tilt 120 µm at
+        /// 0°, backfocus 40 µm, ρ = 0.7, focuser at best focus):</para>
+        /// <list type="table">
+        /// <item><description>left edge x≈300: Δ = +83.2 µm, A = +8.8 µm ⇒ (a_rad, a_tan) = (1.41, 1.75) px ⇒ <b>tangential</b>, e ≈ 0.33</description></item>
+        /// <item><description>right edge x≈2700: Δ = −108.1 µm, A = +9.0 µm ⇒ (2.22, 1.88) px ⇒ <b>radial</b>, e ≈ 0.34</description></item>
+        /// <item><description>centre: r′ = 0 ⇒ Δ = A = 0 ⇒ round</description></item>
+        /// </list>
+        ///
+        /// <para><b>Kept near focus deliberately.</b> A strongly elliptical <i>donut</i> fits a Moffat poorly and
+        /// can fail <c>PSFGoodnessOfFitThreshold</c> outright, taking <c>PSF.Eccentricity</c> with it — so
+        /// "improving" this test by defocusing harder would break it.</para>
+        ///
+        /// <para><b>Measured</b> (for the record, since the thresholds below are set from these): orientation
+        /// scores −0.98 left / +0.97 right, reversing to +0.99 / −0.98 with the backfocus sign; eccentricity
+        /// 0.26 at both edges against 0.11 at the centre. The edge figures come in below the 0.33 the closed
+        /// form predicts because <c>PSF.Eccentricity</c> is an FWHM ratio from a Moffat fit while the
+        /// prediction is a second moment — they agree in ordering, not in magnitude, exactly as the design
+        /// spec says. The centre's 0.11 is the fit's own noise floor, which is why "round" is asserted as
+        /// clearly-less-than-the-edges rather than as zero.</para>
+        /// </summary>
+        [Test]
+        public async Task AstigmatismRendersRadialAndTangentialEdgesThroughFullPipeline() {
+            var (positive, negative) = (
+                await MeasureEdgeElongation(backfocusErrorMicrons: 40.0),
+                await MeasureEdgeElongation(backfocusErrorMicrons: -40.0));
+
+            Assert.Multiple(() => {
+                // Radial-vs-tangential score: +1 = the major axis points at the optical axis, −1 = across it.
+                Assert.That(positive.LeftScore, Is.LessThan(-0.5), "left edge is tangentially elongated");
+                Assert.That(positive.RightScore, Is.GreaterThan(0.5), "right edge is radially elongated");
+                Assert.That(positive.LeftEccentricity, Is.GreaterThan(0.20), "and measurably elongated at all");
+                Assert.That(positive.RightEccentricity, Is.GreaterThan(0.20));
+                Assert.That(positive.CentreEccentricity, Is.LessThan(0.15), "the on-axis stars stay round");
+
+                // Reversing the spacing error must reverse the pattern. A relative-only test cannot catch a
+                // whole-model sign inversion -- it would read as consistent either way -- so this is what
+                // actually pins the convention.
+                Assert.That(negative.LeftScore, Is.GreaterThan(0.5), "reversed backfocus makes the left edge radial");
+                Assert.That(negative.RightScore, Is.LessThan(-0.5), "and the right edge tangential");
+            });
+        }
+
+        private readonly record struct EdgeElongation(
+            double LeftScore, double RightScore, double LeftEccentricity, double RightEccentricity, double CentreEccentricity);
+
+        private static async Task<EdgeElongation> MeasureEdgeElongation(double backfocusErrorMicrons) {
+            var sensor = SyntheticCameraTestScene.SensorDef;
+            int width = sensor.Width, height = sensor.Height;
+            var projection = SyntheticCameraTestScene.Projection();
+            double centreX = width / 2.0, centreY = height / 2.0;
+
+            var regions = new (string name, double x, double y)[] { ("left", 300, 1504), ("right", 2700, 1504), ("centre", 1504, 1504) };
+            var offsets = new (double dx, double dy)[] { (0, -220), (0, -110), (0, 0), (0, 110), (0, 220) };
+            var placements = regions
+                .SelectMany(r => offsets.Select(o => (r.name, x: r.x + o.dx, y: r.y + o.dy)))
+                .ToArray();
+            var stars = placements.Select(p => SyntheticCameraTestScene.StarAtPixel(projection, p.x, p.y, 10.2)).ToList();
+
+            // Focuser AT best focus, so the centre is exactly on the surface and the pattern is symmetric.
+            var request = SyntheticCameraTestScene.Request(
+                SyntheticCameraTestScene.OptimalFocuserPosition,
+                aberrationsEnabled: true, tiltAngleDegrees: 0.0, tiltAmountMicrons: 120.0,
+                backfocusErrorMicrons: backfocusErrorMicrons,
+                astigmatismEnabled: true, astigmatismRatio: 0.7);
+
+            var pixels = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(request, CancellationToken.None);
+            using var mat = CvImageUtility.ToOpenCVMat(pixels, sensor.BitDepth, width, height);
+            var result = await new StarDetector(new AlglibAPI()).Detect(mat, new StarDetectorParams(), null, CancellationToken.None);
+            var detected = (result.DetectedStars ?? new List<Star>()).Where(s => s.PSF != null).ToList();
+
+            var scores = new Dictionary<string, List<double>>();
+            var eccentricities = new Dictionary<string, List<double>>();
+            foreach (var (name, px, py) in placements) {
+                var near = detected
+                    .Select(d => (d, dist: Math.Sqrt((d.Center.X - px) * (d.Center.X - px) + (d.Center.Y - py) * (d.Center.Y - py))))
+                    .OrderBy(t => t.dist)
+                    .FirstOrDefault();
+                if (near.d == null || near.dist > 6.0) {
+                    continue;
+                }
+
+                // PSFModel reports theta for its fitted x axis, so the MAJOR axis is theta only when FWHMx is the
+                // larger of the two -- otherwise it is a quarter turn away.
+                var psf = near.d.PSF;
+                var majorTheta = psf.FWHMx >= psf.FWHMy ? psf.ThetaRadians : psf.ThetaRadians + Math.PI / 2.0;
+
+                // The radial direction in the same convention. InspectorVM draws an angle theta as
+                // (cos theta, -sin theta) "since y is inverted to render top-down", so an image-space direction
+                // (dx, dy) corresponds to atan2(-dy, dx) -- hence the negated y here. Derived, not fitted.
+                var radialTheta = Math.Atan2(-(py - centreY), px - centreX);
+
+                // cos(2 dtheta) folds the mod-pi ambiguity away: +1 radial, -1 tangential, 0 at 45 degrees.
+                var score = Math.Cos(2.0 * (majorTheta - radialTheta));
+                if (!scores.TryGetValue(name, out var list)) {
+                    scores[name] = list = new List<double>();
+                    eccentricities[name] = new List<double>();
+                }
+                list.Add(score);
+                eccentricities[name].Add(psf.Eccentricity);
+            }
+
+            double Median(string region, Dictionary<string, List<double>> source) {
+                Assert.That(source.TryGetValue(region, out var values) && values.Count >= 3, Is.True,
+                    $"need at least 3 PSF-modelled stars in the {region} region, got {(source.TryGetValue(region, out var v) ? v.Count : 0)}");
+                var sorted = values.OrderBy(x => x).ToList();
+                return sorted[sorted.Count / 2];
+            }
+
+            var measured = new EdgeElongation(
+                Median("left", scores), Median("right", scores),
+                Median("left", eccentricities), Median("right", eccentricities), Median("centre", eccentricities));
+            TestContext.WriteLine(
+                $"backfocus {backfocusErrorMicrons:F0} µm: leftScore={measured.LeftScore:F3} rightScore={measured.RightScore:F3} "
+                + $"e(left)={measured.LeftEccentricity:F3} e(right)={measured.RightEccentricity:F3} e(centre)={measured.CentreEccentricity:F3}");
+            return measured;
+        }
+
+        /// <summary>
         /// (b) Aberration inject ⇄ recover through the full pipeline. Inject a known tilt + backfocus, render a
         /// stepped-focuser run, detect each star per frame, fit each star's best-focus focuser position from its
         /// HFR²-vs-position parabola, then linear-least-squares fit the tilted paraboloid best-focus surface
         /// z = Gx·x + Gy·y + K·(x²+y²) + Z0 to the per-star (x, y, bestFocus) points. Recover the inspector's own
         /// tilt azimuth / tilt effect / curvature effect and assert they match what was injected.
+        ///
+        /// <para>Run <b>with and without astigmatism</b>, at the same tolerances. That the astigmatic case
+        /// passes them unchanged is the empirical half of the safety argument: at a fixed field point the split
+        /// A does not depend on the focuser, so Δ → −Δ maps the semi-axis pair (|Δ−A|, |Δ+A|) to
+        /// (|Δ+A|, |Δ−A|) — the PSF at −Δ is the PSF at +Δ rotated by exactly 90°. Every rotation-invariant
+        /// statistic, HFR included, is therefore untouched, so each star's HFR² parabola keeps its vertex and
+        /// the surface fit recovers the same numbers. If this ever fails with astigmatism on, the model or the
+        /// rasterizer is wrong — widening the tolerance would only hide it.</para>
         /// </summary>
         [Test]
-        public async Task AberrationSurfaceRecoveredThroughFullPipeline_TiltAndBackfocus() {
+        public async Task AberrationSurfaceRecoveredThroughFullPipeline_TiltAndBackfocus([Values(false, true)] bool astigmatism) {
             var sensor = SyntheticCameraTestScene.SensorDef;
             int width = sensor.Width, height = sensor.Height;
             var projection = SyntheticCameraTestScene.Projection();
@@ -107,7 +237,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             // The injected surface, expressed exactly as the inspector fits it, is the ground truth.
             var truthRequest = SyntheticCameraTestScene.Request(
                 x0, aberrationsEnabled: true,
-                tiltAngleDegrees: injectedPhiDegrees, tiltAmountMicrons: injectedTiltMicrons, backfocusErrorMicrons: injectedBackfocusMicrons);
+                tiltAngleDegrees: injectedPhiDegrees, tiltAmountMicrons: injectedTiltMicrons, backfocusErrorMicrons: injectedBackfocusMicrons,
+                astigmatismEnabled: astigmatism, astigmatismRatio: astigmatism ? 0.7 : 0.0);
             var surface = AberrationSurface.FromRequest(truthRequest, sensor);
 
             // Stars spread across the field, weighted to corners/edges for tilt+curvature leverage.
@@ -128,7 +259,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             foreach (var offset in offsets) {
                 var request = SyntheticCameraTestScene.Request(
                     x0 + offset, aberrationsEnabled: true,
-                    tiltAngleDegrees: injectedPhiDegrees, tiltAmountMicrons: injectedTiltMicrons, backfocusErrorMicrons: injectedBackfocusMicrons);
+                    tiltAngleDegrees: injectedPhiDegrees, tiltAmountMicrons: injectedTiltMicrons, backfocusErrorMicrons: injectedBackfocusMicrons,
+                    astigmatismEnabled: astigmatism, astigmatismRatio: astigmatism ? 0.7 : 0.0);
                 var pixels = new StarFieldCompositor(reader).Render(request, CancellationToken.None);
                 using var mat = CvImageUtility.ToOpenCVMat(pixels, sensor.BitDepth, width, height);
                 var result = await new StarDetector(new AlglibAPI()).Detect(mat, new StarDetectorParams(), null, CancellationToken.None);
