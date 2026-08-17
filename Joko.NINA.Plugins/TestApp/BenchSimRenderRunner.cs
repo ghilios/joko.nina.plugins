@@ -124,6 +124,9 @@ namespace TestApp {
             // the mag 15.5-16 the AF bank datasets use.
             var limitMag = ParseDouble(DiagnosticUtil.GetArg(args, "--limit-mag"), 17.0);
             var exposureSeconds = ParseDouble(DiagnosticUtil.GetArg(args, "--exposure"), DefaultExposureSeconds);
+            // Direct overrides on the named aberration configs, for reproducing a specific user setup.
+            var tiltOverride = DiagnosticUtil.GetArg(args, "--tilt");
+            var backfocusOverride = DiagnosticUtil.GetArg(args, "--backfocus");
             var censusOnly = DiagnosticUtil.HasFlag(args, "--census");
             var ladderOnly = DiagnosticUtil.HasFlag(args, "--kernel-ladder");
             var csvPath = DiagnosticUtil.GetArg(args, "--csv");
@@ -145,6 +148,12 @@ namespace TestApp {
             if (selectedAberrations == null) {
                 Environment.ExitCode = 2;
                 return Task.CompletedTask;
+            }
+            if (tiltOverride != null || backfocusOverride != null) {
+                selectedAberrations = selectedAberrations.Select(a => a with {
+                    TiltAmountMicrons = tiltOverride != null ? ParseDouble(tiltOverride, a.TiltAmountMicrons) : a.TiltAmountMicrons,
+                    BackfocusErrorMicrons = backfocusOverride != null ? ParseDouble(backfocusOverride, a.BackfocusErrorMicrons) : a.BackfocusErrorMicrons,
+                }).ToList();
             }
             var defocusOffsets = defocusArg.Split(',', StringSplitOptions.RemoveEmptyEntries)
                 .Select(s => int.Parse(s.Trim(), CultureInfo.InvariantCulture)).ToList();

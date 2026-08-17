@@ -420,44 +420,74 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             // times, because Δ and A are both smooth functions of field position and so are far from
             // independent. Coarsening on that estimate would degrade every frame's fidelity to fit a cache
             // that was never going to be allocated.
+            // The ladder is two passes, not one: coarsen with astigmatism, and only if the largest coarsening
+            // still does not fit, coarsen again with astigmatism dropped. Dropping it is NOT itself a way to
+            // fit the budget — the dominant term is (number of Δ levels × kernel size), and astigmatism
+            // controls neither — so a fallback that reverted to the fine quantum would announce that it had
+            // bounded the cache while allocating gigabytes. That is exactly what a 10 mm backfocus error did:
+            // 822 kernels at 3.2 GB, on a render that claimed to have given up to stay inside 128 MB.
             List<PsfKernelKey> keys = null;
             List<StarPlacement> placements = null;
-            for (var coarsening = 1; ; coarsening *= 2) {
-                var attemptQuantum = quantumMicrons * coarsening;
-                var attemptBins = Math.Max(1, orientationBins / coarsening);
-                var lastAttempt = coarsening >= MaxCoarseningFactor;
-                var attemptAstigmatic = astigmatic;
+            var resolvedQuantum = quantumMicrons;
+            var resolvedBins = orientationBins;
+            var resolvedAstigmatic = astigmatic;
+            var fitted = false;
+            long lastBytes = 0;
 
-                (placements, keys) = AssignKernelKeys(
-                    projected, aberration, request.FocuserPosition, attemptQuantum, maxAbsMicrons,
-                    attemptBins, attemptAstigmatic);
+            foreach (var attemptAstigmatic in astigmatic ? new[] { true, false } : new[] { false }) {
+                for (var coarsening = 1; coarsening <= MaxCoarseningFactor; coarsening *= 2) {
+                    var attemptQuantum = quantumMicrons * coarsening;
+                    var attemptBins = attemptAstigmatic ? Math.Max(1, orientationBins / coarsening) : 1;
 
-                var bytes = EstimateKernelCacheBytes(keys, defocusModel, attemptQuantum);
-                if (bytes <= MaxKernelCacheBytes || !attemptAstigmatic) {
-                    if (coarsening > 1) {
-                        Logger.Info(
-                            $"Synthetic camera: the astigmatic PSF cache needed coarsening to fit the "
-                            + $"{MaxKernelCacheBytes / 1048576} MB budget — defocus quantum {attemptQuantum:F1} µm, "
-                            + $"{attemptBins} orientation bins, {keys.Count} kernels ({bytes / 1048576.0:F0} MB).");
+                    (placements, keys) = AssignKernelKeys(
+                        projected, aberration, request.FocuserPosition, attemptQuantum, maxAbsMicrons,
+                        attemptBins, attemptAstigmatic);
+                    lastBytes = EstimateKernelCacheBytes(keys, defocusModel, attemptQuantum);
+                    resolvedQuantum = attemptQuantum;
+                    resolvedBins = attemptBins;
+                    resolvedAstigmatic = attemptAstigmatic;
+
+                    if (lastBytes <= MaxKernelCacheBytes) {
+                        // Only when something was actually traded away. The ordinary case -- first attempt,
+                        // full fidelity -- says nothing, or every isotropic render would log a line about a
+                        // budget it never came close to.
+                        if (coarsening > 1) {
+                            Logger.Info(
+                                $"Synthetic camera: the PSF cache needed coarsening to fit the {MaxKernelCacheBytes / 1048576} MB "
+                                + $"budget — defocus quantum {attemptQuantum:F1} µm, {attemptBins} orientation bins, "
+                                + $"astigmatism {(attemptAstigmatic ? "on" : "off")}, {keys.Count} kernels ({lastBytes / 1048576.0:F0} MB).");
+                        }
+                        fitted = true;
+                        break;
                     }
-                    quantumMicrons = attemptQuantum;
-                    orientationBins = attemptBins;
+                }
+                if (fitted) {
                     break;
                 }
-                if (lastAttempt) {
+                if (attemptAstigmatic) {
                     Logger.Warning(
-                        $"Synthetic camera: the astigmatic PSF cache still needs {bytes / 1048576.0:F0} MB at the maximum "
-                        + $"{MaxCoarseningFactor}x coarsening, over the {MaxKernelCacheBytes / 1048576} MB budget "
+                        $"Synthetic camera: the astigmatic PSF cache still needs {lastBytes / 1048576.0:F0} MB at the maximum "
+                        + $"{MaxCoarseningFactor}× coarsening, over the {MaxKernelCacheBytes / 1048576} MB budget "
                         + $"(Δ spread {field.DefocusRangeMicrons:F0} µm, astigmatism spread {field.SplitRangeMicrons:F0} µm). "
                         + "Rendering this frame with circular donuts — reduce the injected tilt, backfocus error, or "
                         + "astigmatism ratio to get the elliptical model back.");
-                    astigmatic = false;
-                    (placements, keys) = AssignKernelKeys(
-                        projected, aberration, request.FocuserPosition, quantumMicrons, maxAbsMicrons, 1, false);
-                    orientationBins = 1;
-                    break;
                 }
             }
+
+            if (!fitted) {
+                // Even circular donuts at the coarsest quantum do not fit. The kernels are simply enormous —
+                // a defocus this far out of range makes each one hundreds of pixels across — so there is
+                // nothing left to trade. Render it and say so, rather than pretending a budget was honoured.
+                Logger.Warning(
+                    $"Synthetic camera: the PSF cache needs {lastBytes / 1048576.0:F0} MB even with circular donuts at the "
+                    + $"maximum {MaxCoarseningFactor}× coarsening ({keys.Count} kernels up to "
+                    + $"{KernelRadiusPixels(defocusModel, field.MaxCombinedMicrons)} px radius). The injected defocus spread of "
+                    + $"{field.DefocusRangeMicrons:F0} µm is far past any real focuser travel; reduce the backfocus error or tilt.");
+            }
+
+            quantumMicrons = resolvedQuantum;
+            orientationBins = resolvedBins;
+            astigmatic = resolvedAstigmatic;
 
             // --- pass 2: build the distinct kernels in parallel ---
             // Deterministic: the key list order is the deterministic star order, each kernel is a pure function
