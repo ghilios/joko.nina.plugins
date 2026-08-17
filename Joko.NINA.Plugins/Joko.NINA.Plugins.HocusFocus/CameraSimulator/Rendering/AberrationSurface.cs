@@ -30,11 +30,47 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
     /// <item><c>|Gx|·halfW + |Gy|·halfH == TiltAmountMicrons</c> (the inspector's <c>TiltEffectMicrons</c>)</item>
     /// <item><c>K·(halfW² + halfH²) == BackfocusErrorMicrons</c> (the inspector's <c>CurvatureEffectMicrons</c>)</item>
     /// </list>
-    /// This is a pure local-defocus surface (no coma/astigmatism), which is precisely what makes it the
-    /// inspector's inverse. It supplies the per-field-point defocus Δ; <see cref="DefocusModel"/> turns Δ into
-    /// HFR / W20 / donut radii.
+    ///
+    /// <para><b>Astigmatism.</b> With <c>astigmatismEnabled</c> this is no longer one surface but a
+    /// <i>pair</i> — the tangential and sagittal focal surfaces — straddling the surface above, which remains
+    /// their mean:
+    /// <code>
+    /// e(x, y) = e_c + Gx·(x−X0) + Gy·(y−Y0)      local axial spacing error, µm
+    /// A(x, y) = ρ · c_m · e(x, y) · r'²          the T–S half-split, µm
+    /// z_T = zBestFocus + A     z_S = zBestFocus − A
+    /// </code>
+    /// so the per-star defocus becomes a pair, <c>Δ_T = Δ − A</c> and <c>Δ_S = Δ + A</c>, and the blur is an
+    /// ellipse whose radial semi-axis is set by <c>Δ_T</c> and tangential semi-axis by <c>Δ_S</c> (the
+    /// tangential-ray defocus drives the radial extent — that crossing is what produces the 90° flip).</para>
+    ///
+    /// <para><b>Why the mean is preserved, and why it matters.</b> At a fixed field point <c>A</c> does not
+    /// depend on the focuser, so <c>Δ → −Δ</c> maps the semi-axis pair <c>(|Δ−A|, |Δ+A|)</c> to
+    /// <c>(|Δ+A|, |Δ−A|)</c> — the PSF at <c>−Δ</c> is the PSF at <c>+Δ</c> <b>rotated by exactly 90°</b>.
+    /// Every rotation-invariant statistic is therefore unchanged: HFR, flux-weighted moments, and the
+    /// detector's square bounding-box HFR. So HFR(Δ) stays exactly even about the same per-star best focus,
+    /// the HFR² parabola vertex does not move, and the inspector recovers the same (Gx, Gy, K, Z0) it always
+    /// did. <see cref="LocalDefocusMicrons"/> deliberately still returns only the mean, so its "this is the
+    /// inspector's algebraic inverse" contract stays literally true.</para>
+    ///
+    /// It supplies the per-field-point defocus Δ (and, with astigmatism, the pair); <see cref="DefocusModel"/>
+    /// turns a defocus into HFR / W20 / donut radii. Full derivation:
+    /// <c>docs/camera-simulator-astigmatism-design.md</c>.
     /// </summary>
     public sealed class AberrationSurface {
+
+        /// <summary>
+        /// The nominal corrector's residual field curvature per µm of axial spacing error, per µm² of field
+        /// radius (1/µm²). Used as <c>c_m</c> whenever it cannot be derived from the user's own two numbers.
+        ///
+        /// <para>Pinned to a plausible flattener: <b>1 mm of spacing error produces 50 µm of corner curvature
+        /// effect on a full-frame corner</b> (R_c = 21.63 mm for 36 × 24 mm), so
+        /// <c>c_m0 = 50 / (1000 · 21633²) = 1.0684e-10</c>. It multiplies r'², so it scales correctly to
+        /// smaller sensors — the same spacing error produces less corner curvature on a smaller chip.</para>
+        /// </summary>
+        public const double NominalCurvaturePerSpacingPerAreaMicrons = 1.0684e-10;
+
+        /// <summary>Sentinel for "the spacing error was not entered"; it is then inferred from K and c_m0.</summary>
+        public const double UnsetSpacingErrorMicrons = -1.0;
 
         private readonly int widthPx;
         private readonly int heightPx;
@@ -81,6 +117,40 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         public double PredictedCurvatureEffectMicrons { get; }
 
         /// <summary>
+        /// The axial spacing error at the field centre, <c>e_c</c>, in µm — how far the sensor sits from the
+        /// corrector's design spacing. <b>Signed</b>: it shares the sign of <see cref="K"/>, because a
+        /// corrector's curvature response to spacing has a fixed sign. The option carries only the magnitude
+        /// (its negative values are the "not entered" sentinel), so the direction is inherited here.
+        ///
+        /// <para>When the option is unset this is inferred as <c>K / c_m0</c>, which by construction makes
+        /// <see cref="CurvaturePerSpacing"/> come out exactly
+        /// <see cref="NominalCurvaturePerSpacingPerAreaMicrons"/>.</para>
+        /// </summary>
+        public double EffectiveSpacingErrorMicrons { get; }
+
+        /// <summary>
+        /// <c>c_m</c>: residual field curvature per µm of spacing error (1/µm²). Derived as <c>K / e_c</c> from
+        /// the user's own two numbers when <b>both</b> are nonzero — that is their empirical calibration of the
+        /// corrector — and otherwise the nominal constant, since a zero leaves nothing to derive from. Always
+        /// positive: <c>e_c</c> carries K's sign, so the quotient does not.
+        /// </summary>
+        public double CurvaturePerSpacing { get; }
+
+        /// <summary>
+        /// <c>c_a = ρ·c_m</c>, the astigmatism coefficient (1/µm²): the T–S half-split per µm of local spacing
+        /// error per µm² of field radius. Literally <c>0.0</c> when astigmatism or aberrations are disabled, so
+        /// the disabled path is bit-exact rather than merely small.
+        /// </summary>
+        public double AstigmatismCoefficient { get; }
+
+        /// <summary>
+        /// Predicted T–S half-split at the sensor corner from the centre spacing error alone (tilt excluded),
+        /// <c>ρ·c_m·e_c·(halfW² + halfH²)</c> µm. Whenever <c>c_m</c> is derived rather than nominal this
+        /// reduces to <c>ρ · PredictedCurvatureEffectMicrons</c>.
+        /// </summary>
+        public double PredictedAstigmatismEffectMicrons { get; }
+
+        /// <summary>
         /// Plain-number constructor (unit-test friendly). Inverts the aberration knobs onto (Gx, Gy, K). When
         /// <paramref name="aberrationsEnabled"/> is false the surface is flat (Gx=Gy=K=0, X0=Y0=0) and every
         /// field point sees the uniform defocus k·(currentSteps − x0).
@@ -96,6 +166,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <param name="pixelSizeMicrons">Pixel pitch p, in µm.</param>
         /// <param name="focuserStepSizeMicrons">Focuser step size k, in µm of sensor defocus per step.</param>
         /// <param name="optimalFocuserPosition">Best-focus focuser step position x0.</param>
+        /// <param name="astigmatismEnabled">When false the surface stays a single surface (A ≡ 0 exactly).</param>
+        /// <param name="backfocusSpacingErrorMicrons">Axial spacing error magnitude e_c (µm); negative = unset, inferred from K.</param>
+        /// <param name="astigmatismRatio">ρ = c_a/c_m, the astigmatism-to-curvature ratio. Non-negative.</param>
         public AberrationSurface(
             bool aberrationsEnabled,
             double tiltAngleDegrees,
@@ -107,7 +180,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             int heightPx,
             double pixelSizeMicrons,
             double focuserStepSizeMicrons,
-            int optimalFocuserPosition) {
+            int optimalFocuserPosition,
+            bool astigmatismEnabled = false,
+            double backfocusSpacingErrorMicrons = UnsetSpacingErrorMicrons,
+            double astigmatismRatio = 0.0) {
             if (widthPx <= 0) throw new ArgumentOutOfRangeException(nameof(widthPx));
             if (heightPx <= 0) throw new ArgumentOutOfRangeException(nameof(heightPx));
             if (pixelSizeMicrons <= 0) throw new ArgumentOutOfRangeException(nameof(pixelSizeMicrons));
@@ -115,6 +191,9 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             // Tilt amount is a non-negative magnitude; direction is carried by the azimuth. A negative value
             // would silently flip Phi by 180° (|G| = amount/den < 0), breaking the inject⇄recover identity.
             if (tiltAmountMicrons < 0) throw new ArgumentOutOfRangeException(nameof(tiltAmountMicrons), "Tilt amount is a non-negative magnitude; direction is given by the azimuth angle.");
+            // `!(x >= 0)` and not `x < 0`: NaN fails BOTH comparisons, and a NaN ratio would render an all-NaN
+            // frame with no error anywhere. Same guard style as DefocusModel's.
+            if (!(astigmatismRatio >= 0.0)) throw new ArgumentOutOfRangeException(nameof(astigmatismRatio), astigmatismRatio, "Astigmatism ratio is a non-negative magnitude; the radial/tangential direction is given by the sign of the backfocus error.");
 
             this.widthPx = widthPx;
             this.heightPx = heightPx;
@@ -153,7 +232,34 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             }
 
             PredictedTiltEffectMicrons = Math.Abs(Gx) * halfWidthMicrons + Math.Abs(Gy) * halfHeightMicrons;
-            PredictedCurvatureEffectMicrons = K * (halfWidthMicrons * halfWidthMicrons + halfHeightMicrons * halfHeightMicrons);
+            var cornerRadiusSquared = halfWidthMicrons * halfWidthMicrons + halfHeightMicrons * halfHeightMicrons;
+            PredictedCurvatureEffectMicrons = K * cornerRadiusSquared;
+
+            if (!aberrationsEnabled || !astigmatismEnabled) {
+                // Literally zero, not merely small: the whole "astigmatism off renders byte-identically"
+                // guarantee rests on A being exactly 0.0 so every star collapses onto one quantized level.
+                EffectiveSpacingErrorMicrons = 0.0;
+                CurvaturePerSpacing = NominalCurvaturePerSpacingPerAreaMicrons;
+                AstigmatismCoefficient = 0.0;
+                PredictedAstigmatismEffectMicrons = 0.0;
+            } else {
+                // The option carries a magnitude (negative means "not entered"), so the direction is inherited
+                // from K — a corrector's curvature response to spacing has one fixed sign, so e_c and K share
+                // theirs. Unset infers e_c = K / c_m0, which makes CurvaturePerSpacing come out exactly c_m0.
+                EffectiveSpacingErrorMicrons = backfocusSpacingErrorMicrons >= 0.0
+                    ? (K < 0.0 ? -backfocusSpacingErrorMicrons : backfocusSpacingErrorMicrons)
+                    : K / NominalCurvaturePerSpacingPerAreaMicrons;
+
+                // Derive c_m from the user's own two numbers only when both are nonzero. A zero on either side
+                // leaves nothing to derive from, and falling back to the nominal constant is what keeps pure
+                // tilt (K = 0) producing astigmatism instead of silently producing none.
+                CurvaturePerSpacing = (K != 0.0 && EffectiveSpacingErrorMicrons != 0.0)
+                    ? K / EffectiveSpacingErrorMicrons
+                    : NominalCurvaturePerSpacingPerAreaMicrons;
+
+                AstigmatismCoefficient = astigmatismRatio * CurvaturePerSpacing;
+                PredictedAstigmatismEffectMicrons = AstigmatismCoefficient * EffectiveSpacingErrorMicrons * cornerRadiusSquared;
+            }
         }
 
         /// <summary>
@@ -168,17 +274,78 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             return tilt + curvature + Z0;
         }
 
+        /// <summary>Centers a pixel coordinate to sensor microns: x=(px−W/2)·p, y=(py−H/2)·p.</summary>
+        private void ToCenteredMicrons(int px, int py, out double xMicrons, out double yMicrons) {
+            xMicrons = (px - widthPx / 2.0) * pixelSizeMicrons;
+            yMicrons = (py - heightPx / 2.0) * pixelSizeMicrons;
+        }
+
         /// <summary>
         /// Local sensor defocus Δ (µm) seen by a star at pixel (px, py) with the focuser at
         /// <paramref name="currentFocuserSteps"/>. The pixel is centered to microns
         /// (x=(px−W/2)·p, y=(py−H/2)·p), then Δ = currentSteps·k − zBestFocus(x, y). Feed this to
         /// <see cref="DefocusModel"/> for HFR / W20 / donut sizing.
+        ///
+        /// <para>This is the <b>mean</b> of the tangential and sagittal defocuses even when astigmatism is on —
+        /// deliberately, so it remains exactly the inspector's algebraic inverse. Callers that need the
+        /// astigmatic pair use <see cref="AstigmaticDefocusMicrons"/>.</para>
         /// </summary>
         public double LocalDefocusMicrons(int px, int py, int currentFocuserSteps) {
-            var x = (px - widthPx / 2.0) * pixelSizeMicrons;
-            var y = (py - heightPx / 2.0) * pixelSizeMicrons;
+            ToCenteredMicrons(px, py, out var x, out var y);
             var currentFocuserMicrons = currentFocuserSteps * focuserStepSizeMicrons;
             return currentFocuserMicrons - ZBestFocusMicrons(x, y);
+        }
+
+        /// <summary>
+        /// The <b>local</b> axial spacing error e(x,y) = e_c + Gx·x' + Gy·y', in µm. The tilt plane term is
+        /// literally how far that patch of sensor has moved along the optical axis, which is why a tilted
+        /// sensor is mis-spaced over most of its area even when its mean spacing is perfect.
+        /// </summary>
+        public double LocalSpacingErrorMicrons(int px, int py) {
+            ToCenteredMicrons(px, py, out var x, out var y);
+            return EffectiveSpacingErrorMicrons + Gx * (x - X0) + Gy * (y - Y0);
+        }
+
+        /// <summary>
+        /// The astigmatism half-split A(x,y) = c_a · e(x,y) · r'², in µm of focuser travel. Exactly 0 when
+        /// astigmatism is disabled, and exactly 0 on the optical axis whatever the configuration.
+        /// </summary>
+        public double AstigmatismSplitMicrons(int px, int py) {
+            if (AstigmatismCoefficient == 0.0) {
+                return 0.0;
+            }
+            ToCenteredMicrons(px, py, out var x, out var y);
+            var xPrime = x - X0;
+            var yPrime = y - Y0;
+            return AstigmatismCoefficient * LocalSpacingErrorMicrons(px, py) * (xPrime * xPrime + yPrime * yPrime);
+        }
+
+        /// <summary>
+        /// Field position angle θ = atan2(y', x'), in radians, measured about the <b>optical axis</b> (X0, Y0)
+        /// rather than the sensor centre — the ellipse's principal axes are radial/tangential with respect to
+        /// the optical axis, not the chip. Returns 0 exactly on the axis, where the kernel is circular anyway.
+        /// </summary>
+        public double FieldAngleRadians(int px, int py) {
+            ToCenteredMicrons(px, py, out var x, out var y);
+            var xPrime = x - X0;
+            var yPrime = y - Y0;
+            return (xPrime == 0.0 && yPrime == 0.0) ? 0.0 : Math.Atan2(yPrime, xPrime);
+        }
+
+        /// <summary>
+        /// The astigmatic defocus pair and orientation for a star at pixel (px, py):
+        /// <c>Δ_T = Δ − A</c> (tangential rays, which set the <b>radial</b> semi-axis) and
+        /// <c>Δ_S = Δ + A</c> (sagittal rays, which set the <b>tangential</b> semi-axis), plus the field angle.
+        /// With astigmatism off both outputs equal <see cref="LocalDefocusMicrons"/> exactly.
+        /// </summary>
+        public void AstigmaticDefocusMicrons(
+                int px, int py, int currentFocuserSteps,
+                out double tangentialMicrons, out double sagittalMicrons, out double thetaRadians) {
+            var delta = LocalDefocusMicrons(px, py, currentFocuserSteps);
+            var split = AstigmatismSplitMicrons(px, py);
+            tangentialMicrons = delta - split;
+            sagittalMicrons = delta + split;
+            thetaRadians = split == 0.0 ? 0.0 : FieldAngleRadians(px, py);
         }
 
         /// <summary>
@@ -200,7 +367,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 heightPx: sensor.Height,
                 pixelSizeMicrons: sensor.PixelSizeMicrons,
                 focuserStepSizeMicrons: request.FocuserStepSizeMicrons,
-                optimalFocuserPosition: request.OptimalFocuserPosition);
+                optimalFocuserPosition: request.OptimalFocuserPosition,
+                astigmatismEnabled: request.AstigmatismEnabled,
+                backfocusSpacingErrorMicrons: request.BackfocusSpacingErrorMicrons,
+                astigmatismRatio: request.AstigmatismRatio);
         }
     }
 }

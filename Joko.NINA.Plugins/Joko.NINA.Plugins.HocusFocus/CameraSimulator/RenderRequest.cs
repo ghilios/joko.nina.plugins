@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
@@ -91,6 +92,23 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         public double BackfocusErrorMicrons { get; init; }
         public double OpticalAxisOffsetXMicrons { get; init; }
         public double OpticalAxisOffsetYMicrons { get; init; }
+
+        /// <summary>
+        /// Whether the best-focus surface splits into tangential and sagittal surfaces, giving stars an
+        /// elliptical (eccentric) blur. Paired with a magnitude the way
+        /// <see cref="CentralObstructionEnabled"/> is paired with <see cref="CentralObstructionFraction"/>.
+        /// </summary>
+        public bool AstigmatismEnabled { get; init; }
+
+        /// <summary>
+        /// Axial spacing error magnitude e_c (µm) — how far the sensor sits from the corrector's design
+        /// spacing. Defaults to the "not entered" sentinel, in which case it is inferred from the backfocus
+        /// error; the sign is inherited from that error, not carried here.
+        /// </summary>
+        public double BackfocusSpacingErrorMicrons { get; init; } = AberrationSurface.UnsetSpacingErrorMicrons;
+
+        /// <summary>ρ = c_a/c_m, the astigmatism-to-curvature ratio. Non-negative.</summary>
+        public double AstigmatismRatio { get; init; }
 
         // --- Exposure ---
 
