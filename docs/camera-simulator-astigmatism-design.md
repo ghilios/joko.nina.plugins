@@ -166,7 +166,7 @@ later "fixed" for being small — it is small by construction for a well-spaced 
 |---|---|---|---|
 | `EnableFieldAstigmatism` | bool | `true` | Master toggle for the model. |
 | `BackfocusSpacingErrorMicrons` | double | unset (`-1`) | $e_c$. Blank ⇒ inferred as $K / c_{m0}$. |
-| `AstigmatismRatio` | double | `0.7` | $\rho = c_a/c_m$, range [0, 3]. |
+| `AstigmatismRatio` | double | `0.7` | $\rho = c_a/c_m$, **signed**, range [−3, 3]. Its sign selects radial (+) or tangential (−). |
 
 Plus one changed default: **`BackfocusErrorMicrons` 0 → 50 µm**. On a full frame that is ≈ 0.75× the
 critical focus zone at f/7 and corresponds to a 1 mm spacer error under $c_{m0}$.
@@ -174,10 +174,31 @@ critical focus zone at f/7 and corresponds to a 1 mm spacer error under $c_{m0}$
 All three live inside the Field Aberrations group, which is already gated on `EnableAberrations` — with
 aberrations off the surface is flat and astigmatism is meaningless.
 
-**Sign convention.** $\rho$ is non-negative; the radial ⇄ tangential flip is carried by the *sign* of the
-spacing / backfocus error, which is already a signed option. The reference doc notes that which physical
-spacing direction maps to radial depends on the corrector design, so users flip the pattern the same way
-they flip a spacer.
+**Sign convention — corrected after the model was first shipped.** $\rho$ is **signed**, and its sign is the
+only thing that selects radial versus tangential elongation. The first draft of this spec had $\rho \ge 0$
+with the direction carried by the sign of the spacing error; that is wrong, and the algebra in
+[Three properties](#3-inject--recover-survives-provably) says why. Substituting
+$\Delta = -c_m \Delta b\, r'^2$ and $A = c_a \Delta b\, r'^2$ into the semi-axes gives
+
+$$a_{\text{rad}} \propto \lvert (c_m + c_a)\,\Delta b\, r'^2 \rvert, \qquad
+  a_{\text{tan}} \propto \lvert (c_m - c_a)\,\Delta b\, r'^2 \rvert,$$
+
+so the axis ratio is $\lvert 1+\rho \rvert / \lvert 1-\rho \rvert$ — **with no $\Delta b$ in it at all**.
+Two consequences, both of which reliably surprise people and are pinned by tests:
+
+- **The elongation direction is a property of the corrector, not of the spacing.** It is set by
+  $\operatorname{sign}(\rho)$: positive gives radially elongated stars, negative tangential ones. This is
+  what the reference doc means by *"which physical direction maps to radial vs. tangential depends on the
+  corrector design, but it's consistent for a given optic"* — consistent, i.e. not flipping with the spacer.
+- **Reversing the spacing error renders an identical frame.** It flips $\Delta$ and $A$ together, and the
+  semi-axes are invariant under that pair of flips. Too-much and too-little backfocus are therefore *not*
+  distinguishable from star shapes in a single frame; you tell them apart by refocusing, since the corners
+  come to focus on opposite sides of the centre. That is the optics of a model linear in the spacing error,
+  not a modelling shortcut — no linear model can produce that flip.
+
+A tilt large enough to dominate the local defocus *does* make the direction differ between opposite edges,
+because there $\Delta$ is set by the tilt plane (which changes sign across the sensor) while $A$ keeps the
+sign of $K$. That is the regime the eccentricity capstone exercises.
 
 **Virtual tilt adapter.** `SimulatedTiltInjection.Fold` folds screw piston into `BackfocusErrorMicrons`.
 A piston is a literal axial displacement, so it changes the spacing error by exactly `pistonMicrons`;

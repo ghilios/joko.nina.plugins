@@ -704,8 +704,13 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             long total = 0;
             foreach (var key in keys) {
                 var largestDefocus = Math.Max(Math.Abs(key.LevelT), Math.Abs(key.LevelS)) * quantumMicrons;
-                var edge = 2L * KernelRadiusPixels(model, largestDefocus) + 1;
-                total += phases * edge * edge * sizeof(float);
+                var radius = KernelRadiusPixels(model, largestDefocus);
+                var edge = 2L * radius + 1;
+                // The phase bank dominates, but the profile LUTs are not free: they have a 512-entry floor, so
+                // a frame made of thousands of SMALL kernels pays ~8 KB each for them and the budget lands
+                // materially over if they are left out. Measured 132 MB against a 128 MB budget before this.
+                total += phases * edge * edge * sizeof(float)
+                       + 2L * PsfKernelGenerator.EstimateProfileLutEntries(radius) * sizeof(double);
             }
             return total;
         }

@@ -121,9 +121,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 Assert.That(positive.RightEccentricity, Is.GreaterThan(0.20));
                 Assert.That(positive.CentreEccentricity, Is.LessThan(0.15), "the on-axis stars stay round");
 
-                // Reversing the spacing error must reverse the pattern. A relative-only test cannot catch a
-                // whole-model sign inversion -- it would read as consistent either way -- so this is what
-                // actually pins the convention.
+                // Reversing the backfocus error reverses the pattern HERE, and the reason is specific enough
+                // to be worth stating: at 120 um of tilt against 40 um of backfocus, the tilt dominates the
+                // local defocus, so reversing the backfocus flips the astigmatic split's sign while leaving
+                // the defocus alone -- and it is their relative sign that sets the orientation.
+                //
+                // This is NOT a general property. With the backfocus dominating instead, reversing it flips
+                // BOTH terms and the frame comes out identical; that is first-order optics, and
+                // AberrationSurfaceTests.ReversingTheBackfocusError_RendersAnIdenticalEllipse pins it. What
+                // this assertion buys is a check that the split's sign reaches the rendered pixels at all --
+                // a relative-only test would read as consistent under a whole-model sign inversion.
                 Assert.That(negative.LeftScore, Is.GreaterThan(0.5), "reversed backfocus makes the left edge radial");
                 Assert.That(negative.RightScore, Is.LessThan(-0.5), "and the right edge tangential");
             });

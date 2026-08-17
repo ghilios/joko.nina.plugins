@@ -84,6 +84,18 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// </summary>
         public const int MaxKernelRadius = 512;
 
+        /// <summary>
+        /// Entries in one profile LUT for a kernel of the given support radius — the same expression both
+        /// rasterizer paths use. Exposed so the compositor's cache budget can account for the LUTs instead of
+        /// counting only the phase bank: they have a 512-entry floor, so a frame made of thousands of small
+        /// kernels pays for them noticeably.
+        /// </summary>
+        internal static int EstimateProfileLutEntries(int radiusPixels) {
+            const int pad = 1;
+            var lutMax = (radiusPixels + pad) * Math.Sqrt(2.0) + 1.0;
+            return Math.Max(512, (int)Math.Ceiling(lutMax * 2.0 * DefaultPhasesPerAxis) + 1);
+        }
+
         /// <summary>Builds the PSF for a defocus Δ (µm) using the sizing from <paramref name="model"/>.</summary>
         public static PsfKernel Generate(DefocusModel model, double defocusMicrons, PsfKernelMethod method = PsfKernelMethod.Analytic) {
             if (model == null) throw new ArgumentNullException(nameof(model));

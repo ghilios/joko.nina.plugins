@@ -52,6 +52,21 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
     /// did. <see cref="LocalDefocusMicrons"/> deliberately still returns only the mean, so its "this is the
     /// inspector's algebraic inverse" contract stays literally true.</para>
     ///
+    /// <para><b>This is first-order theory, exactly.</b> Substituting <c>Δ = −c_m·Δb·r'²</c> and
+    /// <c>A = c_a·Δb·r'²</c> gives semi-axes <c>|(c_m + c_a)·Δb·r'²|</c> and <c>|(c_m − c_a)·Δb·r'²|</c> —
+    /// the tangential and sagittal focal surfaces themselves, with no approximation. Two consequences follow
+    /// and are worth stating, because both surprise people:</para>
+    /// <list type="bullet">
+    /// <item>The axis ratio is <c>|1 + ρ| / |1 − ρ|</c>, with <b>no Δb in it</b>. Whether stars elongate
+    /// radially or tangentially is a property of the <b>corrector</b> — the sign of <c>ρ = c_a/c_m</c> — and
+    /// does not change with the sign or size of the spacing error. Hence <c>ρ</c> is signed, and a negative
+    /// value models a corrector whose astigmatism opposes its field curvature.</item>
+    /// <item>Reversing the spacing error therefore renders an <b>identical</b> frame: it flips both Δ and A,
+    /// and the semi-axes are invariant under that pair of flips. Too-much and too-little backfocus are not
+    /// distinguishable from star shapes in a single frame — you tell them apart by refocusing, because the
+    /// corners come to focus on opposite sides of the centre. That is the optics, not a modelling shortcut.</item>
+    /// </list>
+    ///
     /// It supplies the per-field-point defocus Δ (and, with astigmatism, the pair); <see cref="DefocusModel"/>
     /// turns a defocus into HFR / W20 / donut radii. Full derivation:
     /// <c>docs/camera-simulator-astigmatism-design.md</c>.
@@ -191,9 +206,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             // Tilt amount is a non-negative magnitude; direction is carried by the azimuth. A negative value
             // would silently flip Phi by 180° (|G| = amount/den < 0), breaking the inject⇄recover identity.
             if (tiltAmountMicrons < 0) throw new ArgumentOutOfRangeException(nameof(tiltAmountMicrons), "Tilt amount is a non-negative magnitude; direction is given by the azimuth angle.");
-            // `!(x >= 0)` and not `x < 0`: NaN fails BOTH comparisons, and a NaN ratio would render an all-NaN
-            // frame with no error anywhere. Same guard style as DefocusModel's.
-            if (!(astigmatismRatio >= 0.0)) throw new ArgumentOutOfRangeException(nameof(astigmatismRatio), astigmatismRatio, "Astigmatism ratio is a non-negative magnitude; the radial/tangential direction is given by the sign of the backfocus error.");
+            // The ratio is SIGNED — its sign is what selects radial versus tangential elongation, and that is a
+            // property of the corrector rather than of the spacing error (see the class remarks). Only NaN is
+            // rejected, and `!(x > double.MinValue)` catches it where `x < 0` would wave it through into an
+            // all-NaN frame with no error anywhere. Same guard style as DefocusModel's.
+            if (!(astigmatismRatio > double.MinValue)) throw new ArgumentOutOfRangeException(nameof(astigmatismRatio), astigmatismRatio, "Astigmatism ratio must be a number.");
 
             this.widthPx = widthPx;
             this.heightPx = heightPx;

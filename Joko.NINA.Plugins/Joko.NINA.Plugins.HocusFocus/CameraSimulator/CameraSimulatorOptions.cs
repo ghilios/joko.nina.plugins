@@ -151,9 +151,10 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         public const double DefaultBackfocusErrorMicrons = 50.0;
 
         /// <summary>
-        /// Shipped ρ = c_a/c_m. The reference doc has both correction terms growing together with spacing
-        /// error and comparable in size, so a ratio of order one is the physical starting point; 0.7 keeps the
-        /// astigmatism a little under the curvature.
+        /// Shipped ρ = c_a/c_m. Both correction terms grow together with spacing error and are comparable in
+        /// size, so a ratio of order one is the physical starting point; 0.7 keeps the astigmatism a little
+        /// under the curvature. <b>Signed</b> — a negative ratio models a corrector whose astigmatism opposes
+        /// its field curvature, giving tangentially rather than radially elongated stars.
         /// </summary>
         public const double DefaultAstigmatismRatio = 0.7;
 

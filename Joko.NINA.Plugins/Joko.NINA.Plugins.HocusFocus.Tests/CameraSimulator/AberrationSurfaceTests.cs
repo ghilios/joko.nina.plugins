@@ -387,14 +387,68 @@ public class AberrationSurfaceTests {
         });
     }
 
+    /// <summary>Semi-axes (px) of the blur at a field point, up to the shared 1/(2Np) scale factor.</summary>
+    private static (double radial, double tangential) SemiAxes(AberrationSurface surface, int px, int py, int steps) {
+        surface.AstigmaticDefocusMicrons(px, py, steps, out var dT, out var dS, out _);
+        return (Math.Abs(dT), Math.Abs(dS));
+    }
+
+    [TestCase(0.3)]
+    [TestCase(0.7)]
+    [TestCase(2.0)]
+    public void AxisRatio_IsTheFirstOrderIdentity_AndIndependentOfTheBackfocusError(double ratio) {
+        // Substituting Δ = −c_m·Δb·r'² and A = c_a·Δb·r'² gives semi-axes |(c_m ± c_a)·Δb·r'²|, so the axis
+        // ratio is |1+ρ| / |1−ρ| with NO Δb in it. That identity is the whole first-order content of the
+        // model, and it is why the elongation direction is a property of the corrector rather than of how
+        // badly it is spaced.
+        var expected = Math.Abs(1.0 + ratio) / Math.Abs(1.0 - ratio);
+        foreach (var backfocus in new[] { 50.0, 500.0, 2000.0, -2000.0 }) {
+            var surface = Build(backfocusUm: backfocus, astigmatism: true, ratio: ratio);
+            var (radial, tangential) = SemiAxes(surface, 0, 0, X0Steps);   // corner, focuser at best focus
+            Assert.That(radial / tangential, Is.EqualTo(expected).Within(1e-6 * expected),
+                $"axis ratio at backfocus {backfocus} µm");
+        }
+    }
+
+    [TestCase(200.0)]
+    [TestCase(2000.0)]
+    public void ReversingTheBackfocusError_RendersAnIdenticalEllipse(double backfocusUm) {
+        // Reversing the spacing error flips BOTH the local defocus and the astigmatic split, and the semi-axes
+        // |Δ−A| and |Δ+A| are invariant under that pair of flips. So too-much and too-little backfocus are not
+        // distinguishable from star shapes in a single frame -- you tell them apart by refocusing, because the
+        // corners come to focus on opposite sides of the centre. This is first-order optics, not a shortcut,
+        // and it is pinned here because it reliably surprises people.
+        var positive = Build(backfocusUm: backfocusUm, astigmatism: true, ratio: 0.7);
+        var negative = Build(backfocusUm: -backfocusUm, astigmatism: true, ratio: 0.7);
+        foreach (var (px, py) in FieldGrid()) {
+            var a = SemiAxes(positive, px, py, X0Steps);
+            var b = SemiAxes(negative, px, py, X0Steps);
+            Assert.That(b.radial, Is.EqualTo(a.radial).Within(1e-9), $"radial semi-axis at ({px},{py})");
+            Assert.That(b.tangential, Is.EqualTo(a.tangential).Within(1e-9), $"tangential semi-axis at ({px},{py})");
+        }
+    }
+
     [Test]
-    public void NegativeAstigmatismRatio_Throws() {
-        Assert.Throws<ArgumentOutOfRangeException>(() => Build(astigmatism: true, ratio: -0.5));
+    public void TheSignOfTheRatio_SelectsRadialVersusTangential() {
+        // The one knob that does change the direction. A negative ratio models a corrector whose astigmatism
+        // opposes its field curvature; the two cases are the same ellipse rotated by 90 degrees.
+        var radialCorrector = Build(backfocusUm: 500.0, astigmatism: true, ratio: 0.7);
+        var tangentialCorrector = Build(backfocusUm: 500.0, astigmatism: true, ratio: -0.7);
+
+        var r = SemiAxes(radialCorrector, 0, 0, X0Steps);
+        var t = SemiAxes(tangentialCorrector, 0, 0, X0Steps);
+        Assert.Multiple(() => {
+            Assert.That(r.radial, Is.GreaterThan(r.tangential), "positive ratio elongates radially");
+            Assert.That(t.tangential, Is.GreaterThan(t.radial), "negative ratio elongates tangentially");
+            Assert.That(t.radial, Is.EqualTo(r.tangential).Within(1e-9), "and it is the same ellipse, rotated");
+            Assert.That(t.tangential, Is.EqualTo(r.radial).Within(1e-9));
+        });
     }
 
     [Test]
     public void NaNAstigmatismRatio_Throws() {
-        // NaN fails both `>= 0` and `< 0`, so a naive guard waves it through and the whole frame renders NaN.
+        // NaN fails every ordering comparison, so a naive `< 0` guard waves it through and the whole frame
+        // renders NaN. The ratio is otherwise unrestricted in sign.
         Assert.Throws<ArgumentOutOfRangeException>(() => Build(astigmatism: true, ratio: double.NaN));
     }
 

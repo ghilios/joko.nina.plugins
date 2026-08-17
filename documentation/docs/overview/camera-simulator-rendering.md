@@ -209,13 +209,16 @@ The two surfaces straddle the surface above, separated by a half-split \(A\):
 
 \[
 z_T = z + A, \qquad z_S = z - A, \qquad
-A(x,y) = ho \, c_m \, e(x,y) \, r'^2 ,
+A(x,y) = 
+ho \, c_m \, e(x,y) \, r'^2 ,
 \]
 
 where \(r'\) is the distance from the optical axis and \(e(x,y)\) is the **local** axial spacing
 error — the centre spacing error plus the tilt plane, because the tilt plane is literally how far
 that patch of sensor has moved along the axis. A star's blur is then an ellipse: its radial extent
-comes from \(\lvert \Delta - A vert\) and its tangential extent from \(\lvert \Delta + A vert\),
+comes from \(\lvert \Delta - A 
+vert\) and its tangential extent from \(\lvert \Delta + A 
+vert\),
 where \(\Delta\) is the local defocus from the surface above.
 
 That crossing is the whole behaviour, and it reduces to one rule:
@@ -223,12 +226,22 @@ That crossing is the whole behaviour, and it reduces to one rule:
 > Stars stretch **radially** where the local defocus and the astigmatism disagree in sign,
 > **tangentially** where they agree, and stay round wherever either is zero.
 
-Because tilt makes the local defocus positive on one side of the sensor and negative on the other,
-a tilted, mis-spaced sensor shows stars pointing at the corners on one edge and lying across the
-radius on the opposite edge — the pattern the [Aberration Inspector](tilt-aberration-inspector.md)'s
-eccentricity vector field is built to reveal. Where the surface crosses focus, the two extents are
-equal and the star is round again, but not a point: that is the circle of least confusion, and it is
-why a corner on a badly spaced rig never comes to a sharp focus at any focuser position.
+Which way stars point is set by the **sign of the Astigmatism Ratio** — a property of the corrector,
+not of which way the spacing is off. Positive gives radially elongated stars, negative tangential
+ones. Tilt is what makes the two appear in the same frame: it drives the local defocus positive on
+one side of the sensor and negative on the other, so a sensor tilted enough for that to outweigh the
+field curvature shows stars pointing at the corners on one edge and lying across the radius on the
+opposite edge — the pattern the [Aberration Inspector](tilt-aberration-inspector.md)'s eccentricity
+vector field is built to reveal. Where the surface crosses focus the two extents are equal and the
+star is round again, but not a point: that is the circle of least confusion, and it is why a corner
+on a badly spaced rig never comes to a sharp focus at any focuser position.
+
+One consequence worth knowing before you go looking for it: **reversing the backfocus error renders
+an identical frame.** It flips the local defocus and the astigmatism together, and the star's two
+extents are unchanged by that pair of flips. Too much and too little spacing are not distinguishable
+from star shapes in a single image — you tell them apart by refocusing, because the corners come to
+focus on opposite sides of the centre. That is the optics of a first-order model, not a limitation
+of the renderer.
 
 Three options control it, inside the Field Aberrations group:
 
@@ -239,9 +252,11 @@ Three options control it, inside the Field Aberrations group:
   magnitude; the direction comes from the sign of Backfocus Error. Leave it blank and it is inferred
   from Backfocus Error, assuming a nominal flattener where 1 mm of spacing error gives 50 µm of
   corner curvature on a full-frame sensor.
-- **Astigmatism Ratio** is how much astigmatism accompanies the field curvature. Both grow together
-  with spacing error on a real corrector and are comparable in size, so the default of 0.7 is the
-  physical starting point; 0 disables the effect without touching the toggle.
+- **Astigmatism Ratio** is how much astigmatism accompanies the field curvature, and its **sign**
+  chooses the direction: positive elongates stars radially, negative tangentially. Both terms grow
+  together with spacing error on a real corrector and are comparable in size, so a magnitude near 1
+  is the physical starting point; the default is 0.7, and 0 disables the effect without touching the
+  toggle.
 
 Two things this deliberately does not change. The **inspector still recovers exactly what you
 inject**: the two surfaces' mean is the surface it fits, and reversing the defocus swaps the two

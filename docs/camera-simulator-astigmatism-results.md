@@ -295,6 +295,26 @@ against 639 ms in the final matrix, which is run-to-run variance on the isotropi
    count is already 1 for most kernels. Kept: it is what keeps a near-line focus from paying 64 evaluations
    on every cell.
 
+### Two budget bugs found after the matrix was recorded
+
+Both surfaced from a user report of a 10 mm backfocus error rendering with no eccentricity at all. Neither
+changes the numbers above — the headline cell re-measures at 375 kernels and 118.3 MB either way — but both
+were the budget failing to do what it claimed.
+
+1. **The fallback did not bound anything.** When even maximum coarsening would not fit, the code dropped
+   astigmatism *and reverted to the fine defocus quantum*. Dropping astigmatism is not a way to fit a byte
+   budget: the dominant term is (number of defocus levels × kernel size) and astigmatism controls neither. The
+   10 mm case built **822 kernels at 3.2 GB in 5.4 s** on the code path whose purpose was to prevent exactly
+   that. The ladder is now two passes — coarsen with astigmatism, then coarsen again without — keeping the
+   coarsened quantum either way: **52 kernels, 201 MB, 1.0 s**. When even circular donuts at maximum
+   coarsening do not fit, it renders and says so rather than claiming a budget it did not honour. The
+   isotropic path was exposed to this too and always had been; the phase instrumentation is what made it
+   visible.
+2. **The estimate counted only the phase bank.** The two profile LUTs have a 512-entry floor, so a frame made
+   of thousands of *small* kernels pays ~8 KB each for them. A 500 µm backfocus error measured **131.9 MB
+   against a 128 MB budget** — over, while reporting itself as fitting. With the LUTs counted, that case now
+   coarsens to 695 kernels at 37.6 MB.
+
 ### Levers evaluated and rejected
 
 - **Fewer kernel-build threads.** Tested at 48 / 24 / 12 / 6: kernel generation measured 275 / 356 / 364 /

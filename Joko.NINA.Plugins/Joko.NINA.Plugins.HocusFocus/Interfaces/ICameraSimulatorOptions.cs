@@ -153,7 +153,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double OpticalAxisOffsetYMicrons { get; set; }
 
         // Field astigmatism — splits the best-focus surface into tangential and sagittal surfaces, so stars
-        // render elliptical: radial in one corner, tangential in the opposite, round in between.
+        // render elliptical rather than merely soft. The elongation direction is set by the sign of
+        // AstigmatismRatio; a tilt large enough to dominate the local defocus makes it differ between
+        // opposite edges of the sensor.
         bool EnableFieldAstigmatism { get; set; }
 
         /// <summary>
@@ -167,7 +169,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// <summary>Resolved spacing error (µm) after inference — the hint shown when the box is left blank.</summary>
         double EffectiveBackfocusSpacingErrorMicrons { get; }
 
-        /// <summary>ρ = c_a/c_m, how much astigmatism accompanies the residual field curvature. Non-negative.</summary>
+        /// <summary>
+        /// ρ = c_a/c_m, how much astigmatism accompanies the residual field curvature. <b>Signed</b>: its sign
+        /// is what selects radial versus tangential elongation, which first-order theory makes a property of
+        /// the corrector rather than of the spacing error.
+        /// </summary>
         double AstigmatismRatio { get; set; }
 
         // Simulated tilt adapter. Deliberately separate from the user's real ITiltAdapterOptions: the inspector
