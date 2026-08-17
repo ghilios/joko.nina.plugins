@@ -99,6 +99,21 @@ starts, so edits apply to the next frame.
 The tab also shows the rig values (aperture, focal length, obstruction) read-only, so you can
 confirm what the next exposure will use without opening the setup dialog.
 
+Turning on **Enable Aberrations** reveals the field-aberration group — tilt, backfocus error, and
+optical-axis offset — plus the astigmatism model that turns those into *eccentric* stars rather than
+merely soft ones:
+
+| Option | Default | What it does |
+|---|---|---|
+| **Model Astigmatism** | on | Splits the best-focus surface into the tangential and sagittal surfaces a mis-spaced corrector produces, so stars render elliptical: radial in one corner, tangential in the opposite, round in between. Does nothing until there is a spacing error to work from. |
+| **Backfocus Spacing Error** | blank | How far the sensor sits from the corrector's design spacing, in microns — the *cause*, where **Backfocus Error** is the corner curvature it *produces*. Enter a magnitude; the direction follows the sign of Backfocus Error. Blank infers it from Backfocus Error. |
+| **Astigmatism Ratio** | 0.7 | How much astigmatism accompanies the field curvature. Both grow together with spacing error on a real corrector, so a value near 1 is physical; 0 disables the effect without touching the toggle. |
+
+**Backfocus Error** ships at 50 µm rather than zero, so switching aberrations on shows the effect
+immediately instead of leaving you wondering whether it works. Set it to 0 for a perfectly spaced
+rig. The full model, including why tilt alone can produce eccentricity, is in
+[Rendering Model](camera-simulator-rendering.md#field-astigmatism).
+
 ## Autofocus against the simulator
 
 With the pieces connected, run an autofocus exactly as in the
@@ -118,8 +133,10 @@ at your desk before you ever touch the real adapter.
 
 1. On the **Camera Sim** tab, turn on **Enable Aberrations** and inject a tilt: set **Tilt Angle**
    (the direction, as an azimuth in the inspector's convention), **Tilt Amount** (the
-   center-to-corner focus swing in microns; 20–50 µm is a clearly visible tilt), and optionally a
-   **Backfocus Error**.
+   center-to-corner focus swing in microns; 20–50 µm is a clearly visible tilt), and a
+   **Backfocus Error** (50 µm by default). With the backfocus error non-zero the frames also show
+   the eccentric stars a real mis-spaced rig produces, so the inspector's eccentricity vector field
+   has something to read.
 2. Under **Tilt Adapter**, configure the simulated adapter's geometry: screw count, thread pitch,
    screw radius, and screw 1 angle. If you have already set up a real adapter in the
    [Tilt Adapter Wizard](tilt-adapter-wizard.md), press **Copy from adapter settings** so the
