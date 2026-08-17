@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -117,22 +117,34 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 }
             } else {
                 vm.BodyText = isMotorized
-                    ? "No motor positions were recorded at this run, so the moves below are estimated from the two fitted models — guidance, not ground truth:"
+                    ? (revertTarget.MotorsUnchangedSinceRun
+                        ? "The motor counters are unchanged since this run, so the adapter was moved by something other than these motors (screws turned by hand, a re-seat, the vendor app, or the simulator's own tilt controls). Driving the motors back to their recorded positions would therefore do nothing. The moves below come from the two fitted models instead:"
+                        : "No motor positions were recorded at this run, so the moves below are estimated from the two fitted models — guidance, not ground truth:")
                     : "Turn each screw as shown to bring the adapter back to the state measured at this run:";
                 vm.CaveatText =
                     "Computed as the difference between this run's fitted model and the current one, so it is only as trustworthy as those two fits. " +
                     "It assumes nothing but the tilt adjustment changed between them: if the camera was rotated, the adapter re-seated, or the screws were never touched, this difference is measurement drift rather than adjustment.";
             }
 
-            if (isMotorized && revertTarget.Mechanism == TiltRevertMechanism.DevicePositions) {
+            // The drive button is offered for BOTH mechanisms on a motorized rig. When the counters are unchanged
+            // but the sensor moved, the differential is the only actionable answer -- and it is the same kind of
+            // model-derived plan Automatic Adjustment already sends.
+            if (isMotorized) {
                 if (!deviceConnected) {
-                    vm.BodyText = "Connect the tilt adapter device to drive it back to this run's positions. Its recorded positions were: "
-                        + string.Join(" · ", DescribeRecordedPositions(target));
+                    var recorded = DescribeRecordedPositions(target);
+                    vm.BodyText = recorded.Count > 0
+                        ? "Connect the tilt adapter device to drive it back to this run's state. Its recorded positions were: " + string.Join(" · ", recorded)
+                        : "Connect the tilt adapter device to drive it back to this run's state.";
                 } else if (deviceBusy) {
                     vm.BodyText += " (The tilt adapter device is busy with another operation; try again when it finishes.)";
                 } else {
                     vm.ShowDriveButton = true;
-                    vm.DriveButtonText = string.Format(CultureInfo.CurrentCulture, "Drive Adapter to Run #{0} Positions", target.HistoryId);
+                    vm.DriveButtonText = string.Format(
+                        CultureInfo.CurrentCulture,
+                        revertTarget.Mechanism == TiltRevertMechanism.DevicePositions
+                            ? "Drive Adapter to Run #{0} Positions"
+                            : "Drive Adapter Back to Run #{0}",
+                        target.HistoryId);
                 }
             }
 

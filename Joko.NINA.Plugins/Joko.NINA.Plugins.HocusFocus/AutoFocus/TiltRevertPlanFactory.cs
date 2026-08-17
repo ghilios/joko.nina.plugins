@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -38,13 +38,15 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             double unitMicrons,
             bool backfocusTrustworthy,
             double twistSteps,
-            string unavailableReason) {
+            string unavailableReason,
+            bool motorsUnchangedSinceRun = false) {
             Mechanism = mechanism;
             StepsPerScrew = stepsPerScrew ?? Array.Empty<double>();
             UnitMicrons = unitMicrons;
             BackfocusTrustworthy = backfocusTrustworthy;
             TwistSteps = twistSteps;
             UnavailableReason = unavailableReason;
+            MotorsUnchangedSinceRun = motorsUnchangedSinceRun;
         }
 
         public TiltRevertMechanism Mechanism { get; }
@@ -71,6 +73,16 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
 
         /// <summary>Non-empty exactly when <see cref="Mechanism"/> is Unavailable; drives the disabled-button text.</summary>
         public string UnavailableReason { get; }
+
+        /// <summary>
+        /// True when the motor counters are identical to the ones recorded at that run, yet the two fitted models
+        /// disagree — so the adapter was moved by something other than these motors. Hand-turned screws on a
+        /// motorized rig, a re-seat, the vendor app, or the camera simulator's own tilt controls all do this.
+        ///
+        /// <para>Diagnostic, and the reason the differential is being used even though a positions snapshot
+        /// exists: driving the motors to a position they are already at would do nothing.</para>
+        /// </summary>
+        public bool MotorsUnchangedSinceRun { get; }
 
         public bool IsAvailable => Mechanism != TiltRevertMechanism.Unavailable;
 
@@ -118,11 +130,80 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             }
 
             var positionsTarget = TryBuildFromPositions(target, options, currentPerMotorSteps, currentPositionsKnown, connectedPresetName);
-            if (positionsTarget != null) {
+            if (positionsTarget != null && !IsNegligible(positionsTarget.StepsPerScrew)) {
                 return positionsTarget;
             }
 
-            return BuildFromDifferential(target, currentModel, options, calibrationDeviceLinked, calibrationIsReliable);
+            // Counters unchanged does NOT mean the sensor is unchanged. Anything that moves the adapter without
+            // going through these motors leaves them exactly where they were: screws turned by hand on a motorized
+            // rig, a re-seat, the vendor app, or the camera simulator's own tilt controls. Whether the SENSOR moved
+            // is a question about the two fitted models, and it is answerable without any calibration at all --
+            // which matters, because the differential below may be gated off.
+            bool sensorMoved = positionsTarget != null && SensorMovedBetween(target.SensorModel, currentModel, options);
+            if (positionsTarget != null && !sensorMoved) {
+                // Motors and sensor both agree nothing meaningful changed. This is the honest "already there".
+                return positionsTarget;
+            }
+
+            var differentialTarget = BuildFromDifferential(target, currentModel, options, calibrationDeviceLinked, calibrationIsReliable);
+            if (!sensorMoved) {
+                return differentialTarget;
+            }
+            if (!differentialTarget.IsAvailable) {
+                // The sensor moved without the motors, and we cannot compute by how much. Saying "already at this
+                // run's positions" here would be a claim about the sensor that nothing supports.
+                return TiltRevertTarget.Unavailable(
+                    "The motor counters are unchanged since this run, but the measured tilt is not, so the adapter was moved by "
+                    + "something other than these motors. " + differentialTarget.UnavailableReason);
+            }
+
+            return new TiltRevertTarget(
+                differentialTarget.Mechanism,
+                differentialTarget.StepsPerScrew,
+                differentialTarget.UnitMicrons,
+                differentialTarget.BackfocusTrustworthy,
+                differentialTarget.TwistSteps,
+                differentialTarget.UnavailableReason,
+                motorsUnchangedSinceRun: true);
+        }
+
+        /// <summary>
+        /// Whether the fitted sensor plane actually moved between two runs, judged as axial displacement at the
+        /// screw radius rather than as a bare slope difference, so the threshold means something physical.
+        ///
+        /// <para>Deliberately calibration-FREE: it reads the screw radius but not the screw angles, the direction
+        /// sign or the pitch. That is what lets it still answer "did the sensor move?" on a rig whose calibration
+        /// is too unreliable to compute the corresponding move.</para>
+        /// </summary>
+        private static bool SensorMovedBetween(SensorParaboloidModel historical, SensorParaboloidModel current, ITiltAdapterOptions options) {
+            if (historical == null || current == null) {
+                return false;
+            }
+            var radiusMicrons = options.ScrewRadiusMillimeters * 1000.0;
+            if (!(radiusMicrons > 0.0)) {
+                radiusMicrons = 1.0;   // unconfigured radius: fall back to comparing the raw slopes
+            }
+            // Half a micron across the sensor radius. Below any real measurement noise, far above float noise.
+            const double MovedThresholdMicrons = 0.5;
+            var dGx = Math.Abs(current.Gx - historical.Gx) * radiusMicrons;
+            var dGy = Math.Abs(current.Gy - historical.Gy) * radiusMicrons;
+            return dGx >= MovedThresholdMicrons || dGy >= MovedThresholdMicrons;
+        }
+
+        /// <summary>
+        /// Whether a motion rounds away to nothing. Uses the same half-step floor the guidance table's formatter
+        /// applies, so "no lines to show" and "negligible" can never disagree.
+        /// </summary>
+        private static bool IsNegligible(IReadOnlyList<double> stepsPerScrew) {
+            if (stepsPerScrew == null || stepsPerScrew.Count == 0) {
+                return true;
+            }
+            foreach (var steps in stepsPerScrew) {
+                if (Math.Abs(steps) >= 0.5) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         // Returns null (rather than an Unavailable) when this mechanism simply does not apply, so the caller falls

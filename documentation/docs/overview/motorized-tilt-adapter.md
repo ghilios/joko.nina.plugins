@@ -144,6 +144,10 @@ run #N** panel below the grid. That panel previews exactly what would be sent be
 - **With recorded motor positions** (a motorized adapter that was connected at the time) the return is exact and
   uses no calibration at all: it simply drives each motor back to the counter value recorded then. Click **Drive
   Adapter to Run #N Positions** and approve the usual plan dialog.
+- **If the counters are unchanged but the measured tilt is not**, the adapter was moved by something other than
+  these motors: screws turned by hand, a re-seat, the vendor app, or the camera simulator's own tilt controls.
+  Driving the motors back would do nothing, so the panel says so and computes the move from the two fitted
+  models instead. On a motorized adapter you can still drive that.
 - **Without them** (a manual-screw adapter, or a run measured with nothing connected) the panel computes the
   motion from the difference between that run's fitted model and the current one, and shows it as per-screw
   turns. This needs no record of what you actually did between the runs, but it is only as good as the two fits,

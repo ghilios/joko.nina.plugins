@@ -1,4 +1,4 @@
-using NINA.Joko.Plugins.HocusFocus.AutoFocus;
+﻿using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Inspection;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices;
@@ -6,6 +6,7 @@ using NSubstitute;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
 
@@ -304,6 +305,72 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus {
                 currentPositions: new[] { 1000, 1000, 1000, 1000 });
 
             Assert.That(Math.Abs(result.TwistSteps), Is.EqualTo(2.0).Within(1e-9));
+        }
+
+        // --- Counters unchanged, sensor moved -------------------------------------------------------------
+        //
+        // Found in testing: run the Inspector, move the adapter through the camera simulator's own tilt panel
+        // (which changes the optical model but never the motor counters), run it again. The position delta is
+        // exactly zero while the measured tilt plainly moved, and the panel used to answer "already at this run's
+        // recorded positions -- nothing to send". Hand-turned screws on a motorized rig, a re-seat, and the vendor
+        // app all produce the same shape.
+
+        [Test]
+        public void PositionsUnchangedButModelsDiffer_FallsBackToTheDifferentialAndSaysSo() {
+            var result = Build(
+                Run(Model(gx: 0.001), perMotorSteps: new[] { 1000, 1000, 1000, 1000 }),
+                Model(gx: 0.006),
+                currentPositions: new[] { 1000, 1000, 1000, 1000 });
+
+            Assert.Multiple(() => {
+                Assert.That(result.Mechanism, Is.EqualTo(TiltRevertMechanism.MeasurementDifferential));
+                Assert.That(result.MotorsUnchangedSinceRun, Is.True, "the caller needs to explain why the exact path was not used");
+                Assert.That(result.StepsPerScrew.Any(s => Math.Abs(s) >= 0.5), Is.True, "and it must be actionable");
+            });
+        }
+
+        // Both agreeing on "nothing changed" is the honest already-there answer, and must NOT be dressed up as a
+        // motors-unchanged anomaly.
+        [Test]
+        public void PositionsUnchangedAndModelsAgree_ReportsNothingToSendWithoutTheAnomalyFlag() {
+            var model = Model(gx: 0.001);
+
+            var result = Build(
+                Run(model, perMotorSteps: new[] { 1000, 1000, 1000, 1000 }),
+                model,
+                currentPositions: new[] { 1000, 1000, 1000, 1000 });
+
+            Assert.Multiple(() => {
+                Assert.That(result.Mechanism, Is.EqualTo(TiltRevertMechanism.DevicePositions));
+                Assert.That(result.MotorsUnchangedSinceRun, Is.False);
+                Assert.That(result.StepsPerScrew, Is.All.EqualTo(0.0).Within(1e-9));
+            });
+        }
+
+        // A real position difference still wins: it is exact and needs no calibration.
+        [Test]
+        public void PositionsChanged_StillPrefersThePositionsPath() {
+            var result = Build(
+                Run(Model(gx: 0.001), perMotorSteps: new[] { 1040, 1000, 1000, 1000 }),
+                Model(gx: 0.006),
+                currentPositions: new[] { 1000, 1000, 1000, 1000 });
+
+            Assert.Multiple(() => {
+                Assert.That(result.Mechanism, Is.EqualTo(TiltRevertMechanism.DevicePositions));
+                Assert.That(result.MotorsUnchangedSinceRun, Is.False);
+            });
+        }
+
+        // The fallback still reads the calibration, so it stays behind the same gate.
+        [Test]
+        public void PositionsUnchangedButModelsDiffer_UnreliableCalibration_IsUnavailable() {
+            var result = Build(
+                Run(Model(gx: 0.001), perMotorSteps: new[] { 1000, 1000, 1000, 1000 }),
+                Model(gx: 0.006),
+                currentPositions: new[] { 1000, 1000, 1000, 1000 },
+                reliable: false);
+
+            Assert.That(result.Mechanism, Is.EqualTo(TiltRevertMechanism.Unavailable));
         }
 
         [Test]

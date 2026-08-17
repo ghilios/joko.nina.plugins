@@ -11,6 +11,37 @@ Target files (all under `/home/ghilios/src/hocus-focus/Joko.NINA.Plugins/Joko.NI
 
 ---
 
+## 0a. Amendment: motor counters are not evidence that the sensor is still
+
+Found in testing after the first implementation. Run the Inspector, move the adapter through the camera
+simulator's own tilt panel, run it again: the panel answered *"the adapter is already at this run's recorded
+positions — nothing to send"*, even though the measured tilt had plainly moved.
+
+Cause: `SimulatedTiltAdapterVM` applies moves to the OPTICAL model (`SimNetAxialMicrons`,
+`TiltAmountMicrons`) and never touches `SimulatedTiltActuator.positions`, which is what the controller
+reports as motor counters. So the position delta was exactly zero.
+
+This is not a simulator artefact. Hand-turned screws on a motorized rig, a re-seat, a spacer change, or the
+vendor app all leave the counters where they were while the sensor moves. Treating a zero position delta as
+"nothing changed" is therefore wrong in general: **counters describe the motors, models describe the sensor.**
+
+Amendment to the precedence in §0:
+
+1. Device positions win only when the delta is **non-negligible** (≥ half a step on some screw).
+2. When the delta is negligible, ask a separate, **calibration-free** question: did the sensor move? Judged as
+   axial displacement at the screw radius (`|ΔGx|·R`, `|ΔGy|·R` ≥ 0.5 µm), which reads the radius but not the
+   angles, the direction sign or the pitch — so it still answers on a rig whose calibration is too unreliable
+   to compute the corresponding move.
+   - **Sensor also still** → the honest "already there".
+   - **Sensor moved** → fall through to the differential, flagged `MotorsUnchangedSinceRun`, and say why:
+     driving the motors back to a position they already occupy would do nothing.
+   - **Sensor moved but the differential is gated off** → `Unavailable` naming both facts. Reporting "already
+     at this run's positions" there would be a claim about the sensor that nothing supports.
+
+Consequence for the UI: the drive button is offered for **both** mechanisms on a motorized rig, not just the
+positions path. When the counters are unchanged but the sensor moved, the differential is the only actionable
+answer, and it is the same kind of model-derived plan Automatic Adjustment already sends.
+
 ## 0. The core formulation — evaluation of the "differential of two measured states" idea
 
 **Verdict: adopt it, but as the THIRD rung of a truth hierarchy, not the headline mechanism.**
