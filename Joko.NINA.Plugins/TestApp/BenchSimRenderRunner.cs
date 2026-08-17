@@ -76,6 +76,13 @@ namespace TestApp {
         /// <summary>An aggressive residual, for headroom.</summary>
         private const double StrongCornerAstigmatismMicrons = 40.0;
 
+        /// <summary>The shipped tilt-astigmatism fraction c_t -- how much of the tilt carries the corrector.</summary>
+        private const double NominalTiltAstigmatismFraction = 0.25;
+
+        /// <summary>A rig whose tilt is almost entirely optical. Costs the most kernels, since the split then
+        /// tracks the full defocus range rather than a fixed corner value.</summary>
+        private const double StrongTiltAstigmatismFraction = 0.6;
+
         /// <summary>A named pointing plus the optics to observe it with. Sensor is fixed to the QHY600/IMX455.</summary>
         private sealed record BenchField(
             string Name, double RaDegrees, double DecDegrees, double FocalLengthMm, double FocalRatio, string Note);
@@ -426,7 +433,11 @@ namespace TestApp {
         /// <summary>
         /// Applies the feature arm to a request.
         ///
-        /// <para><c>on-zero</c> models a <b>perfectly corrected optic</b> (residual 0), which is not the same
+        /// <para><c>on</c> and <c>on-strong</c> also carry a nonzero tilt-astigmatism fraction, so on the tilted
+        /// <c>A2</c> config the split tracks the whole defocus range instead of a fixed corner value. That is
+        /// the expensive case for the cache and is deliberately what the headline number prices.</para>
+        ///
+        /// <para><c>on-zero</c> models a <b>perfectly corrected optic</b> (residual 0, fraction 0), which is not the same
         /// thing as the feature being off: mis-spacing still splits the focal surfaces by exactly half the
         /// curvature it induces, so this arm is elliptical wherever the backfocus error is nonzero. On the clean
         /// <c>A0</c> config it IS a verification arm — with no residual and no spacing error the coefficient is
@@ -437,16 +448,16 @@ namespace TestApp {
         private static RenderRequest ApplyArm(RenderRequest request, string arm, double nominalResidual, double strongResidual) {
             switch (arm.ToLowerInvariant()) {
                 case "off":
-                    return request with { AstigmatismEnabled = false, CornerAstigmatismMicrons = 0.0 };
+                    return request with { AstigmatismEnabled = false, CornerAstigmatismMicrons = 0.0, TiltAstigmatismFraction = 0.0 };
 
                 case "on-zero":
-                    return request with { AstigmatismEnabled = true, CornerAstigmatismMicrons = 0.0 };
+                    return request with { AstigmatismEnabled = true, CornerAstigmatismMicrons = 0.0, TiltAstigmatismFraction = 0.0 };
 
                 case "on":
-                    return request with { AstigmatismEnabled = true, CornerAstigmatismMicrons = nominalResidual };
+                    return request with { AstigmatismEnabled = true, CornerAstigmatismMicrons = nominalResidual, TiltAstigmatismFraction = NominalTiltAstigmatismFraction };
 
                 case "on-strong":
-                    return request with { AstigmatismEnabled = true, CornerAstigmatismMicrons = strongResidual };
+                    return request with { AstigmatismEnabled = true, CornerAstigmatismMicrons = strongResidual, TiltAstigmatismFraction = StrongTiltAstigmatismFraction };
 
                 default:
                     throw new NotSupportedException($"unknown arm '{arm}' (expected off, on-zero, on, on-strong)");

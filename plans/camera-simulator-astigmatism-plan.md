@@ -55,16 +55,22 @@ algebraic inverse") is load-bearing and must stay literally true.
 
 ```csharp
 public double AstigmatismCoefficient { get; }         // a2 = K/2 + a_c/r_c^2; literally 0.0 when disabled
-public double PredictedAstigmatismEffectMicrons { get; }   // a2 * r_c^2, i.e. the corner half-split
+public double AstigmatismTiltGx { get; }              // c_t * Gx -- the field-linear (nodal) term
+public double AstigmatismTiltGy { get; }              // c_t * Gy
+public bool IsAstigmatic { get; }                     // any term live; branch on THIS, not on one term
+public double PredictedAstigmatismEffectMicrons { get; }        // a2 * r_c^2
+public double PredictedTiltAstigmatismEffectMicrons { get; }    // c_t * TiltAmountMicrons
 
-public double AstigmatismSplitMicrons(int px, int py);    // A(x,y) = a2 * r'^2
+public double AstigmatismSplitMicrons(int px, int py);    // A = a2*r'^2 + c_t*(G.r')
 public double FieldAngleRadians(int px, int py);          // theta about the optical axis; 0 at r'=0
 public void AstigmaticDefocusMicrons(int px, int py, int steps,
         out double tangentialMicrons, out double sagittalMicrons, out double thetaRadians);
 ```
 
-**No tilt term** — `Gx/Gy` appear in the mean surface and nowhere else; see the spec's *No tilt term,
-deliberately*. New ctor params (`astigmatismEnabled`, `cornerAstigmatismMicrons`) default to the **off**
+**Two terms, one even in field position and one odd.** The even term carries no tilt — a detector cannot
+change the beam in front of it. The odd term is the leading nodal-aberration-theory perturbation from a
+*corrector* tilted along with the camera, and it is what stops the eccentricity washing out at large tilt;
+see the spec's *The field-linear term*. New ctor params (`astigmatismEnabled`, `cornerAstigmatismMicrons`) default to the **off**
 state on the plain-number constructor, so every existing caller and test compiles and behaves identically;
 `FromRequest` passes the real values. Reject a non-finite residual (`!double.IsFinite`) — the value is
 signed, so a `< 0` guard would be wrong. Factor the inline pixel→centered-micron conversion into a shared
@@ -140,16 +146,17 @@ kernels, failing loudly on an elliptical one rather than silently returning a me
 |---|---|---|
 | `EnableFieldAstigmatism` | bool | `true` |
 | `CornerAstigmatismMicrons` | double | `15.0` (signed, ±1000) |
+| `TiltAstigmatismFraction` | double | `0.25` (signed, \|c_t\| < 1) |
 
 Plus `BackfocusErrorMicrons` default **0.0 → 50.0** in both `InitializeOptions` and `ResetDefaults`.
 
 - `Interfaces/ICameraSimulatorOptions.cs` + `CameraSimulator/CameraSimulatorOptions.cs` — the five edit
   sites per option.
-- `CameraSimulator/RenderRequest.cs` — two fields in the `// --- Aberrations ---` group (the
+- `CameraSimulator/RenderRequest.cs` — three fields in the `// --- Aberrations ---` group (the
   enabled+value pair mirrors the existing `CentralObstructionEnabled` + `CentralObstructionFraction`).
-- `CameraSimulator/HocusFocusSimulatorCamera.cs` `BuildRenderRequest` — copy both. An option not
+- `CameraSimulator/HocusFocusSimulatorCamera.cs` `BuildRenderRequest` — copy all three. An option not
   copied here is invisible to exposures.
-- `Resources/OptionsDataTemplates.xaml` — two controls in the Field Aberrations group (~3597-3690), two
+- `Resources/OptionsDataTemplates.xaml` — three controls in the Field Aberrations group (~3597-3690), three
   `CamSim_<Prop>_Tooltip` resources (~3261-3282), and a `<RowDefinition />` per new row
   (`Tests/Resources/OptionsDataTemplatesLayoutTests.cs` fails the build if two column-0 children share a
   row). `CornerAstigmatismMicrons` copies the Backfocus Error row's `ninactrl:UnitTextBox` +
@@ -272,7 +279,12 @@ WSL — build and run via Windows `dotnet.exe` through WSL interop (`wslpath -w`
   `Gx/Gy/K/Phi` are untouched.
 - `MeanOfTangentialAndSagittal == LocalDefocusMicrons` to 1e-12.
 - `A == 0.0` exactly when the toggle or aberrations are off, or on a perfect optic (`a_c = 0`, `C = 0`).
-- `A` is **independent of tilt** — the model's central physical claim, pinned directly.
+- The **even** part of `A` is independent of tilt — a detector cannot change the beam.
+- The **odd** part does not wash out: axis ratio holds at (1+c_t)/(1-c_t) from 100 µm to 10 mm of tilt,
+  where the even part alone decays below 1.05 by 2 mm.
+- A field point brought to its own focus is round but NOT a point — the circle of least confusion grows
+  with tilt, so a tilted corner can never be focused sharp.
+- `|c_t| >= 1` throws (a line focus everywhere at once, then a sign swap).
 - Pure tilt with zero backfocus still elongates: tangential on one edge, radial on the opposite.
 - The induced split is exactly `K/2` (Seidel 3:1), and the residual adds to it.
 - `A` scales as r'² about the *optical axis* with nonzero `X0/Y0`, and is exactly 0 there.
@@ -308,6 +320,10 @@ different things:
 3. `ReversingTheBackfocusError_FlipsRadialToTangential_OnlyInsideTheResidualWindow` — a_c = 120 µm, so the
    window reaches |C| < 240 µm. Asserts the flip at ±100 µm **and its absence** at ±300 µm; a model that
    flipped at every magnitude would pass the first half and still be wrong.
+4. `TiltThatCarriesTheCorrector_ElongatesRadiallyOnBothEdges_AndFarMoreThanTheResidualAlone` — 150 µm of
+   tilt, a_c = 0, c_t = 0.25. Measured e = 0.52 radial on **both** edges against 0.19/0.15 perpendicular
+   for the residual mechanism at the identical tilt. The two mechanisms are distinguishable by eye, not
+   only by parameter value, which is what makes this test meaningful rather than a tautology.
 
 Assert `S = median cos(2·Δθ)` < −0.5 tangential, > +0.5 radial; median eccentricity > 0.20 at the edges
 and < 0.15 at centre.

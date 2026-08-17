@@ -63,7 +63,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 double apertureMillimeters = ApertureMillimeters,
                 double limitingMagnitude = LimitingMagnitude,
                 bool astigmatismEnabled = false,
-                double cornerAstigmatismMicrons = 0.0) {
+                double cornerAstigmatismMicrons = 0.0,
+                double tiltAstigmatismFraction = 0.0) {
             return new RenderRequest {
                 FocuserConnected = true,
                 FocuserPosition = focuserPosition,
@@ -94,6 +95,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 BackfocusErrorMicrons = backfocusErrorMicrons,
                 AstigmatismEnabled = astigmatismEnabled,
                 CornerAstigmatismMicrons = cornerAstigmatismMicrons,
+                TiltAstigmatismFraction = tiltAstigmatismFraction,
                 OpticalAxisOffsetXMicrons = 0.0,
                 OpticalAxisOffsetYMicrons = 0.0,
                 ExposureSeconds = exposureSeconds

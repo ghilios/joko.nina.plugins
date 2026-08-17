@@ -473,6 +473,7 @@ public class CameraSimulatorOptionsTests {
             Assert.That(options.OpticalAxisOffsetYMicrons, Is.EqualTo(0.0));
             Assert.That(options.EnableFieldAstigmatism, Is.True);
             Assert.That(options.CornerAstigmatismMicrons, Is.EqualTo(CameraSimulatorOptions.DefaultCornerAstigmatismMicrons));
+            Assert.That(options.TiltAstigmatismFraction, Is.EqualTo(CameraSimulatorOptions.DefaultTiltAstigmatismFraction));
         });
     }
 

@@ -156,6 +156,42 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         }
 
         /// <summary>
+        /// (c″) <b>Tilt that carries the corrector</b> — the second astigmatism mechanism, and the one that
+        /// makes a badly tilted rig look badly tilted. The residual term (c′) is fixed while tilt drives Δ
+        /// without bound, so its axis ratio decays toward 1: push the tilt far enough and the corners render
+        /// <i>round</i>, and any corner can still be brought to a perfect point focus. A real tilt is rarely
+        /// the detector alone — a sagging focuser or a non-square thread tilts the corrector too, which
+        /// displaces the astigmatic node and adds a split proportional to the tilt itself.
+        ///
+        /// <para>Two things distinguish it from (c′), and both are asserted: the elongation is <b>radial on
+        /// both edges</b> rather than perpendicular (Δ and the split flip together, so Δ·A &lt; 0 everywhere),
+        /// and it is <b>much stronger at the same tilt</b>. Predicted for 150 µm of tilt with c_t = 0.25 and a
+        /// perfect corrector: left edge Δ = +120.1, A = −30.0 ⇒ (2.85, 1.71) px, right edge Δ = −119.3,
+        /// A = +29.8 ⇒ (2.83, 1.70) px — axis ratio 1.67 = (1+c_t)/(1−c_t) at both, and at any tilt.</para>
+        /// </summary>
+        [Test]
+        public async Task TiltThatCarriesTheCorrector_ElongatesRadiallyOnBothEdges_AndFarMoreThanTheResidualAlone() {
+            var carried = await MeasureEdgeElongation(backfocusErrorMicrons: 0.0, tiltAmountMicrons: 150.0,
+                cornerAstigmatismMicrons: 0.0, tiltAstigmatismFraction: 0.25);
+            var residualOnly = await MeasureEdgeElongation(backfocusErrorMicrons: 0.0, tiltAmountMicrons: 150.0,
+                cornerAstigmatismMicrons: 15.0, tiltAstigmatismFraction: 0.0);
+
+            Assert.Multiple(() => {
+                Assert.That(carried.LeftScore, Is.GreaterThan(0.5), "radial on the left edge");
+                Assert.That(carried.RightScore, Is.GreaterThan(0.5), "and radial on the right edge too");
+                Assert.That(carried.LeftEccentricity, Is.GreaterThan(0.35));
+                Assert.That(carried.RightEccentricity, Is.GreaterThan(0.35));
+                Assert.That(carried.CentreEccentricity, Is.LessThan(0.15), "the node is still on axis, so the centre is round");
+
+                // The contrast is the point: same tilt, same frame, and the residual alone has already begun
+                // to wash out at a tilt this size.
+                Assert.That(carried.LeftEccentricity, Is.GreaterThan(residualOnly.LeftEccentricity + 0.10));
+                Assert.That(residualOnly.LeftScore, Is.LessThan(0.0),
+                    "the residual mechanism is perpendicular across the field, not radial on both sides");
+            });
+        }
+
+        /// <summary>
         /// (d) The spacing-direction diagnostic, end to end — and its <b>limit</b>. Pure backfocus with no tilt,
         /// so Δ = −K·r′² is set by the curvature alone and reversing the spacer reverses it. The split does
         /// <i>not</i> reverse with it: A = (C/2 + a_c)·r′²/r_c² carries the corrector's residual, which the spacer
@@ -204,7 +240,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             double LeftScore, double RightScore, double LeftEccentricity, double RightEccentricity, double CentreEccentricity);
 
         private static async Task<EdgeElongation> MeasureEdgeElongation(
-                double backfocusErrorMicrons, double tiltAmountMicrons, double cornerAstigmatismMicrons) {
+                double backfocusErrorMicrons, double tiltAmountMicrons, double cornerAstigmatismMicrons,
+                double tiltAstigmatismFraction = 0.0) {
             var sensor = SyntheticCameraTestScene.SensorDef;
             int width = sensor.Width, height = sensor.Height;
             var projection = SyntheticCameraTestScene.Projection();
@@ -222,7 +259,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 SyntheticCameraTestScene.OptimalFocuserPosition,
                 aberrationsEnabled: true, tiltAngleDegrees: 0.0, tiltAmountMicrons: tiltAmountMicrons,
                 backfocusErrorMicrons: backfocusErrorMicrons,
-                astigmatismEnabled: true, cornerAstigmatismMicrons: cornerAstigmatismMicrons);
+                astigmatismEnabled: true, cornerAstigmatismMicrons: cornerAstigmatismMicrons,
+                tiltAstigmatismFraction: tiltAstigmatismFraction);
 
             var pixels = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(request, CancellationToken.None);
             using var mat = CvImageUtility.ToOpenCVMat(pixels, sensor.BitDepth, width, height);
@@ -271,7 +309,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 Median("left", scores), Median("right", scores),
                 Median("left", eccentricities), Median("right", eccentricities), Median("centre", eccentricities));
             TestContext.WriteLine(
-                $"backfocus {backfocusErrorMicrons:F0} µm, tilt {tiltAmountMicrons:F0} µm, residual {cornerAstigmatismMicrons:F0} µm: leftScore={measured.LeftScore:F3} rightScore={measured.RightScore:F3} "
+                $"backfocus {backfocusErrorMicrons:F0} µm, tilt {tiltAmountMicrons:F0} µm, residual {cornerAstigmatismMicrons:F0} µm, c_t {tiltAstigmatismFraction:F2}: leftScore={measured.LeftScore:F3} rightScore={measured.RightScore:F3} "
                 + $"e(left)={measured.LeftEccentricity:F3} e(right)={measured.RightEccentricity:F3} e(centre)={measured.CentreEccentricity:F3}");
             return measured;
         }

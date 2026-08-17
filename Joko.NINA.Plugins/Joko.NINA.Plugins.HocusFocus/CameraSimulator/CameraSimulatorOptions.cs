@@ -160,6 +160,22 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         /// </summary>
         public const double DefaultCornerAstigmatismMicrons = 15.0;
 
+        /// <summary>
+        /// c_t — the fraction of the tilt that also appears as astigmatic split rather than as pure defocus.
+        ///
+        /// <para>0 would model a crooked <i>detector</i> in a square adapter, where tilt only moves focus
+        /// around and any corner can still be brought to a perfect point. Most real tilt is not that: a
+        /// sagging focuser or a non-square thread tilts the <b>corrector</b> along with the camera, and a
+        /// tilted corrector displaces the astigmatic node off-axis, adding a split that grows with the tilt.
+        /// The visible consequence is that the axis ratio settles at (1+c_t)/(1−c_t) whatever the tilt
+        /// magnitude, instead of washing back to round, and a tilted corner never focuses sharp.</para>
+        ///
+        /// <para>0.25 is chosen to give a 1.67:1 corner at any tilt — clearly eccentric without being a line
+        /// focus. The exact coupling is a property of the individual corrector and its mount, so this is a
+        /// calibration knob rather than a derived constant; that is stated plainly rather than dressed up.</para>
+        /// </summary>
+        public const double DefaultTiltAstigmatismFraction = 0.25;
+
         /// <summary>The stored value meaning "unset — infer it". Matches the plugin's <c>DoubleNegativeToEmptyStringConverter</c> convention.</summary>
         private const double Unset = -1.0;
 
@@ -280,6 +296,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             opticalAxisOffsetYMicrons = optionsAccessor.GetValueDouble(nameof(OpticalAxisOffsetYMicrons), 0.0);
             enableFieldAstigmatism = optionsAccessor.GetValueBoolean(nameof(EnableFieldAstigmatism), true);
             cornerAstigmatismMicrons = optionsAccessor.GetValueDouble(nameof(CornerAstigmatismMicrons), DefaultCornerAstigmatismMicrons);
+            tiltAstigmatismFraction = optionsAccessor.GetValueDouble(nameof(TiltAstigmatismFraction), DefaultTiltAstigmatismFraction);
             // Heal a stored screw count outside 3|4 (a hand-edited or legacy profile). SimulatedTiltAdapter rejects
             // anything else, so an unhealed value would surface as a panel-construction crash rather than a 3.
             simScrewCount = optionsAccessor.GetValueInt32(nameof(SimScrewCount), 3) == 4 ? 4 : 3;
@@ -328,6 +345,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
             OpticalAxisOffsetYMicrons = 0.0;
             EnableFieldAstigmatism = true;
             CornerAstigmatismMicrons = DefaultCornerAstigmatismMicrons;
+            TiltAstigmatismFraction = DefaultTiltAstigmatismFraction;
             SimScrewCount = 3;
             SimScrewNumberingClockwise = true;
             SimScrew1AngleDegrees = 0.0;
@@ -724,6 +742,19 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
                 if (cornerAstigmatismMicrons != value) {
                     cornerAstigmatismMicrons = value;
                     optionsAccessor.SetValueDouble(nameof(CornerAstigmatismMicrons), cornerAstigmatismMicrons);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private double tiltAstigmatismFraction;
+
+        public double TiltAstigmatismFraction {
+            get => tiltAstigmatismFraction;
+            set {
+                if (tiltAstigmatismFraction != value) {
+                    tiltAstigmatismFraction = value;
+                    optionsAccessor.SetValueDouble(nameof(TiltAstigmatismFraction), tiltAstigmatismFraction);
                     RaisePropertyChanged();
                 }
             }

@@ -153,9 +153,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         double OpticalAxisOffsetYMicrons { get; set; }
 
         // Field astigmatism — splits the best-focus surface into tangential and sagittal surfaces, so stars
-        // render elliptical rather than merely soft. Tilt does not create astigmatism; it reveals the
-        // corrector's residual by defocusing the field, which is what makes opposite edges elongate in
-        // perpendicular directions.
+        // render elliptical rather than merely soft. Two mechanisms: tilt REVEALS the corrector's residual by
+        // defocusing the field, which is what makes opposite edges elongate perpendicular to each other; and
+        // tilt that carries the corrector with it CREATES a split of its own, which is what stops a badly
+        // tilted corner from ever focusing sharp.
         bool EnableFieldAstigmatism { get; set; }
 
         /// <summary>
@@ -164,6 +165,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// is what selects radial versus tangential elongation for a given spacing direction.
         /// </summary>
         double CornerAstigmatismMicrons { get; set; }
+
+        /// <summary>
+        /// c_t — how much of the tilt also appears as astigmatism rather than as pure defocus (signed,
+        /// |c_t| &lt; 1). 0 is a crooked detector in a square adapter; nonzero is a tilt that carries the
+        /// corrector with it, which is what keeps a badly tilted corner from ever focusing sharp.
+        /// </summary>
+        double TiltAstigmatismFraction { get; set; }
 
         // Simulated tilt adapter. Deliberately separate from the user's real ITiltAdapterOptions: the inspector
         // guides from the REAL calibration, so the two must be comparable but must never implicitly overwrite

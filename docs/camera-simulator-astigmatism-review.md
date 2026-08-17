@@ -9,6 +9,30 @@ Subject of review: [`camera-simulator-astigmatism-design.md`](camera-simulator-a
 `CameraSimulator/Rendering/AberrationSurface.cs` as of `ec2d761`. Reference material under review:
 [`backfocus-eccentricity-modeling.md`](backfocus-eccentricity-modeling.md).
 
+## Addendum — round three, and what the review got wrong
+
+The review's central finding is upheld: a tilted **detector** cannot create astigmatism, and the
+local-spacing model it rejected is the wrong functional form. What the review missed — and what the
+model built from it therefore also missed — is that this makes tilt-induced eccentricity **decay** as the
+tilt grows. With the split fixed at `a₂r'²` while tilt drives Δ without bound, the axis ratio
+`|Δ−A|/|Δ+A| → 1`, so an extremely tilted corner renders round, and every field point can still be
+brought to a *perfect point focus* by moving the focuser to it. A user reporting exactly that observation
+is what reopened the question.
+
+The gap is that "tilt" on a real rig is usually not the detector alone. A crooked camera in a square
+adapter tilts only the sensor; a sagging focuser or a non-square thread tilts the **corrector** along with
+the camera, and a tilted optical element does change the beam. Nodal aberration theory says it displaces
+the astigmatic node off-axis, adding a term linear in field position and parallel to the tilt. The review
+correctly identified nodal astigmatism as the mechanism for optical-element tilt but filed it as an
+out-of-scope refinement rather than as the missing half of the answer.
+
+The shipped model now carries both, and they are separable because one is even in field position and the
+other odd — no amount of parameter fitting can substitute one for the other. Their signatures differ
+visibly too: the residual mechanism elongates opposite edges *perpendicular* to each other and fades at
+large tilt; the nodal mechanism elongates *every* edge radially and holds its axis ratio at
+`(1+c_t)/(1−c_t)` at any tilt. Measured through the detector at 150 µm of tilt: e = 0.52 radial on both
+edges for the nodal term, against 0.19/0.15 perpendicular for the residual term on the same frame.
+
 ## The three bench failures that triggered this
 
 | # | symptom | cause found |

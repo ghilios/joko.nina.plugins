@@ -209,33 +209,47 @@ The two surfaces straddle the surface above, separated by a half-split \(A\):
 
 \[
 z_T = z + A, \qquad z_S = z - A, \qquad
-A(x,y) = \left( \tfrac{K}{2} + \frac{a_c}{r_c^2} \right) r'^2 ,
+A(x,y) = \left( \tfrac{K}{2} + \frac{a_c}{r_c^2} \right) r'^2 + c_t \, (\vec G \cdot \vec r\,') ,
 \]
 
 where \(r'\) is the distance from the optical axis, \(K\) is the field curvature the backfocus error
-produces, \(a_c\) is the corrector's own residual split at the corner radius \(r_c\), and the
-\(K/2\) is not a tunable fraction — for a Seidel corrector the tangential surface departs from the
-Petzval surface exactly three times as far as the sagittal one, which puts the half-split at exactly
-half the curvature the same mis-spacing induces. A star's blur is then an ellipse: its radial extent
-comes from \(\lvert \Delta - A \rvert\) and its tangential extent from \(\lvert \Delta + A \rvert\),
-where \(\Delta\) is the local defocus from the surface above.
+produces, \(a_c\) is the corrector's own residual split at the corner radius \(r_c\), \(\vec G\) is the
+tilt gradient, and \(c_t\) is how much of the tilt carries the corrector with it. The \(K/2\) is not a
+tunable fraction — for a Seidel corrector the tangential surface departs from the Petzval surface exactly
+three times as far as the sagittal one, which puts the half-split at exactly half the curvature the same
+mis-spacing induces. A star's blur is then an ellipse: its radial extent comes from
+\(\lvert \Delta - A \rvert\) and its tangential extent from \(\lvert \Delta + A \rvert\), where
+\(\Delta\) is the local defocus from the surface above.
 
 That crossing is the whole behaviour, and it reduces to one rule:
 
 > Stars stretch **radially** where the local defocus and the astigmatism disagree in sign,
 > **tangentially** where they agree, and stay round wherever either is zero.
 
-**Tilt does not create astigmatism — it reveals it.** A tilted sensor is a passive sampling plane: it
-cannot change what the beam ahead of it is doing, only where along each beam it takes its slice. So
-\(A\) does not depend on tilt at all. What tilt does is drive \(\Delta\) positive on one side of the
-sensor and negative on the other, against a split that is the same on both, so one edge lands on the
-tangential side of the pair and the opposite edge on the sagittal side. That is why a tilted rig
-shows stars pointing at the corners along one edge and lying across the radius along the opposite
-one — the pattern the [Aberration Inspector](tilt-aberration-inspector.md)'s eccentricity vector
-field is built to reveal — and it is why a perfectly corrected optic (\(a_c = 0\)) at design spacing
-shows no elongation no matter how far it is tilted. Where the surface crosses focus the two extents
-are equal and the star is round again, but not a point: that is the circle of least confusion, and it
-is why a corner on a badly spaced rig never comes to a sharp focus at any focuser position.
+**A tilted sensor reveals astigmatism; a tilted corrector creates it.** These are two different faults
+with two different signatures, and both are modelled.
+
+A *sensor* is a passive sampling plane: it cannot change what the beam ahead of it is doing, only where
+along each beam it takes its slice. So the first term above does not depend on tilt at all. What sensor
+tilt does is drive \(\Delta\) positive on one side of the frame and negative on the other, against a
+split that is the same on both, so one edge lands on the tangential side of the pair and the opposite
+edge on the sagittal side. That is why a mildly tilted rig shows stars pointing at the corners along one
+edge and lying across the radius along the opposite one — the pattern the
+[Aberration Inspector](tilt-aberration-inspector.md)'s eccentricity vector field is built to reveal.
+
+But a *corrector* tilted along with the camera — a sagging focuser, a thread that is not square — does
+change the beam, and that is the second term. A tilted element pushes the astigmatic node off the optical
+axis, which adds a split proportional to the tilt itself. Two things follow that the first term cannot
+produce. The elongation is **radial on every edge** rather than perpendicular across the frame, because
+\(\Delta\) and the split now flip together. And it **does not wash out**: the axis ratio settles at
+\((1+c_t)/(1-c_t)\) whatever the tilt magnitude, where the first term alone decays back to round once the
+tilt is large. Set **Tilt Astigmatism** to 0 to model a crooked camera in a square adapter, where the
+first term is the whole story.
+
+Where the surface crosses focus the two extents are equal and the star is round again — but not a point:
+that is the circle of least confusion, and its radius grows with the tilt. This is why a tilted or badly
+spaced corner never comes to a sharp focus at any focuser position, and it is the clearest sign that the
+fault is in the optics rather than merely in where the sensor sits.
 
 **Reversing the backfocus error rotates every star by a quarter turn — but only near design
 spacing.** Swapping a spacer flips \(\Delta\), and it flips the \(K/2\) part of the split with it,
@@ -261,6 +275,11 @@ Two options control it, inside the Field Aberrations group:
   flattener at f/5–f/7; the default is 15 µm. Its **sign** says which way round the corrector
   responds — which side of design spacing gives radially elongated stars — and 0 models a flawless
   corrector, which disables the effect on a perfectly spaced rig without touching the toggle.
+- **Tilt Astigmatism** is how much of the tilt carries the corrector with it rather than tilting the
+  sensor alone, as a fraction. The default is 0.25, which gives a 1.67:1 corner at any tilt. Raise it
+  to model a rig whose tilt is mostly a sagging focuser; set it to 0 for a camera that is simply
+  crooked in a square adapter. Values at or beyond ±1 are rejected — at 1 the star collapses to a line
+  everywhere at once.
 
 Two things this deliberately does not change. The **inspector still recovers exactly what you
 inject**: the two surfaces' mean is the surface it fits, and reversing the defocus swaps the two

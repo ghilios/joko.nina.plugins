@@ -24,15 +24,17 @@ explicit non-goal — see [Non-goals](#non-goals).
 
 ## Key decisions
 
-- **Tilt does not create astigmatism; it reveals it.** A sensor is a passive sampling plane — it cannot
-  change what the beam in front of it is doing, only where along that beam it takes its slice. So the
-  split $A$ carries no tilt term at all. What makes a *tilted* rig show eccentric stars is that tilt
-  drives the local defocus $\Delta$ positive on one edge and negative on the other against a split that
-  is the same on both, so the two edges land on opposite sides of the astigmatic pair. This corrects an
-  earlier version of this design (see [What changed, and why](#what-changed-and-why)).
-- **The split has exactly two terms, and neither is a free knob.** The corrector's *residual* astigmatism
-  at design spacing, $a_c$ — a real, measurable property of every corrector — plus the *induced* split
-  from mis-spacing, which Seidel's 3:1 rule pins at exactly half the induced field curvature.
+- **A tilted *detector* reveals astigmatism; a tilted *corrector* creates it.** These are different
+  mechanisms with different signatures, and the model carries both. A detector is a passive sampling
+  plane — it cannot change the beam in front of it, only where along that beam it takes its slice — so it
+  contributes no split of its own and instead *exposes* the corrector's existing one by driving $\Delta$
+  positive on one edge and negative on the other. A corrector tilted along with the camera, which is what
+  a sagging focuser or a non-square thread actually produces, displaces the astigmatic node off-axis and
+  adds a split proportional to the tilt.
+- **The split has three terms and one knob apiece, none of them a fudge.** The corrector's *residual*
+  astigmatism at design spacing $a_c$; the *induced* split from mis-spacing, which Seidel's 3:1 rule pins
+  at exactly half the induced field curvature; and the *field-linear* term from a tilted corrector,
+  scaled by how much of the tilt is optical rather than detector-only.
 - **The two astigmatic surfaces straddle today's surface.** Their mean is exactly the existing
   tilted-paraboloid best-focus surface, which is what preserves the inspector's inject ⇄ recover identity
   (proved below, not merely asserted).
@@ -53,7 +55,7 @@ $$z_{\text{mean}}(x,y) = G_x x' + G_y y' + K r'^2 + Z_0$$
 unchanged — this is `AberrationSurface.ZBestFocusMicrons`, the algebraic inverse of
 `Inspection.SensorParaboloidModel`. The astigmatic half-split is
 
-$$A(x,y) = a_2 \, r'^2 , \qquad a_2 = \underbrace{\tfrac{1}{2} K}_{\text{induced by mis-spacing}} + \underbrace{\frac{a_c}{r_c^2}}_{\text{corrector residual}} \qquad [\mu m]$$
+$$A(x,y) = \underbrace{a_2 \, r'^2}_{\text{even in field position}} + \underbrace{c_t \, (\vec G \cdot \vec r\,')}_{\text{odd}} , \qquad a_2 = \underbrace{\tfrac{1}{2} K}_{\text{induced by mis-spacing}} + \underbrace{\frac{a_c}{r_c^2}}_{\text{corrector residual}} \qquad [\mu m]$$
 
 and the two focal surfaces are
 
@@ -63,11 +65,52 @@ where $a_c$ is the configured corner residual and $r_c^2 = \text{halfW}^2 + \tex
 sensor's corner radius squared — the same radius `PredictedCurvatureEffectMicrons` reports $K$ at, so
 both knobs are quoted at the same place on the sensor.
 
-**No tilt term, deliberately.** $G_x, G_y$ appear in $z_{\text{mean}}$ and nowhere else. Sensor tilt is a
-rigid-body motion of the detector; it changes which plane of the converging beam is sampled, not the
-beam's aberration content. Schechter & Levinson (2011, PASP; arXiv:1009.0708) §6.3 state the same result
-from the third-order side: *"a tilted detector produces a field pattern identical to misalignment
-curvature of field"* — pure defocus, no astigmatism.
+The two pieces are separable precisely because one is **even** in field position and the other **odd**, so
+neither can be mistaken for the other by any amount of parameter fitting.
+
+**The even term carries no tilt, deliberately.** Sensor tilt is a rigid-body motion of the detector; it
+changes which plane of the converging beam is sampled, not the beam's aberration content. Changing a
+wavefront's reference sphere changes its defocus coefficient and nothing else — astigmatism is invariant
+under it. Schechter & Levinson (2011, PASP; arXiv:1009.0708) §6.3 state the same result from the
+third-order side: *"a tilted detector produces a field pattern identical to misalignment curvature of
+field"* — pure defocus, no astigmatism.
+
+### The field-linear term: a tilted corrector, not a tilted sensor
+
+The even term alone says something false about a badly tilted rig. $A$ is fixed while tilt drives $\Delta$
+without bound, so the axis ratio
+
+$$\frac{\lvert \Delta - A \rvert}{\lvert \Delta + A \rvert} \longrightarrow 1$$
+
+and past a few hundred µm of tilt the corners render **round** again. Worse, every field point can still
+be brought to a *perfect point focus* by moving the focuser to it — a tilted rig would just be one that
+needs a different focus per corner. Neither is what real rigs do.
+
+The reason is that real tilt is rarely the detector alone. A crooked camera inside a square adapter tilts
+only the sensor; a sagging focuser or a non-square thread tilts the **corrector** along with the camera.
+Nodal aberration theory (Thompson 2005) says a tilted or decentred element displaces the astigmatic node
+off the optical axis: the astigmatic field becomes $a_2 \lvert \vec r\,' - \vec s \rvert^2$ instead of
+$a_2 r'^2$, and its leading new term is **linear in field position and parallel to the tilt**. Keeping
+that leading term and dropping the on-axis constant (so the axial star stays round) gives exactly
+$c_t (\vec G \cdot \vec r\,')$.
+
+Because it scales with the same tilt that drives $\Delta$, it does not wash out. With $a_2 = 0$,
+$\Delta = -(\vec G \cdot \vec r\,')$ and $A = c_t (\vec G \cdot \vec r\,') = -c_t \Delta$, so
+
+$$\frac{\lvert \Delta - A \rvert}{\lvert \Delta + A \rvert} = \frac{1 + c_t}{1 - c_t}$$
+
+**independently of tilt magnitude and of field position**. And $\Delta \cdot A = -c_t \Delta^2 < 0$
+everywhere, so this mechanism elongates **radially on every edge** — visibly different from the residual
+mechanism's perpendicular pair, which is what makes the two separable by eye as well as algebraically.
+
+Its other observable is the one the user actually reported: at a field point brought exactly to its own
+focus, $\Delta = 0$ and both semi-axes equal $\lvert A \rvert / (2Np)$ — a round *disc*, the circle of
+least confusion, whose radius **grows with the tilt**. A tilted corner can no longer be focused sharp,
+which is the honest reading of "the tilt puts that part of the sensor at a spacing the corrector was not
+designed for."
+
+$\lvert c_t \rvert$ is required to be $< 1$: at 1 one semi-axis collapses to zero across the whole field
+at once, and beyond it the two foci swap sides — a differently-signed corrector, not a mis-set one.
 
 ### The induced term: why exactly $K/2$
 
@@ -194,6 +237,7 @@ recorded because it looks like a bug from the outside — cranking tilt to an ex
 |---|---|---|---|
 | `EnableFieldAstigmatism` | bool | `true` | Master toggle for the model. |
 | `CornerAstigmatismMicrons` | double | `15.0` | $a_c$, **signed**, range [−1000, 1000] µm. The corrector's residual T–S half-split at the sensor corner. |
+| `TiltAstigmatismFraction` | double | `0.25` | $c_t$, **signed**, $\lvert c_t \rvert < 1$. How much of the tilt carries the corrector with it. |
 
 Plus one changed default: **`BackfocusErrorMicrons` 0 → 50 µm**, so a user who enables aberrations sees
 the effect without hunting for a second knob. On a full frame 50 µm is ≈ 0.75× the critical focus zone at
@@ -202,9 +246,18 @@ f/7.
 Both live inside the Field Aberrations group, which is already gated on `EnableAberrations` — with
 aberrations off the surface is flat and astigmatism is meaningless.
 
-**Sign convention.** $a_c$ is signed, and its sign is what picks which side of design spacing gives
-radial elongation. There is no separate direction knob: the orientation at a field point is fully
-determined by $\operatorname{sign}(\Delta \cdot A)$, and both factors are already signed.
+**Sign convention.** $a_c$ and $c_t$ are both signed, and their signs pick which spacing direction and
+which tilt direction elongate radially. There is no separate direction knob: the orientation at a field
+point is fully determined by $\operatorname{sign}(\Delta \cdot A)$, and every factor is already signed.
+
+**Why $c_t$ is a knob and not a derived constant.** The coupling between a corrector's tilt and its nodal
+shift depends on the design's $W_{222}$ and on its tilt sensitivity, neither of which the simulator knows;
+and how much of a given rig's measured tilt is optical rather than detector-only depends on the mount, not
+on the optics. An attempt to derive it from $a_c$, focal length and sensor size — via
+$\sigma/H_c \approx \beta/\theta_{\max}$ — lands anywhere from 0.06 to 1.1 across ordinary rigs, i.e. from
+invisible to a line focus, which is a good sign that the order-unity factor in it is doing all the work.
+So it is exposed and its default is chosen against a stated target instead: **0.25 gives a 1.67:1 corner
+at any tilt** — clearly eccentric, not a line. Setting 0 recovers the detector-only model exactly.
 
 **The spacing flip, honestly.** Swapping a spacer flips Δ and flips the induced half of $A$, but cannot
 touch $a_c$. So the familiar "reverse the spacer and the corners rotate 90°" holds only while
@@ -222,7 +275,15 @@ corrector's residual $a_c$ is a property of the glass that no screw move can alt
 
 ### What changed, and why
 
-The first version of this design made the split proportional to the **local** axial spacing error,
+**Round two.** The residual-plus-Seidel model below is correct as far as it goes, and it produces the
+classic perpendicular-edge signature — but it makes tilt-induced eccentricity *decay* as tilt grows, so an
+extremely tilted corner rendered round and could still be focused to a point. That is right for a tilted
+detector and wrong for a tilted train, and the field-linear term above is the fix. Note what did **not**
+change: the even term still carries no tilt, and the claim it encodes — a detector cannot alter the beam —
+is still the reason the two terms are written separately rather than merged into one tilt-dependent
+coefficient.
+
+**Round one.** The first version of this design made the split proportional to the **local** axial spacing error,
 $A = \rho\, c_m\, e(x,y)\, r'^2$ with $e$ carrying the tilt plane, on the reasoning that a tilted sensor
 is genuinely mis-spaced across most of its area. It does not work, for a reason that is easy to state
 once seen: under that form $A$ flips sign in lockstep with Δ, so $\Delta \cdot A < 0$ *everywhere* and
@@ -230,7 +291,9 @@ every edge elongates radially by the same modest amount — measured axis ratio 
 magnitude, no perpendicular pair anywhere. Rendered frames confirmed it: pure tilt produced defocus with
 no visible elongation, and ±2000 µm of backfocus error produced near-identical frames.
 
-The physical error underneath was treating the sensor's position as an input to the beam's aberrations.
+Note that it is the wrong *form*, not merely the wrong size — no coefficient rescues it, because the
+perpendicular pair never appears at any setting. The physical error underneath was treating the sensor's
+position as an input to the beam's aberrations.
 It is not. Mis-spacing induces astigmatism because it changes the *corrector's* conjugates, and the
 sensor plane's own tilt has no such effect — it only chooses the sampling plane. Three independent
 reviews converged on this; the details, including the Seidel derivation of the $K/2$ factor and the
@@ -376,13 +439,13 @@ Measured results, methodology, and the pass/fail gates live in
 - **Tier 2 pupil-plane Fourier optics.** `PsfKernelMethod.Fft` remains the reserved, unimplemented seam
   and must keep throwing on the astigmatic path too. It would add diffraction rings and astigmatic cross
   structure at roughly 10–100× the compute per star.
-- **Nodal / binodal astigmatism.** Nodal aberration theory adds a field-*linear* astigmatism term when an
-  *optical element* is tilted or decentred, splitting the astigmatic node into two and breaking the
-  rotational symmetry of $A$. That is a real effect and it is what a misaligned corrector (as opposed to a
-  misplaced sensor) produces; modelling it means replacing the scalar $a_2 r'^2$ with a vector expression
-  in the field vector. It is out of scope here — the option surface describes a *sensor* fault, and a
-  rotationally symmetric $A$ is the right model for that. The seam is
-  `AberrationSurface.AstigmatismCoefficient`.
+- **The full binodal structure.** The model keeps nodal aberration theory's *leading* perturbation term —
+  field-linear astigmatism from a tilted corrector — but not the rest of it: the on-axis constant
+  $a_2 s^2$ (so the axial star stays exactly round), the second node, and the rotation of the astigmatic
+  *axis* about the displaced node. The last is the most visible omission: orientation here stays
+  radial/tangential about the optical axis, whereas NAT ties it to $\vec H - \vec\sigma$, so a real
+  displaced-node eccentricity map swirls around the node rather than around the sensor centre. The seams
+  are `AberrationSurface.AstigmatismTiltGx/Gy` and `FieldAngleRadians`.
 - **Coma.** Still not modeled. The surface remains a pair of *defocus* surfaces; coma is a third-order
   term with a different field dependence and an asymmetric (not elliptical) PSF.
 - **Fitting astigmatism on the recovery side.** The inspector's `SensorParaboloidModel` stays

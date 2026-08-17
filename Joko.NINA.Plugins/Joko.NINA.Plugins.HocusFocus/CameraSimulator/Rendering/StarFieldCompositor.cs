@@ -374,7 +374,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
 
             // Everything that must be settled before the star loop, from a handful of field extrema.
             var field = SurveyField(request, sensor, aberration);
-            var astigmatic = aberration.AstigmatismCoefficient != 0.0;
+            var astigmatic = aberration.IsAstigmatic;
             var orientationBins = astigmatic ? OrientationBinCount(field, defocusModel) : 1;
 
             // PSF margin: the worst-case kernel radius over the field for this focuser position. Stars whose
@@ -587,13 +587,22 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             var samples = new List<(int px, int py)>(6) {
                 (0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (w / 2, h / 2)
             };
-            if (aberration.K != 0.0) {
-                var stationaryX = aberration.X0 - aberration.Gx / (2.0 * aberration.K);
-                var stationaryY = aberration.Y0 - aberration.Gy / (2.0 * aberration.K);
-                var px = (int)Math.Round(stationaryX / sensor.PixelSizeMicrons + w / 2.0);
-                var py = (int)Math.Round(stationaryY / sensor.PixelSizeMicrons + h / 2.0);
-                samples.Add((Math.Clamp(px, 0, w - 1), Math.Clamp(py, 0, h - 1)));
+            // Both Δ and A are plane-plus-paraboloid in field position, so each one's extremum over the
+            // sensor rectangle is at a corner OR at its own interior stationary point -- which is NOT the
+            // sensor centre unless the gradients and the axis offset all vanish. Sample both stationary
+            // points: missing one under-sizes the projection margin and silently drops wing-spill stars.
+            void AddStationary(double gx, double gy, double curvature) {
+                if (curvature == 0.0) {
+                    return;
+                }
+                var sx = aberration.X0 - gx / (2.0 * curvature);
+                var sy = aberration.Y0 - gy / (2.0 * curvature);
+                var spx = (int)Math.Round(sx / sensor.PixelSizeMicrons + w / 2.0);
+                var spy = (int)Math.Round(sy / sensor.PixelSizeMicrons + h / 2.0);
+                samples.Add((Math.Clamp(spx, 0, w - 1), Math.Clamp(spy, 0, h - 1)));
             }
+            AddStationary(aberration.Gx, aberration.Gy, aberration.K);
+            AddStationary(aberration.AstigmatismTiltGx, aberration.AstigmatismTiltGy, aberration.AstigmatismCoefficient);
 
             double maxAbsDefocus = 0.0, maxAbsSplit = 0.0, maxCombined = 0.0;
             double minDefocus = double.MaxValue, maxDefocus = double.MinValue;

@@ -106,6 +106,13 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         /// </summary>
         public double CornerAstigmatismMicrons { get; init; }
 
+        /// <summary>
+        /// c_t — the fraction of the tilt that also shows up as astigmatic split rather than pure defocus,
+        /// signed, |c_t| &lt; 1. 0 models a crooked detector in a square adapter; nonzero models a tilt that
+        /// carries the corrector with it, which is what stops a tilted corner from ever focusing sharp.
+        /// </summary>
+        public double TiltAstigmatismFraction { get; init; }
+
         // --- Exposure ---
 
         /// <summary>Exposure length in seconds, from the <c>CaptureSequence.ExposureTime</c>.</summary>

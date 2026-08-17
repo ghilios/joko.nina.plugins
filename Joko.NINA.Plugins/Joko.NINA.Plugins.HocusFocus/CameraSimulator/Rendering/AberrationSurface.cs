@@ -142,10 +142,50 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         public double AstigmatismCoefficient { get; }
 
         /// <summary>
-        /// Predicted T–S half-split at the sensor corner, <c>a₂·(halfW² + halfH²)</c> µm — i.e.
-        /// <c>BackfocusErrorMicrons/2 + CornerAstigmatismMicrons</c>.
+        /// Predicted T–S half-split at the sensor corner from the rotationally symmetric term alone,
+        /// <c>a₂·(halfW² + halfH²)</c> µm — i.e. <c>BackfocusErrorMicrons/2 + CornerAstigmatismMicrons</c>.
+        /// The tilt-driven term is reported separately by <see cref="PredictedTiltAstigmatismEffectMicrons"/>.
         /// </summary>
         public double PredictedAstigmatismEffectMicrons { get; }
+
+        /// <summary>
+        /// The <b>field-linear</b> astigmatism gradient (µm of T–S half-split per µm of sensor position),
+        /// <c>c_t·Gx</c> and <c>c_t·Gy</c>. Zero when the tilt is zero, when astigmatism is off, or when
+        /// <c>TiltAstigmatismFraction</c> is 0.
+        ///
+        /// <para>This is the term that makes tilt <i>produce</i> astigmatism rather than merely reveal it, and
+        /// it exists because a real rig's tilt is rarely the sensor alone. A crooked camera inside a square
+        /// adapter tilts only the detector, and a detector cannot change the beam. But a sagging focuser or a
+        /// non-square thread tilts the <b>corrector</b> along with the camera, and nodal aberration theory says
+        /// a tilted element displaces the astigmatic node off the optical axis: the astigmatic field becomes
+        /// <c>a₂|r⃗' − s⃗|²</c> rather than <c>a₂r'²</c>, whose leading new term is linear in field position and
+        /// parallel to the tilt. That is exactly <c>c_t·(G⃗·r⃗')</c>.</para>
+        ///
+        /// <para><b>Why it matters, and why the quadratic term alone is not enough.</b> <c>A = a₂r'²</c> is
+        /// fixed while tilt drives Δ without bound, so the axis ratio <c>|Δ−A|/|Δ+A| → 1</c>: crank the tilt
+        /// far enough and the corners go <i>round</i> again, and any corner can still be brought to a perfect
+        /// point focus. That is right for a tilted detector and wrong for a tilted train. The linear term
+        /// scales with the same tilt that drives Δ, so the axis ratio settles at <c>(1+c_t)/(1−c_t)</c>
+        /// <b>independently of tilt magnitude</b>, and a tilted corner can no longer be focused sharp — it
+        /// bottoms out at a circle of least confusion of radius <c>|A|/(2Np)</c>. That is the observable the
+        /// user reported missing, and it is the honest reading of "that part of the sensor is not at the
+        /// spacing the corrector was designed for".</para>
+        /// </summary>
+        public double AstigmatismTiltGx { get; }
+
+        /// <inheritdoc cref="AstigmatismTiltGx"/>
+        public double AstigmatismTiltGy { get; }
+
+        /// <summary>
+        /// The corner value of the field-linear term, <c>c_t·TiltAmountMicrons</c> µm — how much T–S split the
+        /// tilt itself contributes at the sensor corner, alongside
+        /// <see cref="PredictedAstigmatismEffectMicrons"/>.
+        /// </summary>
+        public double PredictedTiltAstigmatismEffectMicrons { get; }
+
+        /// <summary>Whether any astigmatism term is live. Exactly the condition under which a render can take
+        /// the elliptical kernel path, so callers must branch on this rather than on either term alone.</summary>
+        public bool IsAstigmatic => AstigmatismCoefficient != 0.0 || AstigmatismTiltGx != 0.0 || AstigmatismTiltGy != 0.0;
 
         /// <summary>
         /// Plain-number constructor (unit-test friendly). Inverts the aberration knobs onto (Gx, Gy, K). When
@@ -165,6 +205,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <param name="optimalFocuserPosition">Best-focus focuser step position x0.</param>
         /// <param name="astigmatismEnabled">When false the surface stays a single surface (A ≡ 0 exactly).</param>
         /// <param name="cornerAstigmatismMicrons">The corrector's design-residual T–S half-split at the sensor corner (µm, signed).</param>
+        /// <param name="tiltAstigmatismFraction">c_t — the fraction of the tilt that also appears as astigmatic split, i.e. how much of the tilt is the corrector rather than the detector alone (signed, |c_t| &lt; 1).</param>
         public AberrationSurface(
             bool aberrationsEnabled,
             double tiltAngleDegrees,
@@ -178,7 +219,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             double focuserStepSizeMicrons,
             int optimalFocuserPosition,
             bool astigmatismEnabled = false,
-            double cornerAstigmatismMicrons = 0.0) {
+            double cornerAstigmatismMicrons = 0.0,
+            double tiltAstigmatismFraction = 0.0) {
             if (widthPx <= 0) throw new ArgumentOutOfRangeException(nameof(widthPx));
             if (heightPx <= 0) throw new ArgumentOutOfRangeException(nameof(heightPx));
             if (pixelSizeMicrons <= 0) throw new ArgumentOutOfRangeException(nameof(pixelSizeMicrons));
@@ -189,6 +231,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             // Signed, but it must be finite: NaN fails every ordering comparison and an infinity would sail
             // through a naive `< 0` guard, and either renders an all-NaN frame with no error anywhere.
             if (!double.IsFinite(cornerAstigmatismMicrons)) throw new ArgumentOutOfRangeException(nameof(cornerAstigmatismMicrons), cornerAstigmatismMicrons, "Corner astigmatism must be a finite number.");
+            // |c_t| = 1 is a line focus everywhere the tilt dominates -- one semi-axis collapses to zero across
+            // the whole field at once -- and |c_t| > 1 puts the sagittal focus on the far side of the tangential
+            // one, which is not a mis-set corrector but a differently-signed one. Both are better rejected than
+            // rendered. The `!(x < 1)` form is NaN-safe.
+            if (!(Math.Abs(tiltAstigmatismFraction) < 1.0)) throw new ArgumentOutOfRangeException(nameof(tiltAstigmatismFraction), tiltAstigmatismFraction, "Tilt astigmatism fraction must satisfy |c_t| < 1.");
 
             this.widthPx = widthPx;
             this.heightPx = heightPx;
@@ -235,12 +282,20 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 // guarantee rests on A being exactly 0.0 so every star collapses onto one quantized level.
                 AstigmatismCoefficient = 0.0;
                 PredictedAstigmatismEffectMicrons = 0.0;
+                AstigmatismTiltGx = 0.0;
+                AstigmatismTiltGy = 0.0;
+                PredictedTiltAstigmatismEffectMicrons = 0.0;
             } else {
-                // Spacing-induced half-split is exactly K/2 (Seidel 3:1), plus the corrector's own residual
-                // expressed at the corner. NO tilt term: a tilted sensor cannot change the beam's aberrations,
-                // only where along each beam it samples -- so tilt belongs solely to the mean surface above.
+                // Rotationally symmetric part: the spacing-induced half-split is exactly K/2 (Seidel 3:1), plus
+                // the corrector's own residual expressed at the corner.
                 AstigmatismCoefficient = 0.5 * K + (cornerRadiusSquared > 0.0 ? cornerAstigmatismMicrons / cornerRadiusSquared : 0.0);
                 PredictedAstigmatismEffectMicrons = AstigmatismCoefficient * cornerRadiusSquared;
+
+                // Field-linear part: the displaced astigmatic node of a tilted corrector. Parallel to the tilt
+                // gradient by construction, so it scales with the same tilt that drives Δ.
+                AstigmatismTiltGx = tiltAstigmatismFraction * Gx;
+                AstigmatismTiltGy = tiltAstigmatismFraction * Gy;
+                PredictedTiltAstigmatismEffectMicrons = tiltAstigmatismFraction * PredictedTiltEffectMicrons;
             }
         }
 
@@ -279,41 +334,59 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         }
 
         /// <summary>
-        /// The astigmatism half-split <c>A(x,y) = a₂·r'²</c>, in µm of focuser travel. Exactly 0 when
-        /// astigmatism is disabled, and exactly 0 on the optical axis whatever the configuration.
+        /// The astigmatism half-split <c>A(x,y) = a₂·r'² + c_t·(G⃗·r⃗')</c>, in µm of focuser travel. Exactly 0
+        /// when astigmatism is disabled, and exactly 0 on the optical axis whatever the configuration.
         ///
-        /// <para><b>Rotationally symmetric, and independent of tilt.</b> A tilted sensor cannot change the
-        /// astigmatism anywhere: the wavefront converging on a field point is fixed by the telescope and
-        /// corrector, and the sensor only chooses where along that beam it samples. Mis-spacing induces
-        /// astigmatism because it forces a compensating refocus that moves the corrector relative to the
-        /// telescope's image, changing its working conjugates; a tilted sensor at correct mean spacing needs
-        /// no such refocus. Schechter &amp; Levinson (2011) put it directly — a tilted detector produces a
-        /// field pattern identical to misalignment curvature of field, i.e. pure defocus, with no
-        /// astigmatism term at third order.</para>
+        /// <para><b>Two terms, two mechanisms — and the distinction is the whole design.</b></para>
         ///
-        /// <para><b>So how does a tilted rig show eccentric corners?</b> Through the residual the optic
-        /// already has. Every real corrector leaves some T–S split at the field edge even at design spacing
-        /// — invisible at best focus, because the circle of least confusion there is round and small, and
-        /// <i>revealed</i> by defocus. Tilt is a defocus injector: it drags each corner to a different Δ, and
-        /// the semi-axes <c>|Δ−A|</c> and <c>|Δ+A|</c> separate. The corner where Δ and A disagree in sign
-        /// elongates radially, the opposite corner tangentially, with a high-eccentricity band where
-        /// <c>|Δ| ≈ A</c>. That is the tilt signature, and it needs no tilt term here to produce it — only a
-        /// non-zero <c>CornerAstigmatismMicrons</c>.</para>
+        /// <para><b>1. <c>a₂·r'²</c> — the split the optic already has.</b> Rotationally symmetric and
+        /// completely independent of tilt, because a <i>detector</i> cannot change the beam converging on it:
+        /// the wavefront leaving the corrector is fixed, and moving or tilting the sensor only chooses which
+        /// plane of it is sampled. Changing the reference sphere of a wavefront changes its defocus term and
+        /// nothing else — astigmatism is invariant under it. Schechter &amp; Levinson (2011) state the same
+        /// result at third order: a tilted detector produces a field pattern identical to misalignment
+        /// curvature of field, i.e. pure defocus. Mis-<i>spacing</i> is different, and does induce a split,
+        /// because correcting for it means refocusing, which on a real rig moves the corrector relative to the
+        /// telescope's image and changes its working conjugates.</para>
         ///
-        /// <para>An earlier version of this model routed tilt into A through a "local spacing error", on the
-        /// reasoning that a tilted sensor is mis-spaced across its area. That is not how it works, and it
-        /// could not produce the effect anyway: it made A flip sign across the field in lockstep with Δ, so
-        /// <c>Δ·A &lt; 0</c> everywhere and every corner elongated radially. The measured axis ratio was 1.07
-        /// regardless of tilt magnitude.</para>
+        /// <para>Tilt <i>reveals</i> this term: it drags one edge to <c>Δ &gt; 0</c> and the opposite edge to
+        /// <c>Δ &lt; 0</c> against a split that is the same on both, so the semi-axes <c>|Δ−A|</c> and
+        /// <c>|Δ+A|</c> separate in opposite senses and the two edges elongate perpendicular to each other.
+        /// That is the classic mild-tilt signature, and it needs no tilt term to produce it.</para>
+        ///
+        /// <para><b>2. <c>c_t·(G⃗·r⃗')</c> — the split the tilt creates.</b> Term 1 alone says something false
+        /// about a badly tilted rig. <c>A</c> is fixed while tilt drives <c>Δ</c> without bound, so the axis
+        /// ratio <c>|Δ−A|/|Δ+A| → 1</c>: crank the tilt far enough and the corners go <b>round</b> again, and
+        /// every corner can still be brought to a perfect point focus at some focuser position. Real rigs do
+        /// not behave that way, and the reason is that real tilt is rarely the sensor alone — a sagging
+        /// focuser or a non-square thread tilts the <b>corrector</b> along with the camera. Nodal aberration
+        /// theory says a tilted element displaces the astigmatic node off the optical axis, turning
+        /// <c>a₂r'²</c> into <c>a₂|r⃗' − s⃗|²</c>, whose leading new term is linear in field position and
+        /// parallel to the tilt.</para>
+        ///
+        /// <para>Because that term scales with the same tilt that drives Δ, it does not wash out: the axis
+        /// ratio settles at <c>(1+c_t)/(1−c_t)</c> <b>independently of tilt magnitude</b>, and a tilted corner
+        /// can no longer be focused sharp — its best case is a circle of least confusion of radius
+        /// <c>|A|/(2Np)</c>, which grows with tilt. That is the honest reading of "the tilt puts that part of
+        /// the sensor at a spacing the corrector was not designed for". Setting <c>c_t = 0</c> models the
+        /// pure-detector-tilt case, where term 1 is the whole story.</para>
+        ///
+        /// <para>An earlier version routed tilt into A through a "local spacing error" — <c>A ∝ e(x,y)</c>
+        /// with <c>e</c> carrying the tilt plane. That is the wrong <i>form</i>, not merely the wrong size: it
+        /// makes A flip sign across the field in lockstep with Δ, so <c>Δ·A &lt; 0</c> everywhere, every corner
+        /// elongates radially, and the perpendicular pair never appears. The measured axis ratio was 1.07 at
+        /// every tilt magnitude. The two terms here are separable precisely because one is even in field
+        /// position and the other is odd.</para>
         /// </summary>
         public double AstigmatismSplitMicrons(int px, int py) {
-            if (AstigmatismCoefficient == 0.0) {
+            if (!IsAstigmatic) {
                 return 0.0;
             }
             ToCenteredMicrons(px, py, out var x, out var y);
             var xPrime = x - X0;
             var yPrime = y - Y0;
-            return AstigmatismCoefficient * (xPrime * xPrime + yPrime * yPrime);
+            return AstigmatismCoefficient * (xPrime * xPrime + yPrime * yPrime)
+                 + AstigmatismTiltGx * xPrime + AstigmatismTiltGy * yPrime;
         }
 
         /// <summary>
@@ -365,7 +438,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
                 focuserStepSizeMicrons: request.FocuserStepSizeMicrons,
                 optimalFocuserPosition: request.OptimalFocuserPosition,
                 astigmatismEnabled: request.AstigmatismEnabled,
-                cornerAstigmatismMicrons: request.CornerAstigmatismMicrons);
+                cornerAstigmatismMicrons: request.CornerAstigmatismMicrons,
+                tiltAstigmatismFraction: request.TiltAstigmatismFraction);
         }
     }
 }
