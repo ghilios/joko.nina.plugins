@@ -14,6 +14,19 @@ using System;
 
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
 
+    /// <summary>
+    /// One of an astigmatic kernel's two principal axes. The <b>radial</b> axis points away from the optical
+    /// axis; the <b>tangential</b> axis is perpendicular to it. Circular kernels report the same profile on both.
+    /// </summary>
+    public enum PsfPrincipalAxis {
+
+        /// <summary>Away from the optical axis. Its extent is set by the <i>tangential-ray</i> defocus Δ_T.</summary>
+        Radial,
+
+        /// <summary>Perpendicular to the radius. Its extent is set by the <i>sagittal-ray</i> defocus Δ_S.</summary>
+        Tangential
+    }
+
     /// <summary>Which algorithm <see cref="PsfKernelGenerator"/> uses to rasterize the PSF.</summary>
     public enum PsfKernelMethod {
 
@@ -37,10 +50,12 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
     public sealed class PsfKernel {
         private readonly float[][] phases; // [phaseY*S + phaseX] -> row-major Size*Size
         private readonly double[] radialLut;
+        private readonly double[] tangentialLut;
         private readonly double radialStepPixels;
 
         private readonly double[] phasePeaks; // [phaseY*S + phaseX] -> max sample of that phase kernel
 
+        /// <summary>Circular kernel: both principal axes carry the same radius and the same profile.</summary>
         internal PsfKernel(
             int phasesPerAxis,
             int radius,
@@ -50,16 +65,48 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
             double analyticHfrPixels,
             float[][] phases,
             double[] radialLut,
+            double radialStepPixels)
+            : this(phasesPerAxis, radius, outerRadiusPixels, outerRadiusPixels, 0.0, innerRadiusPixels,
+                   measuredHfrPixels, analyticHfrPixels, 0.0, phases, radialLut, radialLut, radialStepPixels) {
+        }
+
+        /// <summary>
+        /// Elliptical (astigmatic) kernel. <paramref name="outerRadiusRadialPixels"/> is the semi-axis along the
+        /// radial direction and <paramref name="outerRadiusTangentialPixels"/> the one perpendicular to it, with
+        /// <paramref name="positionAngleRadians"/> giving the radial direction in image coordinates.
+        /// </summary>
+        internal PsfKernel(
+            int phasesPerAxis,
+            int radius,
+            double outerRadiusRadialPixels,
+            double outerRadiusTangentialPixels,
+            double positionAngleRadians,
+            double innerRadiusPixels,
+            double measuredHfrPixels,
+            double analyticHfrPixels,
+            double predictedEccentricity,
+            float[][] phases,
+            double[] radialLut,
+            double[] tangentialLut,
             double radialStepPixels) {
             PhasesPerAxis = phasesPerAxis;
             Radius = radius;
             Size = 2 * radius + 1;
-            OuterRadiusPixels = outerRadiusPixels;
+            OuterRadiusRadialPixels = outerRadiusRadialPixels;
+            OuterRadiusTangentialPixels = outerRadiusTangentialPixels;
+            PositionAngleRadians = positionAngleRadians;
+            // The larger semi-axis, deliberately: every consumer reads OuterRadiusPixels as "the enclosing
+            // extent of this star's annulus" -- GoldenFromTruth sizes its boxes as outerRadius + 3σ -- so the
+            // max is the only value that keeps those boxes conservative. The mean or the radial axis would let
+            // an elongated star spill outside its own golden box and read as a recall failure.
+            OuterRadiusPixels = Math.Max(outerRadiusRadialPixels, outerRadiusTangentialPixels);
             InnerRadiusPixels = innerRadiusPixels;
             MeasuredHfrPixels = measuredHfrPixels;
             AnalyticHfrPixels = analyticHfrPixels;
+            PredictedEccentricity = predictedEccentricity;
             this.phases = phases;
             this.radialLut = radialLut;
+            this.tangentialLut = tangentialLut;
             this.radialStepPixels = radialStepPixels;
 
             // Computed once, here, rather than lazily: the compositor caches and shares one PsfKernel across
@@ -89,8 +136,37 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <summary>Edge length of each phase kernel, 2R+1.</summary>
         public int Size { get; }
 
-        /// <summary>Geometric donut outer radius r_out (px). 0 at focus.</summary>
+        /// <summary>
+        /// Geometric donut outer radius r_out (px). 0 at focus. For an astigmatic kernel this is the
+        /// <b>larger</b> of the two semi-axes — see the constructor for why that choice is load-bearing.
+        /// </summary>
         public double OuterRadiusPixels { get; }
+
+        /// <summary>Semi-axis along the radial direction (px), set by the tangential-ray defocus Δ_T.</summary>
+        public double OuterRadiusRadialPixels { get; }
+
+        /// <summary>Semi-axis perpendicular to the radius (px), set by the sagittal-ray defocus Δ_S.</summary>
+        public double OuterRadiusTangentialPixels { get; }
+
+        /// <summary>
+        /// Direction of the radial semi-axis in image coordinates, in radians. 0 for a circular kernel, where
+        /// it carries no meaning.
+        /// </summary>
+        public double PositionAngleRadians { get; }
+
+        /// <summary>Whether the two semi-axes differ, i.e. whether this kernel is elliptical.</summary>
+        public bool IsAstigmatic => OuterRadiusRadialPixels != OuterRadiusTangentialPixels;
+
+        /// <summary>
+        /// Closed-form second-moment eccentricity √(1 − Var_min/Var_max) of this kernel, where
+        /// <c>Var = σ² + a²(1+ε²)/4</c> per axis. 0 for a circular kernel.
+        ///
+        /// <para>This is the design doc's <c>σ² + (k·b)²</c> with <c>k = √(1+ε²)/4</c> <b>derived</b> rather
+        /// than fitted. Note it is a <i>second-moment</i> eccentricity, while <c>PSFModel.Eccentricity</c> is
+        /// an <i>FWHM-ratio</i> eccentricity from a Moffat fit: the two agree in direction and ordering but not
+        /// in magnitude, especially for a donut with a hole.</para>
+        /// </summary>
+        public double PredictedEccentricity { get; }
 
         /// <summary>
         /// Geometric donut inner radius r_in (px, r_in = ε·r_out). 0 at focus or with no central obstruction.
@@ -140,8 +216,28 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <summary>
         /// The continuous radial intensity profile I(r) of this PSF (px argument), by linear interpolation of
         /// the LUT it was built from. Returns 0 beyond the rasterized support. Exposed for donut-geometry tests.
+        ///
+        /// <para>Only meaningful for a circular kernel. An elliptical one has no single radial profile, and
+        /// silently returning one axis's — or a mean — would quietly mis-measure the donut geometry it is used
+        /// to check, so it throws instead; use <see cref="AxisIntensity"/>.</para>
         /// </summary>
-        public double RadialIntensity(double radiusPixels) => InterpolateLut(radialLut, radialStepPixels, radiusPixels);
+        public double RadialIntensity(double radiusPixels) {
+            if (IsAstigmatic) {
+                throw new InvalidOperationException(
+                    "RadialIntensity is defined only for a circular kernel; an astigmatic kernel has two distinct "
+                    + "principal-axis profiles. Use AxisIntensity(r, PsfPrincipalAxis) instead.");
+            }
+            return InterpolateLut(radialLut, radialStepPixels, radiusPixels);
+        }
+
+        /// <summary>
+        /// The continuous intensity profile along one principal axis (px argument). For a circular kernel both
+        /// axes return the same thing, identical to <see cref="RadialIntensity"/>.
+        /// </summary>
+        public double AxisIntensity(double radiusPixels, PsfPrincipalAxis axis) {
+            var lut = axis == PsfPrincipalAxis.Radial ? radialLut : tangentialLut;
+            return InterpolateLut(lut, radialStepPixels, radiusPixels);
+        }
 
         /// <summary>
         /// Approximate heap cost of this kernel in bytes: the S² phase rasters plus the radial LUT. The phase
@@ -150,7 +246,8 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// </summary>
         internal long ApproximateByteSize =>
             (long)PhasesPerAxis * PhasesPerAxis * Size * Size * sizeof(float)
-            + (long)radialLut.Length * sizeof(double);
+            + (long)radialLut.Length * sizeof(double)
+            + (ReferenceEquals(radialLut, tangentialLut) ? 0L : (long)tangentialLut.Length * sizeof(double));
 
         /// <summary>Linear interpolation of a uniform-step radial LUT; 0 beyond the last entry, clamped at r ≤ 0.</summary>
         internal static double InterpolateLut(double[] lut, double stepPixels, double radiusPixels) {

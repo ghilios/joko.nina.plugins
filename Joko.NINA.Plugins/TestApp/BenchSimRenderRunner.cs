@@ -256,48 +256,52 @@ namespace TestApp {
 
             Console.WriteLine();
             Console.WriteLine($"== kernel ladder (sigma_min={model.SigmaMinPixels:F3} px, N={model.FocalRatio:F2}, p={model.PixelSizeMicrons:F2} um) ==");
-            Console.WriteLine($"{"targetR",8} {"actualR",8} {"defocusUm",11} {"ms/kernel",11} {"bytes",12} {"localExp",9}");
+            Console.WriteLine($"{"targetR",8} {"actualR",8} {"circMs",9} {"ellipMs",9} {"ratio",7} {"bytes",12} {"cExp",6} {"eExp",6}");
 
-            // Warm the generator before the first timed rung. Without this the smallest radius absorbs the JIT
-            // of the whole generation path -- it measured ~6 ms against ~3.7 ms for a kernel four times its
+            // Warm both generators before the first timed rung. Without this the smallest radius absorbs the
+            // JIT of the whole generation path -- it measured ~6 ms against ~3.7 ms for a kernel four times its
             // area -- which inverts the low end of the ladder and drags the fitted exponent well below the truth.
             PsfKernelGenerator.Generate(model, 400.0);
+            PsfKernelGenerator.GenerateElliptical(model.SigmaMinPixels, model.CentralObstructionFraction, 10.0, 20.0, 0.6);
 
             var xs = new List<double>();
             var ys = new List<double>();
+            var es = new List<double>();
             foreach (var targetRadius in new[] { 8, 15, 30, 60, 120, 240 }) {
                 // radius = ceil(r_out + 5*sigma)  =>  r_out = R - 5*sigma; and r_out = |delta| / (2*N*p).
                 var rOut = targetRadius - 5.0 * model.SigmaMinPixels;
                 if (rOut <= 0.0) continue;
                 var defocusMicrons = rOut * 2.0 * model.FocalRatio * model.PixelSizeMicrons;
 
-                var ms = TimeMedian(() => PsfKernelGenerator.Generate(model, defocusMicrons), iters);
+                var circularMs = TimeMedian(() => PsfKernelGenerator.Generate(model, defocusMicrons), iters);
                 var kernel = PsfKernelGenerator.Generate(model, defocusMicrons);
-                xs.Add(Math.Log(kernel.Radius));
-                ys.Add(Math.Log(Math.Max(ms, 1e-6)));
 
-                // Local exponent against the previous rung. Reported per-rung rather than as one fit over the
+                // A 2:1 ellipse at an off-axis angle, sized so its bounding half-extent lands on the same rung.
+                var ellipticalMs = TimeMedian(
+                    () => PsfKernelGenerator.GenerateElliptical(
+                        model.SigmaMinPixels, model.CentralObstructionFraction, 0.5 * rOut, rOut, 0.6),
+                    iters);
+
+                xs.Add(Math.Log(kernel.Radius));
+                ys.Add(Math.Log(Math.Max(circularMs, 1e-6)));
+                es.Add(Math.Log(Math.Max(ellipticalMs, 1e-6)));
+
+                // Local exponents against the previous rung. Reported per-rung rather than as one fit over the
                 // whole ladder because the small radii are dominated by fixed cost -- the radial LUT has a 512-
                 // entry floor -- so a single least-squares slope across the range reads well below the true
                 // asymptotic scaling and would mask a genuinely bad convolution at large R.
-                var localExponent = xs.Count >= 2
-                    ? (ys[^1] - ys[^2]) / (xs[^1] - xs[^2])
-                    : double.NaN;
-                Console.WriteLine($"{targetRadius,8} {kernel.Radius,8} {defocusMicrons,11:F1} {ms,11:F2} "
-                                + $"{kernel.ApproximateByteSize,12:N0} {(double.IsNaN(localExponent) ? "-" : localExponent.ToString("F2")),9}");
+                var circularExponent = xs.Count >= 2 ? (ys[^1] - ys[^2]) / (xs[^1] - xs[^2]) : double.NaN;
+                var ellipticalExponent = xs.Count >= 2 ? (es[^1] - es[^2]) / (xs[^1] - xs[^2]) : double.NaN;
+                Console.WriteLine($"{targetRadius,8} {kernel.Radius,8} {circularMs,9:F2} {ellipticalMs,9:F2} "
+                                + $"{ellipticalMs / circularMs,7:F2} {kernel.ApproximateByteSize,12:N0} "
+                                + $"{Exponent(circularExponent),6} {Exponent(ellipticalExponent),6}");
             }
 
             if (xs.Count >= 3) {
                 // Asymptotic slope over the largest three rungs -- the regime that actually matters, since
                 // kernel cost and cache bytes both grow as R^2 there.
-                var from = xs.Count - 3;
-                double mx = xs.Skip(from).Average(), my = ys.Skip(from).Average(), num = 0.0, den = 0.0;
-                for (var i = from; i < xs.Count; ++i) {
-                    num += (xs[i] - mx) * (ys[i] - my);
-                    den += (xs[i] - mx) * (xs[i] - mx);
-                }
                 Console.WriteLine();
-                Console.WriteLine($"asymptotic exponent over the top 3 rungs = {(den > 0 ? num / den : double.NaN):F2}"
+                Console.WriteLine($"asymptotic exponent over the top 3 rungs: circular={TopSlope(xs, ys):F2}, elliptical={TopSlope(xs, es):F2}"
                                 + "   (a separable path holds ~2; a direct 2-D convolution shows ~4)");
             }
         }
@@ -498,6 +502,19 @@ namespace TestApp {
                 resolved.Add(config);
             }
             return resolved;
+        }
+
+        private static string Exponent(double value) => double.IsNaN(value) ? "-" : value.ToString("F2", CultureInfo.InvariantCulture);
+
+        /// <summary>Least-squares slope of the last three log-log points.</summary>
+        private static double TopSlope(List<double> xs, List<double> ys) {
+            var from = Math.Max(0, xs.Count - 3);
+            double mx = xs.Skip(from).Average(), my = ys.Skip(from).Average(), num = 0.0, den = 0.0;
+            for (var i = from; i < xs.Count; ++i) {
+                num += (xs[i] - mx) * (ys[i] - my);
+                den += (xs[i] - mx) * (xs[i] - mx);
+            }
+            return den > 0 ? num / den : double.NaN;
         }
 
         private static double TimeMedian(Action action, int iters) {
