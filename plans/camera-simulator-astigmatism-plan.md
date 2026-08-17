@@ -181,7 +181,8 @@ private readonly record struct PsfKernelKey(long LevelT, long LevelS, int Orient
 - **Adaptive orientation bins**, `n_θ = clamp(ceil(π·s_max/(√2·0.25)), 1, 64)` with
   `s_max = max min(|Δ|,|A|)/(N·p)` over the field sample set, computed once per render. Kernels are
   generated at the **bin centre**; orientation is mod π.
-- **Cache byte budget**: estimate `n_T·n_S·n_θ · S²(2R_worst+1)²·4` up front; over 128 MB, coarsen the
+- **Cache byte budget**: count the resolved keys exactly (not an `n_T·n_S·n_θ` bound, which over-counts
+  several-fold); over 384 MB, coarsen the
   defocus quantum and orientation bins by a common factor `g = min(16, ceil((est/budget)^(1/3)))` and log
   it; still over at `g = 16`, disable astigmatism for that render with a warning. Uniform across the
   frame, decided before the loop, never an OOM or a throw. Plus a `HardKernelCount = 4096` assert on

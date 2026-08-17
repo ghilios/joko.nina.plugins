@@ -123,8 +123,9 @@ kernel; the astigmatic key is (tangential level, sagittal level, orientation bin
 
 Orientation bins resolved to **13–21** at the shipped ratio and never approached the cap of 64, so the
 kernel count is driven by realized level pairs, not by angular quantization. Peak cache **118.3 MB** against
-the 128 MB budget, so the coarsening ladder never fired at the shipped default — every cell rendered at full
-fidelity.
+the budget, so the coarsening ladder never fired at the shipped default — every cell rendered at full
+fidelity. (The budget was 128 MB when this matrix was taken and is now 384 MB; the headline cell is
+unaffected either way, since it never came close. See [the budget corrections](#three-budget-bugs-found-after-the-matrix-was-recorded).)
 
 | field | cell | kernels (on) | bins | cache MB | kernels (on-strong) |
 |---|---|---|---|---|---|
@@ -295,11 +296,11 @@ against 639 ms in the final matrix, which is run-to-run variance on the isotropi
    count is already 1 for most kernels. Kept: it is what keeps a near-line focus from paying 64 evaluations
    on every cell.
 
-### Two budget bugs found after the matrix was recorded
+### Three budget bugs found after the matrix was recorded
 
-Both surfaced from a user report of a 10 mm backfocus error rendering with no eccentricity at all. Neither
-changes the numbers above — the headline cell re-measures at 375 kernels and 118.3 MB either way — but both
-were the budget failing to do what it claimed.
+All surfaced from a user report of large backfocus errors rendering with no eccentricity at all. None
+changes the numbers above — the headline cell re-measures at 375 kernels and 118.3 MB throughout — but all
+three were the budget failing to do what it claimed.
 
 1. **The fallback did not bound anything.** When even maximum coarsening would not fit, the code dropped
    astigmatism *and reverted to the fine defocus quantum*. Dropping astigmatism is not a way to fit a byte
@@ -312,8 +313,22 @@ were the budget failing to do what it claimed.
    visible.
 2. **The estimate counted only the phase bank.** The two profile LUTs have a 512-entry floor, so a frame made
    of thousands of *small* kernels pays ~8 KB each for them. A 500 µm backfocus error measured **131.9 MB
-   against a 128 MB budget** — over, while reporting itself as fitting. With the LUTs counted, that case now
-   coarsens to 695 kernels at 37.6 MB.
+   against a 128 MB budget** — over, while reporting itself as fitting. The LUTs are now counted.
+3. **The budget itself was too small, and turned the feature off exactly when it would have been most
+   visible.** Kernel size grows as R², so at a large injected backfocus error the kernels are individually
+   enormous — 7 MB at R = 108 — and 128 MB admitted only about eighteen of them, fewer than the distinct
+   (Δ, A) pairs a smoothly curved field needs. A 5 mm corner-curvature error asked for 331 MB, was refused,
+   and rendered **circular donuts**: a user dialling the error up to see the effect better saw it vanish.
+   Raised to 384 MB, which covers the model's useful envelope (astigmatism now survives to a 5 mm error on a
+   full-frame f/7 rig and gives up at 10 mm, where it would need 3 GB and the stars are 450 px across).
+   Bytes turn out to be a good proxy for generation time as well — roughly 2 ms per MB — so the same ceiling
+   bounds the render cost at about 770 ms of kernel generation in the worst case.
+
+   A related correctness fix went in alongside: coarsening was allowed to collapse the orientation to a
+   **single bin**, which does not render a coarse ellipse field but renders *every* ellipse at the same
+   position angle — worse than no astigmatism, because it looks like a real pattern and is not one. Bins
+   now have a floor of four while astigmatism is on, so such an attempt fails the budget and falls through
+   to honest circular donuts instead.
 
 ### Levers evaluated and rejected
 

@@ -107,10 +107,18 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering {
         /// <summary>
         /// Byte budget for one render's PSF kernel cache. The 3-D key is the first thing in this pipeline that
         /// can allocate unboundedly — with one quantized defocus the level count was bounded by the field's own
-        /// Δ spread and never needed a guard. One kernel is <c>S²·(2R+1)²·4</c> bytes: 223 KB at R = 29 and
-        /// 817 KB at R = 56, on top of a 244 MB accumulator and a 122 MB output for a 61 MP frame.
+        /// Δ spread and never needed a guard. One kernel is <c>S²·(2R+1)²·4</c> bytes: 223 KB at R = 29,
+        /// 817 KB at R = 56, and <b>7 MB at R = 108</b>, on top of a 244 MB accumulator and a 122 MB output
+        /// for a 61 MP frame.
+        ///
+        /// <para>That last figure is why this is 384 MB and not the 128 MB it started at. Kernel size grows as
+        /// R², so at a large injected backfocus error the individual kernels are enormous and a 128 MB budget
+        /// admits only about eighteen of them — fewer than the distinct (Δ, A) pairs a smoothly curved field
+        /// needs. The elliptical model therefore switched itself off exactly when a user dialled in an error
+        /// big enough to see: a 5 mm corner-curvature error needs ~330 MB and was refused. The ceiling is set
+        /// by what keeps the model usable across its whole envelope, not by a round number.</para>
         /// </summary>
-        private const long MaxKernelCacheBytes = 128L * 1024 * 1024;
+        private const long MaxKernelCacheBytes = 384L * 1024 * 1024;
 
         /// <summary>Largest factor by which the defocus quantum may be coarsened (and the bins thinned) to fit the budget.</summary>
         private const int MaxCoarseningFactor = 16;

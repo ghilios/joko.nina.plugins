@@ -276,7 +276,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
                 Assert.That(timings.DistinctKernels, Is.LessThanOrEqualTo(stars.Count),
                     "no more kernels than stars -- each star needs at most one");
                 Assert.That(timings.DistinctKernels, Is.GreaterThan(1), "an aggressive field really is multi-kernel");
-                Assert.That(timings.KernelCacheBytes, Is.LessThan(128L * 1024 * 1024), "inside the cache budget");
+                Assert.That(timings.KernelCacheBytes, Is.LessThan(384L * 1024 * 1024), "inside the cache budget");
             });
         }
 
