@@ -99,6 +99,21 @@ starts, so edits apply to the next frame.
 The tab also shows the rig values (aperture, focal length, obstruction) read-only, so you can
 confirm what the next exposure will use without opening the setup dialog.
 
+Turning on **Enable Aberrations** reveals the field-aberration group — tilt, backfocus error, and
+optical-axis offset — plus the astigmatism model that turns those into *eccentric* stars rather than
+merely soft ones:
+
+| Option | Default | What it does |
+|---|---|---|
+| **Model Astigmatism** | on | Splits the best-focus surface into the separate tangential and sagittal surfaces a real corrector produces, so stars render elliptical rather than merely soft. Does nothing until there is a **Corner Astigmatism**, a **Backfocus Error**, or a tilt with a nonzero **Tilt Astigmatism** for it to work from. |
+| **Corner Astigmatism** | 15 µm | The astigmatism your corrector still leaves at the sensor corner when it is perfectly spaced, as microns of focuser travel between the tangential and sagittal focal surfaces. This is the term a tilted sensor *reveals* — tilt cannot create astigmatism, only reposition the sensor against a focal surface that is already split — so it is what a perfectly spaced but tilted rig shows. Mis-spacing adds its own split on top, fixed by the optics at half the **Backfocus Error**. Around 10–20 µm is typical of a decent flattener at f/5–f/7; the **sign** says which side of design spacing gives radially elongated stars, and 0 models a flawless corrector. |
+| **Tilt Astigmatism** | 0.25 | How much of the tilt carries the *corrector* with it rather than tilting the sensor alone — microns of corner split per micron of tilt effect. A sensor cannot change the beam in front of it, so sensor-only tilt merely reveals the corner astigmatism above, and its effect fades as the tilt grows until an extremely tilted corner renders round again and can still be focused to a point. A sagging focuser or a non-square thread tilts the corrector too, which raises the astigmatism in proportion to the tilt: the radial/tangential corner pair stays visible at an axis ratio of (1+f)/(1−f) however far the tilt is pushed, and the corner can never be focused sharp. **Signed**, and it adds to the backfocus and residual contributions signed — a large enough tilt term of the opposite sign flips the whole field. 0 models a camera simply sitting crooked in a square adapter. |
+
+**Backfocus Error** ships at 50 µm rather than zero, so switching aberrations on shows the effect
+immediately instead of leaving you wondering whether it works. Set it to 0 for a perfectly spaced
+rig. The full model, including why tilt alone can produce eccentricity, is in
+[Rendering Model](camera-simulator-rendering.md#field-astigmatism).
+
 ## Autofocus against the simulator
 
 With the pieces connected, run an autofocus exactly as in the
@@ -118,8 +133,10 @@ at your desk before you ever touch the real adapter.
 
 1. On the **Camera Sim** tab, turn on **Enable Aberrations** and inject a tilt: set **Tilt Angle**
    (the direction, as an azimuth in the inspector's convention), **Tilt Amount** (the
-   center-to-corner focus swing in microns; 20–50 µm is a clearly visible tilt), and optionally a
-   **Backfocus Error**.
+   center-to-corner focus swing in microns; 20–50 µm is a clearly visible tilt), and a
+   **Backfocus Error** (50 µm by default). With the backfocus error non-zero the frames also show
+   the eccentric stars a real mis-spaced rig produces, so the inspector's eccentricity vector field
+   has something to read.
 2. Under **Tilt Adapter**, configure the simulated adapter's geometry: screw count, thread pitch,
    screw radius, and screw 1 angle. If you have already set up a real adapter in the
    [Tilt Adapter Wizard](tilt-adapter-wizard.md), press **Copy from adapter settings** so the

@@ -357,13 +357,16 @@ public class SimulatedTiltAdapterVMTests {
     [Test]
     public void SideMove_TurnsTheNamedPairTogetherAndCounterTurnsTheOpposingPair() {
         var options = Configured(screwCount: 4);
+        // Compared against where the options started, not a literal zero — the shipped backfocus default is
+        // nonzero, and the claim here is that an antisymmetric move leaves it alone.
+        var baselineBackfocus = options.BackfocusErrorMicrons;
         var vm = new SimulatedTiltAdapterVM(options, realAdapterOptions: null) { MovementMode = SimTiltMovementMode.Side, AmountPerClick = 0.5 };
         vm.TurnCommand.Execute(new ScrewTurn(0, +1)); // Side 1+2 ⟳
 
         var delta = 0.5 * PitchMicrons;
         Assert.Multiple(() => {
             Assert.That(vm.NetAxialMicrons.ToArray(), Is.EqualTo(new[] { delta, delta, -delta, -delta }).Within(1e-9));
-            Assert.That(options.BackfocusErrorMicrons, Is.EqualTo(0.0).Within(1e-9),
+            Assert.That(options.BackfocusErrorMicrons, Is.EqualTo(baselineBackfocus).Within(1e-9),
                 "a side move is antisymmetric too — tilt about the edge axis only");
         });
     }

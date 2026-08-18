@@ -42,9 +42,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// <see cref="BuildDiff"/> and never routed through <see cref="ImportableSettings"/>.
         ///
         /// <para>That separation is the point. Sweep geometry is not an <see cref="IStarDetectionOptions"/>
-        /// property, so it cannot be classified as "importable" (which would make a star-detection export file
-        /// silently rewrite a focuser sweep on another rig) or "machine-local" (which would be untrue). Keeping it
-        /// out of those lists is what lets the coverage guard over that interface stay untouched.</para>
+        /// property, so it can be classified as neither "importable" nor "machine-local" — both lists are keyed on
+        /// that interface's properties, and the coverage guard over them stays exact only while nothing else is
+        /// smuggled in. The rows still land in the same confirmation table, so copy-from-filter and file import
+        /// present the geometry exactly like every other setting they change.</para>
         ///
         /// <para>An unset field renders as "inherit (N)" so the dialog shows what the value actually resolves to,
         /// matching the dimmed "profile: N" hint on the settings page.</para>

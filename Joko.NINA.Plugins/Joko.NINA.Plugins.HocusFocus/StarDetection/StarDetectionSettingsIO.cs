@@ -51,7 +51,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     return;
                 }
 
-                var export = StarDetectionSettingsExport.FromOptions(options, GetEditedFilterName());
+                var export = BuildExport(options, GetGeometryTarget());
                 File.WriteAllText(dialog.FileName, export.Serialize());
                 Logger.Info($"Exported star detection settings to {dialog.FileName}");
                 Notification.ShowInformation($"Exported star detection settings to {Path.GetFileName(dialog.FileName)}");
@@ -61,13 +61,38 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             }
         }
 
-        /// <summary>The filter whose set the edit buffer currently holds, or null when per-filter star detection is
-        /// off (or the plugin singletons are absent, as under unit tests). Provenance only; never drives an import.</summary>
-        private static string GetEditedFilterName() {
+        /// <summary>
+        /// The file contents an Export writes (unit-test seam — no file dialog). With a per-filter geometry target it
+        /// carries that filter's name and its sweep-geometry override; without one the file is exactly what it was
+        /// before per-filter mode existed.
+        ///
+        /// <para>An unset geometry is still written when the target exists, because "this filter inherits the
+        /// profile" is a state worth reproducing on the far machine — see
+        /// <see cref="StarDetectionSettingsExport.SweepGeometry"/> on why null and unset must not be collapsed.</para>
+        /// </summary>
+        internal static StarDetectionSettingsExport BuildExport(StarDetectionOptions options, PerFilterEditBinder geometrySource) {
+            if (!CanCarryGeometry(geometrySource)) {
+                return StarDetectionSettingsExport.FromOptions(options);
+            }
+            return StarDetectionSettingsExport.FromOptions(options, geometrySource.EditedFilterName, new PerFilterSweepGeometry() {
+                StepSize = geometrySource.SweepStepSizeOverride,
+                InitialOffsetSteps = geometrySource.SweepOffsetStepsOverride
+            });
+        }
+
+        /// <summary>The per-filter edit binder to read/write sweep geometry through, or null when there is no
+        /// per-filter context: the feature is off, or the plugin singletons are absent (as under unit tests).</summary>
+        private static PerFilterEditBinder GetGeometryTarget() {
             return HocusFocusPlugin.PerFilterStarDetection?.Enabled == true
-                ? HocusFocusPlugin.PerFilterStarDetectionEditBinder?.EditedFilterName
+                ? HocusFocusPlugin.PerFilterStarDetectionEditBinder
                 : null;
         }
+
+        /// <summary>Whether a geometry target can actually hold a sweep override. A binder with no edited filter (the
+        /// feature is on but the profile defines no filters) cannot, and must not be offered rows that a following
+        /// Apply would silently drop.</summary>
+        private static bool CanCarryGeometry(PerFilterEditBinder target) =>
+            target != null && !string.IsNullOrEmpty(target.EditedFilterName);
 
         /// <summary>Prompts for a file, validates it, shows the diff-confirmation dialog, and — only on Apply — applies
         /// the imported settings to the active profile. Cancel / corrupt / wrong-type / newer-schema files leave the
@@ -90,31 +115,105 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     return;
                 }
 
-                if (!StarDetectionSettingsExport.TryLoad(dialog.FileName, out var export, out var error)) {
-                    Logger.Warning($"Could not import star detection settings from {dialog.FileName}: {error}");
-                    Notification.ShowError($"Could not import star detection settings: {error}");
-                    return;
-                }
-
-                var diff = StarDetectionSettingsDiff.BuildDiff(options, export.StarDetection);
-                if (diff.Count == 0) {
-                    Notification.ShowInformation("Imported settings match the current settings; nothing to change.");
-                    return;
-                }
-
-                var vm = new ImportStarDetectionPreviewVM(diff, BuildSourceSummary(export));
-                var apply = await ImportStarDetectionPreview.ShowAsync(windowServiceFactory, vm);
-                if (!apply) {
-                    return;
-                }
-
-                options.ApplyImportedSnapshot(export.StarDetection);
-                Logger.Info($"Imported star detection settings from {dialog.FileName} ({diff.Count} setting(s) changed)");
-                Notification.ShowInformation($"Imported star detection settings from {Path.GetFileName(dialog.FileName)}");
+                await ImportAsync(options, dialog.FileName,
+                    (rows, summary) => ImportStarDetectionPreview.ShowAsync(windowServiceFactory, new ImportStarDetectionPreviewVM(rows, summary)),
+                    GetGeometryTarget());
             } catch (Exception ex) {
                 Logger.Error(ex, "Failed to import star detection settings");
                 Notification.ShowError($"Failed to import star detection settings: {ex.Message}");
             }
+        }
+
+        /// <summary>Delegate-injected core of the import flow (unit-test seam — no WPF dialog). Returns whether the
+        /// settings were applied. <paramref name="geometryTarget"/> is the per-filter edit binder the file's sweep
+        /// geometry lands on, or null when there is no per-filter context to apply it to.</summary>
+        internal static async Task<bool> ImportAsync(
+                StarDetectionOptions options,
+                string filePath,
+                Func<IReadOnlyList<StarDetectionSettingDiffRow>, string, Task<bool>> confirmDiff,
+                PerFilterEditBinder geometryTarget) {
+            if (options == null) {
+                return false;
+            }
+            try {
+                if (!StarDetectionSettingsExport.TryLoad(filePath, out var export, out var error)) {
+                    Logger.Warning($"Could not import star detection settings from {filePath}: {error}");
+                    Notification.ShowError($"Could not import star detection settings: {error}");
+                    return false;
+                }
+
+                var diff = new List<StarDetectionSettingDiffRow>(StarDetectionSettingsDiff.BuildDiff(options, export.StarDetection));
+                // The sweep geometry belongs to the filter's set, so it travels in the file and is confirmed beside
+                // the detection knobs -- the same deal copy-from-filter already makes. Without it, exporting a
+                // wizard-tuned filter carried HALF of what the wizard produced, and the dropped half was the one the
+                // user notices on the next focus run.
+                var geometryDiff = BuildGeometryDiff(geometryTarget, export.SweepGeometry);
+                diff.AddRange(geometryDiff);
+
+                var geometryNote = DescribeUnappliedGeometry(geometryTarget, export.SweepGeometry);
+                if (diff.Count == 0) {
+                    // The note still belongs here: a file whose detection settings match but whose sweep was dropped
+                    // did change nothing, and the reason it changed nothing is worth saying.
+                    Notification.ShowInformation("Imported settings match the current settings; nothing to change." + geometryNote);
+                    return false;
+                }
+
+                var apply = await confirmDiff(diff, BuildSourceSummary(export) + geometryNote);
+                if (!apply) {
+                    return false;
+                }
+
+                options.ApplyImportedSnapshot(export.StarDetection);
+                if (geometryDiff.Count > 0) {
+                    ApplyGeometry(geometryTarget, export.SweepGeometry);
+                }
+                Logger.Info($"Imported star detection settings from {filePath} ({diff.Count} setting(s) changed)");
+                Notification.ShowInformation($"Imported star detection settings from {Path.GetFileName(filePath)}");
+                return true;
+            } catch (Exception ex) {
+                Logger.Error(ex, "Failed to import star detection settings");
+                Notification.ShowError($"Failed to import star detection settings: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Diff rows for an incoming sweep geometry, or none when there is nothing to compare it against. A null
+        /// <paramref name="incoming"/> means the source said nothing about the sweep (a legacy file, or one exported
+        /// with per-filter mode off), which is NOT the same as "inherit" and must leave the target's override alone.
+        /// </summary>
+        private static IReadOnlyList<StarDetectionSettingDiffRow> BuildGeometryDiff(
+                PerFilterEditBinder target, PerFilterSweepGeometry incoming) {
+            if (incoming == null || !CanCarryGeometry(target)) {
+                return Array.Empty<StarDetectionSettingDiffRow>();
+            }
+            return StarDetectionSettingsDiff.BuildSweepGeometryDiff(
+                currentStepSize: target.SweepStepSizeOverride,
+                currentOffsetSteps: target.SweepOffsetStepsOverride,
+                incoming: incoming,
+                profileStepSize: target.ProfileSweepStepSize,
+                profileOffsetSteps: target.ProfileSweepOffsetSteps);
+        }
+
+        /// <summary>Writes an incoming sweep geometry into the edited filter's stored set. Normalized on the way in,
+        /// so a hand-edited file cannot put a 0 step size in front of the auto-focus engine.</summary>
+        private static void ApplyGeometry(PerFilterEditBinder target, PerFilterSweepGeometry incoming) {
+            var normalized = (incoming ?? PerFilterSweepGeometry.Unset()).Normalized();
+            target.MutateFilterSweepGeometry(target.EditedFilterName, g => {
+                g.StepSize = normalized.StepSize;
+                g.InitialOffsetSteps = normalized.InitialOffsetSteps;
+            });
+        }
+
+        /// <summary>A note for the confirmation line when the file carries a sweep override that this machine has
+        /// nowhere to put (per-filter star detection is off, and geometry never wrote to the profile). Dropping it is
+        /// correct; dropping it silently is how a user loses the wizard's step size without knowing.</summary>
+        private static string DescribeUnappliedGeometry(PerFilterEditBinder target, PerFilterSweepGeometry incoming) {
+            var carried = (incoming ?? PerFilterSweepGeometry.Unset()).Normalized();
+            if (carried.IsUnset || CanCarryGeometry(target)) {
+                return "";
+            }
+            return "  ·  sweep geometry not applied (per-filter star detection is off)";
         }
 
         /// <summary>Copies another filter's star-detection settings onto the current edit buffer (per-filter mode).
@@ -151,15 +250,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // the geometry into the target filter, a copy that carried only detection settings would reproduce
                 // HALF of what the wizard produced -- and the dropped half is the one the user notices on the next
                 // focus run. So it travels with them, and is listed in the confirmation like everything else.
-                var sourceGeometry = store.GetSweepGeometry(sourceFilterName);
-                var geometryDiff = geometryTarget == null
-                    ? new List<StarDetectionSettingDiffRow>()
-                    : StarDetectionSettingsDiff.BuildSweepGeometryDiff(
-                        currentStepSize: geometryTarget.SweepStepSizeOverride,
-                        currentOffsetSteps: geometryTarget.SweepOffsetStepsOverride,
-                        incoming: sourceGeometry,
-                        profileStepSize: geometryTarget.ProfileSweepStepSize,
-                        profileOffsetSteps: geometryTarget.ProfileSweepOffsetSteps);
+                // Coalesced because the store's contract is never-null and "the source inherits" must still clear
+                // an override on the target -- the file-import path distinguishes null (says nothing) from unset.
+                var sourceGeometry = store.GetSweepGeometry(sourceFilterName) ?? PerFilterSweepGeometry.Unset();
+                var geometryDiff = BuildGeometryDiff(geometryTarget, sourceGeometry);
                 diff.AddRange(geometryDiff);
 
                 if (diff.Count == 0) {
@@ -174,10 +268,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                 options.ApplyImportedSnapshot(snapshot);
                 if (geometryDiff.Count > 0) {
-                    geometryTarget.MutateFilterSweepGeometry(geometryTarget.EditedFilterName, g => {
-                        g.StepSize = sourceGeometry?.StepSize ?? PerFilterSweepGeometry.Inherit;
-                        g.InitialOffsetSteps = sourceGeometry?.InitialOffsetSteps ?? PerFilterSweepGeometry.Inherit;
-                    });
+                    ApplyGeometry(geometryTarget, sourceGeometry);
                 }
                 Logger.Info($"Copied star detection settings from filter '{sourceFilterName}' ({diff.Count} setting(s) changed)");
                 Notification.ShowInformation($"Copied star detection settings from '{sourceFilterName}'");

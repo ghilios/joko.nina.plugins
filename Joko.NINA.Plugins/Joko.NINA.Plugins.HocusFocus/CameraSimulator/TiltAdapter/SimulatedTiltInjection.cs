@@ -105,6 +105,7 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
                     clamped |= Math.Abs(backfocus) > AberrationBoundMicrons;
                     options.BackfocusErrorMicrons = Math.Clamp(backfocus, -AberrationBoundMicrons, AberrationBoundMicrons);
                 }
+
             }
 
             return clamped;

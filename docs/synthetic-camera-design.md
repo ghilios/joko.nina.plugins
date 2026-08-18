@@ -214,14 +214,21 @@ zBestFocus(x,y) = Gx·(x−X0) + Gy·(y−Y0) + Kx·(x−X0)² + Ky·(y−Y0)² 
 localDefocusMicrons = currentFocuserMicrons − zBestFocus(x,y)
 ```
 
-Render the PSF (above) at `localDefocusMicrons` (÷ k for steps). It is a **pure local-defocus model** — no coma /
-astigmatism fit — which is precisely what makes it the inspector's inverse. Config knobs → surface:
+Render the PSF (above) at `localDefocusMicrons` (÷ k for steps). It is a **local-defocus model** — no coma —
+which is precisely what makes it the inspector's inverse. Config knobs → surface:
 
 - **Tilt angle** = azimuth φ (deg, inspector convention CW from "up"); **tilt amount** → gradient magnitude
   `|G| = tan(θ)`: `Gx = |G|·cos φ`, `Gy = |G|·sin φ`. Inspector reports `Theta = atan|G|` (deg) and `TiltEffectMicrons`.
 - **Backfocus** = isotropic field-curvature `K = Kx = Ky` (1/µm): corner effect
   `CurvatureEffectMicrons = K·(halfW² + halfH²)`, radius `R_mm = 1/(2000·|K|)`; sign = inward/outward spacing.
 - `X0, Y0` (optical-axis offset) default 0.
+
+**Off-axis astigmatism** was added later, on top of this surface rather than in place of it: the surface splits
+into a tangential/sagittal pair straddling the one above, so stars render elliptical (radial in one corner,
+tangential in the opposite) while the mean — and therefore everything the inspector fits — is unchanged. See
+[`camera-simulator-astigmatism-design.md`](camera-simulator-astigmatism-design.md) for the model, the sign
+convention, and the elliptical rasterizer; [`camera-simulator-astigmatism-results.md`](camera-simulator-astigmatism-results.md)
+for its measured cost.
 
 Because the camera reads the live focuser position each exposure, a stepped autofocus/inspector run naturally
 recovers the injected surface: each region's HFR-vs-focuser minimum lands at `zBestFocus(region)`.

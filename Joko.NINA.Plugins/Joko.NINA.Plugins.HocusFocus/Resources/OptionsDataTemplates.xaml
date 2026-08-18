@@ -505,8 +505,8 @@
     <TextBlock x:Key="SaveIntermediateFiles_Tooltip" Text="If enabled, every step of star detection emits a debugging file to the intermediate path" />
     <TextBlock x:Key="UseAdvanced_Tooltip" Text="Enables advanced mode with fine-grained control over star detection parameters. Not recommended unless you're an expert" />
     <TextBlock x:Key="OptimizeStarDetection_Tooltip" Text="Opens the Star Detection Optimization Wizard, which tunes star detection against a saved auto-focus run and (optionally) applies the result as your Simple-Mode settings" />
-    <TextBlock x:Key="ExportStarDetectionSettings_Tooltip" Text="Saves the current Star Detection parameters to a .json file so they can be moved to another machine (e.g. tune on a fast computer, import on the imaging computer). Only star-detection settings are exported — not autofocus, inspector, or tilt. The machine-local intermediate-image path is not included." />
-    <TextBlock x:Key="ImportStarDetectionSettings_Tooltip" Text="Loads Star Detection parameters from a .json file exported on another machine. A confirmation dialog shows exactly which settings will change before they replace the current ones on this profile. The intermediate-image path, Debug Mode, and PSF Parallel Size stay local to this machine." />
+    <TextBlock x:Key="ExportStarDetectionSettings_Tooltip" Text="Saves the current Star Detection parameters to a .json file so they can be moved to another machine (e.g. tune on a fast computer, import on the imaging computer). Only star-detection settings are exported — not the autofocus, inspector, or tilt settings. With per-filter star detection enabled, the file holds the edited filter's set, including its Auto-Focus Sweep step size and offset steps. The machine-local intermediate-image path is not included." />
+    <TextBlock x:Key="ImportStarDetectionSettings_Tooltip" Text="Loads Star Detection parameters from a .json file exported on another machine. A confirmation dialog shows exactly which settings will change before they replace the current ones on this profile. With per-filter star detection enabled, a sweep step size and offset steps in the file are applied to the filter being edited, and are listed in that dialog like every other setting; with it disabled they are left out. The intermediate-image path, Debug Mode, and PSF Parallel Size stay local to this machine." />
     <TextBlock x:Key="PerFilterStarDetectionEnabled_Tooltip" Text="Gives every filter in the active profile its own complete set of star detection settings. When enabled, detection uses the settings of the filter each image was captured with, and every control below edits the selected filter's set. Requires a filter wheel; images without a known filter soft-fail detection with a warning. When disabled, the single global settings apply exactly as before." />
     <TextBlock x:Key="EditedFilterName_Tooltip" Text="Which filter's star detection settings are being edited. Every control below reads and writes the selected filter's set. Only shown while per-filter star detection is enabled." />
     <TextBlock x:Key="CopyStarDetectionFromFilter_Tooltip" Text="Copies another filter's star detection settings onto the filter currently being edited. A confirmation dialog shows exactly which settings will change before anything is applied." />
@@ -3279,6 +3279,9 @@
     <TextBlock x:Key="CamSim_BackfocusErrorMicrons_Tooltip" Text="Corner-versus-center curvature offset (µm) from a backfocus error — an isotropic field-curvature term. Only used while aberrations are enabled." />
     <TextBlock x:Key="CamSim_OpticalAxisOffsetXMicrons_Tooltip" Text="X offset (µm) of the optical axis from the sensor center (X0), shifting where the best-focus surface is centered. Only used while aberrations are enabled." />
     <TextBlock x:Key="CamSim_OpticalAxisOffsetYMicrons_Tooltip" Text="Y offset (µm) of the optical axis from the sensor center (Y0), shifting where the best-focus surface is centered. Only used while aberrations are enabled." />
+    <TextBlock x:Key="CamSim_EnableFieldAstigmatism_Tooltip" Text="Split the best-focus surface into the separate tangential and sagittal focal surfaces a real corrector produces, so stars render elliptical rather than round: radially smeared where the local defocus and the astigmatism disagree in sign, tangentially where they agree, and round in between. The two surfaces straddle the surface the aberration inspector fits, so what the inspector recovers is unchanged. Needs a nonzero Corner Astigmatism or Backfocus Error to have anything to work from — with a perfectly corrected optic at design spacing there is no split, and tilt alone cannot make one." />
+    <TextBlock x:Key="CamSim_CornerAstigmatismMicrons_Tooltip" Text="The astigmatism your corrector still leaves at the sensor corner when it is perfectly spaced, as the µm of focuser travel between the tangential and sagittal focal surfaces (a signed half-split). This is the term a tilted sensor REVEALS: tilt cannot create astigmatism — it only moves parts of the sensor away from best focus — and it is defocus landing on an already-split focal surface that makes one edge elongate radially and the opposite edge tangentially. Mis-spacing adds its own split on top, fixed by the optics at half the Backfocus Error, so this knob is what a perfectly spaced but tilted rig shows. Around 10–20 µm is typical of a decent field flattener at f/5–f/7; 0 models a flawless corrector, and the sign says which side of design spacing gives radially elongated stars." />
+    <TextBlock x:Key="CamSim_TiltAstigmatismFraction_Tooltip" Text="How much of the tilt shows up as astigmatism rather than as pure defocus. Leave it at 0 and tilt only moves focus around the field: crank the tilt far enough and the corners go round again, and any corner can still be brought to a perfect point — which is true for a crooked camera in a square adapter, and false for most real rigs. A sagging focuser or a non-square thread tilts the CORRECTOR along with the camera, and a tilted corrector adds a split of its own that grows with the tilt, so the affected corner never focuses sharp and its elongation does not wash out however far you push it. The axis ratio a tilted corner settles at is (1+f)/(1-f) regardless of tilt magnitude — 0.25 gives 1.67:1. The sign says which way round your corrector responds; values at or beyond ±1 are rejected, because at 1 the star collapses to a line everywhere at once." />
     <TextBlock x:Key="CamSim_ShowTiltAdapterPanel_Tooltip" Text="Show the simulated tilt adapter as a panel in the Imaging tab, so it can be operated next to the Aberration Inspector. Requires a NINA restart to appear the first time." />
 
     <DataTemplate x:Key="HocusFocus_CameraSimulator_Options">
@@ -3621,6 +3624,9 @@
                     <RowDefinition />
                     <RowDefinition />
                     <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
+                    <RowDefinition />
                 </Grid.RowDefinitions>
 
                 <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Text="Tilt Angle" ToolTip="{StaticResource CamSim_TiltAngleDegrees_Tooltip}" />
@@ -3682,6 +3688,34 @@
                             <rules:FloatRangeRule>
                                 <rules:FloatRangeRule.ValidRange>
                                     <rules:FloatRangeChecker Maximum="100000" Minimum="-100000" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+
+                <TextBlock Grid.Row="5" Grid.Column="0" VerticalAlignment="Center" Text="Model Astigmatism" ToolTip="{StaticResource CamSim_EnableFieldAstigmatism_Tooltip}" />
+                <CheckBox Grid.Row="5" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsChecked="{Binding CameraSimulatorOptions.EnableFieldAstigmatism}" ToolTip="{StaticResource CamSim_EnableFieldAstigmatism_Tooltip}" />
+
+                <TextBlock Grid.Row="6" Grid.Column="0" VerticalAlignment="Center" Text="Corner Astigmatism" ToolTip="{StaticResource CamSim_CornerAstigmatismMicrons_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="6" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_CornerAstigmatismMicrons_Tooltip}" Unit="µm">
+                    <Binding Path="CameraSimulatorOptions.CornerAstigmatismMicrons" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="1000" Minimum="-1000" />
+                                </rules:FloatRangeRule.ValidRange>
+                            </rules:FloatRangeRule>
+                        </Binding.ValidationRules>
+                    </Binding>
+                </ninactrl:UnitTextBox>
+                <TextBlock Grid.Row="7" Grid.Column="0" VerticalAlignment="Center" Text="Tilt Astigmatism" ToolTip="{StaticResource CamSim_TiltAstigmatismFraction_Tooltip}" />
+                <ninactrl:UnitTextBox Grid.Row="7" Grid.Column="1" MinWidth="80" Margin="5,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" ToolTip="{StaticResource CamSim_TiltAstigmatismFraction_Tooltip}" Unit="">
+                    <Binding Path="CameraSimulatorOptions.TiltAstigmatismFraction" UpdateSourceTrigger="LostFocus">
+                        <Binding.ValidationRules>
+                            <rules:FloatRangeRule>
+                                <rules:FloatRangeRule.ValidRange>
+                                    <rules:FloatRangeChecker Maximum="0.95" Minimum="-0.95" />
                                 </rules:FloatRangeRule.ValidRange>
                             </rules:FloatRangeRule>
                         </Binding.ValidationRules>

@@ -83,14 +83,259 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
         }
 
         /// <summary>
+        /// (c) The eccentricity capstone — the acceptance test for the astigmatism model. Inject a known tilt +
+        /// backfocus error, render one frame, and confirm the <b>real detector</b> measures stars elongated
+        /// <b>tangentially</b> on one edge, <b>radially</b> on the opposite one, and round in the middle.
+        ///
+        /// <para>Predicted for this scene (IMX533, N = 7.0, σ_min = 1.32 px, 2Np = 52.64 µm/px, corner
+        /// r′² = 63.96e6 µm², tilt 120 µm at 0°, backfocus 40 µm, corner residual 15 µm, focuser at best focus).
+        /// The split is a₂·r′² with a₂ = K/2 + a_c/r_c² = 5.47e-7, so A is the same at both edges and it is Δ
+        /// that changes sign:</para>
+        /// <list type="table">
+        /// <item><description>left edge x≈300: Δ = +83.2 µm, A = +11.2 µm ⇒ (a_rad, a_tan) = (1.37, 1.79) px ⇒ <b>tangential</b></description></item>
+        /// <item><description>right edge x≈2700: Δ = −108.1 µm, A = +11.1 µm ⇒ (2.26, 1.84) px ⇒ <b>radial</b></description></item>
+        /// <item><description>centre: r′ = 0 ⇒ Δ = A = 0 ⇒ round</description></item>
+        /// </list>
+        ///
+        /// <para><b>Kept near focus deliberately.</b> A strongly elliptical <i>donut</i> fits a Moffat poorly and
+        /// can fail <c>PSFGoodnessOfFitThreshold</c> outright, taking <c>PSF.Eccentricity</c> with it — so
+        /// "improving" this test by defocusing harder would break it.</para>
+        ///
+        /// <para><b>Measured</b> (for the record, since the thresholds below are set from these): orientation
+        /// scores −0.98 left / +0.97 right; eccentricity 0.26 at both edges against 0.11 at the centre. The edge
+        /// figures come in below what the closed form predicts because <c>PSF.Eccentricity</c> is an FWHM ratio
+        /// from a Moffat fit while the prediction is a second moment — they agree in ordering, not in magnitude,
+        /// exactly as the design spec says. The centre's 0.11 is the fit's own noise floor, which is why "round"
+        /// is asserted as clearly-less-than-the-edges rather than as zero.</para>
+        /// </summary>
+        [Test]
+        public async Task AstigmatismRendersRadialAndTangentialEdgesThroughFullPipeline() {
+            var measured = await MeasureEdgeElongation(backfocusErrorMicrons: 40.0, tiltAmountMicrons: 120.0,
+                cornerAstigmatismMicrons: 15.0);
+
+            Assert.Multiple(() => {
+                // Radial-vs-tangential score: +1 = the major axis points at the optical axis, −1 = across it.
+                Assert.That(measured.LeftScore, Is.LessThan(-0.5), "left edge is tangentially elongated");
+                Assert.That(measured.RightScore, Is.GreaterThan(0.5), "right edge is radially elongated");
+                Assert.That(measured.LeftEccentricity, Is.GreaterThan(0.20), "and measurably elongated at all");
+                Assert.That(measured.RightEccentricity, Is.GreaterThan(0.20));
+                Assert.That(measured.CentreEccentricity, Is.LessThan(0.15), "the on-axis stars stay round");
+            });
+        }
+
+        /// <summary>
+        /// (c′) <b>Pure tilt, perfect spacing</b> — the case a user hits first, and the one this model exists to
+        /// get right. A tilted sensor cannot change the beam's aberrations; it only chooses where along each beam
+        /// it samples. So the elongation here is not made by the tilt at all: it is the corrector's own residual
+        /// split a_c, which is present everywhere and always, being <i>revealed</i> because tilt drags one edge to
+        /// Δ &gt; 0 and the other to Δ &lt; 0 against that fixed split. Opposite edges therefore elongate
+        /// perpendicular to each other with no backfocus error anywhere in the scene.
+        ///
+        /// <para>An earlier model made the split proportional to the local spacing error, which tilt drives. That
+        /// makes A flip sign in lockstep with Δ, so Δ·A &lt; 0 everywhere and every edge elongates radially by the
+        /// same small amount — no perpendicular pair at any tilt magnitude. This test is what distinguishes the
+        /// two, so it is not redundant with (c) above.</para>
+        ///
+        /// <para>Predicted: a₂ = a_c/r_c² = 6.25e-7 with backfocus 0, so left edge Δ = +96.1 µm, A = +12.8 µm ⇒
+        /// (1.58, 2.07) px <b>tangential</b>; right edge Δ = −95.4 µm, A = +12.6 µm ⇒ (2.05, 1.57) px
+        /// <b>radial</b>. a_c = 40 µm rather than the shipped 15 µm so the ellipticity clears the Moffat fit's own
+        /// noise floor — at 15 µm the prediction is a real but marginal e ≈ 0.25.</para>
+        /// </summary>
+        [Test]
+        public async Task PureTilt_WithPerfectSpacing_StillFlipsRadialToTangentialAcrossTheField() {
+            var measured = await MeasureEdgeElongation(backfocusErrorMicrons: 0.0, tiltAmountMicrons: 120.0,
+                cornerAstigmatismMicrons: 40.0);
+
+            Assert.Multiple(() => {
+                Assert.That(measured.LeftScore, Is.LessThan(-0.5), "left edge is tangentially elongated");
+                Assert.That(measured.RightScore, Is.GreaterThan(0.5), "right edge is radially elongated");
+                Assert.That(measured.LeftEccentricity, Is.GreaterThan(0.20));
+                Assert.That(measured.RightEccentricity, Is.GreaterThan(0.20));
+                Assert.That(measured.CentreEccentricity, Is.LessThan(0.15), "the on-axis stars stay round");
+            });
+        }
+
+        /// <summary>
+        /// (c″) <b>Tilt that carries the corrector</b> — the second astigmatism mechanism, and the one that
+        /// keeps a badly tilted rig looking badly tilted. The residual (c′) is a fixed corner value while tilt
+        /// drives Δ without bound, so its axis ratio decays toward 1: push the tilt far enough and the corners
+        /// render <i>round</i>, and any corner can still be brought to a perfect point focus. A real tilt is
+        /// rarely the detector alone — a sagging focuser or a non-square thread tilts the corrector too, and
+        /// that raises the astigmatism level in proportion to the tilt.
+        ///
+        /// <para><b>It must stay perpendicular.</b> The classic tilt signature is one corner elongated along
+        /// the radius and the opposite one across it, and that exists because Δ changes sign across the field
+        /// while the split does not. So the tilt's contribution goes into the <b>even</b> part of the split —
+        /// a raised level, uniform over the field. An earlier revision made it a signed field gradient
+        /// instead, which flips together with Δ and left every corner radial; this test is what distinguishes
+        /// the two, and asserts the perpendicular pair survives at a tilt that washes the residual out.</para>
+        ///
+        /// <para>Predicted for 150 µm of tilt with c_t = 0.25 and a perfect corrector (a_c = 0): the effective
+        /// corner split is 37.5 µm, so left edge Δ = +120.1, A = +12.0 ⇒ (2.05, 2.51) px <b>tangential</b>;
+        /// right edge Δ = −119.3, A = +11.9 ⇒ (2.49, 2.04) px <b>radial</b>. With c_t = 0 the same frame has
+        /// A ≡ 0 and renders perfectly round, which is the control.</para>
+        /// </summary>
+        [Test]
+        public async Task TiltThatCarriesTheCorrector_KeepsTheEdgesPerpendicular_WhereAPerfectCorrectorIsRound() {
+            var carried = await MeasureEdgeElongation(backfocusErrorMicrons: 0.0, tiltAmountMicrons: 150.0,
+                cornerAstigmatismMicrons: 0.0, tiltAstigmatismFraction: 0.25);
+            var perfectOptic = await MeasureEdgeElongation(backfocusErrorMicrons: 0.0, tiltAmountMicrons: 150.0,
+                cornerAstigmatismMicrons: 0.0, tiltAstigmatismFraction: 0.0);
+
+            Assert.Multiple(() => {
+                Assert.That(carried.LeftScore, Is.LessThan(-0.5), "left edge across the radius");
+                Assert.That(carried.RightScore, Is.GreaterThan(0.5), "right edge along it -- perpendicular, not both radial");
+                Assert.That(carried.LeftEccentricity, Is.GreaterThan(0.25));
+                Assert.That(carried.RightEccentricity, Is.GreaterThan(0.25));
+                Assert.That(carried.CentreEccentricity, Is.LessThan(0.15), "the axial star stays round");
+
+                // The control: a flawless corrector, squarely mounted, at the identical tilt. Tilt alone moves
+                // focus around and produces no elongation whatever -- so the contrast is the whole effect.
+                Assert.That(perfectOptic.LeftEccentricity, Is.LessThan(carried.LeftEccentricity - 0.10));
+                Assert.That(perfectOptic.RightEccentricity, Is.LessThan(carried.RightEccentricity - 0.10));
+            });
+        }
+
+        /// <summary>
+        /// (d) The spacing-direction diagnostic, end to end — and its <b>limit</b>. Pure backfocus with no tilt,
+        /// so Δ = −K·r′² is set by the curvature alone and reversing the spacer reverses it. The split does
+        /// <i>not</i> reverse with it: A = (C/2 + a_c)·r′²/r_c² carries the corrector's residual, which the spacer
+        /// cannot touch. So the familiar "swap a spacer and the corners rotate 90°" holds only while the residual
+        /// still outvotes the induced term, i.e. |C| &lt; 2·a_c; past that both directions read radial.
+        ///
+        /// <para>That window is the honest form of a widely repeated rule. Reports of the flip and flat denials of
+        /// it (Roland Christen's among them) are both consistent with this: which one a given observer sees
+        /// depends on how their spacing error compares with their corrector's residual astigmatism.</para>
+        ///
+        /// <para>a_c = 120 µm here — a deliberately poor corrector — so the window reaches |C| &lt; 240 µm and the
+        /// stars inside it are still large enough for a reliable Moffat fit. Inside (±100 µm): a₂ = 2.66e-6 and
+        /// 1.09e-6 respectively, giving left-edge (1.64, 0.43) px radial versus (0.18, 1.04) px tangential.
+        /// Outside (±300 µm) both signs give a_rad &gt; a_tan.</para>
+        /// </summary>
+        [Test]
+        public async Task ReversingTheBackfocusError_FlipsRadialToTangential_OnlyInsideTheResidualWindow() {
+            const double residual = 120.0;
+            var (positive, negative) = (
+                await MeasureEdgeElongation(backfocusErrorMicrons: 100.0, tiltAmountMicrons: 0.0, cornerAstigmatismMicrons: residual),
+                await MeasureEdgeElongation(backfocusErrorMicrons: -100.0, tiltAmountMicrons: 0.0, cornerAstigmatismMicrons: residual));
+            var (farPositive, farNegative) = (
+                await MeasureEdgeElongation(backfocusErrorMicrons: 300.0, tiltAmountMicrons: 0.0, cornerAstigmatismMicrons: residual),
+                await MeasureEdgeElongation(backfocusErrorMicrons: -300.0, tiltAmountMicrons: 0.0, cornerAstigmatismMicrons: residual));
+
+            Assert.Multiple(() => {
+                Assert.That(positive.LeftScore, Is.GreaterThan(0.5), "inside the window, too-long spacing: left edge radial");
+                Assert.That(positive.RightScore, Is.GreaterThan(0.5), "and the right edge too");
+                Assert.That(negative.LeftScore, Is.LessThan(-0.5), "reversed: left edge tangential");
+                Assert.That(negative.RightScore, Is.LessThan(-0.5), "and the right edge too");
+
+                // Same ellipse, rotated -- so the measured elongation should be comparable, not merely present.
+                Assert.That(positive.LeftEccentricity, Is.GreaterThan(0.20));
+                Assert.That(negative.LeftEccentricity, Is.GreaterThan(0.20));
+                Assert.That(positive.CentreEccentricity, Is.LessThan(0.15), "the on-axis stars stay round either way");
+                Assert.That(negative.CentreEccentricity, Is.LessThan(0.15));
+
+                // ...and past the window the flip is simply gone. Asserted, not merely noted, because a model that
+                // flipped at every magnitude would pass every assertion above and still be wrong.
+                Assert.That(farPositive.LeftScore, Is.GreaterThan(0.5), "outside the window both spacing directions read radial");
+                Assert.That(farNegative.LeftScore, Is.GreaterThan(0.5));
+            });
+        }
+
+        private readonly record struct EdgeElongation(
+            double LeftScore, double RightScore, double LeftEccentricity, double RightEccentricity, double CentreEccentricity);
+
+        private static async Task<EdgeElongation> MeasureEdgeElongation(
+                double backfocusErrorMicrons, double tiltAmountMicrons, double cornerAstigmatismMicrons,
+                double tiltAstigmatismFraction = 0.0) {
+            var sensor = SyntheticCameraTestScene.SensorDef;
+            int width = sensor.Width, height = sensor.Height;
+            var projection = SyntheticCameraTestScene.Projection();
+            double centreX = width / 2.0, centreY = height / 2.0;
+
+            var regions = new (string name, double x, double y)[] { ("left", 300, 1504), ("right", 2700, 1504), ("centre", 1504, 1504) };
+            var offsets = new (double dx, double dy)[] { (0, -220), (0, -110), (0, 0), (0, 110), (0, 220) };
+            var placements = regions
+                .SelectMany(r => offsets.Select(o => (r.name, x: r.x + o.dx, y: r.y + o.dy)))
+                .ToArray();
+            var stars = placements.Select(p => SyntheticCameraTestScene.StarAtPixel(projection, p.x, p.y, 10.2)).ToList();
+
+            // Focuser AT best focus, so the centre is exactly on the surface and the pattern is symmetric.
+            var request = SyntheticCameraTestScene.Request(
+                SyntheticCameraTestScene.OptimalFocuserPosition,
+                aberrationsEnabled: true, tiltAngleDegrees: 0.0, tiltAmountMicrons: tiltAmountMicrons,
+                backfocusErrorMicrons: backfocusErrorMicrons,
+                astigmatismEnabled: true, cornerAstigmatismMicrons: cornerAstigmatismMicrons,
+                tiltAstigmatismFraction: tiltAstigmatismFraction);
+
+            var pixels = new StarFieldCompositor(new FakeCatalogReader(stars)).Render(request, CancellationToken.None);
+            using var mat = CvImageUtility.ToOpenCVMat(pixels, sensor.BitDepth, width, height);
+            var result = await new StarDetector(new AlglibAPI()).Detect(mat, new StarDetectorParams(), null, CancellationToken.None);
+            var detected = (result.DetectedStars ?? new List<Star>()).Where(s => s.PSF != null).ToList();
+
+            var scores = new Dictionary<string, List<double>>();
+            var eccentricities = new Dictionary<string, List<double>>();
+            foreach (var (name, px, py) in placements) {
+                var near = detected
+                    .Select(d => (d, dist: Math.Sqrt((d.Center.X - px) * (d.Center.X - px) + (d.Center.Y - py) * (d.Center.Y - py))))
+                    .OrderBy(t => t.dist)
+                    .FirstOrDefault();
+                if (near.d == null || near.dist > 6.0) {
+                    continue;
+                }
+
+                // PSFModel reports theta for its fitted x axis, so the MAJOR axis is theta only when FWHMx is the
+                // larger of the two -- otherwise it is a quarter turn away.
+                var psf = near.d.PSF;
+                var majorTheta = psf.FWHMx >= psf.FWHMy ? psf.ThetaRadians : psf.ThetaRadians + Math.PI / 2.0;
+
+                // The radial direction in the same convention. InspectorVM draws an angle theta as
+                // (cos theta, -sin theta) "since y is inverted to render top-down", so an image-space direction
+                // (dx, dy) corresponds to atan2(-dy, dx) -- hence the negated y here. Derived, not fitted.
+                var radialTheta = Math.Atan2(-(py - centreY), px - centreX);
+
+                // cos(2 dtheta) folds the mod-pi ambiguity away: +1 radial, -1 tangential, 0 at 45 degrees.
+                var score = Math.Cos(2.0 * (majorTheta - radialTheta));
+                if (!scores.TryGetValue(name, out var list)) {
+                    scores[name] = list = new List<double>();
+                    eccentricities[name] = new List<double>();
+                }
+                list.Add(score);
+                eccentricities[name].Add(psf.Eccentricity);
+            }
+
+            double Median(string region, Dictionary<string, List<double>> source) {
+                Assert.That(source.TryGetValue(region, out var values) && values.Count >= 3, Is.True,
+                    $"need at least 3 PSF-modelled stars in the {region} region, got {(source.TryGetValue(region, out var v) ? v.Count : 0)}");
+                var sorted = values.OrderBy(x => x).ToList();
+                return sorted[sorted.Count / 2];
+            }
+
+            var measured = new EdgeElongation(
+                Median("left", scores), Median("right", scores),
+                Median("left", eccentricities), Median("right", eccentricities), Median("centre", eccentricities));
+            TestContext.WriteLine(
+                $"backfocus {backfocusErrorMicrons:F0} µm, tilt {tiltAmountMicrons:F0} µm, residual {cornerAstigmatismMicrons:F0} µm, c_t {tiltAstigmatismFraction:F2}: leftScore={measured.LeftScore:F3} rightScore={measured.RightScore:F3} "
+                + $"e(left)={measured.LeftEccentricity:F3} e(right)={measured.RightEccentricity:F3} e(centre)={measured.CentreEccentricity:F3}");
+            return measured;
+        }
+
+        /// <summary>
         /// (b) Aberration inject ⇄ recover through the full pipeline. Inject a known tilt + backfocus, render a
         /// stepped-focuser run, detect each star per frame, fit each star's best-focus focuser position from its
         /// HFR²-vs-position parabola, then linear-least-squares fit the tilted paraboloid best-focus surface
         /// z = Gx·x + Gy·y + K·(x²+y²) + Z0 to the per-star (x, y, bestFocus) points. Recover the inspector's own
         /// tilt azimuth / tilt effect / curvature effect and assert they match what was injected.
+        ///
+        /// <para>Run <b>with and without astigmatism</b>, at the same tolerances. That the astigmatic case
+        /// passes them unchanged is the empirical half of the safety argument: at a fixed field point the split
+        /// A does not depend on the focuser, so Δ → −Δ maps the semi-axis pair (|Δ−A|, |Δ+A|) to
+        /// (|Δ+A|, |Δ−A|) — the PSF at −Δ is the PSF at +Δ rotated by exactly 90°. Every rotation-invariant
+        /// statistic, HFR included, is therefore untouched, so each star's HFR² parabola keeps its vertex and
+        /// the surface fit recovers the same numbers. If this ever fails with astigmatism on, the model or the
+        /// rasterizer is wrong — widening the tolerance would only hide it.</para>
         /// </summary>
         [Test]
-        public async Task AberrationSurfaceRecoveredThroughFullPipeline_TiltAndBackfocus() {
+        public async Task AberrationSurfaceRecoveredThroughFullPipeline_TiltAndBackfocus([Values(false, true)] bool astigmatism) {
             var sensor = SyntheticCameraTestScene.SensorDef;
             int width = sensor.Width, height = sensor.Height;
             var projection = SyntheticCameraTestScene.Projection();
@@ -107,7 +352,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             // The injected surface, expressed exactly as the inspector fits it, is the ground truth.
             var truthRequest = SyntheticCameraTestScene.Request(
                 x0, aberrationsEnabled: true,
-                tiltAngleDegrees: injectedPhiDegrees, tiltAmountMicrons: injectedTiltMicrons, backfocusErrorMicrons: injectedBackfocusMicrons);
+                tiltAngleDegrees: injectedPhiDegrees, tiltAmountMicrons: injectedTiltMicrons, backfocusErrorMicrons: injectedBackfocusMicrons,
+                astigmatismEnabled: astigmatism, cornerAstigmatismMicrons: astigmatism ? 15.0 : 0.0);
             var surface = AberrationSurface.FromRequest(truthRequest, sensor);
 
             // Stars spread across the field, weighted to corners/edges for tilt+curvature leverage.
@@ -128,7 +374,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.CameraSimulator {
             foreach (var offset in offsets) {
                 var request = SyntheticCameraTestScene.Request(
                     x0 + offset, aberrationsEnabled: true,
-                    tiltAngleDegrees: injectedPhiDegrees, tiltAmountMicrons: injectedTiltMicrons, backfocusErrorMicrons: injectedBackfocusMicrons);
+                    tiltAngleDegrees: injectedPhiDegrees, tiltAmountMicrons: injectedTiltMicrons, backfocusErrorMicrons: injectedBackfocusMicrons,
+                    astigmatismEnabled: astigmatism, cornerAstigmatismMicrons: astigmatism ? 15.0 : 0.0);
                 var pixels = new StarFieldCompositor(reader).Render(request, CancellationToken.None);
                 using var mat = CvImageUtility.ToOpenCVMat(pixels, sensor.BitDepth, width, height);
                 var result = await new StarDetector(new AlglibAPI()).Detect(mat, new StarDetectorParams(), null, CancellationToken.None);

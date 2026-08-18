@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator;
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
@@ -465,9 +466,14 @@ public class CameraSimulatorOptionsTests {
             Assert.That(options.EnableAberrations, Is.False);
             Assert.That(options.TiltAngleDegrees, Is.EqualTo(0.0));
             Assert.That(options.TiltAmountMicrons, Is.EqualTo(0.0));
-            Assert.That(options.BackfocusErrorMicrons, Is.EqualTo(0.0));
+            // Nonzero on purpose: the field-astigmatism model needs a spacing error to work from, so a user who
+            // enables aberrations sees eccentric stars rather than only round ones.
+            Assert.That(options.BackfocusErrorMicrons, Is.EqualTo(CameraSimulatorOptions.DefaultBackfocusErrorMicrons));
             Assert.That(options.OpticalAxisOffsetXMicrons, Is.EqualTo(0.0));
             Assert.That(options.OpticalAxisOffsetYMicrons, Is.EqualTo(0.0));
+            Assert.That(options.EnableFieldAstigmatism, Is.True);
+            Assert.That(options.CornerAstigmatismMicrons, Is.EqualTo(CameraSimulatorOptions.DefaultCornerAstigmatismMicrons));
+            Assert.That(options.TiltAstigmatismFraction, Is.EqualTo(CameraSimulatorOptions.DefaultTiltAstigmatismFraction));
         });
     }
 

@@ -252,6 +252,15 @@ namespace TestApp {
                 return;
             }
 
+            // Headless synthetic-camera render benchmark: `TestApp bench-simrender [--field dense,sparse] ...`.
+            // Reports the render's per-phase cost and PSF kernel-cache cardinality on a real ASTAP star field.
+            // `--kernel-ladder` times kernel generation alone and needs no catalog; `--census` counts stars and
+            // kernels without timing anything.
+            if (args.Length > 0 && args[0].Equals("bench-simrender", StringComparison.OrdinalIgnoreCase)) {
+                await BenchSimRenderRunner.Run(args);
+                return;
+            }
+
             // Headless contamination diagnostic mode: `TestApp contamination --image <path> ...` (or any
             // invocation that passes --image). Otherwise fall through to the existing WPF GUI.
             bool diagnosticMode = args.Length > 0 &&

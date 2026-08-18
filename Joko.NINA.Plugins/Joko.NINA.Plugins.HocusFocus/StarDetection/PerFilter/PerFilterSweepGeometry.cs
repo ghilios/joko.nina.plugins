@@ -19,11 +19,17 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
     /// of points per side of the curve minimum.
     ///
     /// <para>Deliberately NOT part of <see cref="AutoFocus.Replay.StarDetectionSettingsSnapshot"/>. That type is
-    /// also the replay metadata payload, the replay options override handed to the detector, and the
-    /// import/export/diff surface — and sweep geometry is none of those things. Putting it there would put focuser
-    /// settings inside a JSON node named <c>starDetection</c>, and would force the import/export drift guard to
-    /// classify it as either "importable" (so a star-detection export file silently rewrites the focuser sweep on
-    /// another rig) or "machine-local" (which is untrue — it is per-filter and meant to persist).</para>
+    /// also the replay metadata payload, the replay options override handed to the detector, and the flat
+    /// <see cref="Interfaces.IStarDetectionOptions"/> surface the import diff reflects over — and sweep geometry is
+    /// none of those things. Putting it there would put focuser settings inside a JSON node named
+    /// <c>starDetection</c>, and would force the import/export drift guard to classify it as either "importable"
+    /// (untrue: it is not an interface property at all) or "machine-local" (also untrue — it is per-filter and meant
+    /// to persist).</para>
+    ///
+    /// <para>It does travel between machines: <see cref="StarDetectionSettingsExport.SweepGeometry"/> carries it as
+    /// a SIBLING node of the detection snapshot, and <c>StarDetectionSettingsDiff.BuildSweepGeometryDiff</c> puts it
+    /// in the same import confirmation. A step size describes a particular focuser, so it is never applied without
+    /// those rows on screen first.</para>
     ///
     /// <para><see cref="Inherit"/> on a field means "use the profile's FocuserSettings value". The sentinel mirrors
     /// NINA core's own per-filter auto-focus idiom (<c>FilterInfo.AutoFocusExposureTime &gt; -1</c>, honored in

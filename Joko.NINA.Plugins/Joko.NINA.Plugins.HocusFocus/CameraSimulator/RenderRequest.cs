@@ -10,6 +10,7 @@
 
 #endregion "copyright"
 
+using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Rendering;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 
 namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
@@ -91,6 +92,26 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator {
         public double BackfocusErrorMicrons { get; init; }
         public double OpticalAxisOffsetXMicrons { get; init; }
         public double OpticalAxisOffsetYMicrons { get; init; }
+
+        /// <summary>
+        /// Whether the best-focus surface splits into tangential and sagittal surfaces, giving stars an
+        /// elliptical (eccentric) blur. Paired with a magnitude the way
+        /// <see cref="CentralObstructionEnabled"/> is paired with <see cref="CentralObstructionFraction"/>.
+        /// </summary>
+        public bool AstigmatismEnabled { get; init; }
+
+        /// <summary>
+        /// The corrector's design-residual T–S half-split at the sensor corner (µm, signed) — what survives
+        /// at perfect spacing, and what a tilted sensor reveals by defocusing it.
+        /// </summary>
+        public double CornerAstigmatismMicrons { get; init; }
+
+        /// <summary>
+        /// c_t — the fraction of the tilt that also shows up as astigmatic split rather than pure defocus,
+        /// signed, |c_t| &lt; 1. 0 models a crooked detector in a square adapter; nonzero models a tilt that
+        /// carries the corrector with it, which is what stops a tilted corner from ever focusing sharp.
+        /// </summary>
+        public double TiltAstigmatismFraction { get; init; }
 
         // --- Exposure ---
 
