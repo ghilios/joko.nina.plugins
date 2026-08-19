@@ -25,7 +25,7 @@ public class InspectorOptionsTests {
         Assert.Multiple(() => {
             Assert.That(options.StepCount, Is.EqualTo(-1));
             Assert.That(options.StepSize, Is.EqualTo(-1));
-            Assert.That(options.SignalAmplification, Is.EqualTo(2));
+            Assert.That(options.SignalAmplification, Is.EqualTo(1));
             Assert.That(options.CenterFocuserBeforeRun, Is.False);
             Assert.That(options.FramesPerPoint, Is.EqualTo(-1));
             Assert.That(options.TimeoutSeconds, Is.EqualTo(-1));
@@ -192,7 +192,7 @@ public class InspectorOptionsTests {
             Assert.That(options.SensorROI, Is.EqualTo(1.0));
             Assert.That(options.MouseOnChartsEnabled, Is.True);
             Assert.That(options.InterpolationAmount, Is.EqualTo(InterpolationAmountEnum.Medium));
-            Assert.That(options.SignalAmplification, Is.EqualTo(2));
+            Assert.That(options.SignalAmplification, Is.EqualTo(1));
             Assert.That(options.CenterFocuserBeforeRun, Is.False);
         });
     }

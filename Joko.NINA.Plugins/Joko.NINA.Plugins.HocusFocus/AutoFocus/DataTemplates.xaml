@@ -3061,15 +3061,23 @@
                                 </TextBlock.Style>
                                 Run a measurement to see guidance.
                             </TextBlock>
-                            <!--  2-row guidance table (columns = screws, rows = Tilt + Backfocus)  -->
+                            <!--  2-row guidance table (columns = screws, rows = Tilt + Backfocus).
+                                  Geometry is deliberately IDENTICAL to the numeric table below so the two
+                                  read as one block: same label column, same per-screw cell width, same row
+                                  height. Star-sized columns cannot do that, because the leftover space they
+                                  split depends on each table's own content, so every screw column is Auto and its
+                                  cells carry the fixed width instead. That also keeps the 4th column
+                                  collapsing to nothing on a 3-screw adapter, and gives the header labels a
+                                  real width to ellipsize against.  -->
                             <Grid
                                 Margin="5,5,5,0"
+                                HorizontalAlignment="Center"
                                 Visibility="{Binding TiltGuidance.HasTiltGuidance, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="75" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
@@ -3081,56 +3089,89 @@
                                 <TextBlock
                                     Grid.Row="0"
                                     Grid.Column="1"
-                                    HorizontalAlignment="Center"
+                                    Width="95"
+                                    MinHeight="26"
+                                    VerticalAlignment="Center"
+                                    TextAlignment="Center"
                                     FontWeight="SemiBold"
-                                    Text="Screw 1" />
+                                    Text="{Binding TiltGuidance.Screw1Header}"
+                                    TextTrimming="CharacterEllipsis"
+                                    ToolTip="{Binding TiltGuidance.Screw1HeaderTooltip}" />
                                 <TextBlock
                                     Grid.Row="0"
                                     Grid.Column="2"
-                                    HorizontalAlignment="Center"
+                                    Width="95"
+                                    MinHeight="26"
+                                    VerticalAlignment="Center"
+                                    TextAlignment="Center"
                                     FontWeight="SemiBold"
-                                    Text="Screw 2" />
+                                    Text="{Binding TiltGuidance.Screw2Header}"
+                                    TextTrimming="CharacterEllipsis"
+                                    ToolTip="{Binding TiltGuidance.Screw2HeaderTooltip}" />
                                 <TextBlock
                                     Grid.Row="0"
                                     Grid.Column="3"
-                                    HorizontalAlignment="Center"
+                                    Width="95"
+                                    MinHeight="26"
+                                    VerticalAlignment="Center"
+                                    TextAlignment="Center"
                                     FontWeight="SemiBold"
-                                    Text="Screw 3" />
+                                    Text="{Binding TiltGuidance.Screw3Header}"
+                                    TextTrimming="CharacterEllipsis"
+                                    ToolTip="{Binding TiltGuidance.Screw3HeaderTooltip}" />
                                 <TextBlock
                                     Grid.Row="0"
                                     Grid.Column="4"
-                                    HorizontalAlignment="Center"
+                                    Width="95"
+                                    MinHeight="26"
+                                    VerticalAlignment="Center"
+                                    TextAlignment="Center"
                                     FontWeight="SemiBold"
-                                    Text="Screw 4"
+                                    Text="{Binding TiltGuidance.Screw4Header}"
+                                    TextTrimming="CharacterEllipsis"
+                                    ToolTip="{Binding TiltGuidance.Screw4HeaderTooltip}"
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                                 <!--  Tilt row  -->
                                 <TextBlock
                                     Grid.Row="1"
                                     Grid.Column="0"
                                     VerticalAlignment="Center"
+                                    MinHeight="26"
                                     Text="Tilt" />
                                 <TextBlock
                                     Grid.Row="1"
                                     Grid.Column="1"
-                                    HorizontalAlignment="Center"
+                                    Width="95"
+                                    MinHeight="26"
+                                    VerticalAlignment="Center"
+                                    TextAlignment="Center"
                                     FontSize="18"
                                     Text="{Binding TiltGuidance.Screw1TiltArrow}" />
                                 <TextBlock
                                     Grid.Row="1"
                                     Grid.Column="2"
-                                    HorizontalAlignment="Center"
+                                    Width="95"
+                                    MinHeight="26"
+                                    VerticalAlignment="Center"
+                                    TextAlignment="Center"
                                     FontSize="18"
                                     Text="{Binding TiltGuidance.Screw2TiltArrow}" />
                                 <TextBlock
                                     Grid.Row="1"
                                     Grid.Column="3"
-                                    HorizontalAlignment="Center"
+                                    Width="95"
+                                    MinHeight="26"
+                                    VerticalAlignment="Center"
+                                    TextAlignment="Center"
                                     FontSize="18"
                                     Text="{Binding TiltGuidance.Screw3TiltArrow}" />
                                 <TextBlock
                                     Grid.Row="1"
                                     Grid.Column="4"
-                                    HorizontalAlignment="Center"
+                                    Width="95"
+                                    MinHeight="26"
+                                    VerticalAlignment="Center"
+                                    TextAlignment="Center"
                                     FontSize="18"
                                     Text="{Binding TiltGuidance.Screw4TiltArrow}"
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
@@ -3139,33 +3180,46 @@
                                     Grid.Row="2"
                                     Grid.Column="0"
                                     VerticalAlignment="Center"
+                                    MinHeight="26"
                                     Text="Backfocus"
                                     Visibility="{Binding TiltGuidance.HasBackfocusRow, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                                 <TextBlock
                                     Grid.Row="2"
                                     Grid.Column="1"
-                                    HorizontalAlignment="Center"
+                                    Width="95"
+                                    MinHeight="26"
+                                    VerticalAlignment="Center"
+                                    TextAlignment="Center"
                                     FontSize="18"
                                     Text="{Binding TiltGuidance.Screw1BackfocusArrow}"
                                     Visibility="{Binding TiltGuidance.HasBackfocusRow, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                                 <TextBlock
                                     Grid.Row="2"
                                     Grid.Column="2"
-                                    HorizontalAlignment="Center"
+                                    Width="95"
+                                    MinHeight="26"
+                                    VerticalAlignment="Center"
+                                    TextAlignment="Center"
                                     FontSize="18"
                                     Text="{Binding TiltGuidance.Screw2BackfocusArrow}"
                                     Visibility="{Binding TiltGuidance.HasBackfocusRow, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                                 <TextBlock
                                     Grid.Row="2"
                                     Grid.Column="3"
-                                    HorizontalAlignment="Center"
+                                    Width="95"
+                                    MinHeight="26"
+                                    VerticalAlignment="Center"
+                                    TextAlignment="Center"
                                     FontSize="18"
                                     Text="{Binding TiltGuidance.Screw3BackfocusArrow}"
                                     Visibility="{Binding TiltGuidance.HasBackfocusRow, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                                 <TextBlock
                                     Grid.Row="2"
                                     Grid.Column="4"
-                                    HorizontalAlignment="Center"
+                                    Width="95"
+                                    MinHeight="26"
+                                    VerticalAlignment="Center"
+                                    TextAlignment="Center"
                                     FontSize="18"
                                     Text="{Binding TiltGuidance.Screw4BackfocusArrow}"
                                     Visibility="{Binding TiltGuidance.HasFourScrewBackfocus, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
@@ -3174,6 +3228,7 @@
                             <!--  Turns/Degrees/Minutes display selector — screw adapters only (steppers always show whole steps)  -->
                             <StackPanel
                                 Margin="5,8,5,0"
+                                HorizontalAlignment="Center"
                                 Orientation="Horizontal"
                                 Visibility="{Binding TiltGuidance.ShowAngleUnitSelector, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                                 <TextBlock Margin="0,0,6,0" VerticalAlignment="Center" Text="Display:" />
@@ -3190,15 +3245,17 @@
                                 </ComboBox>
                             </StackPanel>
 
-                            <!--  Precise numeric adjustments, each with its rotation glyph / step sign — shown when adapter hardware is configured  -->
+                            <!--  Precise numeric adjustments, each with its rotation glyph / step sign — shown when adapter hardware is configured.
+                                  Column geometry must stay in step with the arrows table above; see its comment.  -->
                             <Grid
                                 Margin="5,8,5,0"
+                                HorizontalAlignment="Center"
                                 Visibility="{Binding TiltGuidance.HasNumericGuidance, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="75" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
@@ -3208,31 +3265,31 @@
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
                                 <!--  Header  -->
-                                <TextBlock Grid.Row="0" Grid.Column="1" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 1" />
-                                <TextBlock Grid.Row="0" Grid.Column="2" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 2" />
-                                <TextBlock Grid.Row="0" Grid.Column="3" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 3" />
-                                <TextBlock Grid.Row="0" Grid.Column="4" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 4"
+                                <TextBlock Grid.Row="0" Grid.Column="1" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw1Header}" TextTrimming="CharacterEllipsis" ToolTip="{Binding TiltGuidance.Screw1HeaderTooltip}" />
+                                <TextBlock Grid.Row="0" Grid.Column="2" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw2Header}" TextTrimming="CharacterEllipsis" ToolTip="{Binding TiltGuidance.Screw2HeaderTooltip}" />
+                                <TextBlock Grid.Row="0" Grid.Column="3" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw3Header}" TextTrimming="CharacterEllipsis" ToolTip="{Binding TiltGuidance.Screw3HeaderTooltip}" />
+                                <TextBlock Grid.Row="0" Grid.Column="4" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw4Header}" TextTrimming="CharacterEllipsis" ToolTip="{Binding TiltGuidance.Screw4HeaderTooltip}"
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                                 <!--  Tilt amounts — ⟳/⟲ in the bound strings render as icons via IconizedText  -->
-                                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Tilt" />
-                                <TextBlock Grid.Row="1" Grid.Column="1" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw1TiltAmount}" />
-                                <TextBlock Grid.Row="1" Grid.Column="2" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw2TiltAmount}" />
-                                <TextBlock Grid.Row="1" Grid.Column="3" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw3TiltAmount}" />
-                                <TextBlock Grid.Row="1" Grid.Column="4" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw4TiltAmount}"
+                                <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" MinHeight="26" Text="Tilt" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw1TiltAmount}" />
+                                <TextBlock Grid.Row="1" Grid.Column="2" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw2TiltAmount}" />
+                                <TextBlock Grid.Row="1" Grid.Column="3" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw3TiltAmount}" />
+                                <TextBlock Grid.Row="1" Grid.Column="4" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw4TiltAmount}"
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                                 <!--  Backfocus amounts — ⟳/⟲ render as icons via IconizedText  -->
-                                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" Text="Backfocus" />
-                                <TextBlock Grid.Row="2" Grid.Column="1" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw1BackfocusAmount}" />
-                                <TextBlock Grid.Row="2" Grid.Column="2" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw2BackfocusAmount}" />
-                                <TextBlock Grid.Row="2" Grid.Column="3" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw3BackfocusAmount}" />
-                                <TextBlock Grid.Row="2" Grid.Column="4" HorizontalAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw4BackfocusAmount}"
+                                <TextBlock Grid.Row="2" Grid.Column="0" VerticalAlignment="Center" MinHeight="26" Text="Backfocus" />
+                                <TextBlock Grid.Row="2" Grid.Column="1" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw1BackfocusAmount}" />
+                                <TextBlock Grid.Row="2" Grid.Column="2" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw2BackfocusAmount}" />
+                                <TextBlock Grid.Row="2" Grid.Column="3" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw3BackfocusAmount}" />
+                                <TextBlock Grid.Row="2" Grid.Column="4" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" controls:IconizedText.Text="{Binding TiltGuidance.Screw4BackfocusAmount}"
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                                 <!--  Total — ⟳/⟲ render as icons via IconizedText; SemiBold on the cell carries to the Run  -->
-                                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Text="Total" />
-                                <TextBlock Grid.Row="3" Grid.Column="1" HorizontalAlignment="Center" FontWeight="SemiBold" controls:IconizedText.Text="{Binding TiltGuidance.Screw1TotalAmount}" />
-                                <TextBlock Grid.Row="3" Grid.Column="2" HorizontalAlignment="Center" FontWeight="SemiBold" controls:IconizedText.Text="{Binding TiltGuidance.Screw2TotalAmount}" />
-                                <TextBlock Grid.Row="3" Grid.Column="3" HorizontalAlignment="Center" FontWeight="SemiBold" controls:IconizedText.Text="{Binding TiltGuidance.Screw3TotalAmount}" />
-                                <TextBlock Grid.Row="3" Grid.Column="4" HorizontalAlignment="Center" FontWeight="SemiBold" controls:IconizedText.Text="{Binding TiltGuidance.Screw4TotalAmount}"
+                                <TextBlock Grid.Row="3" Grid.Column="0" VerticalAlignment="Center" MinHeight="26" FontWeight="SemiBold" Text="Total" />
+                                <TextBlock Grid.Row="3" Grid.Column="1" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" FontWeight="SemiBold" controls:IconizedText.Text="{Binding TiltGuidance.Screw1TotalAmount}" />
+                                <TextBlock Grid.Row="3" Grid.Column="2" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" FontWeight="SemiBold" controls:IconizedText.Text="{Binding TiltGuidance.Screw2TotalAmount}" />
+                                <TextBlock Grid.Row="3" Grid.Column="3" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" FontWeight="SemiBold" controls:IconizedText.Text="{Binding TiltGuidance.Screw3TotalAmount}" />
+                                <TextBlock Grid.Row="3" Grid.Column="4" Width="95" MinHeight="26" VerticalAlignment="Center" TextAlignment="Center" FontWeight="SemiBold" controls:IconizedText.Text="{Binding TiltGuidance.Screw4TotalAmount}"
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             </Grid>
 
@@ -3269,8 +3326,8 @@
                                     <Border Grid.Row="0" Grid.Column="0" Margin="0,0,2,2" Padding="6,3"
                                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                                         <StackPanel>
-                                            <TextBlock FontWeight="Bold" Text="TL · Motor 2" />
-                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 2" />
+                                            <TextBlock FontWeight="Bold" Text="{Binding ScrewPositionTopLeftHeading}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Motor 2 · wizard screw 2" />
                                             <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopLeftDisplay}" />
                                         </StackPanel>
                                     </Border>
@@ -3278,8 +3335,8 @@
                                     <Border Grid.Row="0" Grid.Column="1" Margin="2,0,0,2" Padding="6,3"
                                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                                         <StackPanel>
-                                            <TextBlock FontWeight="Bold" Text="TR · Motor 1" />
-                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 1" />
+                                            <TextBlock FontWeight="Bold" Text="{Binding ScrewPositionTopRightHeading}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Motor 1 · wizard screw 1" />
                                             <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopRightDisplay}" />
                                         </StackPanel>
                                     </Border>
@@ -3287,8 +3344,8 @@
                                     <Border Grid.Row="1" Grid.Column="0" Margin="0,2,2,0" Padding="6,3"
                                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                                         <StackPanel>
-                                            <TextBlock FontWeight="Bold" Text="BL · Motor 4" />
-                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 3" />
+                                            <TextBlock FontWeight="Bold" Text="{Binding ScrewPositionBottomLeftHeading}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Motor 4 · wizard screw 3" />
                                             <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomLeftDisplay}" />
                                         </StackPanel>
                                     </Border>
@@ -3296,8 +3353,8 @@
                                     <Border Grid.Row="1" Grid.Column="1" Margin="2,2,0,0" Padding="6,3"
                                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                                         <StackPanel>
-                                            <TextBlock FontWeight="Bold" Text="BR · Motor 3" />
-                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 4" />
+                                            <TextBlock FontWeight="Bold" Text="{Binding ScrewPositionBottomRightHeading}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Motor 3 · wizard screw 4" />
                                             <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomRightDisplay}" />
                                         </StackPanel>
                                     </Border>

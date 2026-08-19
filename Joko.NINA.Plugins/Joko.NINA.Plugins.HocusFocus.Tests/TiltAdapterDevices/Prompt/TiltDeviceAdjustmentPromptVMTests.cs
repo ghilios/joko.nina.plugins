@@ -16,6 +16,8 @@ using System.ComponentModel;
 using System.Linq;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NUnit.Framework;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterDevices.Prompt;
@@ -454,6 +456,30 @@ public class TiltDeviceAdjustmentPromptVMTests {
         var move = new TiltAdapterMove(TiltMoveAxis.DiagonalA, -142, TiltMoveGroup.Tilt, "x");
         Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(move),
             Is.EqualTo("Screw 3 +142, Screw 1 -142 steps"));
+    }
+
+    [Test]
+    public void BuildSemanticText_OnAnEat_NamesTheMotors() {
+        var eat = TiltScrewLabels.ForScheme(ScrewLabelScheme.AsgEat);
+        Assert.Multiple(() => {
+            // DiagonalA,+150 => (+150,0,-150,0): wizard screws 1 and 3, which are motors M1 and M4.
+            var corner = new TiltAdapterMove(TiltMoveAxis.DiagonalA, 150, TiltMoveGroup.Tilt, "x");
+            Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(corner, eat),
+                Is.EqualTo("M1 +150, M4 -150 steps"));
+            // EdgeVertical,+20 => (+1,+1,-1,-1): the top pair against the bottom pair.
+            var side = new TiltAdapterMove(TiltMoveAxis.EdgeVertical, 20, TiltMoveGroup.Tilt, "x");
+            Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(side, eat),
+                Is.EqualTo("M1 & M2 +20, M4 & M3 -20 steps"));
+        });
+    }
+
+    [Test]
+    public void BuildSemanticText_WithNothingNamed_IsUnchanged() {
+        // The compact "Screws 1 & 2" shorthand has to survive: joining the default names would give the
+        // clumsy "Screw 1 & Screw 2", a regression for everyone not using the feature.
+        var move = new TiltAdapterMove(TiltMoveAxis.EdgeVertical, 20, TiltMoveGroup.Tilt, "x");
+        Assert.That(TiltDeviceAdjustmentPromptVM.BuildSemanticText(move, TiltScrewLabels.Default),
+            Is.EqualTo("Screws 1 & 2 +20, Screws 3 & 4 -20 steps"));
     }
 
     [Test]

@@ -77,7 +77,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 bool isMotorized,
                 bool deviceConnected,
                 bool deviceBusy,
-                TiltGuidanceAngleUnit angleUnit) {
+                TiltGuidanceAngleUnit angleUnit,
+                IScrewLabelProvider labels = null) {
             if (target == null) {
                 return Hidden;
             }
@@ -98,7 +99,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 return vm;
             }
 
-            vm.MotionLines = DescribeMotion(revertTarget, isMotorized, angleUnit);
+            vm.MotionLines = DescribeMotion(revertTarget, isMotorized, angleUnit, labels);
             if (vm.MotionLines.Count == 0) {
                 vm.BodyText = revertTarget.Mechanism == TiltRevertMechanism.DevicePositions
                     ? "The adapter is already at this run's recorded positions — nothing to send."
@@ -166,7 +167,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 .ToList();
         }
 
-        private static IReadOnlyList<string> DescribeMotion(TiltRevertTarget target, bool isMotorized, TiltGuidanceAngleUnit angleUnit) {
+        private static IReadOnlyList<string> DescribeMotion(TiltRevertTarget target, bool isMotorized, TiltGuidanceAngleUnit angleUnit, IScrewLabelProvider labels = null) {
             var lines = new List<string>();
             for (int wizardIndex = 0; wizardIndex < target.StepsPerScrew.Count; wizardIndex++) {
                 // Reuses the guidance table's formatter, so the glyph vocabulary and the noise floor are the same
@@ -176,10 +177,13 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     continue;
                 }
                 var corner = TiltAdapterCorner.InWizardScrewOrder[wizardIndex];
-                lines.Add(string.Format(
-                    CultureInfo.CurrentCulture,
-                    isMotorized ? "{0} (screw {1}): {2}" : "Screw {1}: {2}",
-                    corner.Label, corner.WizardScrewNumber, amount));
+                var name = TiltScrewLabels.Resolve(labels, corner.WizardScrewNumber);
+                // A motorized rig keeps the corner tag alongside the name: these lines describe moves about to
+                // be sent to hardware, and the corner is how the vendor app and the device's own reports
+                // identify the motor.
+                lines.Add(isMotorized
+                    ? string.Format(CultureInfo.CurrentCulture, "{0} ({1}): {2}", name, corner.Label, amount)
+                    : string.Format(CultureInfo.CurrentCulture, "{0}: {1}", name, amount));
             }
             return lines;
         }

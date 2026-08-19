@@ -50,8 +50,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual {
     /// </summary>
     public sealed class ManualPreviewCell {
 
-        public ManualPreviewCell(TiltAdapterCorner corner, string valueText, bool isMoving, string limitTag, ManualLimitSeverity severity, string tooltip) {
+        public ManualPreviewCell(TiltAdapterCorner corner, string valueText, bool isMoving, string limitTag, ManualLimitSeverity severity, string tooltip, IScrewLabelProvider labels = null) {
             Corner = corner;
+            this.labels = labels;
             ValueText = valueText ?? string.Empty;
             IsMoving = isMoving;
             LimitTag = limitTag ?? string.Empty;
@@ -59,9 +60,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual {
             Tooltip = tooltip ?? string.Empty;
         }
 
+        private readonly IScrewLabelProvider labels;
+
         public TiltAdapterCorner Corner { get; }
 
-        public string Heading => Corner.CellHeading;
+        public string Heading => Corner.HeadingWith(labels);
+
+        /// <summary>"Motor 2 · wizard screw 2" — the identities behind the heading's name.</summary>
+        public string Caption => Corner.CellCaption;
 
         /// <summary>"512 → 512" when unchanged, "480 → 500 (+20)" when this motor moves, "unknown → unknown" when positions are unknown.</summary>
         public string ValueText { get; }
@@ -89,12 +95,46 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual {
         private readonly Action<ManualPadItem> onSelected;
         private bool isSelected;
 
-        internal ManualPadItem(ManualAdjustmentTarget target, Action<ManualPadItem> onSelected) {
+        private readonly IScrewLabelProvider labels;
+
+        internal ManualPadItem(ManualAdjustmentTarget target, Action<ManualPadItem> onSelected, IScrewLabelProvider labels = null) {
             Target = target;
             this.onSelected = onSelected;
+            this.labels = labels;
         }
 
         public ManualAdjustmentTarget Target { get; }
+
+        /// <summary>
+        /// The cell's own tooltip, plus a sentence naming the screws it moves once the user has named any of
+        /// them. The pad's button FACES stay spatial (TL / Top / All): they describe a direction to nudge the
+        /// sensor, not a screw, and that table is a sign-correctness anchor. The tooltip is where the two
+        /// vocabularies meet. With no names entered this is byte-identical to the target's own text.
+        /// </summary>
+        public string Tooltip {
+            get {
+                if (labels == null || !TiltScrewLabels.AnyNamed(labels, 4)) {
+                    return Target.Tooltip;
+                }
+                var effect = Target.PerScrewEffect(positiveDirection: true, amount: 1);
+                var moved = new List<string>();
+                var opposed = new List<string>();
+                for (int i = 0; i < effect.Count; ++i) {
+                    if (effect[i] > 0) {
+                        moved.Add(labels.Label(i + 1));
+                    } else if (effect[i] < 0) {
+                        opposed.Add(labels.Label(i + 1));
+                    }
+                }
+                if (moved.Count == 0) {
+                    return Target.Tooltip;
+                }
+                return opposed.Count == 0
+                    ? string.Format(CultureInfo.CurrentCulture, "{0} Your names: {1}.", Target.Tooltip, string.Join(", ", moved))
+                    : string.Format(CultureInfo.CurrentCulture, "{0} Your names: {1} get the signed amount; {2} get the opposite.",
+                        Target.Tooltip, string.Join(", ", moved), string.Join(", ", opposed));
+            }
+        }
 
         public bool IsSelected {
             get => isSelected;
@@ -131,17 +171,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual {
         private string willReachText = string.Empty;
         private bool hasError;
 
-        internal ManualTargetCell(TiltAdapterCorner corner, Action onTargetChanged) {
+        private readonly IScrewLabelProvider labels;
+
+        internal ManualTargetCell(TiltAdapterCorner corner, Action onTargetChanged, IScrewLabelProvider labels = null) {
             Corner = corner;
             this.onTargetChanged = onTargetChanged;
+            this.labels = labels;
         }
 
         public TiltAdapterCorner Corner { get; }
 
-        public string Heading => Corner.CellHeading;
+        public string Heading => Corner.HeadingWith(labels);
 
-        /// <summary>"Wizard screw 3" — the third index space, kept visible so this grid joins up with the approval dialog's rows.</summary>
-        public string WizardScrewCaption => string.Format(CultureInfo.InvariantCulture, "Wizard screw {0}", Corner.WizardScrewNumber);
+        /// <summary>
+        /// "Motor 3 · wizard screw 4" — the other two index spaces, kept visible so this grid joins up with
+        /// the approval dialog's rows and with whatever the vendor app calls the same motor.
+        /// </summary>
+        public string WizardScrewCaption => Corner.CellCaption;
 
         /// <summary>The user's absolute target, as typed. Parsed by the VM so it can own the error copy.</summary>
         public string TargetText {
@@ -229,6 +275,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual {
         internal const string NothingToMoveCopy = "Targets match the current positions — nothing to move.";
 
         private readonly ITiltAdapterOptions options;
+        // Reads options live, so cell headings track a device change or a label edit.
+        private readonly IScrewLabelProvider screwLabels;
         private readonly TiltDeviceConnectionService connectionService;
         private readonly IApplicationDispatcher applicationDispatcher;
         private readonly Func<Func<bool, bool, TiltDevicePlanPreview>, double, Task<TiltDeviceAdjustmentChoice>> showAdjustmentPromptAsync;
@@ -262,16 +310,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual {
             IApplicationDispatcher applicationDispatcher,
             Func<Func<bool, bool, TiltDevicePlanPreview>, double, Task<TiltDeviceAdjustmentChoice>> showAdjustmentPromptAsync) {
             this.options = options ?? throw new ArgumentNullException(nameof(options));
+            this.screwLabels = TiltScrewLabels.For(this.options);
             this.connectionService = connectionService;
             this.applicationDispatcher = applicationDispatcher;
             this.showAdjustmentPromptAsync = showAdjustmentPromptAsync ?? throw new ArgumentNullException(nameof(showAdjustmentPromptAsync));
 
             TargetCells = TiltAdapterCorner.InDisplayOrder
-                .Select(c => new ManualTargetCell(c, OnTargetCellChanged))
+                .Select(c => new ManualTargetCell(c, OnTargetCellChanged, screwLabels))
                 .ToList();
             // Row-major over the 3×3 pad, which is the order ManualAdjustmentTarget.All is declared in.
             PadItems = ManualAdjustmentTarget.All
-                .Select(t => new ManualPadItem(t, OnPadItemSelected))
+                .Select(t => new ManualPadItem(t, OnPadItemSelected, screwLabels))
                 .ToList();
 
             sendCommand = new RelayCommand(() => RunGuarded(SendSingleMoveAsync, "send"), () => CanSend);
@@ -657,7 +706,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual {
                         isMoving: moving,
                         limitTag: string.Empty,
                         severity: ManualLimitSeverity.None,
-                        tooltip: "Motor positions are unknown, so the travel window cannot be checked for this move."));
+                        tooltip: "Motor positions are unknown, so the travel window cannot be checked for this move.",
+                        labels: screwLabels));
                     continue;
                 }
 
@@ -688,7 +738,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual {
                     "Travel window 0 to {0}. This move ends at {1}, leaving {2} to the max and {3} to zero.",
                     max, to, max - to, to);
 
-                cells.Add(new ManualPreviewCell(corner, valueText, moving, tag, severity, tooltip));
+                cells.Add(new ManualPreviewCell(corner, valueText, moving, tag, severity, tooltip, screwLabels));
             }
             return cells;
         }

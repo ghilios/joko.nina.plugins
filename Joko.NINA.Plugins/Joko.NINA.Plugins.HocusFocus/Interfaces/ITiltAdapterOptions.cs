@@ -136,6 +136,22 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // and consumed by the device controller; this option only stores/round-trips the raw string.
         string TiltDeviceShadowPositions { get; set; }
 
+        // Opaque JSON map of screw-label-scheme id -> that device family's four user-entered screw labels
+        // ("" = unset, so the scheme's default name applies). One blob rather than indexed keys because
+        // the store is two-dimensional: an EAT's motor names and a manual adapter's names coexist in one
+        // profile and each returns when its device is selected. Read and written through ScrewLabelStore;
+        // prefer the typed accessors below over touching the raw string.
+        string ScrewLabelsJson { get; set; }
+
+        // The label the user entered for a 1-based wizard screw on the CURRENTLY selected device, or "" if
+        // they have not named it. Callers wanting the name to actually display want TiltScrewLabels
+        // instead, which falls back to the device's default naming.
+        string GetScrewLabelOverride(int wizardScrewNumber);
+
+        // Store (or, for a blank value, clear) the user's label for a 1-based wizard screw on the
+        // currently selected device. Trimmed and length-capped on the way in.
+        void SetScrewLabelOverride(int wizardScrewNumber, string label);
+
         // Amount the user (or automation) moves each screw/motor during the per-screw calibration steps
         // (full turns for screws, steps for steppers). -1 = unset, resolved to the selected device
         // preset's default (TiltAdapterDevicePreset.DefaultCalibrationAmount) — still user-editable

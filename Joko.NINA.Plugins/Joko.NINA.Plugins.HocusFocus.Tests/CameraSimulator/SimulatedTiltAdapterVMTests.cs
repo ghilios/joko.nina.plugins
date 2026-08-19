@@ -400,6 +400,27 @@ public class SimulatedTiltAdapterVMTests {
     }
 
     [Test]
+    public void Rows_UseTheScrewNamesFromTheRealAdapter() {
+        // The simulated adapter stands in for the user's real one, so it speaks the same names -- and picks
+        // them up from the same per-profile store, without any Sim* option of its own.
+        var realAdapter = new TiltAdapterOptions(
+            NSubstitute.Substitute.For<NINA.Profile.Interfaces.IProfileService>(),
+            new NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles.InMemoryPluginOptionsAccessor()) {
+            DeviceName = "ASG Electronic EAT - 90mm"
+        };
+
+        var vm = new SimulatedTiltAdapterVM(Configured(screwCount: 4), realAdapter);
+        vm.MovementMode = SimTiltMovementMode.Corner;
+
+        Assert.Multiple(() => {
+            // Row 3 is wizard screw 3, which is the EAT's motor 4.
+            Assert.That(vm.Rows[2].Label, Does.StartWith("M4"));
+            // Its opposite is wizard screw 1 = M1.
+            Assert.That(vm.Rows[2].CouplingText, Does.Contain("M1 opposes"));
+        });
+    }
+
+    [Test]
     public void FourScrewRig_RowsChangeIdentityWithTheMovementMode() {
         var vm = new SimulatedTiltAdapterVM(Configured(screwCount: 4), realAdapterOptions: null);
         Assert.That(vm.ShowMovementModeSelector, Is.True);

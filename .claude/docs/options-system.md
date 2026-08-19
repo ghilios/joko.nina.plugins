@@ -67,6 +67,16 @@ Every new option added to `StarDetectionOptions` (or any other options class) **
 - Double/numeric options → `ninactrl:UnitTextBox` with a `DoubleRangeRule` validation
 - Enum options → `ComboBox` with `util:EnumBindingSource` and `HF_EnumStaticDescriptionValueConverter`
 
+**Exception — `ITiltAdapterOptions`.** Tilt options are edited in the Tilt Adapter Wizard's own settings
+pane (`TiltAdapterWizard/DataTemplates.xaml`), not here; `OptionsDataTemplates.xaml` has zero
+`TiltAdapterOptions.` bindings. They sit next to the wizard controls that give them meaning (device
+preset, screw count, screw radius), and several are locked by the selected preset. A new tilt option
+therefore goes in that pane. The invariant itself still holds: it must be reachable somewhere in the UI.
+
+Genuinely internal persisted state (`TiltDeviceShadowPositions`, `DeviceLinkedCalibrationDeviceName`,
+`CalibrationIsReliable`, the migration markers) is exempt from both and is documented as such at its
+declaration.
+
 ## Per-Filter Star Detection (store + binder)
 
 Star-detection settings can be per-filter (`StarDetection/PerFilter/`). Two persisted values are owned by

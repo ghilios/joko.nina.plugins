@@ -17,6 +17,7 @@ using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
 using System;
+using System.Collections.Generic;
 
 namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
@@ -83,6 +84,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             calibrationIsReliable = optionsAccessor.GetValueBoolean(nameof(CalibrationIsReliable), false);
             tiltDeviceShadowPositions = optionsAccessor.GetValueString(nameof(TiltDeviceShadowPositions), string.Empty);
             calibrationAppliedAmount = optionsAccessor.GetValueDouble(nameof(CalibrationAppliedAmount), -1.0);
+            screwLabelsJson = optionsAccessor.GetValueString(nameof(ScrewLabelsJson), string.Empty);
+            screwLabels = ScrewLabelStore.Parse(screwLabelsJson);
 
             MigrateMeasuredCurvatureSign();
         }
@@ -521,6 +524,66 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     optionsAccessor.SetValueDouble(nameof(CalibrationAppliedAmount), calibrationAppliedAmount);
                     RaisePropertyChanged();
                 }
+            }
+        }
+
+        private string screwLabelsJson;
+
+        // Parsed form of screwLabelsJson, kept alongside it so a label lookup -- which happens on every
+        // guidance rebuild and every wizard prompt -- is a dictionary hit rather than a JSON parse. The
+        // two are only ever written together; see SetScrewLabelOverride.
+        private Dictionary<string, string[]> screwLabels = new Dictionary<string, string[]>(StringComparer.Ordinal);
+
+        public string ScrewLabelsJson {
+            get => screwLabelsJson;
+            set {
+                var newValue = value ?? string.Empty;
+                if (screwLabelsJson != newValue) {
+                    screwLabelsJson = newValue;
+                    screwLabels = ScrewLabelStore.Parse(screwLabelsJson);
+                    optionsAccessor.SetValueString(nameof(ScrewLabelsJson), screwLabelsJson);
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>The label scheme of the currently selected device preset.</summary>
+        private ScrewLabelScheme CurrentScrewLabelScheme => TiltAdapterDevicePreset.ByName(DeviceName).ScrewLabels;
+
+        public string GetScrewLabelOverride(int wizardScrewNumber) {
+            ValidateScrewNumber(wizardScrewNumber);
+            return screwLabels.TryGetValue(CurrentScrewLabelScheme.Id, out var labels)
+                ? labels[wizardScrewNumber - 1]
+                : string.Empty;
+        }
+
+        public void SetScrewLabelOverride(int wizardScrewNumber, string label) {
+            ValidateScrewNumber(wizardScrewNumber);
+            var normalized = ScrewLabelStore.Normalize(label);
+            var schemeId = CurrentScrewLabelScheme.Id;
+            if (!screwLabels.TryGetValue(schemeId, out var labels)) {
+                if (normalized.Length == 0) {
+                    return;   // clearing an already-unset label writes nothing
+                }
+                labels = new string[ScrewLabelStore.ScrewSlots];
+                for (int i = 0; i < labels.Length; ++i) {
+                    labels[i] = string.Empty;
+                }
+                screwLabels[schemeId] = labels;
+            }
+            if (labels[wizardScrewNumber - 1] == normalized) {
+                return;
+            }
+            labels[wizardScrewNumber - 1] = normalized;
+
+            // Write through the raw property so the accessor, the parsed cache, and the change
+            // notification all stay in step -- but re-serialize from the cache, which is authoritative.
+            ScrewLabelsJson = ScrewLabelStore.Serialize(screwLabels);
+        }
+
+        private static void ValidateScrewNumber(int wizardScrewNumber) {
+            if (wizardScrewNumber < 1 || wizardScrewNumber > ScrewLabelStore.ScrewSlots) {
+                throw new ArgumentOutOfRangeException(nameof(wizardScrewNumber), wizardScrewNumber, "Wizard screw index must be 1-4.");
             }
         }
     }

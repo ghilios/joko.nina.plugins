@@ -12,6 +12,7 @@
 
 using NINA.Core.Utility;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -118,6 +119,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
         private readonly bool screwInwardCurvatureSignIsMeasured;
         private readonly bool positionsUnknown;
         private readonly double unitMicrons;
+        // The user's names for their screws, so the move list reads in the same vocabulary as the wizard
+        // and the guidance table. Null falls back to the wizard's own numbering.
+        private readonly IScrewLabelProvider labels;
         private readonly RelayCommand proceedCommand;
 
         private bool applyTilt = true;
@@ -130,11 +134,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
             bool screwInwardCurvatureSignIsMeasured,
             string pitchMismatchWarning,
             bool positionsUnknown,
-            double unitMicrons = 0.0) {
+            double unitMicrons = 0.0,
+            IScrewLabelProvider labels = null) {
             this.replanner = replanner ?? throw new ArgumentNullException(nameof(replanner));
             this.screwInwardCurvatureSignIsMeasured = screwInwardCurvatureSignIsMeasured;
             this.positionsUnknown = positionsUnknown;
             this.unitMicrons = unitMicrons;
+            this.labels = labels;
             PitchMismatchWarning = pitchMismatchWarning ?? string.Empty;
 
             proceedCommand = new RelayCommand(Proceed, CanProceed);
@@ -308,10 +314,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
             Preview = preview;
             Moves = preview.Plan.Moves
                 .Select(m => new TiltDeviceAdjustmentMoveRow(
-                    EatCommands.Format(m), BuildSemanticText(m), BuildMoveKindLabel(m.Axis), m.Description, m.Group,
+                    EatCommands.Format(m), BuildSemanticText(m, labels), BuildMoveKindLabel(m.Axis), m.Description, m.Group,
                     assumedDirection: !screwInwardCurvatureSignIsMeasured && m.Group == TiltMoveGroup.Backfocus))
                 .ToArray();
-            CornerResiduals = BuildCornerResiduals(preview.Plan.ResidualMicronsPerCorner);
+            CornerResiduals = BuildCornerResiduals(preview.Plan.ResidualMicronsPerCorner, labels);
 
             RaisePropertyChanged(nameof(Preview));
             RaisePropertyChanged(nameof(Moves));
@@ -374,7 +380,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
         /// or lowers a corner is rig-dependent (the ScrewInwardCurvatureSign the assumed-direction warning is
         /// about), so asserting up/down here could be wrong. The one-line legend in the dialog explains the sign.
         /// </summary>
-        internal static string BuildSemanticText(TiltAdapterMove move) {
+        internal static string BuildSemanticText(TiltAdapterMove move, IScrewLabelProvider labels = null) {
             if (move == null) {
                 return string.Empty;
             }
@@ -402,37 +408,53 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt {
             // The move kind ("Corner"/"Side") is already shown in the row's badge, so it is not repeated here.
             var parts = new List<string>(2);
             if (positives.Count > 0) {
-                parts.Add(string.Format(CultureInfo.InvariantCulture, "{0} +{1}", FormatScrews(positives), magnitude));
+                parts.Add(string.Format(CultureInfo.InvariantCulture, "{0} +{1}", FormatScrews(positives, labels), magnitude));
             }
             if (negatives.Count > 0) {
-                parts.Add(string.Format(CultureInfo.InvariantCulture, "{0} -{1}", FormatScrews(negatives), magnitude));
+                parts.Add(string.Format(CultureInfo.InvariantCulture, "{0} -{1}", FormatScrews(negatives, labels), magnitude));
             }
             return string.Format(CultureInfo.InvariantCulture, "{0} steps", string.Join(", ", parts));
         }
 
-        /// <summary>"Screw 1" / "Screws 1 &amp; 2" / "Screws 1, 2 &amp; 3" for a list of wizard screw numbers.</summary>
-        private static string FormatScrews(IReadOnlyList<int> screws) {
+        /// <summary>
+        /// "M1" / "M1 &amp; M4" / "M1, M2 &amp; M4" for a list of wizard screw numbers, in whatever names the
+        /// selected device and the user's labels give them.
+        ///
+        /// With nothing named, the names ARE "Screw 1".."Screw 4", and joining those would read
+        /// "Screw 1 &amp; Screw 3" -- so that case keeps the original pluralized shorthand, "Screws 1 &amp; 3",
+        /// and this dialog is unchanged for anyone not using the feature.
+        /// </summary>
+        private static string FormatScrews(IReadOnlyList<int> screws, IScrewLabelProvider labels = null) {
             if (screws.Count == 0) {
                 return string.Empty;
             }
-            if (screws.Count == 1) {
-                return string.Format(CultureInfo.InvariantCulture, "Screw {0}", screws[0]);
+            if (!TiltScrewLabels.AnyNamed(labels, 4)) {
+                if (screws.Count == 1) {
+                    return string.Format(CultureInfo.InvariantCulture, "Screw {0}", screws[0]);
+                }
+                var numberHead = string.Join(", ", screws.Take(screws.Count - 1));
+                return string.Format(CultureInfo.InvariantCulture, "Screws {0} & {1}", numberHead, screws[screws.Count - 1]);
             }
-            var head = string.Join(", ", screws.Take(screws.Count - 1));
-            return string.Format(CultureInfo.InvariantCulture, "Screws {0} & {1}", head, screws[screws.Count - 1]);
+            var names = screws.Select(s => TiltScrewLabels.Resolve(labels, s)).ToList();
+            if (names.Count == 1) {
+                return names[0];
+            }
+            var head = string.Join(", ", names.Take(names.Count - 1));
+            return string.Format(CultureInfo.InvariantCulture, "{0} & {1}", head, names[names.Count - 1]);
         }
 
-        // Wizard screw index (1..4) → physical corner, per the device-connected calibration convention the
-        // wizard's motor-position grid also uses (screw 1 = TR, 2 = TL, 3 = BL, 4 = BR). This dialog only ever
-        // runs against a connected device, so the mapping is fixed.
-        private static readonly string[] ScrewCornerLabels = { "TR", "TL", "BL", "BR" };
-
-        private static IReadOnlyList<TiltDeviceCornerResidualRow> BuildCornerResiduals(IReadOnlyList<double> residualMicrons) {
+        // Rows are "<name> (<corner>)": the name the user reads everywhere else, plus the corner tag, because
+        // this dialog only ever runs against a connected device and the corner is how the vendor app and the
+        // device's own reports identify a motor. The wizard-screw-to-corner mapping is resolved through
+        // TiltAdapterCorner rather than restated here -- it used to be a second hardcoded copy of that table.
+        private static IReadOnlyList<TiltDeviceCornerResidualRow> BuildCornerResiduals(IReadOnlyList<double> residualMicrons, IScrewLabelProvider labels = null) {
             var rows = new TiltDeviceCornerResidualRow[residualMicrons.Count];
             for (int i = 0; i < residualMicrons.Count; ++i) {
-                string label = i < ScrewCornerLabels.Length
-                    ? string.Format(CultureInfo.InvariantCulture, "Screw {0} ({1})", i + 1, ScrewCornerLabels[i])
-                    : string.Format(CultureInfo.InvariantCulture, "Screw {0}", i + 1);
+                int wizardScrewNumber = i + 1;
+                string name = TiltScrewLabels.Resolve(labels, wizardScrewNumber);
+                string label = wizardScrewNumber <= 4
+                    ? string.Format(CultureInfo.InvariantCulture, "{0} ({1})", name, TiltAdapterCorner.ForWizardScrew(wizardScrewNumber).Label)
+                    : name;
                 rows[i] = new TiltDeviceCornerResidualRow(label, FormatResidualMicrons(residualMicrons[i]));
             }
             return rows;

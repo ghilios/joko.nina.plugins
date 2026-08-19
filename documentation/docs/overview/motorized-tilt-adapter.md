@@ -34,11 +34,15 @@ correction takes at most three commands.
    asks whether to disconnect it.
 
 While connected, a **Motor positions (steps)** grid shows each corner's current position counter,
-polled from the device. The corners are labeled with the device's own motor numbering (**TR ·
-Motor 1**, **TL · Motor 2**, **BR · Motor 3**, **BL · Motor 4**) and with the wizard screw number
-each corner maps to (screw 1 = TR, 2 = TL, 3 = BL, 4 = BR). The counters read "unknown" until the
-first successful position query, and during a calibration run each one also shows Δ, its change
-since the run started.
+polled from the device. Each cell names its corner and the screw it holds (**TR · M1**, **TL · M2**,
+**BL · M4**, **BR · M3** by default), with the motor number and the wizard screw number underneath.
+The counters read "unknown" until the first successful position query, and during a calibration run
+each one also shows Δ, its change since the run started.
+
+Selecting either EAT preset names the screws after its motors everywhere in HocusFocus, so the
+guidance table and the wizard prompts say "M4" rather than "Screw 3". Rename them under **Screw
+Labels** in the wizard settings if you prefer your own names; see [Naming your
+screws](tilt-adapter-wizard.md#naming-your-screws).
 
 The counters are **absolute** and stored in the adapter's EEPROM: they survive power cycles and do
 not reset between sessions, so they carry whatever position your earlier adjustments left them at.

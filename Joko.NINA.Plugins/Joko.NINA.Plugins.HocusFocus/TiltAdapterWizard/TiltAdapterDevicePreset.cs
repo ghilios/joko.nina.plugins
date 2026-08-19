@@ -28,8 +28,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         private TiltAdapterDevicePreset(
             string name, bool isManual, int screwCount, TiltAdjustmentType adjustmentType,
             double threadPitchMicrons, double stepperStepSizeMicrons, double screwRadiusMillimeters,
-            double defaultCalibrationAmount) {
+            double defaultCalibrationAmount, ScrewLabelScheme screwLabels = null) {
             Name = name;
+            ScrewLabels = screwLabels ?? ScrewLabelScheme.Generic;
             IsManual = isManual;
             ScrewCount = screwCount;
             AdjustmentType = adjustmentType;
@@ -51,6 +52,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // the per-screw calibration applied amount when this preset is selected. Screw adapters default
         // to 1 full turn; the ASG Electronic EAT stepper adapters default to 150 steps.
         public double DefaultCalibrationAmount { get; }
+
+        // The naming vocabulary this device's adjustment points use, and the key its user-entered labels
+        // are stored under. Omitted from a preset's construction means ScrewLabelScheme.Generic
+        // ("Screw 1".."Screw 4"), which is right for anything whose screws carry no markings of their own.
+        public ScrewLabelScheme ScrewLabels { get; }
 
         public static readonly TiltAdapterDevicePreset Manual = new TiltAdapterDevicePreset(
             ManualName, isManual: true, screwCount: 3, adjustmentType: TiltAdjustmentType.Screws,
@@ -78,7 +84,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             new TiltAdapterDevicePreset(
                 "ASG Electronic EAT - 90mm", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.StepperMotors,
                 threadPitchMicrons: -1, stepperStepSizeMicrons: 1.8, screwRadiusMillimeters: 55,
-                defaultCalibrationAmount: 150),
+                defaultCalibrationAmount: 150, screwLabels: ScrewLabelScheme.AsgEat),
 
             // ASG ZWO 461 series
             new TiltAdapterDevicePreset(
@@ -88,7 +94,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             new TiltAdapterDevicePreset(
                 "ASG Electronic EAT - ZWO 461", isManual: false, screwCount: 4, adjustmentType: TiltAdjustmentType.StepperMotors,
                 threadPitchMicrons: -1, stepperStepSizeMicrons: 1.8, screwRadiusMillimeters: 62.75,
-                defaultCalibrationAmount: 150),
+                defaultCalibrationAmount: 150, screwLabels: ScrewLabelScheme.AsgEat),
 
             // OGMA series
             new TiltAdapterDevicePreset(

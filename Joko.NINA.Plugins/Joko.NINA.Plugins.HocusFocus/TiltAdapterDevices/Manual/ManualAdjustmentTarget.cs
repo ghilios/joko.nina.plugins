@@ -60,8 +60,19 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual {
         /// <summary>Column of this corner in the 2×2 spatial grid the UI draws (0 = left).</summary>
         public int PadColumn { get; }
 
-        /// <summary>"TL · Motor 2" — the heading the position/target/preview cells share.</summary>
-        public string CellHeading => string.Format(CultureInfo.CurrentCulture, "{0} · Motor {1}", Label, DeviceMotorNumber);
+        /// <summary>
+        /// "TL · M2" — the heading the position/target/preview cells share: the corner, which is how the
+        /// device's own reports and the vendor app identify this motor, plus whatever the user calls the
+        /// screw. With no names entered on a manual adapter it reads "TL · Screw 2".
+        /// </summary>
+        public string HeadingWith(IScrewLabelProvider labels) =>
+            string.Format(CultureInfo.CurrentCulture, "{0} · {1}", Label, TiltScrewLabels.Resolve(labels, WizardScrewNumber));
+
+        /// <summary>
+        /// "Motor 2 · wizard screw 2" — the identities behind a heading, kept visible rather than tucked into
+        /// a tooltip so a user watching the physical adapter can tell which corner should be moving.
+        /// </summary>
+        public string CellCaption => string.Format(CultureInfo.CurrentCulture, "Motor {0} · wizard screw {1}", DeviceMotorNumber, WizardScrewNumber);
 
         private static readonly TiltAdapterCorner TopRight = new TiltAdapterCorner("TR", deviceMotorNumber: 1, wizardScrewNumber: 1, padRow: 0, padColumn: 1);
         private static readonly TiltAdapterCorner TopLeft = new TiltAdapterCorner("TL", deviceMotorNumber: 2, wizardScrewNumber: 2, padRow: 0, padColumn: 0);

@@ -323,6 +323,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             : base(profileService) {
             this.inspector = inspector;
             this.tiltAdapterOptions = tiltAdapterOptions;
+            this.ScrewLabels = TiltScrewLabels.For(tiltAdapterOptions);
             this.applicationDispatcher = applicationDispatcher;
             this.tiltDeviceConnectionService = tiltDeviceConnectionService;
             this.serialPortProvider = serialPortProvider; // null => created lazily on first enumeration
@@ -389,7 +390,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     pitchMismatchWarning: string.Empty,
                     // Target mode is gated on known positions, so this can never be true when the dialog opens.
                     positionsUnknown: false,
-                    unitMicrons: unitMicrons));
+                    unitMicrons: unitMicrons,
+                    labels: ScrewLabels));
 
             // The display-only focuser convention k changes what the mechanical wording and the physical
             // screw angles READ, never what is stored. Refresh exactly those (design §3, site 6).
@@ -449,7 +451,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     RaisePropertyChanged(nameof(SelectedDevice));
                     RaisePropertyChanged(nameof(IsManualDevice));
                     RaisePropertyChanged(nameof(IsMotorizedDevice));
+                    // A preset change swaps which stored label set is in effect, and which default names
+                    // apply when the user has stored none -- every label-derived surface has to re-read.
+                    RaiseScrewLabelsChanged();
                     NotifyCommandsCanExecuteChangedCore(); // ConnectDeviceCommand gates on IsMotorizedDevice
+                }
+                if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewLabelsJson)) {
+                    RaiseScrewLabelsChanged();
                 }
                 if (e.PropertyName == nameof(ITiltAdapterOptions.TiltDeviceSerialPortName)) {
                     RaisePropertyChanged(nameof(SelectedPortName));
@@ -609,6 +617,80 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public double PhysicalScrew3AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw3AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign, FocuserSign);
         public double PhysicalScrew4AngleDegrees => TiltScrewGeometry.PhysicalToStoredAngle(tiltAdapterOptions.Screw4AngleDegrees, tiltAdapterOptions.ScrewInwardCurvatureSign, FocuserSign);
 
+        // --- Screw labels ---
+        //
+        // The names the user gave their screws, or the selected device's own names when they gave none
+        // (M1/M2/M4/M3 on an ASG EAT, "Screw 1".."Screw 4" on anything else). Labels are stored per device
+        // family, so the editor below always reads and writes the set belonging to the CURRENT preset --
+        // which is why ApplyDevice re-raises all eight of these properties.
+        public IScrewLabelProvider ScrewLabels { get; private set; }
+
+        public string Screw1Label { get => ScrewLabelOverride(1); set => SetScrewLabelOverride(1, value); }
+        public string Screw2Label { get => ScrewLabelOverride(2); set => SetScrewLabelOverride(2, value); }
+        public string Screw3Label { get => ScrewLabelOverride(3); set => SetScrewLabelOverride(3, value); }
+        public string Screw4Label { get => ScrewLabelOverride(4); set => SetScrewLabelOverride(4, value); }
+
+        // Shown greyed inside an empty label box, so a blank field visibly IS the name that will be used.
+        public string Screw1LabelHint => ScrewLabelHint(1);
+        public string Screw2LabelHint => ScrewLabelHint(2);
+        public string Screw3LabelHint => ScrewLabelHint(3);
+        public string Screw4LabelHint => ScrewLabelHint(4);
+
+        /// <summary>Longest label the editor accepts; bound by the label TextBoxes' MaxLength.</summary>
+        public int ScrewLabelMaxLength => ScrewLabelScheme.MaxLabelLength;
+
+        // The names as READ-ONLY display text (user label, else device default) -- what the calibration
+        // readout and any other non-editing surface in this view binds to. Distinct from Screw{N}Label
+        // above, which is the raw override the editor writes and which is empty when nothing was entered.
+        public string Screw1DisplayName => TiltScrewLabels.Resolve(ScrewLabels, 1);
+        public string Screw2DisplayName => TiltScrewLabels.Resolve(ScrewLabels, 2);
+        public string Screw3DisplayName => TiltScrewLabels.Resolve(ScrewLabels, 3);
+        public string Screw4DisplayName => TiltScrewLabels.Resolve(ScrewLabels, 4);
+
+        private string ScrewLabelOverride(int wizardScrewNumber) => tiltAdapterOptions.GetScrewLabelOverride(wizardScrewNumber);
+
+        private string ScrewLabelHint(int wizardScrewNumber) =>
+            TiltAdapterDevicePreset.ByName(tiltAdapterOptions.DeviceName).ScrewLabels.DefaultLabel(wizardScrewNumber);
+
+        private void SetScrewLabelOverride(int wizardScrewNumber, string value) {
+            tiltAdapterOptions.SetScrewLabelOverride(wizardScrewNumber, value);
+            // A stored change comes back as a ScrewLabelsJson notification, which refreshes every
+            // label-derived surface. This re-raise covers the other case: the user typed something that
+            // normalized (trimmed, or clipped to the length cap) onto the value already stored, so nothing
+            // changed underneath but the box still has to snap back to what was actually kept.
+            RaisePropertyChanged(wizardScrewNumber switch {
+                1 => nameof(Screw1Label),
+                2 => nameof(Screw2Label),
+                3 => nameof(Screw3Label),
+                _ => nameof(Screw4Label)
+            });
+        }
+
+        // One label edit renames the diagram, the calibration readout, and every step prompt at once.
+        private void RaiseScrewLabelsChanged() {
+            RaisePropertyChanged(nameof(Screw1Label));
+            RaisePropertyChanged(nameof(Screw2Label));
+            RaisePropertyChanged(nameof(Screw3Label));
+            RaisePropertyChanged(nameof(Screw4Label));
+            RaisePropertyChanged(nameof(Screw1LabelHint));
+            RaisePropertyChanged(nameof(Screw2LabelHint));
+            RaisePropertyChanged(nameof(Screw3LabelHint));
+            RaisePropertyChanged(nameof(Screw4LabelHint));
+            RaisePropertyChanged(nameof(Screw1DisplayName));
+            RaisePropertyChanged(nameof(Screw2DisplayName));
+            RaisePropertyChanged(nameof(Screw3DisplayName));
+            RaisePropertyChanged(nameof(Screw4DisplayName));
+            RaisePropertyChanged(nameof(ScrewPositionTopRightHeading));
+            RaisePropertyChanged(nameof(ScrewPositionTopLeftHeading));
+            RaisePropertyChanged(nameof(ScrewPositionBottomLeftHeading));
+            RaisePropertyChanged(nameof(ScrewPositionBottomRightHeading));
+            RaisePropertyChanged(nameof(StepTitle));
+            RaisePropertyChanged(nameof(StepInstructions));
+            RaisePropertyChanged(nameof(StepDescription));
+            RaisePropertyChanged(nameof(BaselineRecoveryInstructions));
+            RebuildDiagram();
+        }
+
         public bool IsWizardRunning {
             get => isWizardRunning;
             private set {
@@ -666,16 +748,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         // Short, scannable title shown above the longer StepInstructions paragraph so the user can tell where
         // they are without re-reading the instructions.
-        public string StepTitle => StepTitleText(currentStep);
+        public string StepTitle => StepTitleText(currentStep, ScrewLabels);
 
-        internal static string StepTitleText(WizardStep step) {
+        internal static string StepTitleText(WizardStep step, IScrewLabelProvider labels = null) {
             switch (step) {
                 case WizardStep.Baseline: return "Baseline Measurement";
                 case WizardStep.AllInward: return "All Screws Inward";
                 case WizardStep.ReBaseline1: return "Return to Baseline";
-                case WizardStep.Screw1: return "Move Screw 1";
+                case WizardStep.Screw1: return $"Move {TiltScrewLabels.Resolve(labels, 1)}";
                 case WizardStep.ReBaseline2: return "Return to Baseline";
-                case WizardStep.Screw2: return "Move Screw 2";
+                case WizardStep.Screw2: return $"Move {TiltScrewLabels.Resolve(labels, 2)}";
                 case WizardStep.Complete: return "Calibration Complete";
                 case WizardStep.ReBaseline3: return "Return to Baseline";
                 default: return string.Empty;
@@ -863,7 +945,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         // Per-step guidance for returning to baseline before retrying, shown in the failure panel.
         public string BaselineRecoveryInstructions =>
-            BaselineRecoveryText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, CalibrationAppliedAmount);
+            BaselineRecoveryText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, CalibrationAppliedAmount, ScrewLabels);
 
         public bool HasRebaselineDriftWarning {
             get => hasRebaselineDriftWarning;
@@ -957,17 +1039,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // IsTiltDeviceConnected is false whenever the service is null or not connected).
         public string StepInstructions =>
             IsReplaying
-                ? ReplayStepInstructionsText(currentStep)
+                ? ReplayStepInstructionsText(currentStep, ScrewLabels)
                 : (IsTiltDeviceConnected && IsMotorizedDevice)
                     ? DeviceStepInstructionsText(currentStep, (int)Math.Round(CalibrationAppliedAmount), IsAutoRunningAll,
                         ActiveRunHasFinalRebaseline)
-                    : StepInstructionsText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, CalibrationAppliedAmount);
+                    : StepInstructionsText(currentStep, tiltAdapterOptions.ScrewCount, IsStepperAdjustment, CalibrationAppliedAmount, ScrewLabels);
 
         // Replay wording: a replay re-analyzes already-captured frames, so every imperative in the live copy
         // ("turn ALL screws CLOCKWISE", "click Run Measurement") is wrong — nothing is captured, no hardware
         // moves, and the measurement buttons are collapsed by the IsMeasuring trigger for the whole replay.
-        internal static string ReplayStepInstructionsText(WizardStep step) =>
-            $"Replaying — re-analyzing the saved frames for {StepTitleText(step)}. No action needed: nothing is " +
+        internal static string ReplayStepInstructionsText(WizardStep step, IScrewLabelProvider labels = null) =>
+            $"Replaying — re-analyzing the saved frames for {StepTitleText(step, labels)}. No action needed: nothing is " +
             "captured and the tilt adapter is not moved during a replay.";
 
         // Automated-status wording for a connected, device-driven run: describes what the wizard will send
@@ -1006,16 +1088,32 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // All wizard prompts. Screw motion is worded as CLOCKWISE/COUNTER-CLOCKWISE (tighten/loosen)
         // — never "inward/outward", which this plugin reserves for adapter-plate motion. Stepper
         // prompts use signed steps; "+" is the direction the guidance later reports as positive.
-        internal static string StepInstructionsText(WizardStep step, int screwCount, bool isStepper, double appliedAmount) {
+        internal static string StepInstructionsText(WizardStep step, int screwCount, bool isStepper, double appliedAmount, IScrewLabelProvider labels = null) {
             string amt = FormatAppliedAmount(isStepper, appliedAmount);
             bool four = screwCount == 4;
+            // The names the user's hand is actually reaching for. On an EAT with no labels entered these are
+            // M1/M2/M4/M3 -- which also removes a long-standing trap in the stepper wording below, where
+            // "motor 3" meant wizard screw 3 and so pointed at the device's physical M4.
+            string s1 = TiltScrewLabels.Resolve(labels, 1);
+            string s2 = TiltScrewLabels.Resolve(labels, 2);
+            string s3 = TiltScrewLabels.Resolve(labels, 3);
+            string s4 = TiltScrewLabels.Resolve(labels, 4);
             switch (step) {
                 case WizardStep.Baseline:
-                    return (four
+                    string baselineOpening = TiltScrewLabels.AnyNamed(labels, screwCount)
+                        ? (four
+                            ? $"Your screws are {s1}, {s2}, {s3}, and {s4}, in that clockwise order. "
+                            : $"Your screws are {s1}, {s2}, and {s3}, in that clockwise order. ") +
+                          $"{s1} does NOT need to be at any particular clock position — the wizard determines each screw's actual " +
+                          "position from the measurements."
+                        : (four
                             ? "Label your screws 1, 2, 3, and 4 in a consistent clockwise order. "
                             : "Label your screws 1, 2, and 3 in a consistent clockwise order. ") +
-                        "Screw 1 does NOT need to be at any particular clock position — the wizard determines each screw's actual " +
-                        "position from the measurements.\n\nEnsure all screws are at their starting position, then click Run Measurement to take a baseline reading.";
+                          "Screw 1 does NOT need to be at any particular clock position — the wizard determines each screw's actual " +
+                          "position from the measurements. If your screws already have names, enter them under Screw Labels in the " +
+                          "wizard settings and HocusFocus will use those names everywhere.";
+                    return baselineOpening +
+                        "\n\nEnsure all screws are at their starting position, then click Run Measurement to take a baseline reading.";
                 case WizardStep.AllInward:
                     return isStepper
                         ? $"Apply +{amt} steps to EVERY motor, then click Run Measurement."
@@ -1027,41 +1125,41 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 case WizardStep.Screw1:
                     if (isStepper) {
                         return four
-                            ? $"Apply +{amt} steps to motor 1 and −{amt} steps to motor 3, then click Run Measurement."
-                            : $"Apply +{amt} steps to motor 1, then click Run Measurement.";
+                            ? $"Apply +{amt} steps to {s1} and −{amt} steps to {s3}, then click Run Measurement."
+                            : $"Apply +{amt} steps to {s1}, then click Run Measurement.";
                     }
                     return four
-                        ? $"Turn screw 1 CLOCKWISE and screw 3 COUNTER-CLOCKWISE exactly {amt} each, then click Run Measurement."
-                        : $"Turn screw 1 CLOCKWISE exactly {amt}, then click Run Measurement.";
+                        ? $"Turn {s1} CLOCKWISE and {s3} COUNTER-CLOCKWISE exactly {amt} each, then click Run Measurement."
+                        : $"Turn {s1} CLOCKWISE exactly {amt}, then click Run Measurement.";
                 case WizardStep.ReBaseline2:
                     if (isStepper) {
                         return four
-                            ? $"Apply −{amt} steps to motor 1 and +{amt} steps to motor 3, returning to the baseline position, then click Run Measurement."
-                            : $"Apply −{amt} steps to motor 1, returning to the baseline position, then click Run Measurement.";
+                            ? $"Apply −{amt} steps to {s1} and +{amt} steps to {s3}, returning to the baseline position, then click Run Measurement."
+                            : $"Apply −{amt} steps to {s1}, returning to the baseline position, then click Run Measurement.";
                     }
                     return four
-                        ? $"Turn screw 1 back COUNTER-CLOCKWISE and screw 3 back CLOCKWISE exactly {amt} each, returning to the baseline position, then click Run Measurement."
-                        : $"Turn screw 1 back COUNTER-CLOCKWISE exactly {amt}, returning to the baseline position, then click Run Measurement.";
+                        ? $"Turn {s1} back COUNTER-CLOCKWISE and {s3} back CLOCKWISE exactly {amt} each, returning to the baseline position, then click Run Measurement."
+                        : $"Turn {s1} back COUNTER-CLOCKWISE exactly {amt}, returning to the baseline position, then click Run Measurement.";
                 case WizardStep.Screw2:
                     if (isStepper) {
                         return four
-                            ? $"Apply +{amt} steps to motor 2 and −{amt} steps to motor 4, then click Run Measurement."
-                            : $"Apply +{amt} steps to motor 2, then click Run Measurement.";
+                            ? $"Apply +{amt} steps to {s2} and −{amt} steps to {s4}, then click Run Measurement."
+                            : $"Apply +{amt} steps to {s2}, then click Run Measurement.";
                     }
                     return four
-                        ? $"Turn screw 2 CLOCKWISE and screw 4 COUNTER-CLOCKWISE exactly {amt} each, then click Run Measurement."
-                        : $"Turn screw 2 CLOCKWISE exactly {amt}, then click Run Measurement.";
+                        ? $"Turn {s2} CLOCKWISE and {s4} COUNTER-CLOCKWISE exactly {amt} each, then click Run Measurement."
+                        : $"Turn {s2} CLOCKWISE exactly {amt}, then click Run Measurement.";
                 case WizardStep.ReBaseline3:
                     // Optional (Task 6): a MEASURED restore of the screw-2 move, giving screw 2 the same
                     // drift-cancelling re-baseline symmetry screw 1 already gets from ReBaseline1/ReBaseline2.
                     if (isStepper) {
                         return four
-                            ? $"Apply −{amt} steps to motor 2 and +{amt} steps to motor 4, returning to the baseline position, then click Run Measurement."
-                            : $"Apply −{amt} steps to motor 2, returning to the baseline position, then click Run Measurement.";
+                            ? $"Apply −{amt} steps to {s2} and +{amt} steps to {s4}, returning to the baseline position, then click Run Measurement."
+                            : $"Apply −{amt} steps to {s2}, returning to the baseline position, then click Run Measurement.";
                     }
                     return four
-                        ? $"Turn screw 2 back COUNTER-CLOCKWISE and screw 4 back CLOCKWISE exactly {amt} each, returning to the baseline position, then click Run Measurement."
-                        : $"Turn screw 2 back COUNTER-CLOCKWISE exactly {amt}, returning to the baseline position, then click Run Measurement.";
+                        ? $"Turn {s2} back COUNTER-CLOCKWISE and {s4} back CLOCKWISE exactly {amt} each, returning to the baseline position, then click Run Measurement."
+                        : $"Turn {s2} back COUNTER-CLOCKWISE exactly {amt}, returning to the baseline position, then click Run Measurement.";
                 case WizardStep.Complete:
                     return isStepper
                         ? "Return all motors to their original position."
@@ -1087,9 +1185,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         // Instructions for undoing the current step's screw move to return to baseline (mirrors the ReBaseline /
         // Complete wording in StepInstructions). For a step already at baseline, says so instead.
-        internal static string BaselineRecoveryText(WizardStep step, int screwCount, bool isStepper, double appliedAmount) {
+        internal static string BaselineRecoveryText(WizardStep step, int screwCount, bool isStepper, double appliedAmount, IScrewLabelProvider labels = null) {
             string amt = FormatAppliedAmount(isStepper, appliedAmount);
             bool four = screwCount == 4;
+            string s1 = TiltScrewLabels.Resolve(labels, 1);
+            string s2 = TiltScrewLabels.Resolve(labels, 2);
+            string s3 = TiltScrewLabels.Resolve(labels, 3);
+            string s4 = TiltScrewLabels.Resolve(labels, 4);
             switch (step) {
                 case WizardStep.AllInward:
                     return isStepper
@@ -1098,21 +1200,21 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 case WizardStep.Screw1:
                     if (isStepper) {
                         return four
-                            ? $"Apply −{amt} steps to motor 1 and +{amt} steps to motor 3, returning to the baseline position."
-                            : $"Apply −{amt} steps to motor 1, returning to the baseline position.";
+                            ? $"Apply −{amt} steps to {s1} and +{amt} steps to {s3}, returning to the baseline position."
+                            : $"Apply −{amt} steps to {s1}, returning to the baseline position.";
                     }
                     return four
-                        ? $"Turn screw 1 back COUNTER-CLOCKWISE and screw 3 back CLOCKWISE exactly {amt} each, returning to the baseline position."
-                        : $"Turn screw 1 back COUNTER-CLOCKWISE exactly {amt}, returning to the baseline position.";
+                        ? $"Turn {s1} back COUNTER-CLOCKWISE and {s3} back CLOCKWISE exactly {amt} each, returning to the baseline position."
+                        : $"Turn {s1} back COUNTER-CLOCKWISE exactly {amt}, returning to the baseline position.";
                 case WizardStep.Screw2:
                     if (isStepper) {
                         return four
-                            ? $"Apply −{amt} steps to motor 2 and +{amt} steps to motor 4, returning to the baseline position."
-                            : $"Apply −{amt} steps to motor 2, returning to the baseline position.";
+                            ? $"Apply −{amt} steps to {s2} and +{amt} steps to {s4}, returning to the baseline position."
+                            : $"Apply −{amt} steps to {s2}, returning to the baseline position.";
                     }
                     return four
-                        ? $"Turn screw 2 back COUNTER-CLOCKWISE and screw 4 back CLOCKWISE exactly {amt} each, returning to the baseline position."
-                        : $"Turn screw 2 back COUNTER-CLOCKWISE exactly {amt}, returning to the baseline position.";
+                        ? $"Turn {s2} back COUNTER-CLOCKWISE and {s4} back CLOCKWISE exactly {amt} each, returning to the baseline position."
+                        : $"Turn {s2} back COUNTER-CLOCKWISE exactly {amt}, returning to the baseline position.";
                 default:
                     return "All screws should already be at the baseline (starting) position.";
             }
@@ -1569,6 +1671,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public string ScrewPositionTopLeftDisplay => TiltDevicePositionDisplay(1);
         public string ScrewPositionBottomRightDisplay => TiltDevicePositionDisplay(2);
         public string ScrewPositionBottomLeftDisplay => TiltDevicePositionDisplay(3);
+
+        // Headings for the 2x2 live position grid. Each cell names its corner (how the device's own reports
+        // and the vendor app identify the motor) plus whatever the user calls that screw; the caption beneath
+        // it, static in the XAML, carries the motor and wizard-screw numbers.
+        public string ScrewPositionTopRightHeading => TiltAdapterCorner.ForWizardScrew(1).HeadingWith(ScrewLabels);
+        public string ScrewPositionTopLeftHeading => TiltAdapterCorner.ForWizardScrew(2).HeadingWith(ScrewLabels);
+        public string ScrewPositionBottomLeftHeading => TiltAdapterCorner.ForWizardScrew(3).HeadingWith(ScrewLabels);
+        public string ScrewPositionBottomRightHeading => TiltAdapterCorner.ForWizardScrew(4).HeadingWith(ScrewLabels);
 
         private string TiltDevicePositionDisplay(int deviceMotorIndex) {
             // Prefer the wizard's per-move snapshot (kept fresh during a run, when the service poll is paused);
@@ -2427,14 +2537,18 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // re-baseline undo moves carry ⟲. Internal for tests.
         internal string StepDescription(WizardStep step) {
             bool four = tiltAdapterOptions.ScrewCount == 4;
+            string s1 = TiltScrewLabels.Resolve(ScrewLabels, 1);
+            string s2 = TiltScrewLabels.Resolve(ScrewLabels, 2);
+            string s3 = TiltScrewLabels.Resolve(ScrewLabels, 3);
+            string s4 = TiltScrewLabels.Resolve(ScrewLabels, 4);
             switch (step) {
                 case WizardStep.Baseline: return "Baseline";
                 case WizardStep.AllInward: return "All screws ⟳";
                 case WizardStep.ReBaseline1: return "Re-baseline (all ⟲)";
-                case WizardStep.Screw1: return four ? "Screw 1 ⟳, Screw 3 ⟲" : "Screw 1 ⟳";
-                case WizardStep.ReBaseline2: return four ? "Re-baseline (Screw 1 ⟲, Screw 3 ⟳)" : "Re-baseline (Screw 1 ⟲)";
-                case WizardStep.Screw2: return four ? "Screw 2 ⟳, Screw 4 ⟲" : "Screw 2 ⟳";
-                case WizardStep.ReBaseline3: return four ? "Re-baseline (Screw 2 ⟲, Screw 4 ⟳)" : "Re-baseline (Screw 2 ⟲)";
+                case WizardStep.Screw1: return four ? $"{s1} ⟳, {s3} ⟲" : $"{s1} ⟳";
+                case WizardStep.ReBaseline2: return four ? $"Re-baseline ({s1} ⟲, {s3} ⟳)" : $"Re-baseline ({s1} ⟲)";
+                case WizardStep.Screw2: return four ? $"{s2} ⟳, {s4} ⟲" : $"{s2} ⟳";
+                case WizardStep.ReBaseline3: return four ? $"Re-baseline ({s2} ⟲, {s4} ⟳)" : $"Re-baseline ({s2} ⟲)";
                 default: return step.ToString();
             }
         }
@@ -3553,7 +3667,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     // Safe mid-replay despite the setter's NotifyCommandsCanExecuteChanged: IsMeasuring is true for
                     // the whole run, which is what actually gates every measurement command's canExecute.
                     CurrentStep = step;
-                    StatusText = $"Replaying {StepTitleText(step)}...";
+                    StatusText = $"Replaying {StepTitleText(step, ScrewLabels)}...";
                     // Capture-time modes ("use captured in memory" and "update profile") replay each step with its own
                     // detached capture-time star-detection snapshot as an override, so the live profile is untouched
                     // during the replay. "Use current settings" passes null and uses the current profile.
@@ -3798,6 +3912,15 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
+        // Screw-diagram geometry. The XAML canvas (HF_TiltScrewDiagram) is 2 * DiagramCenter on a side and
+        // every fixed coordinate in it is expressed relative to the same centre; changing these means
+        // changing that template to match.
+        private const double DiagramCenter = 130.0;
+        private const double DiagramScrewRadius = 75.0;
+        private const double DiagramScrewCircleRadius = 12.0;
+        private const double DiagramLabelWidth = 64.0;
+        private const double DiagramLabelHeight = 14.0;
+
         private void RebuildDiagram() {
             // RebuildDiagram is the single choke point reached on every calibration, direction, and
             // profile change — refresh the readout's physical-angle properties here too (before the
@@ -3828,14 +3951,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             var centers = new (double cx, double cy)[n];
             for (int i = 0; i < n; i++) {
                 double theta = angles[i] * Math.PI / 180.0;
-                double cx = 100 + 75 * Math.Sin(theta);
-                double cy = 100 - 75 * Math.Cos(theta);
+                double cx = DiagramCenter + DiagramScrewRadius * Math.Sin(theta);
+                double cy = DiagramCenter - DiagramScrewRadius * Math.Cos(theta);
                 centers[i] = (cx, cy);
+                // Name block goes above the circle in the canvas's top half and below it in the bottom half.
+                // Radially outward would read more naturally but does not fit: a name sitting beside a
+                // 3-o'clock screw would either overlap its circle or run off the canvas.
+                double labelY = cy < DiagramCenter
+                    ? cy - DiagramScrewCircleRadius - DiagramLabelHeight
+                    : cy + DiagramScrewCircleRadius + 2;
                 ScrewDiagramItems.Add(new TiltScrewDiagramItem {
-                    X = cx - 12,
-                    Y = cy - 12,
+                    X = cx - DiagramScrewCircleRadius,
+                    Y = cy - DiagramScrewCircleRadius,
                     Number = i + 1,
-                    AngleDegrees = angles[i]
+                    AngleDegrees = angles[i],
+                    Label = TiltScrewLabels.Resolve(ScrewLabels, i + 1),
+                    LabelX = cx - DiagramLabelWidth / 2.0,
+                    LabelY = labelY
                 });
             }
 
