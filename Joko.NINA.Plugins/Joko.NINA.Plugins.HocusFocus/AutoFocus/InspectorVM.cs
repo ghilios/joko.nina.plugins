@@ -40,6 +40,7 @@ using NINA.Joko.Plugins.HocusFocus.Scottplot;
 using NINA.Joko.Plugins.HocusFocus.StarDetection;
 using NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.Review;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Prompt;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
@@ -100,6 +101,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         private readonly IApplicationDispatcher applicationDispatcher;
         private readonly IProgress<ApplicationStatus> progress;
         private readonly ITiltAdapterOptions tiltAdapterOptions;
+        // Reads tiltAdapterOptions live, so it tracks device changes and label edits without rewiring.
+        private readonly IScrewLabelProvider screwLabels;
         private readonly IPerFilterStarDetectionStore perFilterStarDetectionStore;
 
         // Shared motorized-device connection singleton (HocusFocusPlugin.TiltDeviceConnectionService in
@@ -256,6 +259,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             };
 
             this.tiltAdapterOptions = tiltAdapterOptions;
+            this.screwLabels = TiltScrewLabels.For(tiltAdapterOptions);
             this.tiltDeviceConnectionService = tiltDeviceConnectionService;
             this.confirmPromptAsync = confirmPromptAsync ?? ShowYesNoPromptAsync;
             this.showAdjustmentPromptAsync = showAdjustmentPromptAsync ?? DefaultShowAdjustmentPromptAsync;
@@ -1915,7 +1919,8 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                     isMotorized: isMotorized,
                     deviceConnected: service?.Connected ?? false,
                     deviceBusy: service?.IsOperationActive ?? false,
-                    angleUnit: options?.AngleDisplayUnit ?? TiltGuidanceAngleUnit.Turns);
+                    angleUnit: options?.AngleDisplayUnit ?? TiltGuidanceAngleUnit.Turns,
+                    labels: screwLabels);
                 ReturnToRunCommand?.NotifyCanExecuteChanged();
             });
         }
@@ -2200,6 +2205,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             int n = HasTiltAdapterCalibration ? tiltAdapterOptions.CalibratedScrewCount : 3;
             var guidance = new TiltAdapterGuidanceVM { ScrewCount = n };
 
+            // Column headings, before any of the amounts: the table names its columns whether or not there
+            // is guidance to put under them. Filled here rather than in the XAML because the names depend on
+            // the selected device and on what the user typed, and this DTO is swapped wholesale (it raises no
+            // per-property notifications), so the headings must travel with the object that carries the values.
+            guidance.FillHeaders(screwLabels, n);
+
             if (HasTiltAdapterCalibration) {
                 // σ resolved for the arrow rows; FillNumericGuidance resolves the same 0→default
                 // rule for the numeric rows.
@@ -2319,6 +2330,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 // canExecute here so they never go stale.
                 RaisePropertyChanged(nameof(AutomaticAdjustmentRemediationVisible));
                 RaisePropertyChanged(nameof(AutomaticAdjustmentRemediationText));
+                // The 2x2 position grid's headings carry the screw names too, and this method already runs on
+                // every tiltAdapterOptions change -- including a device swap and a label edit.
+            RaisePropertyChanged(nameof(ScrewPositionTopRightHeading));
+            RaisePropertyChanged(nameof(ScrewPositionTopLeftHeading));
+            RaisePropertyChanged(nameof(ScrewPositionBottomLeftHeading));
+            RaisePropertyChanged(nameof(ScrewPositionBottomRightHeading));
                 AutomaticAdjustmentCommand?.NotifyCanExecuteChanged();
             });
         }
@@ -2445,6 +2462,14 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public string ScrewPositionBottomRightDisplay => TiltDevicePositionDisplay(2);
 
         public string ScrewPositionBottomLeftDisplay => TiltDevicePositionDisplay(3);
+
+        // Headings for the 2x2 live position grid. Each cell names its corner (how the device's own reports
+        // and the vendor app identify the motor) plus whatever the user calls that screw; the caption beneath
+        // it, static in the XAML, carries the motor and wizard-screw numbers.
+        public string ScrewPositionTopRightHeading => TiltAdapterCorner.ForWizardScrew(1).HeadingWith(screwLabels);
+        public string ScrewPositionTopLeftHeading => TiltAdapterCorner.ForWizardScrew(2).HeadingWith(screwLabels);
+        public string ScrewPositionBottomLeftHeading => TiltAdapterCorner.ForWizardScrew(3).HeadingWith(screwLabels);
+        public string ScrewPositionBottomRightHeading => TiltAdapterCorner.ForWizardScrew(4).HeadingWith(screwLabels);
 
         private string TiltDevicePositionDisplay(int deviceMotorIndex) {
             var svc = tiltDeviceConnectionService;
@@ -2955,7 +2980,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             string pitchMismatchWarning,
             bool positionsUnknown,
             double unitMicrons) {
-            return TiltDeviceAdjustmentPrompt.ShowAsync(windowServiceFactory, replanner, screwInwardCurvatureSignIsMeasured, pitchMismatchWarning, positionsUnknown, unitMicrons);
+            return TiltDeviceAdjustmentPrompt.ShowAsync(windowServiceFactory, replanner, screwInwardCurvatureSignIsMeasured, pitchMismatchWarning, positionsUnknown, unitMicrons, screwLabels);
         }
 
         private void TiltDeviceConnectionService_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e) {

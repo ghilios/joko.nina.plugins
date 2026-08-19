@@ -1,11 +1,58 @@
 using NINA.Joko.Plugins.HocusFocus.AutoFocus;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NUnit.Framework;
 
 namespace NINA.Joko.Plugins.HocusFocus.Tests.AutoFocus;
 
 [TestFixture]
 public class TiltAdapterGuidanceVMTests {
+
+    [Test]
+    public void Headers_DefaultToTheWordingUsedBeforeLabelsExisted() {
+        // A guidance object that has never been filled still has to render something sane.
+        var guidance = new TiltAdapterGuidanceVM();
+        Assert.Multiple(() => {
+            Assert.That(guidance.Screw1Header, Is.EqualTo("Screw 1"));
+            Assert.That(guidance.Screw2Header, Is.EqualTo("Screw 2"));
+            Assert.That(guidance.Screw3Header, Is.EqualTo("Screw 3"));
+            Assert.That(guidance.Screw4Header, Is.EqualTo("Screw 4"));
+        });
+    }
+
+    [Test]
+    public void FillHeaders_TakesTheNamesInEffect() {
+        var guidance = new TiltAdapterGuidanceVM { ScrewCount = 4 };
+        guidance.FillHeaders(TiltScrewLabels.ForScheme(ScrewLabelScheme.AsgEat), screwCount: 4);
+        Assert.Multiple(() => {
+            Assert.That(guidance.Screw1Header, Is.EqualTo("M1"));
+            Assert.That(guidance.Screw2Header, Is.EqualTo("M2"));
+            Assert.That(guidance.Screw3Header, Is.EqualTo("M4"));
+            Assert.That(guidance.Screw4Header, Is.EqualTo("M3"));
+        });
+    }
+
+    [Test]
+    public void FillHeaders_TooltipCarriesTheIdentityTheColumnIsTooNarrowToShow() {
+        var guidance = new TiltAdapterGuidanceVM { ScrewCount = 4 };
+        guidance.FillHeaders(TiltScrewLabels.ForScheme(ScrewLabelScheme.AsgEat), screwCount: 4);
+        Assert.Multiple(() => {
+            Assert.That(guidance.Screw3HeaderTooltip, Does.StartWith("Screw 3 · BL · Motor 4"));
+            Assert.That(guidance.Screw3HeaderTooltip, Does.Contain("Rename in the Tilt Adapter Wizard settings."));
+        });
+    }
+
+    [Test]
+    public void FillHeaders_ThreeScrewAdapterHasNoCornersOrMotorsToName() {
+        var guidance = new TiltAdapterGuidanceVM { ScrewCount = 3 };
+        guidance.FillHeaders(TiltScrewLabels.Default, screwCount: 3);
+        Assert.Multiple(() => {
+            Assert.That(guidance.Screw1Header, Is.EqualTo("Screw 1"));
+            Assert.That(guidance.Screw3HeaderTooltip, Does.StartWith("Screw 3 ·"));
+            Assert.That(guidance.Screw3HeaderTooltip, Does.Not.Contain("Motor"));
+        });
+    }
 
     [Test]
     public void FormatAmount_ScrewsTurns_ShowsMagnitudeWithRotationGlyph() {

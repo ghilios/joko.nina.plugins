@@ -3083,25 +3083,33 @@
                                     Grid.Column="1"
                                     HorizontalAlignment="Center"
                                     FontWeight="SemiBold"
-                                    Text="Screw 1" />
+                                    Text="{Binding TiltGuidance.Screw1Header}"
+                                    TextTrimming="CharacterEllipsis"
+                                    ToolTip="{Binding TiltGuidance.Screw1HeaderTooltip}" />
                                 <TextBlock
                                     Grid.Row="0"
                                     Grid.Column="2"
                                     HorizontalAlignment="Center"
                                     FontWeight="SemiBold"
-                                    Text="Screw 2" />
+                                    Text="{Binding TiltGuidance.Screw2Header}"
+                                    TextTrimming="CharacterEllipsis"
+                                    ToolTip="{Binding TiltGuidance.Screw2HeaderTooltip}" />
                                 <TextBlock
                                     Grid.Row="0"
                                     Grid.Column="3"
                                     HorizontalAlignment="Center"
                                     FontWeight="SemiBold"
-                                    Text="Screw 3" />
+                                    Text="{Binding TiltGuidance.Screw3Header}"
+                                    TextTrimming="CharacterEllipsis"
+                                    ToolTip="{Binding TiltGuidance.Screw3HeaderTooltip}" />
                                 <TextBlock
                                     Grid.Row="0"
                                     Grid.Column="4"
                                     HorizontalAlignment="Center"
                                     FontWeight="SemiBold"
-                                    Text="Screw 4"
+                                    Text="{Binding TiltGuidance.Screw4Header}"
+                                    TextTrimming="CharacterEllipsis"
+                                    ToolTip="{Binding TiltGuidance.Screw4HeaderTooltip}"
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                                 <!--  Tilt row  -->
                                 <TextBlock
@@ -3208,10 +3216,10 @@
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
                                 <!--  Header  -->
-                                <TextBlock Grid.Row="0" Grid.Column="1" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 1" />
-                                <TextBlock Grid.Row="0" Grid.Column="2" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 2" />
-                                <TextBlock Grid.Row="0" Grid.Column="3" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 3" />
-                                <TextBlock Grid.Row="0" Grid.Column="4" HorizontalAlignment="Center" FontWeight="SemiBold" Text="Screw 4"
+                                <TextBlock Grid.Row="0" Grid.Column="1" HorizontalAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw1Header}" TextTrimming="CharacterEllipsis" ToolTip="{Binding TiltGuidance.Screw1HeaderTooltip}" />
+                                <TextBlock Grid.Row="0" Grid.Column="2" HorizontalAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw2Header}" TextTrimming="CharacterEllipsis" ToolTip="{Binding TiltGuidance.Screw2HeaderTooltip}" />
+                                <TextBlock Grid.Row="0" Grid.Column="3" HorizontalAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw3Header}" TextTrimming="CharacterEllipsis" ToolTip="{Binding TiltGuidance.Screw3HeaderTooltip}" />
+                                <TextBlock Grid.Row="0" Grid.Column="4" HorizontalAlignment="Center" FontWeight="SemiBold" Text="{Binding TiltGuidance.Screw4Header}" TextTrimming="CharacterEllipsis" ToolTip="{Binding TiltGuidance.Screw4HeaderTooltip}"
                                     Visibility="{Binding TiltGuidance.HasFourScrews, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                                 <!--  Tilt amounts — ⟳/⟲ in the bound strings render as icons via IconizedText  -->
                                 <TextBlock Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" Text="Tilt" />
@@ -3269,8 +3277,8 @@
                                     <Border Grid.Row="0" Grid.Column="0" Margin="0,0,2,2" Padding="6,3"
                                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                                         <StackPanel>
-                                            <TextBlock FontWeight="Bold" Text="TL · Motor 2" />
-                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 2" />
+                                            <TextBlock FontWeight="Bold" Text="{Binding ScrewPositionTopLeftHeading}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Motor 2 · wizard screw 2" />
                                             <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopLeftDisplay}" />
                                         </StackPanel>
                                     </Border>
@@ -3278,8 +3286,8 @@
                                     <Border Grid.Row="0" Grid.Column="1" Margin="2,0,0,2" Padding="6,3"
                                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                                         <StackPanel>
-                                            <TextBlock FontWeight="Bold" Text="TR · Motor 1" />
-                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 1" />
+                                            <TextBlock FontWeight="Bold" Text="{Binding ScrewPositionTopRightHeading}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Motor 1 · wizard screw 1" />
                                             <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopRightDisplay}" />
                                         </StackPanel>
                                     </Border>
@@ -3287,8 +3295,8 @@
                                     <Border Grid.Row="1" Grid.Column="0" Margin="0,2,2,0" Padding="6,3"
                                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                                         <StackPanel>
-                                            <TextBlock FontWeight="Bold" Text="BL · Motor 4" />
-                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 3" />
+                                            <TextBlock FontWeight="Bold" Text="{Binding ScrewPositionBottomLeftHeading}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Motor 4 · wizard screw 3" />
                                             <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomLeftDisplay}" />
                                         </StackPanel>
                                     </Border>
@@ -3296,8 +3304,8 @@
                                     <Border Grid.Row="1" Grid.Column="1" Margin="2,2,0,0" Padding="6,3"
                                         BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                                         <StackPanel>
-                                            <TextBlock FontWeight="Bold" Text="BR · Motor 3" />
-                                            <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 4" />
+                                            <TextBlock FontWeight="Bold" Text="{Binding ScrewPositionBottomRightHeading}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock FontSize="10" Opacity="0.7" Text="Motor 3 · wizard screw 4" />
                                             <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomRightDisplay}" />
                                         </StackPanel>
                                     </Border>

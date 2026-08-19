@@ -12,6 +12,7 @@ using NINA.Joko.Plugins.HocusFocus.CameraSimulator;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat;
+using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard;
 using NINA.Joko.Plugins.HocusFocus.Tests.TestDoubles;
 using NINA.Joko.Plugins.HocusFocus.Utility;
@@ -548,18 +549,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             // 3-screw: undo only the moved screw (CW/CCW vocabulary — never "inward/outward").
             Assert.Multiple(() => {
                 Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.AllInward, 3, false, 1.0), Does.Contain("ALL screws back COUNTER-CLOCKWISE"));
-                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw1, 3, false, 1.0), Does.Contain("screw 1 back COUNTER-CLOCKWISE"));
-                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw2, 3, false, 1.0), Does.Contain("screw 2 back COUNTER-CLOCKWISE"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw1, 3, false, 1.0), Does.Contain("Screw 1 back COUNTER-CLOCKWISE"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw2, 3, false, 1.0), Does.Contain("Screw 2 back COUNTER-CLOCKWISE"));
             });
             // 4-screw: the opposing screw is undone too.
             Assert.Multiple(() => {
-                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw1, 4, false, 1.0), Does.Contain("screw 3 back CLOCKWISE"));
-                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw2, 4, false, 1.0), Does.Contain("screw 4 back CLOCKWISE"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw1, 4, false, 1.0), Does.Contain("Screw 3 back CLOCKWISE"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw2, 4, false, 1.0), Does.Contain("Screw 4 back CLOCKWISE"));
             });
             // Steppers: signed steps (U+2212 minus for undo).
             Assert.Multiple(() => {
                 Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.AllInward, 3, true, 2.0), Does.Contain("−2 steps to every motor"));
-                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw1, 4, true, 2.0), Does.Contain("−2 steps to motor 1").And.Contain("+2 steps to motor 3"));
+                Assert.That(TiltAdapterWizardVM.BaselineRecoveryText(WizardStep.Screw1, 4, true, 2.0), Does.Contain("−2 steps to Screw 1").And.Contain("+2 steps to Screw 3"));
             });
         }
 
@@ -608,15 +609,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline1, 3, false, 1.0),
                     Does.Contain("COUNTER-CLOCKWISE (loosen) exactly 1 full turn"));
                 Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.Screw1, 4, false, 1.0),
-                    Does.Contain("screw 1 CLOCKWISE").And.Contain("screw 3 COUNTER-CLOCKWISE"));
+                    Does.Contain("Screw 1 CLOCKWISE").And.Contain("Screw 3 COUNTER-CLOCKWISE"));
                 Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.Screw2, 3, false, 1.5),
-                    Does.Contain("screw 2 CLOCKWISE exactly 1.5 turns"));
+                    Does.Contain("Screw 2 CLOCKWISE exactly 1.5 turns"));
                 // Task 6: the optional measured final re-baseline undoes screw 2's move (motor/screw 2 and,
                 // 4-screw, its opposite motor/screw 4) -- same shape as ReBaseline2's undo of screw 1, mirrored.
                 Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline3, 3, false, 1.0),
-                    Does.Contain("screw 2 back COUNTER-CLOCKWISE").And.Contain("returning to the baseline position"));
+                    Does.Contain("Screw 2 back COUNTER-CLOCKWISE").And.Contain("returning to the baseline position"));
                 Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline3, 4, false, 1.0),
-                    Does.Contain("screw 2 back COUNTER-CLOCKWISE").And.Contain("screw 4 back CLOCKWISE"));
+                    Does.Contain("Screw 2 back COUNTER-CLOCKWISE").And.Contain("Screw 4 back CLOCKWISE"));
             });
         }
 
@@ -626,14 +627,61 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.AllInward, 3, isStepper: true, appliedAmount: 2.0),
                     Does.Contain("+2 steps to EVERY motor"));
                 Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline2, 3, true, 2.0),
-                    Does.Contain("−2 steps to motor 1"));
+                    Does.Contain("−2 steps to Screw 1"));
                 Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.Screw1, 4, true, 2.0),
-                    Does.Contain("+2 steps to motor 1").And.Contain("−2 steps to motor 3"));
+                    Does.Contain("+2 steps to Screw 1").And.Contain("−2 steps to Screw 3"));
                 // Task 6: stepper wording for the optional measured final re-baseline (motor 2 / motor 4).
                 Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline3, 4, true, 2.0),
-                    Does.Contain("−2 steps to motor 2").And.Contain("+2 steps to motor 4"));
+                    Does.Contain("−2 steps to Screw 2").And.Contain("+2 steps to Screw 4"));
                 Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline3, 3, true, 2.0),
-                    Does.Contain("−2 steps to motor 2").And.Not.Contain("motor 4"));
+                    Does.Contain("−2 steps to Screw 2").And.Not.Contain("Screw 4"));
+            });
+        }
+
+        // The correctness win. Before labels, this prose said "apply +N steps to motor 1 and -N steps to
+        // motor 3" -- and those were WIZARD screw indices, so a user who obeyed literally and turned the
+        // EAT's physical M3 moved the wrong corner (wizard screw 3 is motor 4). With the EAT's own names in
+        // the prose there is nothing left to misread.
+        [Test]
+        public void StepInstructionsText_OnAnEat_NamesTheMotorsTheUserCanActuallySee() {
+            var eat = TiltScrewLabels.ForScheme(ScrewLabelScheme.AsgEat);
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.Screw1, 4, true, 150, eat),
+                    Is.EqualTo("Apply +150 steps to M1 and −150 steps to M4, then click Run Measurement."));
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.Screw2, 4, true, 150, eat),
+                    Is.EqualTo("Apply +150 steps to M2 and −150 steps to M3, then click Run Measurement."));
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline2, 4, true, 150, eat),
+                    Does.Contain("−150 steps to M1").And.Contain("+150 steps to M4"));
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.ReBaseline3, 4, true, 150, eat),
+                    Does.Contain("−150 steps to M2").And.Contain("+150 steps to M3"));
+                // The old wording must not survive anywhere in the per-screw prose.
+                foreach (var step in new[] { WizardStep.Screw1, WizardStep.Screw2, WizardStep.ReBaseline2, WizardStep.ReBaseline3 }) {
+                    Assert.That(TiltAdapterWizardVM.StepInstructionsText(step, 4, true, 150, eat),
+                        Does.Not.Contain("motor 1").And.Not.Contain("motor 3"), step.ToString());
+                }
+            });
+        }
+
+        [Test]
+        public void StepInstructionsText_Baseline_IntroducesTheNamesOrTeachesTheNumbering() {
+            var eat = TiltScrewLabels.ForScheme(ScrewLabelScheme.AsgEat);
+            Assert.Multiple(() => {
+                // Named: state the order the wizard expects, in the user's vocabulary.
+                Assert.That(TiltAdapterWizardVM.StepInstructionsText(WizardStep.Baseline, 4, true, 150, eat),
+                    Does.Contain("Your screws are M1, M2, M4, and M3, in that clockwise order."));
+                // Unnamed: keep the original instruction, and point at where names can be entered.
+                var unnamed = TiltAdapterWizardVM.StepInstructionsText(WizardStep.Baseline, 4, false, 1.0);
+                Assert.That(unnamed, Does.Contain("Label your screws 1, 2, 3, and 4 in a consistent clockwise order."));
+                Assert.That(unnamed, Does.Contain("Screw Labels"), "the feature has to be discoverable at the moment it is relevant");
+            });
+        }
+
+        [Test]
+        public void StepTitleText_UsesTheScrewName() {
+            var eat = TiltScrewLabels.ForScheme(ScrewLabelScheme.AsgEat);
+            Assert.Multiple(() => {
+                Assert.That(TiltAdapterWizardVM.StepTitleText(WizardStep.Screw1, eat), Is.EqualTo("Move M1"));
+                Assert.That(TiltAdapterWizardVM.StepTitleText(WizardStep.Screw2, eat), Is.EqualTo("Move M2"));
             });
         }
 
@@ -838,31 +886,52 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         [Test]
         public void RebuildDiagram_OffsetRig_PlacesPhysicalTopScrewAtCanvasTop() {
             // m = +1 rig (σ = +1 at the standard focuser): screw 1 is physically at the TOP (physical
-            // 0°), stored as 0+180 = 180°. The diagram must draw it at canvas-top (cy = 100 − 75·cos0
-            // = 25 → Y = 25 − 12 = 13), NOT at the bottom (the raw-stored 180° would give cy = 175).
+            // 0°), stored as 0+180 = 180°. The diagram must draw it at canvas-top (cy = 130 − 75·cos0
+            // = 55 → Y = 55 − 12 = 43), NOT at the bottom (the raw-stored 180° would give cy = 205).
             // Screws 2/3 are physically 120/240.
             var (vm, _) = BuildCalibrated(sign: 1, s1: 180, s2: 300, s3: 60);
 
             var screw1 = vm.ScrewDiagramItems.Single(i => i.Number == 1);
             Assert.Multiple(() => {
                 Assert.That(screw1.AngleDegrees, Is.EqualTo(0.0).Within(1e-9), "physical angle");
-                Assert.That(screw1.Y, Is.EqualTo(13.0).Within(0.5), "canvas-top, not bottom");
-                Assert.That(screw1.X, Is.EqualTo(88.0).Within(0.5), "horizontally centred");
+                Assert.That(screw1.Y, Is.EqualTo(43.0).Within(0.5), "canvas-top, not bottom");
+                Assert.That(screw1.X, Is.EqualTo(118.0).Within(0.5), "horizontally centred");
             });
         }
 
         [Test]
         public void RebuildDiagram_NoOffsetRig_PlacesScrewsAtStoredAngles() {
             // m = −1 rig (σ = −1 at the standard focuser): stored == physical, so the diagram plots the
-            // stored angles directly. Screw 1 stored 90° → right edge (cx = 175, cy = 100 → X = 163,
-            // Y = 88). Guards against a double 180° offset.
+            // stored angles directly. Screw 1 stored 90° → right edge (cx = 205, cy = 130 → X = 193,
+            // Y = 118). Guards against a double 180° offset.
             var (vm, _) = BuildCalibrated(sign: -1, s1: 90, s2: 210, s3: 330);
 
             var screw1 = vm.ScrewDiagramItems.Single(i => i.Number == 1);
             Assert.Multiple(() => {
                 Assert.That(screw1.AngleDegrees, Is.EqualTo(90.0).Within(1e-9));
-                Assert.That(screw1.X, Is.EqualTo(163.0).Within(0.5));
-                Assert.That(screw1.Y, Is.EqualTo(88.0).Within(0.5));
+                Assert.That(screw1.X, Is.EqualTo(193.0).Within(0.5));
+                Assert.That(screw1.Y, Is.EqualTo(118.0).Within(0.5));
+            });
+        }
+
+        [Test]
+        public void RebuildDiagram_CarriesTheScrewNameAndKeepsItClearOfTheCircle() {
+            // The circle keeps the number; the name is drawn just outside it. Placement flips side with the
+            // half of the canvas the screw sits in, so a name never lands on the sensor rectangle between
+            // the circles, and the label block always stays inside the 260x260 canvas.
+            var (vm, _) = BuildCalibrated(sign: -1, s1: 0, s2: 120, s3: 240);
+
+            var top = vm.ScrewDiagramItems.Single(i => i.Number == 1);      // physical 0deg -> canvas top
+            var lower = vm.ScrewDiagramItems.Single(i => i.Number == 2);    // physical 120deg -> lower right
+
+            Assert.Multiple(() => {
+                Assert.That(top.Label, Is.EqualTo("Screw 1"), "an unlabeled manual rig still names its screws");
+                Assert.That(top.LabelY, Is.LessThan(top.Y), "top-half names sit above their circle");
+                Assert.That(lower.LabelY, Is.GreaterThan(lower.Y), "bottom-half names sit below theirs");
+                foreach (var item in vm.ScrewDiagramItems) {
+                    Assert.That(item.LabelX, Is.GreaterThanOrEqualTo(0.0).And.LessThanOrEqualTo(260.0 - 64.0), $"screw {item.Number} X");
+                    Assert.That(item.LabelY, Is.GreaterThanOrEqualTo(0.0).And.LessThanOrEqualTo(260.0 - 14.0), $"screw {item.Number} Y");
+                }
             });
         }
 
@@ -895,7 +964,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             // the readout properties and the diagram must refresh when ScrewInwardCurvatureSign changes.
             var (vm, options) = BuildCalibrated(sign: -1, s1: 0, s2: 120, s3: 240);
             // Built on m = −1 (no offset): screw 1 (stored 0° = physical top) starts at canvas-top.
-            Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(13.0).Within(0.5));
+            Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(43.0).Within(0.5));
 
             var raised = new System.Collections.Generic.List<string>();
             vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
@@ -907,7 +976,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 Assert.That(raised, Does.Contain(nameof(TiltAdapterWizardVM.PhysicalScrew1AngleDegrees)));
                 Assert.That(raised, Does.Contain(nameof(TiltAdapterWizardVM.PhysicalScrew2AngleDegrees)));
                 // Now interpreted as an m = +1 rig: physical = 0 + 180 = 180° → screw 1 moves to the bottom.
-                Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(163.0).Within(0.5));
+                Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(193.0).Within(0.5));
             });
         }
 
@@ -2381,7 +2450,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         [Test]
         public void Disconnected_StepInstructions_MatchesManualTextExactly_EvenForAMotorizedPreset() {
             var (vm, options, service, controller, _, _) = BuildMotorized(); // motorized preset, never connected
-            string expected = TiltAdapterWizardVM.StepInstructionsText(WizardStep.Baseline, 4, true, vm.CalibrationAppliedAmount);
+            string expected = TiltAdapterWizardVM.StepInstructionsText(WizardStep.Baseline, 4, true, vm.CalibrationAppliedAmount, vm.ScrewLabels);
             Assert.That(vm.StepInstructions, Is.EqualTo(expected));
         }
 
@@ -2391,7 +2460,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             options.CalibrationAppliedAmount.Returns(150.0);
             Connect(vm);
 
-            string manualText = TiltAdapterWizardVM.StepInstructionsText(WizardStep.Baseline, 4, true, vm.CalibrationAppliedAmount);
+            string manualText = TiltAdapterWizardVM.StepInstructionsText(WizardStep.Baseline, 4, true, vm.CalibrationAppliedAmount, vm.ScrewLabels);
             Assert.Multiple(() => {
                 Assert.That(vm.StepInstructions, Is.Not.EqualTo(manualText));
                 Assert.That(vm.StepInstructions, Does.Contain("wizard will drive"));
@@ -2638,14 +2707,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                         "Step 1 of 6", "Step 2 of 6", "Step 3 of 6", "Step 4 of 6", "Step 5 of 6", "Step 6 of 6" }));
                     // The title must track the step too -- same root cause, separately visible to the user.
                     Assert.That(observed.Select(o => o.title),
-                        Is.EqualTo(steps.Select(TiltAdapterWizardVM.StepTitleText)));
+                        Is.EqualTo(steps.Select(s => TiltAdapterWizardVM.StepTitleText(s))));
                     // Status text uses the human step title, not the raw enum name.
                     Assert.That(observed.Select(o => o.status),
                         Is.EqualTo(steps.Select(s => $"Replaying {TiltAdapterWizardVM.StepTitleText(s)}...")));
                     // A replay re-analyzes saved frames: the instruction paragraph must not tell the user to turn
                     // screws or click a button that is collapsed for the whole replay.
                     Assert.That(observed.Select(o => o.instructions),
-                        Is.EqualTo(steps.Select(TiltAdapterWizardVM.ReplayStepInstructionsText)));
+                        Is.EqualTo(steps.Select(s => TiltAdapterWizardVM.ReplayStepInstructionsText(s))));
                     Assert.That(observed.Select(o => o.instructions),
                         Has.None.Contains("Run Measurement").And.None.Contains("CLOCKWISE"));
                     // The replay flag is transient: it must be cleared once the replay finishes.

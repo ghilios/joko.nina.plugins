@@ -43,6 +43,29 @@ The adapter type is set by the **Screws** field (default `3`).
   exploits this: opposite screws are always 180° apart regardless of mirroring, so it measures two
   screws and places the other two 180° across.
 
+## Naming your screws
+
+Every place HocusFocus refers to a screw, it uses whatever you call that screw. Open **Screw Labels**
+in the wizard's settings and type a name for each one. The guidance table in the Aberration Inspector,
+the wizard's own step prompts, the screw diagram, and the automatic-adjustment approval dialog all
+follow. Names are capped at 12 characters so they fit the narrow table columns; anything longer is
+trimmed with the full name on the tooltip.
+
+Leave a box blank to use the name shown greyed inside it. That default depends on the adapter:
+
+| Device | Screw 1 | Screw 2 | Screw 3 | Screw 4 |
+|---|---|---|---|---|
+| ASG Electronic EAT (either preset) | M1 | M2 | M4 | M3 |
+| Everything else | Screw 1 | Screw 2 | Screw 3 | Screw 4 |
+
+The EAT defaults are its own motor names, so the wizard's prompts name the motor you actually reach
+for. Note that screws 3 and 4 are motors 4 and 3: the wizard numbers its screws in rotational order,
+while the EAT numbers its motors top-right, top-left, bottom-right, bottom-left. Getting that
+backwards moves the wrong corner, which is exactly what the labels are there to prevent.
+
+Names are stored per adapter, per profile. If you name the screws on a manual adapter and then switch
+the **Device** list to an EAT, you get the EAT's names; switch back and your own names return.
+
 ## The calibration loop
 
 The wizard establishes the screw-to-tilt mapping empirically. The core run is **four steps**: a

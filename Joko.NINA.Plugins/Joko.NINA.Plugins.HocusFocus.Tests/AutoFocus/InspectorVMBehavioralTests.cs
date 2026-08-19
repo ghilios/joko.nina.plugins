@@ -172,6 +172,54 @@ public class InspectorVMBehavioralTests {
     }
 
     [Test]
+    public void TiltGuidance_Headers_FollowTheScrewNamesInEffect() {
+        // TiltAdapterGuidanceVM raises no per-property notifications -- the whole object is swapped on
+        // every rebuild. So the thing worth pinning is not "the property was set" but "the object the view
+        // is bound to carries the new names after a rebuild": a device change has to reach the columns.
+        var bundle = new MediatorBundle();
+        bundle.TiltAdapterOptions.IsCalibrated.Returns(true);
+        bundle.TiltAdapterOptions.ScrewCount.Returns(4);
+        bundle.TiltAdapterOptions.CalibratedScrewCount.Returns(4);
+        bundle.TiltAdapterOptions.DeviceName.Returns("Manual");
+
+        var vm = bundle.BuildInspectorVM();
+        var beforeSwap = vm.TiltGuidance;
+
+        bundle.TiltAdapterOptions.DeviceName.Returns("ASG Electronic EAT - 90mm");
+        bundle.TiltAdapterOptions.PropertyChanged += Raise.Event<PropertyChangedEventHandler>(
+            bundle.TiltAdapterOptions, new PropertyChangedEventArgs(nameof(ITiltAdapterOptions.DeviceName)));
+        var afterSwap = vm.TiltGuidance;
+
+        Assert.Multiple(() => {
+            Assert.That(beforeSwap.Screw3Header, Is.EqualTo("Screw 3"), "a manual adapter reads as it always has");
+            // Wizard screw 3 is the EAT's motor 4 -- the permutation this feature exists to surface.
+            Assert.That(afterSwap.Screw1Header, Is.EqualTo("M1"));
+            Assert.That(afterSwap.Screw2Header, Is.EqualTo("M2"));
+            Assert.That(afterSwap.Screw3Header, Is.EqualTo("M4"));
+            Assert.That(afterSwap.Screw4Header, Is.EqualTo("M3"));
+            Assert.That(afterSwap.Screw3HeaderTooltip, Does.StartWith("Screw 3 · BL · Motor 4"),
+                "the identity behind a renamed column stays reachable");
+        });
+    }
+
+    [Test]
+    public void TiltGuidance_Headers_PreferTheUsersOwnName() {
+        var bundle = new MediatorBundle();
+        bundle.TiltAdapterOptions.IsCalibrated.Returns(true);
+        bundle.TiltAdapterOptions.ScrewCount.Returns(4);
+        bundle.TiltAdapterOptions.CalibratedScrewCount.Returns(4);
+        bundle.TiltAdapterOptions.DeviceName.Returns("ASG Electronic EAT - 90mm");
+        bundle.TiltAdapterOptions.GetScrewLabelOverride(2).Returns("Top Left");
+
+        var vm = bundle.BuildInspectorVM();
+
+        Assert.Multiple(() => {
+            Assert.That(vm.TiltGuidance.Screw2Header, Is.EqualTo("Top Left"));
+            Assert.That(vm.TiltGuidance.Screw1Header, Is.EqualTo("M1"), "unnamed screws keep the device default");
+        });
+    }
+
+    [Test]
     public void TiltGuidance_SigmaFlip_FlipsMotionArrowsNotTiltGlyphs() {
         // The σ-flip matrix from docs/tilt-guidance-motion-arrows-design.md, run with identical model
         // inputs at σ = +1 then σ = −1:

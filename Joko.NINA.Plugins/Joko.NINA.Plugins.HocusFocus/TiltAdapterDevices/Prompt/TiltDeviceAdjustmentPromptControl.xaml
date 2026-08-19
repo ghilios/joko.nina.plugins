@@ -235,7 +235,7 @@
                         FontSize="11"
                         Foreground="{StaticResource FgDim}"
                         TextWrapping="Wrap"
-                        Text="+ = the wizard's positive step direction (clockwise / tighten); − = the opposite. Screw numbers match the Tilt Adapter Wizard."
+                        Text="+ = the wizard's positive step direction (clockwise / tighten); − = the opposite. Screw names match the Tilt Adapter Wizard."
                         Visibility="{Binding HasMoves, Converter={StaticResource BoolToVis}}" />
                 </StackPanel>
             </Border>

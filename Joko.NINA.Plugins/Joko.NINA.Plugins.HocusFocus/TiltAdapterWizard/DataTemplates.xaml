@@ -59,8 +59,8 @@
                 <Border Grid.Row="0" Grid.Column="0" Margin="0,0,2,2" Padding="6,4"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                     <StackPanel>
-                        <TextBlock FontWeight="Bold" Text="TL · Motor 2" />
-                        <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 2" />
+                        <TextBlock FontWeight="Bold" Text="{Binding ScrewPositionTopLeftHeading}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock FontSize="10" Opacity="0.7" Text="Motor 2 · wizard screw 2" />
                         <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopLeftDisplay}" />
                     </StackPanel>
                 </Border>
@@ -68,8 +68,8 @@
                 <Border Grid.Row="0" Grid.Column="1" Margin="2,0,0,2" Padding="6,4"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                     <StackPanel>
-                        <TextBlock FontWeight="Bold" Text="TR · Motor 1" />
-                        <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 1" />
+                        <TextBlock FontWeight="Bold" Text="{Binding ScrewPositionTopRightHeading}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock FontSize="10" Opacity="0.7" Text="Motor 1 · wizard screw 1" />
                         <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionTopRightDisplay}" />
                     </StackPanel>
                 </Border>
@@ -77,8 +77,8 @@
                 <Border Grid.Row="1" Grid.Column="0" Margin="0,2,2,0" Padding="6,4"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                     <StackPanel>
-                        <TextBlock FontWeight="Bold" Text="BL · Motor 4" />
-                        <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 3" />
+                        <TextBlock FontWeight="Bold" Text="{Binding ScrewPositionBottomLeftHeading}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock FontSize="10" Opacity="0.7" Text="Motor 4 · wizard screw 3" />
                         <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomLeftDisplay}" />
                     </StackPanel>
                 </Border>
@@ -86,21 +86,22 @@
                 <Border Grid.Row="1" Grid.Column="1" Margin="2,2,0,0" Padding="6,4"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="3">
                     <StackPanel>
-                        <TextBlock FontWeight="Bold" Text="BR · Motor 3" />
-                        <TextBlock FontSize="10" Opacity="0.7" Text="Wizard screw 4" />
+                        <TextBlock FontWeight="Bold" Text="{Binding ScrewPositionBottomRightHeading}" TextTrimming="CharacterEllipsis" />
+                        <TextBlock FontSize="10" Opacity="0.7" Text="Motor 3 · wizard screw 4" />
                         <TextBlock Margin="0,2,0,0" Text="{Binding ScrewPositionBottomRightDisplay}" />
                     </StackPanel>
                 </Border>
             </Grid>
-            <!--  Mapping made visible (not tooltip-only) so a user watching the physical adapter can tell
-                  which corner should be moving.  -->
+            <!--  Each cell now carries its own corner / motor / wizard-screw identity (and the user's name for
+                  the screw), so this line no longer restates the mapping: that would be a fourth place to keep
+                  in sync. What is left is the one thing the cells cannot say: what Δ is measured against.  -->
             <TextBlock
                 Margin="0,3,0,0"
                 FontSize="10"
                 FontStyle="Italic"
                 Opacity="0.7"
                 TextWrapping="Wrap"
-                Text="Screw 1 = TR, 2 = TL, 3 = BL, 4 = BR (matches the wizard). Δ is the change since this run started." />
+                Text="Each cell shows the adapter corner, its motor number, and the wizard screw it matches. Δ is the change since this run started." />
         </StackPanel>
     </DataTemplate>
 
@@ -220,7 +221,7 @@
                                             MinWidth="62"
                                             AutomationProperties.Name="{Binding Target.AutomationName}"
                                             IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                            ToolTip="{Binding Target.Tooltip}">
+                                            ToolTip="{Binding Tooltip}">
                                             <TextBlock Margin="8,5" HorizontalAlignment="Center" Text="{Binding Target.Label}">
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
@@ -688,11 +689,11 @@
     -->
     <DataTemplate x:Key="HF_TiltScrewDiagram">
         <StackPanel>
-        <Canvas Width="200" Height="200">
+        <Canvas Width="260" Height="260">
             <!--  Sensor rectangle — 3:2 aspect ratio, 90×60  -->
             <Rectangle
-                Canvas.Left="55"
-                Canvas.Top="70"
+                Canvas.Left="85"
+                Canvas.Top="100"
                 Width="90"
                 Height="60"
                 Fill="Transparent"
@@ -706,25 +707,25 @@
                 StrokeDashArray="4,4"
                 StrokeThickness="0.75"
                 X1="0"
-                X2="200"
-                Y1="100"
-                Y2="100" />
+                X2="260"
+                Y1="130"
+                Y2="130" />
             <Line
                 Opacity="0.5"
                 Stroke="{StaticResource PrimaryBrush}"
                 StrokeDashArray="4,4"
                 StrokeThickness="0.75"
-                X1="100"
-                X2="100"
+                X1="130"
+                X2="130"
                 Y1="0"
-                Y2="200" />
+                Y2="260" />
 
             <!--  Screw connection polygon — long-dash lines  -->
             <ItemsControl
                 Canvas.Left="0"
                 Canvas.Top="0"
-                Width="200"
-                Height="200"
+                Width="260"
+                Height="260"
                 ItemsSource="{Binding ScrewConnectionLines}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -750,8 +751,8 @@
             <ItemsControl
                 Canvas.Left="0"
                 Canvas.Top="0"
-                Width="200"
-                Height="200"
+                Width="260"
+                Height="260"
                 ItemsSource="{Binding ScrewDiagramItems}">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -782,29 +783,65 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
+            <!--  Screw names, just outside each circle. The circle keeps the wizard number (24px leaves no
+                  room for a name); this is where "M4" or "Top Left" appears. Placement comes from the VM,
+                  which keeps names clear of the sensor rectangle and of one another. Width is fixed so the
+                  blocks stay centred under their screws; anything longer ellipsizes and the full name is
+                  still on the tooltip.  -->
+            <ItemsControl
+                Canvas.Left="0"
+                Canvas.Top="0"
+                Width="260"
+                Height="260"
+                ItemsSource="{Binding ScrewDiagramItems}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <Canvas IsItemsHost="True" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemContainerStyle>
+                    <Style>
+                        <Setter Property="Canvas.Left" Value="{Binding LabelX}" />
+                        <Setter Property="Canvas.Top" Value="{Binding LabelY}" />
+                    </Style>
+                </ItemsControl.ItemContainerStyle>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock
+                            Width="64"
+                            FontSize="9"
+                            Foreground="{StaticResource PrimaryBrush}"
+                            Text="{Binding Label}"
+                            TextAlignment="Center"
+                            TextTrimming="CharacterEllipsis"
+                            ToolTip="{Binding Label}" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
             <!--  Orientation markers (Style A) — anchored only in screw-free zones: the central-top
-                  band (x∈[93,115], y∈[43,56]) and the rectangle interior are empty for all 3- and
+                  band (x∈[123,145], y∈[73,86]) and the rectangle interior are empty for all 3- and
                   4-screw layouts and any calibration rotation, so they never collide with a screw
                   circle. The clockwise cue lives in the caption below (collision-proof).  -->
             <!--  0° = straight up: up-chevron + label just below the 12-o'clock screw  -->
             <Path
-                Canvas.Left="93"
-                Canvas.Top="46"
+                Canvas.Left="123"
+                Canvas.Top="76"
                 Width="14"
                 Height="10"
                 Data="M0,10 L7,0 L14,10 Z"
                 Fill="{StaticResource PrimaryBrush}"
                 Stretch="Uniform" />
             <TextBlock
-                Canvas.Left="110"
-                Canvas.Top="43"
+                Canvas.Left="140"
+                Canvas.Top="73"
                 FontSize="10"
                 Foreground="{StaticResource PrimaryBrush}"
                 Text="0°" />
             <!--  The rectangle depicts IMAGE orientation, not the physical adapter  -->
             <TextBlock
-                Canvas.Left="70"
-                Canvas.Top="74"
+                Canvas.Left="100"
+                Canvas.Top="104"
                 FontSize="9"
                 Foreground="{StaticResource PrimaryBrush}"
                 Opacity="0.75"
@@ -813,7 +850,7 @@
         <!--  Caption: states all three orientation facts; the clockwise icon renders inline (via the
               ⟳ sentinel) here where it cannot collide with a rotated screw circle.  -->
         <TextBlock
-            MaxWidth="200"
+            MaxWidth="260"
             Margin="0,4,0,0"
             FontSize="10"
             Foreground="{StaticResource PrimaryBrush}"
@@ -832,15 +869,15 @@
     <DataTemplate x:Key="HF_TiltScrewCalibrationInfo">
         <StackPanel>
             <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
-                <TextBlock HorizontalAlignment="Center" Text="Screw 1" />
+                <TextBlock HorizontalAlignment="Center" Text="{Binding Screw1DisplayName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Screw1DisplayName}" />
                 <TextBlock HorizontalAlignment="Center" Text="{Binding PhysicalScrew1AngleDegrees, StringFormat={}{0:F1}°}" />
             </UniformGrid>
             <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
-                <TextBlock HorizontalAlignment="Center" Text="Screw 2" />
+                <TextBlock HorizontalAlignment="Center" Text="{Binding Screw2DisplayName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Screw2DisplayName}" />
                 <TextBlock HorizontalAlignment="Center" Text="{Binding PhysicalScrew2AngleDegrees, StringFormat={}{0:F1}°}" />
             </UniformGrid>
             <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
-                <TextBlock HorizontalAlignment="Center" Text="Screw 3" />
+                <TextBlock HorizontalAlignment="Center" Text="{Binding Screw3DisplayName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Screw3DisplayName}" />
                 <TextBlock HorizontalAlignment="Center" Text="{Binding PhysicalScrew3AngleDegrees, StringFormat={}{0:F1}°}" />
             </UniformGrid>
             <!--  Screw 4 row — collapses when ScrewCount == 3  -->
@@ -855,7 +892,7 @@
                         </Style.Triggers>
                     </Style>
                 </UniformGrid.Style>
-                <TextBlock HorizontalAlignment="Center" Text="Screw 4" />
+                <TextBlock HorizontalAlignment="Center" Text="{Binding Screw4DisplayName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Screw4DisplayName}" />
                 <TextBlock HorizontalAlignment="Center" Text="{Binding PhysicalScrew4AngleDegrees, StringFormat={}{0:F1}°}" />
             </UniformGrid>
             <!--  Curvature row — the arrow shows how the curvature effect responds to clockwise screw turns  -->
@@ -1127,6 +1164,143 @@
                             ToolTip="Distance from the sensor center to each screw, in millimeters. Sets the lever arm used to convert tilt into screw adjustments." />
                         <TextBox MinWidth="60" IsEnabled="{Binding IsManualDevice}" Text="{Binding ScrewRadiusMillimetersValue, UpdateSourceTrigger=LostFocus}" />
                     </UniformGrid>
+
+                    <!--  Screw labels: the names this rig's screws go by, used by every tilt surface.
+                          Deliberately NOT gated on IsManualDevice like the hardware fields above: renaming
+                          an EAT's motors is the primary use case, and the labels are stored per device
+                          family, so each preset shows and edits its own set.  -->
+                    <Expander Margin="0,10,0,0" Header="Screw Labels">
+                        <StackPanel Margin="0,5,0,0">
+                            <TextBlock
+                                Margin="0,0,0,5"
+                                FontStyle="Italic"
+                                Opacity="0.7"
+                                Text="Optional names for your screws — used everywhere HocusFocus refers to them. Leave a box blank to use the name shown in it. Each device keeps its own names, so switching adapters brings the right set back."
+                                TextWrapping="Wrap" />
+                            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                                <TextBlock VerticalAlignment="Center" Text="Screw 1" />
+                                <Grid>
+                                    <TextBox
+                                        x:Name="Screw1LabelBox"
+                                        MinWidth="90"
+                                        MaxLength="{Binding ScrewLabelMaxLength}"
+                                        Text="{Binding Screw1Label, UpdateSourceTrigger=LostFocus}" />
+                                    <!--  Greyed default showing through an empty box, so a blank field visibly IS the name that will be used.  -->
+                                    <TextBlock
+                                        Margin="6,0,0,0"
+                                        VerticalAlignment="Center"
+                                        IsHitTestVisible="False"
+                                        Opacity="0.5"
+                                        Text="{Binding Screw1LabelHint}">
+                                        <TextBlock.Style>
+                                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Text, ElementName=Screw1LabelBox}" Value="">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                            </UniformGrid>
+                            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                                <TextBlock VerticalAlignment="Center" Text="Screw 2" />
+                                <Grid>
+                                    <TextBox
+                                        x:Name="Screw2LabelBox"
+                                        MinWidth="90"
+                                        MaxLength="{Binding ScrewLabelMaxLength}"
+                                        Text="{Binding Screw2Label, UpdateSourceTrigger=LostFocus}" />
+                                    <!--  Greyed default showing through an empty box, so a blank field visibly IS the name that will be used.  -->
+                                    <TextBlock
+                                        Margin="6,0,0,0"
+                                        VerticalAlignment="Center"
+                                        IsHitTestVisible="False"
+                                        Opacity="0.5"
+                                        Text="{Binding Screw2LabelHint}">
+                                        <TextBlock.Style>
+                                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Text, ElementName=Screw2LabelBox}" Value="">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                            </UniformGrid>
+                            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                                <TextBlock VerticalAlignment="Center" Text="Screw 3" />
+                                <Grid>
+                                    <TextBox
+                                        x:Name="Screw3LabelBox"
+                                        MinWidth="90"
+                                        MaxLength="{Binding ScrewLabelMaxLength}"
+                                        Text="{Binding Screw3Label, UpdateSourceTrigger=LostFocus}" />
+                                    <!--  Greyed default showing through an empty box, so a blank field visibly IS the name that will be used.  -->
+                                    <TextBlock
+                                        Margin="6,0,0,0"
+                                        VerticalAlignment="Center"
+                                        IsHitTestVisible="False"
+                                        Opacity="0.5"
+                                        Text="{Binding Screw3LabelHint}">
+                                        <TextBlock.Style>
+                                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Text, ElementName=Screw3LabelBox}" Value="">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                            </UniformGrid>
+                            <UniformGrid Margin="0,2" VerticalAlignment="Center" Columns="2">
+                                <UniformGrid.Style>
+                                    <Style TargetType="UniformGrid">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding TiltAdapterOptions.ScrewCount}" Value="3">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </UniformGrid.Style>
+                                <TextBlock VerticalAlignment="Center" Text="Screw 4" />
+                                <Grid>
+                                    <TextBox
+                                        x:Name="Screw4LabelBox"
+                                        MinWidth="90"
+                                        MaxLength="{Binding ScrewLabelMaxLength}"
+                                        Text="{Binding Screw4Label, UpdateSourceTrigger=LostFocus}" />
+                                    <!--  Greyed default showing through an empty box, so a blank field visibly IS the name that will be used.  -->
+                                    <TextBlock
+                                        Margin="6,0,0,0"
+                                        VerticalAlignment="Center"
+                                        IsHitTestVisible="False"
+                                        Opacity="0.5"
+                                        Text="{Binding Screw4LabelHint}">
+                                        <TextBlock.Style>
+                                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Text, ElementName=Screw4LabelBox}" Value="">
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </Grid>
+                            </UniformGrid>
+                        </StackPanel>
+                    </Expander>
 
                     <!--  Editable per-session fields (kept together, always editable)  -->
                     <UniformGrid Margin="0,5" VerticalAlignment="Center" Columns="2">
