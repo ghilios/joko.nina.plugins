@@ -61,7 +61,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
                 optionsAccessor.SetValueInt32(nameof(StepCount), stepCount);
             }
             stepSize = optionsAccessor.GetValueInt32(nameof(StepSize), -1);
-            signalAmplification = Math.Max(1, optionsAccessor.GetValueInt32(nameof(SignalAmplification), 2));
+            signalAmplification = Math.Max(1, optionsAccessor.GetValueInt32(nameof(SignalAmplification), 1));
             centerFocuserBeforeRun = optionsAccessor.GetValueBoolean(nameof(CenterFocuserBeforeRun), false);
             framesPerPoint = optionsAccessor.GetValueInt32(nameof(FramesPerPoint), -1);
             timeoutSeconds = optionsAccessor.GetValueInt32(nameof(TimeoutSeconds), -1);
@@ -99,7 +99,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         public void ResetDefaults() {
             StepCount = -1;
             StepSize = -1;
-            SignalAmplification = 2;
+            SignalAmplification = 1;
             CenterFocuserBeforeRun = false;
             FramesPerPoint = -1;
             TimeoutSeconds = -1;
@@ -157,8 +157,12 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         // Signal amplification factor for sensor-model / tilt calibration sweeps: divides the focuser step size and
         // multiplies the step count by this factor, so a live run captures more, finer-spaced points over the same
         // range. More points => more signal and smaller defocus jumps between adjacent frames (easier RANSAC
-        // alignment). Clamped to >= 1; 1 disables amplification. Applied only to live captures, never on replay.
-        private int signalAmplification = 2;
+        // alignment), at proportionally more exposures per sweep. Clamped to >= 1.
+        //
+        // Defaults to 1 (off): the extra frames cost real time on every sweep, and a calibration is seven of them,
+        // so amplification is opt-in for the faint fields and poor seeing that actually need it. Applied only to
+        // live captures, never on replay.
+        private int signalAmplification = 1;
 
         public int SignalAmplification {
             get => signalAmplification;
