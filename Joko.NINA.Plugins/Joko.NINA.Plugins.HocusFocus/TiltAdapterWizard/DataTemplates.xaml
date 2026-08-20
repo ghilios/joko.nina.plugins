@@ -1653,6 +1653,70 @@
                                 Content="{Binding}" />
                         </Grid>
 
+                        <!--  [CRITICAL GATE] Automation is blocked for a calibration that is not device-linked or
+                              not confidence-checked. Clearing those markers used to be entirely silent — a user
+                              who corrected one angle by hand after a device-driven run lost Automatic Adjustment
+                              with no message and no way back short of repeating the calibration. Filled badge
+                              rather than the quiet outlined style because this CARRIES AN ACTION and explains a
+                              capability that has disappeared (same reasoning as the idle-countdown banner in
+                              AutoFocus/DataTemplates.xaml).  -->
+                        <Border Margin="0,10,0,0" Visibility="{Binding AutomationTrustBannerVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                            Style="{StaticResource HF_AlertWarningBadge}">
+                            <StackPanel>
+                                <TextBlock
+                                    MaxWidth="520"
+                                    HorizontalAlignment="Left"
+                                    FontWeight="Bold"
+                                    Foreground="{StaticResource HF_AlertWarningTextBrush}"
+                                    Text="Automatic Adjustment is disabled"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    MaxWidth="520"
+                                    Margin="0,3,0,0"
+                                    HorizontalAlignment="Left"
+                                    Foreground="{StaticResource HF_AlertWarningTextBrush}"
+                                    Text="This calibration was entered or edited by hand, so HocusFocus cannot verify that your screw numbering matches the device's motor wiring. Re-run the wizard with the device connected, or trust this calibration explicitly."
+                                    TextWrapping="Wrap" />
+
+                                <!--  Step 1: arm.  -->
+                                <Button
+                                    Margin="0,6,0,0"
+                                    HorizontalAlignment="Left"
+                                    Command="{Binding TrustCalibrationCommand}"
+                                    Visibility="{Binding IsTrustCalibrationPending, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
+                                    <TextBlock
+                                        Margin="10,5,10,5"
+                                        Foreground="{StaticResource ButtonForegroundBrush}"
+                                        Text="Trust This Calibration for Automation" />
+                                </Button>
+
+                                <!--  Step 2: the risk, then confirm or back out.  -->
+                                <StackPanel Visibility="{Binding IsTrustCalibrationPending, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                    <TextBlock
+                                        MaxWidth="520"
+                                        Margin="0,6,0,0"
+                                        HorizontalAlignment="Left"
+                                        FontWeight="Bold"
+                                        Foreground="{StaticResource HF_AlertWarningTextBrush}"
+                                        Text="If your screw numbering does not match the device's motor wiring, Automatic Adjustment will drive the adapter unattended in the wrong direction and make tilt worse. Verify with a single manual adjustment before leaving it unattended."
+                                        TextWrapping="Wrap" />
+                                    <WrapPanel Margin="0,6,0,0">
+                                        <Button Command="{Binding ConfirmTrustCalibrationCommand}">
+                                            <TextBlock
+                                                Margin="10,5,10,5"
+                                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                                Text="Yes, trust it" />
+                                        </Button>
+                                        <Button Margin="6,0,0,0" Command="{Binding CancelTrustCalibrationCommand}">
+                                            <TextBlock
+                                                Margin="10,5,10,5"
+                                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                                Text="Cancel" />
+                                        </Button>
+                                    </WrapPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
                         <Button
                             Margin="0,10,0,0"
                             HorizontalAlignment="Left"
