@@ -1,4 +1,4 @@
-#region "copyright"
+﻿#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -857,6 +857,39 @@ public class SimulatedTiltAdapterVMTests {
             Assert.That(real.DeviceName, Is.EqualTo(TiltAdapterDevicePreset.ManualName),
                 "the hardware fields we just wrote must stay editable, not be locked by a stale preset");
             Assert.That(vm.AdapterMatchesReal, Is.True);
+        });
+    }
+
+    [Test]
+    public void ConfirmCopyToAdapter_ClearsTheAutomationMarkers() {
+        // [CRITICAL GATE] This writes a hand-made calibration over the user's real one, so it must make the
+        // same clears the wizard's manual-entry path makes: the sim geometry's screw numbering has no
+        // established correspondence to any device's motor wiring. Setting DeviceName to Manual breaks
+        // IsCalibrationDeviceLinked implicitly, but a stale device name left in the marker is exactly what
+        // survives a later preset change.
+        //
+        // realAdapter here is a REAL TiltAdapterOptions (this fixture's convention), not a substitute, so this
+        // asserts resulting state rather than Received() calls. Both markers are SEEDED to the "automation
+        // trusted" values first -- their defaults are already empty/false, so without the seed this test would
+        // pass unchanged even if the production clears were deleted.
+        var options = Configured(screwCount: 4, curvatureSign: -1);
+        var real = BuildRealAdapterOptions();
+        real.DeviceName = "ASG Electronic EAT - 90mm";
+        real.DeviceLinkedCalibrationDeviceName = "ASG Electronic EAT - 90mm";
+        real.CalibrationIsReliable = true;
+        Assert.Multiple(() => {
+            Assert.That(real.DeviceLinkedCalibrationDeviceName, Is.Not.Empty, "precondition: automation-trusted");
+            Assert.That(real.CalibrationIsReliable, Is.True, "precondition: automation-trusted");
+        });
+
+        var vm = new SimulatedTiltAdapterVM(options, real);
+        vm.CopyToAdapterCommand.Execute(null);
+        vm.ConfirmCopyToAdapterCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            Assert.That(real.DeviceLinkedCalibrationDeviceName, Is.Empty);
+            Assert.That(real.CalibrationIsReliable, Is.False);
+            Assert.That(real.CalibrationIsManual, Is.True, "precondition for the clears: this IS a manual calibration now");
         });
     }
 

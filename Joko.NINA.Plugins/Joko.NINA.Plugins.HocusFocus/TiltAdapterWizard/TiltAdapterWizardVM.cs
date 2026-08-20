@@ -554,6 +554,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged(nameof(CwDirectionLabel));
                 RaisePropertyChanged(nameof(HasCurvatureCalibration));
                 RaisePropertyChanged(nameof(IsCalibrationValid));
+                // [CRITICAL GATE] The banner is derived from IsCalibrationValid + the two automation markers,
+                // and the options reload above raises only the broadcast (null-name) PropertyChanged the named
+                // filters never match -- so without these two lines an armed confirmation stays on screen
+                // across a profile switch, now describing a DIFFERENT profile's calibration, and "Yes, trust
+                // it" would write both markers for a calibration the user never saw the arm-step warning for.
+                IsTrustCalibrationPending = false;
+                RaisePropertyChanged(nameof(AutomationTrustBannerVisible));
                 RaisePropertyChanged(nameof(StepInstructions));
                 RaisePropertyChanged(nameof(StepTitle));
                 RaisePropertyChanged(nameof(BaselineRecoveryInstructions));
@@ -851,8 +858,26 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             && IsMotorizedDevice
             && !(InspectorVM.IsCalibrationDeviceLinked(tiltAdapterOptions) && tiltAdapterOptions.CalibrationIsReliable);
 
+        /// <summary>
+        /// [CRITICAL GATE] Whether automation was actually AVAILABLE before a manual entry wipes the markers --
+        /// i.e. whether the warning has anything true to report. Deliberately AND, exactly mirroring
+        /// InspectorVM.CanExecuteAutomaticAdjustment (which requires deviceLinked AND calibrationIsReliable) and
+        /// AutomationTrustBannerVisible's !(linked &amp;&amp; reliable). With OR, a calibration that was reliable but
+        /// never device-linked (a wizard run on the Manual preset, or a disconnected live run) would warn that
+        /// Automatic Adjustment "is now disabled" when it had been blocked all along -- and point at a Trust
+        /// button the non-motorized banner never shows.
+        /// </summary>
+        internal static bool ManualEntryRevokesAutomation(ITiltAdapterOptions options) =>
+            InspectorVM.IsCalibrationDeviceLinked(options) && (options?.CalibrationIsReliable ?? false);
+
         private void ConfirmTrustCalibration() {
             IsTrustCalibrationPending = false;
+            // The precondition that justified showing the button at all. Its Border being collapsed is a
+            // UI-only guarantee, and this write unlocks unattended hardware motion -- too much to rest on a
+            // XAML binding. This is NOT the second source of truth the ctor comment warns about: that concern
+            // is specific to a canExecute predicate, which NotifyCommandsCanExecuteChangedCore would have to
+            // remember to refresh. An early return in the body is evaluated fresh on every click.
+            if (!AutomationTrustBannerVisible) return;
             // Deliberately re-arming the two markers ApplyManualCalibration cleared. The user has been told,
             // in the confirmation copy, exactly what goes wrong if the screw numbering does not match the
             // device's wiring. Both markers are re-cleared by every path that invalidates the correspondence:
@@ -1440,8 +1465,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             tiltAdapterOptions.CalibrationIsManual = true;
             // Whether this entry actually TAKES automation away, so a first-ever manual entry (which never had
             // it) does not warn about losing something the user never had.
-            bool revokedAutomation =
-                InspectorVM.IsCalibrationDeviceLinked(tiltAdapterOptions) || tiltAdapterOptions.CalibrationIsReliable;
+            bool revokedAutomation = ManualEntryRevokesAutomation(tiltAdapterOptions);
             // [CRITICAL GATE] A manual entry's screw numbering/orientation is not guaranteed to match how the
             // device's motors are wired — clear any device-linked marker so automation (the wizard's
             // hands-off calibration and the inspector's Automatic Adjustment, T14) stays blocked until a

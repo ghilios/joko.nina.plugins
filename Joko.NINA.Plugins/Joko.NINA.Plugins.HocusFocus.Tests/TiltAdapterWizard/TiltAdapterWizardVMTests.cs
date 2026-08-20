@@ -95,8 +95,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         // would leave ScrewCount(4) != CalibratedScrewCount(3) and IsCalibrationValid false, silently hiding
         // the banner for a reason that has nothing to do with automation trust.
         private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options) BuildCalibrated(
-            string deviceName = MotorizedPreset, string linkedDevice = "", bool reliable = false) {
-            var (vm, options, _, _) = Build(screwCount: 4, configureOptions: o => {
+            string deviceName = MotorizedPreset, string linkedDevice = "", bool reliable = false,
+            IProfileService profileService = null) {
+            var (vm, options, _, _) = Build(screwCount: 4, profileService: profileService, configureOptions: o => {
                 o.DeviceName.Returns(deviceName);
                 o.IsCalibrated.Returns(true);
                 o.CalibratedScrewCount.Returns(4);
@@ -3826,6 +3827,69 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 // The banner is back to its arm state: device-linked but not reliable still blocks automation.
                 Assert.That(vm.AutomationTrustBannerVisible, Is.True);
             });
+        }
+
+        [Test]
+        public void SwitchingProfiles_DisarmsAPendingTrustConfirmation() {
+            // [CRITICAL GATE] TiltAdapterOptions' own ProfileChanged reload raises one broadcast (null-name)
+            // PropertyChanged that the VM's named-property handler never matches, so the VM re-raises its
+            // derived properties in its ProfileChanged handler instead. An armed confirmation left standing
+            // there would end up describing a DIFFERENT profile's calibration.
+            var profileService = Substitute.For<IProfileService>();
+            var (vm, _) = BuildCalibrated(profileService: profileService);
+            vm.TrustCalibrationCommand.Execute(null);
+            Assert.That(vm.IsTrustCalibrationPending, Is.True, "precondition: armed");
+
+            var raised = new List<string>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+            profileService.ProfileChanged += Raise.Event<EventHandler>(profileService, EventArgs.Empty);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.IsTrustCalibrationPending, Is.False);
+                Assert.That(raised, Does.Contain(nameof(TiltAdapterWizardVM.AutomationTrustBannerVisible)),
+                    "the banner must re-read the new profile's calibration, not keep showing the old one's");
+            });
+        }
+
+        [Test]
+        public void ConfirmTrustCalibration_WithTheBannerHidden_WritesNothing() {
+            // The button lives inside the collapsed banner Border, but this write unlocks unattended hardware
+            // motion -- it must not rest on a XAML binding alone.
+            var (vm, options) = BuildCalibrated(deviceName: TiltAdapterDevicePreset.ManualName);
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False, "precondition: nothing to trust");
+            options.ClearReceivedCalls();
+
+            vm.TrustCalibrationCommand.Execute(null);
+            vm.ConfirmTrustCalibrationCommand.Execute(null);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.IsTrustCalibrationPending, Is.False);
+                options.DidNotReceive().DeviceLinkedCalibrationDeviceName = Arg.Any<string>();
+                options.DidNotReceive().CalibrationIsReliable = Arg.Any<bool>();
+            });
+        }
+
+        // [CRITICAL GATE] The warning fires only when automation was genuinely available, which is the SAME
+        // conjunction InspectorVM.CanExecuteAutomaticAdjustment requires -- not either half on its own.
+        [TestCase(true, true, true, TestName = "ManualEntryRevokesAutomation_LinkedAndReliable_Revokes")]
+        [TestCase(false, true, false, TestName = "ManualEntryRevokesAutomation_ReliableButNeverLinked_RevokesNothing")]
+        [TestCase(true, false, false, TestName = "ManualEntryRevokesAutomation_LinkedButUnreliable_RevokesNothing")]
+        [TestCase(false, false, false, TestName = "ManualEntryRevokesAutomation_NeitherMarker_RevokesNothing")]
+        public void ManualEntryRevokesAutomation_MirrorsTheAutomationGateExactly(
+                bool linked, bool reliable, bool expected) {
+            var options = Substitute.For<ITiltAdapterOptions>();
+            options.DeviceName.Returns(MotorizedPreset);
+            options.DeviceLinkedCalibrationDeviceName.Returns(linked ? MotorizedPreset : string.Empty);
+            options.CalibrationIsReliable.Returns(reliable);
+
+            Assert.That(TiltAdapterWizardVM.ManualEntryRevokesAutomation(options), Is.EqualTo(expected));
+            // Whatever the warning claims must match what the gate actually permits.
+            Assert.That(InspectorVM.CanExecuteAutomaticAdjustment(
+                serviceConnected: true, controllerAvailable: true,
+                deviceLinked: InspectorVM.IsCalibrationDeviceLinked(options),
+                calibrationIsReliable: options.CalibrationIsReliable,
+                hasNumericGuidance: true, isOperationActive: false,
+                currentGeneration: 2, lastExecutedGeneration: 1), Is.EqualTo(expected));
         }
 
         [Test]
