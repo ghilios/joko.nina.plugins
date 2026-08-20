@@ -1150,7 +1150,7 @@ with the two adjustment-type variants (keep every other `[TestCase]` on that tes
 
 ```csharp
     [TestCase(WizardStep.AllInward, false, "All Screws Clockwise")]
-    [TestCase(WizardStep.AllInward, true, "All Motors + Steps")]
+    [TestCase(WizardStep.AllInward, true, "All Motors Positive Steps")]
 ```
 
 Then add a new guard test to the same fixture:
@@ -1225,12 +1225,14 @@ Line 67 — the enum comment:
 
 Line 756 — inside `StepTitleText`, whose signature gains a parameter:
 ```csharp
-        internal static string StepTitleText(WizardStep step, IScrewLabelProvider labels = null, bool isStepper = false) {
+        internal static string StepTitleText(WizardStep step, IScrewLabelProvider labels, bool isStepper) {
             switch (step) {
                 case WizardStep.Baseline: return "Baseline Measurement";
                 // NOT "All Screws Inward": the wizard applies +N to every motor and MEASURES which way the
                 // adapter plate goes. Naming the direction here contradicts the step and misreads as a bug.
-                case WizardStep.AllInward: return isStepper ? "All Motors + Steps" : "All Screws Clockwise";
+                // "Positive Steps", not "+ Steps": the latter parses as two nouns ("motors AND steps") rather
+                // than naming the sign the instruction body actually uses ("Apply +N steps to EVERY motor").
+                case WizardStep.AllInward: return isStepper ? "All Motors Positive Steps" : "All Screws Clockwise";
 ```
 
 Line 752 — the `StepTitle` property:
@@ -1240,7 +1242,7 @@ Line 752 — the `StepTitle` property:
 
 Line 1051 — `ReplayStepInstructionsText` threads the flag through:
 ```csharp
-        internal static string ReplayStepInstructionsText(WizardStep step, IScrewLabelProvider labels = null, bool isStepper = false) =>
+        internal static string ReplayStepInstructionsText(WizardStep step, IScrewLabelProvider labels, bool isStepper) =>
             $"Replaying — re-analyzing the saved frames for {StepTitleText(step, labels, isStepper)}. No action needed: nothing is " +
             "captured and the tilt adapter is not moved during a replay.";
 ```
@@ -1250,7 +1252,26 @@ Line 1042 — its call site inside `StepInstructions`:
                 ? ReplayStepInstructionsText(currentStep, ScrewLabels, IsStepperAdjustment)
 ```
 
-Line 484 — the adjustment-type change handler already raises `StepInstructions`; add the title beside it:
+**`isStepper` must NOT have a default on either method.** `StepInstructionsText` and `BaselineRecoveryText` in the
+same file already make it required, and that stricter convention is what forces every call site to make an explicit
+choice. A defaulted bool here silently gives a stepper rig screw wording at any call site that forgets it, and the
+suite stays green. Update the few test call sites that relied on the default.
+
+**`StepTitle` now depends on `IsStepperAdjustment`, so every place that invalidates its siblings must invalidate it
+too.** There are TWO such places, not one:
+
+Line ~484 — the adjustment-type change handler, which already raises `StepInstructions`:
+```csharp
+                    RaisePropertyChanged(nameof(StepInstructions));
+                    RaisePropertyChanged(nameof(StepTitle));
+                    RaisePropertyChanged(nameof(BaselineRecoveryInstructions));
+```
+
+Line ~543 — the `profileService.ProfileChanged` handler, which separately re-raises the same siblings. A profile
+switch can change the adjustment type, and until the next `CurrentStep` transition the bold title would otherwise go
+stale while the instruction paragraph directly below it updates — title and body visibly disagreeing, which is the
+exact failure this task exists to remove:
+
 ```csharp
                     RaisePropertyChanged(nameof(StepInstructions));
                     RaisePropertyChanged(nameof(StepTitle));
@@ -1279,7 +1300,21 @@ In `PLUGIN/TiltAdapterWizard/DataTemplates.xaml` at line 1755-1757, add a `ToolT
                         Margin="0,1,0,6"
                         FontWeight="Bold"
                         Text="{Binding StepTitle}"
-                        ToolTip="Moving every screw or motor together changes backfocus, and this step measures which way the adapter plate actually travels. A '+' step is not assumed to be inward — determining that direction is the point of the step." />
+                        Text="{Binding StepTitle}">
+                        <!--  The tooltip is about the all-motors step SPECIFICALLY, and this one TextBlock renders
+                              every step's title, so it must be scoped. Unscoped it would tell a user hovering
+                              "Move Screw 1" about a different step's mechanics — a smaller version of the
+                              text-does-not-match-the-hardware confusion this task exists to remove.  -->
+                        <TextBlock.Style>
+                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="{x:Static local:WizardStep.AllInward}">
+                                        <Setter Property="ToolTip" Value="Moving every screw or motor together changes backfocus, and this step measures which way the adapter plate actually travels. A '+' step is not assumed to be inward — determining that direction is the point of the step." />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
 ```
 
 - [ ] **Step 5: Run the tests and verify they pass**
@@ -1292,7 +1327,7 @@ Expected: PASS. `EatWizardMappingTests`' existing full-sequence regressions must
 
 - [ ] **Step 6: Update the stale doc reference**
 
-In `docs/tilt-adapter-ui-review-design.md` line 83, change `AllInward → "All Screws Inward"` to `AllInward → "All Screws Clockwise" / "All Motors + Steps"`.
+In `docs/tilt-adapter-ui-review-design.md` line 83, change `AllInward → "All Screws Inward"` to `AllInward → "All Screws Clockwise" / "All Motors Positive Steps"`.
 
 - [ ] **Step 7: Commit**
 
@@ -2046,7 +2081,7 @@ Append to `.claude/docs/tilt-domain.md`:
 ## Wording: "inward/outward" is adapter-plate motion only
 
 Screw and motor moves are worded CLOCKWISE / COUNTER-CLOCKWISE or as signed steps — never "inward/outward".
-The wizard's all-motors step is titled "All Screws Clockwise" / "All Motors + Steps", never "All Screws
+The wizard's all-motors step is titled "All Screws Clockwise" / "All Motors Positive Steps", never "All Screws
 Inward": it applies `+N` to every motor and **measures** which way the plate travels (that is what sets
 `ScrewInwardCurvatureSign`). `WizardStep.AllInward` keeps its historical enum name because it is persisted in
 saved replay runs. `TiltAdapterWizardVMTests.NoUserFacingMoveWording_ClaimsInwardOrOutward` is the guard.
@@ -2077,7 +2112,7 @@ Switch the colour schema to **Dark** (Options → General → Colors), then conf
 
 1. Tilt Adapter Wizard → the alert badges are legible: white text on the red/amber fills, no near-black text.
 2. Options and the Aberration Inspector → the `⚠ differs from the focuser driver` markers and the guidance notices are legible red/amber on the dark background.
-3. Select an EAT preset → the wizard's all-motors step reads **"All Motors + Steps"**, and its tooltip explains that `+` is not assumed to be inward. Select a screw preset → **"All Screws Clockwise"**.
+3. Select an EAT preset → the wizard's all-motors step reads **"All Motors Positive Steps"**, and its tooltip explains that `+` is not assumed to be inward. Select a screw preset → **"All Screws Clockwise"**.
 4. Apply a Manual Calibration Entry over a device-linked calibration → a warning notification appears, and the "Automatic Adjustment is disabled" badge shows in the saved-calibration pane.
 5. Click **Trust This Calibration for Automation** → the risk copy and Yes/Cancel appear; Cancel changes nothing; Yes hides the badge and re-enables the Inspector's Automatic Adjustment button.
 6. Switch to the **Light** schema and confirm nothing regressed — accent colours should be unchanged from before this work, because `AccessibleAccent` returns light-theme colours untouched.
