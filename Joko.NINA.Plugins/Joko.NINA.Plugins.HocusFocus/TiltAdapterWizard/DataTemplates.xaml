@@ -369,13 +369,13 @@
                                                         <TextBlock.Style>
                                                             <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
                                                                 <Setter Property="Visibility" Value="Collapsed" />
-                                                                <Setter Property="Foreground" Value="{StaticResource NotificationWarningBrush}" />
+                                                                <Setter Property="Foreground" Value="{StaticResource HF_AlertWarningAccentBrush}" />
                                                                 <Style.Triggers>
                                                                     <DataTrigger Binding="{Binding HasLimitTag}" Value="True">
                                                                         <Setter Property="Visibility" Value="Visible" />
                                                                     </DataTrigger>
                                                                     <DataTrigger Binding="{Binding IsBlocking}" Value="True">
-                                                                        <Setter Property="Foreground" Value="{StaticResource NotificationErrorBrush}" />
+                                                                        <Setter Property="Foreground" Value="{StaticResource HF_AlertErrorAccentBrush}" />
                                                                         <Setter Property="FontWeight" Value="Bold" />
                                                                     </DataTrigger>
                                                                 </Style.Triggers>
@@ -400,7 +400,7 @@
                                       enforces the travel window, just against a possibly-stale estimate.  -->
                                 <TextBlock
                                     Margin="0,6,0,0"
-                                    Foreground="{StaticResource NotificationWarningBrush}"
+                                    Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                                     Text="{Binding PositionsUnknownAdvisory}"
                                     TextWrapping="Wrap">
                                     <TextBlock.Style>
@@ -417,7 +417,7 @@
 
                                 <TextBlock
                                     Margin="0,6,0,0"
-                                    Foreground="{StaticResource NotificationWarningBrush}"
+                                    Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                                     Text="{Binding SendDisabledReason}"
                                     TextWrapping="Wrap">
                                     <TextBlock.Style>
@@ -507,7 +507,7 @@
                                             </TextBlock>
                                             <!--  Only present when the request contains twist: the position this
                                                   motor will actually reach, which is not the one typed above.  -->
-                                            <TextBlock FontSize="10" Foreground="{StaticResource NotificationWarningBrush}" Text="{Binding WillReachText}">
+                                            <TextBlock FontSize="10" Foreground="{StaticResource HF_AlertWarningAccentBrush}" Text="{Binding WillReachText}">
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
                                                         <Setter Property="Visibility" Value="Collapsed" />
@@ -534,7 +534,7 @@
                                             <Setter Property="Visibility" Value="Visible" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding TargetHintIsError}" Value="True">
-                                            <Setter Property="Foreground" Value="{StaticResource NotificationErrorBrush}" />
+                                            <Setter Property="Foreground" Value="{StaticResource HF_AlertErrorAccentBrush}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -566,7 +566,7 @@
 
                         <TextBlock
                             Margin="0,6,0,0"
-                            Foreground="{StaticResource NotificationWarningBrush}"
+                            Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                             Text="{Binding ReviewDisabledReason}"
                             TextWrapping="Wrap">
                             <TextBlock.Style>
@@ -1998,7 +1998,7 @@
                         <StackPanel>
                             <TextBlock
                                 Margin="0,0,0,6"
-                                Foreground="{StaticResource NotificationErrorBrush}"
+                                Foreground="{StaticResource HF_AlertErrorAccentBrush}"
                                 Text="{Binding MeasurementFailureText}"
                                 TextWrapping="Wrap" />
                             <Button
