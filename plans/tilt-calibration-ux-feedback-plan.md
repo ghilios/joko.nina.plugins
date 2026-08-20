@@ -571,7 +571,22 @@ GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.nor
 - Modify: `PLUGIN/Resources/OptionsDataTemplates.xaml` (add `MergedDictionaries`)
 - Modify: `PLUGIN/CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml` (add `MergedDictionaries`)
 
-There is no unit test here — WPF resource resolution is verified by the build plus the live check in Task 12.
+WPF resource resolution has no dedicated unit test, but it is **not** unguarded. `AlertBrushes.xaml` references
+`NotificationErrorBrush`, `NotificationWarningBrush` and `BackgroundBrush`, which live only in NINA's
+`Application.Resources`. A `StaticResource` that resolves nowhere throws at dictionary-load time — it does not
+fail the build, it breaks a whole panel at runtime. Two things cover that:
+
+- `Tests/CameraSimulator/XamlResourceResolutionTests.cs` scans the plugin's XAML for unresolvable `StaticResource`
+  keys and picks up this new file automatically. It exists because of a real past incident: `NotificationSuccessBrush`,
+  a key NINA never defines, silently broke the camera setup dialog, because `StaticResource` throws at parse time
+  and `WindowService.Show` swallowed the exception. **Run it in Step 4.**
+- WPF's `StaticResourceExtension` falls back to `FindResourceInAppOrSystem` (i.e. `Application.Current.Resources`)
+  when a key is not in the ambient chain, and `NINA.Plugin/PluginLoader.cs:477` composes plugin dictionaries only
+  after `App.xaml` has merged NINA's brushes — so the keys are present when this file parses.
+
+Note this is a *different* mechanism from the plugin's existing alert usages, which all sit inside a `Setter.Value`
+or a `DataTemplate` visual tree and are resolved lazily at apply time via `FindResource`. Do not reason from those
+as precedent; they are deferred content, these brushes are eager.
 
 - [ ] **Step 1: Create the dictionary**
 
@@ -714,7 +729,15 @@ Replace with:
 ```bash
 dotnet.exe build "$(wslpath -w Joko.NINA.Plugins/Joko.NINA.Plugins.sln)" -c Debug --nologo
 ```
-Expected: `Build succeeded`, 0 errors. A `MC3074` (unknown type) means the `hfconverters` namespace is wrong; an `MC3000` means malformed XAML. `AlertBrushes.xaml` needs no csproj entry — the WPF SDK auto-includes `**/*.xaml` as `Page`.
+Expected: `Build succeeded`, 0 errors. A `MC3074` (unknown type) means the `hfconverters` namespace is wrong; an `MC3000` means malformed XAML. `AlertBrushes.xaml` needs no csproj entry — the WPF SDK auto-includes `**/*.xaml` as `Page`; confirm it really was picked up rather than assuming (`obj/Debug/net8.0-windows7.0/Resources/AlertBrushes.baml` should exist).
+
+Then run the resolution guard and the converter tests:
+
+```bash
+dotnet.exe test "$(wslpath -w Joko.NINA.Plugins/Joko.NINA.Plugins.sln)" -c Debug --nologo --filter "FullyQualifiedName~XamlResourceResolutionTests"
+dotnet.exe test "$(wslpath -w Joko.NINA.Plugins/Joko.NINA.Plugins.sln)" -c Debug --nologo --filter "FullyQualifiedName~Converters"
+```
+Expected: both green. A failure in the first means a key in `AlertBrushes.xaml` resolves nowhere — fix the key, do not suppress the test.
 
 - [ ] **Step 5: Commit**
 

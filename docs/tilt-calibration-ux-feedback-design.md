@@ -85,9 +85,24 @@ re-evaluate when the user changes color schema at runtime:
 Plus two `Border` styles, `HF_AlertErrorBadge` / `HF_AlertWarningBadge`: `Background` = the NINA alert brush,
 `BorderBrush` = same, `BorderThickness=1`, `CornerRadius=3`, `Padding=6,4`.
 
-Dictionary-level `{StaticResource NotificationErrorBrush}` lookup into `Application.Resources` is already proven
-in this plugin (e.g. `TiltAdapterWizard/DataTemplates.xaml:228` resolves `ButtonForegroundBrush` inside a
-dictionary-level `Style`), so no `ProfileService` binding proxy is needed.
+These brushes reference `NotificationErrorBrush`, `NotificationWarningBrush` and `BackgroundBrush`, which are
+defined only in NINA's `Application.Resources` (`NINA.WPF.Base/Resources/StaticResources/Brushes.xaml`, merged by
+`App.xaml` at startup). A `StaticResource` that cannot be found throws at dictionary-load time and would break a
+whole panel without failing the build, so it is worth being precise about why this resolves:
+
+- **Not** by the mechanism the plugin's existing alert usages rely on. Every current use sits inside a
+  `Setter.Value` or a `DataTemplate`'s visual tree — deferred content, resolved at apply time by walking the live
+  tree via `FindResource`. The brushes here are *eager*, dictionary-level values, which is a different path.
+- The path that actually applies is WPF's `StaticResourceExtension` fallback: when a key is absent from the
+  ambient dictionary chain it calls `FindResourceInAppOrSystem`, which consults `Application.Current.Resources`
+  directly. `NINA.Plugin/PluginLoader.cs:477` composes plugin dictionaries (running `InitializeComponent`, which
+  is when this file parses) only after `App.xaml` has already merged NINA's brushes, so the keys are present.
+- This is also already guarded. `Tests/CameraSimulator/XamlResourceResolutionTests.cs` exists because of a real
+  past incident — `NotificationSuccessBrush`, a key NINA never defines, silently broke the camera setup dialog,
+  since `StaticResource` throws at parse time and `WindowService.Show` swallowed it. That test scans the
+  plugin's XAML for unresolvable keys and covers `AlertBrushes.xaml` automatically.
+
+No `ProfileService` binding proxy is needed.
 
 `AlertBrushes.xaml` is merged into each of the five dictionaries that need it.
 
