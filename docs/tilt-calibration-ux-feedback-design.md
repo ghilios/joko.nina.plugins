@@ -124,16 +124,40 @@ existing color already passes there.
 | `CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml` | 0 | 1 | + 3 existing badge sites to re-point |
 | `Resources/OptionsDataTemplates.xaml` | 0 | 2 | |
 
-Assignment rule:
+Assignment rule. The codebase already documents the distinction this follows, at
+`AutoFocus/DataTemplates.xaml:120`:
 
-- **Block-level alerts become filled badges.** Multi-line warning/error paragraphs and boxed banners. Most
-  already sit inside a `<Border BorderBrush="{StaticResource NotificationErrorBrush}">`, so the change is adding
-  `Background` (via the badge style) and swapping the inner `Foreground` to `HF_AlertErrorTextBrush`.
-- **Inline in-row tags keep being text**, switched to `HF_AlertErrorAccentBrush` / `HF_AlertWarningAccentBrush`:
-  the plan-preview `LimitTag` (wizard `DataTemplates.xaml:372,378`), the twist `WillReachText` (`:510`), and the
-  short optimizer notes. Filling these would turn dense grids into a wall of pills.
+> FILLED warning colour rather than the quiet bordered style used for advisory text: this has a deadline and
+> disconnects on inaction, so it earns the heavier weight.
+
+and again at `:2967`:
+
+> BorderThickness 1 with `NotificationErrorBrush` is the house style for a red box that CARRIES AN ACTION.
+
+So:
+
+- **Short, single-paragraph alerts become filled badges** (10 sites). Seven already sit inside a
+  `<Border BorderBrush="{StaticResource NotificationErrorBrush}">` whose only child is the alert `TextBlock`, so
+  the change is `BasedOn="{StaticResource HF_AlertErrorBadge}"` on the existing `<Border.Style>` plus swapping
+  the `Foreground` to `HF_AlertErrorTextBrush`. Two bare alert `TextBlock`s
+  (wizard `ConnectionWarningText`, optimizer `ErrorMessage`) get wrapped in a new badge `Border` — with the
+  visibility trigger moved onto the `Border`, or the pill renders empty when the text is blank.
+- **Long, action-carrying banners keep their outlined house style**, with only the alert text switched to the
+  accent brush: the wizard's measurement-failure block (`:1984`) and the Inspector's "Tilt got worse" banner
+  (`:2972`). Both wrap a paragraph plus buttons plus plain sibling `TextBlock`s; filling them would contradict
+  the documented `:2967` rule and would force every plain child onto the badge brush for no legibility gain —
+  those children are already readable.
+- **Advisory and inline text keeps being text**, switched to `HF_AlertErrorAccentBrush` /
+  `HF_AlertWarningAccentBrush` (17 sites): the plan-preview `LimitTag` (`:372,378`), the twist `WillReachText`
+  (`:510`), the disabled-reason lines (`:403,420,569`), the `⚠ differs from the focuser driver` markers, and the
+  optimizer notes — one of which is explicitly documented at `Optimization/DataTemplates.xaml:782` as *"the
+  page's ONLY colored element"*, a deliberate restraint a pill would break.
 - **The 5 existing badge sites** switch `NotificationWarningTextBrush` → `HF_AlertWarningTextBrush`; they read at
   1.93:1 on the Dark schema today.
+
+**Whenever a `Border` does become a filled badge, every `TextBlock` inside it must take the badge text brush** —
+including children that carry no explicit `Foreground` today, since they would otherwise inherit `PrimaryBrush`
+onto the fill. This is why the two long banners are left outlined rather than filled.
 
 **Explicitly out of scope:** the 11 chart `Fill` / `Stroke` / `ErrorBarColor` sites that bind
 `NotificationErrorBrush.Color`. NINA's own `NINA/View/AutoFocusChart.xaml` uses the identical brush for error
