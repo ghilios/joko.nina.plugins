@@ -138,6 +138,12 @@ returning (`stars.Select(s => s.ScaleToSourcePixels(binning))`, `metrics.ScaleBo
 `PixelSize`/`ImageSize` are built from the camera metadata and the source frame, never from it. `DetectionBinning`
 touches only `PixelScale`, which the tilt path does not read. `DetectionBinningTests` pins the scale-back.
 
-`TiltCalibrationMetadata.PixelSizeMicrons` is the **effective** (binning-scaled) pitch from schema 4 onward.
-Files written by schema ≤ 3 at a binning above 1×1 hold the native pitch; the headless `TestApp tilt` validator
-reads the field as-is and so reproduces the old inflation on those runs — replay them through the wizard instead.
+`TiltCalibrationMetadata.PixelSizeMicrons` is the **effective** (binning-scaled) pitch from schema 4 onward;
+files written by schema ≤ 3 at a binning above 1×1 hold the native pitch. The headless `TestApp tilt` validator
+therefore does **not** trust that field: it reads the pitch off a saved frame's own header
+(`EffectivePixelSize.FromFrameHeader`, `Camera.PixelSize × max(BinX, 1)` — the same derivation
+`HocusFocusStarDetection.BuildResultHeader` uses live), which is unambiguous at every schema because NINA's FITS
+and XISF readers both divide the stored binned `XPIXSZ` back out by `XBINNING`. It falls back to the metadata
+value only when no frame carries a pixel size, and prints the provenance either way — plus an explicit note when
+the header and the metadata disagree, which is exactly the pre-schema-4 binned case. That also fixes the
+detection `PixelScale` the harness tunes with, which had the same native-pitch assumption.
