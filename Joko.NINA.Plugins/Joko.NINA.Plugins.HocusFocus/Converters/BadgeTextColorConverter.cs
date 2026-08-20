@@ -20,6 +20,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
     /// <summary>
     /// Text color for a FILLED alert badge: black or white, whichever is readable on the badge's own fill.
     /// Deliberately not NINA's NotificationErrorTextColor — see the note on <see cref="ContrastMath"/>.
+    ///
+    /// Assumes the binding target is a Color dependency property, e.g. SolidColorBrush.Color — targetType is
+    /// otherwise ignored. Do not bind this converter directly to a Brush property.
     /// </summary>
     public class BadgeTextColorConverter : IValueConverter {
 
@@ -31,7 +34,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) {
-            throw new NotSupportedException();
+            throw new NotSupportedException("One-way only: bind with Mode=OneWay.");
         }
     }
 }

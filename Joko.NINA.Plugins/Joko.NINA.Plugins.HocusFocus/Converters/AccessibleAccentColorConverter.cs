@@ -21,10 +21,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
     /// Foreground for INLINE alert text drawn straight on the page: the schema's alert color, hue preserved,
     /// lightened or darkened only as far as WCAG AA needs against the page background.
     /// values[0] = alert color, values[1] = page background color.
+    ///
+    /// Assumes the binding target is a Color dependency property, e.g. SolidColorBrush.Color — targetType is
+    /// otherwise ignored. Do not bind this converter directly to a Brush property.
     /// </summary>
     public class AccessibleAccentColorConverter : IMultiValueConverter {
 
         public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture) {
+            // The first pass of a resource-level binding arrives as an UnsetValue entry (or, for a null/empty
+            // array, no entries at all). White rather than Binding.DoNothing: DoNothing would leave
+            // SolidColorBrush.Color at Transparent (invisible text).
             if (values == null || values.Length < 1 || !(values[0] is Color alert)) {
                 return Colors.White;
             }
@@ -37,7 +43,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
         }
 
         public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) {
-            throw new NotSupportedException();
+            throw new NotSupportedException("One-way only: bind with Mode=OneWay.");
         }
     }
 }

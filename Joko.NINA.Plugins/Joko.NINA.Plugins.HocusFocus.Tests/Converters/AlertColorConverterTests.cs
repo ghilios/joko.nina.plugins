@@ -57,4 +57,15 @@ public class AlertColorConverterTests {
             Assert.That(converter.Convert(new object[0], typeof(Color), null, CultureInfo.InvariantCulture), Is.EqualTo(Colors.White));
         });
     }
+
+    [Test]
+    public void Accent_WhenTheAlertColourIsNotResolvedYet_FallsBackToWhite() {
+        // The shape a MultiBinding actually produces on its first pass: a full-length array whose entries
+        // are still UnsetValue. null and empty arrays never occur in practice.
+        var converter = new AccessibleAccentColorConverter();
+        var result = converter.Convert(
+            new object[] { System.Windows.DependencyProperty.UnsetValue, System.Windows.DependencyProperty.UnsetValue },
+            typeof(Color), null, CultureInfo.InvariantCulture);
+        Assert.That(result, Is.EqualTo(Colors.White));
+    }
 }
