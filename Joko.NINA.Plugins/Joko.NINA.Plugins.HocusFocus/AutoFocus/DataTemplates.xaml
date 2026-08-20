@@ -132,7 +132,7 @@
                     MaxWidth="420"
                     HorizontalAlignment="Left"
                     FontWeight="Bold"
-                    Foreground="{StaticResource NotificationWarningTextBrush}"
+                    Foreground="{StaticResource HF_AlertWarningTextBrush}"
                     Text="{Binding HeadlineText}"
                     TextWrapping="Wrap" />
                 <TextBlock
@@ -140,7 +140,7 @@
                     Margin="0,2,0,0"
                     HorizontalAlignment="Left"
                     FontSize="10"
-                    Foreground="{StaticResource NotificationWarningTextBrush}"
+                    Foreground="{StaticResource HF_AlertWarningTextBrush}"
                     Text="{Binding DetailText}"
                     TextWrapping="Wrap" />
                 <WrapPanel Margin="0,4,0,0">
@@ -1842,7 +1842,7 @@
                                 HorizontalAlignment="Left"
                                 VerticalAlignment="Center"
                                 FontStyle="Italic"
-                                Foreground="{StaticResource NotificationWarningBrush}"
+                                Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                                 Text="⚠ differs from the focuser driver"
                                 ToolTip="{StaticResource FocuserStepSizeMismatch_Tooltip}"
                                 Visibility="{Binding InspectorOptions.HasFocuserStepSizeMismatch, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
@@ -2978,7 +2978,7 @@
                                     MaxWidth="520"
                                     HorizontalAlignment="Left"
                                     FontWeight="Bold"
-                                    Foreground="{StaticResource NotificationErrorBrush}"
+                                    Foreground="{StaticResource HF_AlertErrorAccentBrush}"
                                     Text="Tilt got worse after the last adjustment"
                                     TextWrapping="Wrap" />
                                 <TextBlock
@@ -3034,7 +3034,7 @@
                                 Margin="5,4,5,2"
                                 HorizontalAlignment="Left"
                                 FontStyle="Italic"
-                                Foreground="{StaticResource NotificationWarningBrush}"
+                                Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                                 Text="{Binding ViewingPastRunNotice}"
                                 TextWrapping="Wrap"
                                 Visibility="{Binding HasViewingPastRunNotice, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
@@ -3370,7 +3370,7 @@
                                     Margin="0,4,0,0"
                                     FontStyle="Italic"
                                     TextWrapping="Wrap"
-                                    Foreground="{StaticResource NotificationWarningBrush}"
+                                    Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                                     Text="{Binding AutomaticAdjustmentRemediationText}"
                                     Visibility="{Binding AutomaticAdjustmentRemediationVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                             </StackPanel>
