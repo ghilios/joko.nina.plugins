@@ -464,9 +464,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
             var bottomLeftFocuser = centerFocuser + sensorModel.TiltAt(x: -width / 2.0, y: height / 2.0) / focuserStepSizeMicrons;
             var bottomRightFocuser = centerFocuser + sensorModel.TiltAt(x: width / 2.0, y: height / 2.0) / focuserStepSizeMicrons;
 
+            // pixelSizeMicrons is the pitch of one pixel of THIS frame (HocusFocusStarDetection already
+            // multiplies the camera's metadata pixel size by the capture binning), and it is what `width`/
+            // `height` above were built from. Carrying it on the model makes TiltPlaneModel.A/B invertible
+            // back to a physical gradient by anyone holding the model alone — see TiltPlaneModel.PixelSizeMicrons.
             return TiltPlaneModel.Create(imageSize: imageSize, fRatio: fRatio,
                 focuserStepSizeMicrons: focuserStepSizeMicrons, centerFocuser: centerFocuser,
-                topLeftFocuser: topLeftFocuser, topRightFocuser: topRightFocuser, bottomLeftFocuser: bottomLeftFocuser, bottomRightFocuser: bottomRightFocuser);
+                topLeftFocuser: topLeftFocuser, topRightFocuser: topRightFocuser, bottomLeftFocuser: bottomLeftFocuser, bottomRightFocuser: bottomRightFocuser,
+                pixelSizeMicrons: pixelSizeMicrons);
         }
     }
 }

@@ -98,3 +98,46 @@ Calibration for Automation** (a two-step in-pane confirmation, `TrustCalibration
 `ConfirmTrustCalibrationCommand`) which re-arms both markers deliberately. There is no new persisted option:
 `CalibrationIsManual == true` together with a device link already means "manually trusted". The trust is
 revoked by a fresh manual entry, by `ClearCalibration`, and for free by a device-preset change.
+
+## Auto Focus Binning: pair a binned frame with a binned pixel pitch
+
+The wizard's readings are `TiltPlaneModel.A`/`B` — focuser steps per **normalized** image coordinate. Turning
+those into a physical gradient (µm of focuser travel per µm of sensor displacement) needs the sensor's physical
+extent, `ImageSize.Width × pixelSizeMicrons`, and that product is only right when both factors describe the
+**same frame**.
+
+Under NINA's Auto Focus Binning of N (`FocuserSettings.AutoFocusBinning`, or a filter's `AutoFocusBinning`) the
+captured frame is N× smaller in each axis and each of its pixels is N× coarser. Star detection already accounts
+for this — `HocusFocusStarDetection.BuildResultHeader` sets `PixelSize = metadataPixelSize × BinX`, and the
+sensor model converts star positions with it — so the paraboloid's `Gx/Gy/Kx/Ky` and everything the Aberration
+Inspector computes from them (including the per-screw correction targets) are physically correct at any binning.
+
+The trap is the round trip back out of `(A, B)`. The wizard used to pair the model's **binned** `ImageSize` with
+the profile's **native** `CameraSettings.PixelSize`, understating the sensor by N. Consequences, measured by
+`TiltAdapterWizardVMTests.RunCalibrationForTest_AutoFocusBinning_*`:
+
+- **Recovered thread pitch / stepper step size inflated by exactly N** (2× at 2×2, 4× at 4×4). This is the
+  number `LastMeasuredThreadPitchMicrons` stores and every automated correction later divides a required µm
+  move by, so adopting it made every correction N× too small.
+- **The tilt-vs-piston agreement check fires on a perfect calibration.** `PistonImpliedMicronsPerStep` uses no
+  sensor geometry at all (mean focuser positions only), so it stayed honest while the tilt-derived pitch
+  doubled — a 50% disagreement at 2×2, well past the 20% warning threshold.
+- **Screw position angles were unaffected** on symmetric binning: `gx` and `gy` inflate by the same factor and
+  `atan2` is scale-invariant. That is why the diagram looked right while the pitch was silently wrong. It would
+  *not* survive asymmetric binning (`BinX ≠ BinY`) — but neither would the sensor model itself, which reads
+  `BinX` alone.
+
+The fix is structural: `TiltPlaneModel` carries the `PixelSizeMicrons` it was built from, and the wizard's
+`EffectivePixelSizeMicrons` prefers it over the profile value, so the pairing cannot be got wrong. Replays are
+covered for old and new saved runs alike, because the pitch is re-derived from the frames rather than read from
+`metadata.PixelSizeMicrons`.
+
+**Detection binning is a different setting and was never affected.** `StarDetectorParams.DetectionBinning` is
+software binning applied inside the detector; it scales every pixel-space output back to source pixels before
+returning (`stars.Select(s => s.ScaleToSourcePixels(binning))`, `metrics.ScaleBounds`), and the result header's
+`PixelSize`/`ImageSize` are built from the camera metadata and the source frame, never from it. `DetectionBinning`
+touches only `PixelScale`, which the tilt path does not read. `DetectionBinningTests` pins the scale-back.
+
+`TiltCalibrationMetadata.PixelSizeMicrons` is the **effective** (binning-scaled) pitch from schema 4 onward.
+Files written by schema ≤ 3 at a binning above 1×1 hold the native pitch; the headless `TestApp tilt` validator
+reads the field as-is and so reproduces the old inflation on those runs — replay them through the wizard instead.

@@ -153,19 +153,32 @@ instead of `ButtonForegroundBrush`.
 
 **A second form of the same trap: `Button Content="…"` (no `TextBlock` in the markup at all).** WPF's
 `ContentPresenter` generates a `TextBlock` at runtime for string content, and that generated `TextBlock` hits
-the identical keyless-implicit-style rule — so it also paints `PrimaryBrush` on `ButtonBackgroundBrush`. Only
-the explicit-`TextBlock`-child form above is fixed plugin-wide today; the `Content="…"` form is not. The fix
-differs: an explicit `Foreground` on the `Button` itself, or the `ContentPresenter.Resources` empty-`Style`
-pattern already solved and commented in `StarDetection/Optimization/Review/StarReviewControl.xaml`
-(`HF_ReviewToolbarButton`, ~line 171) and reused in `AutoFocus/Review/AutoFocusFrameReviewControl.xaml` and
-`StarDetection/Optimization/Review/FrameReviewControl.xaml` — use that as the worked example. **13 known,
-unfixed `Content="…"` sites remain**, all in `StarDetection/Optimization/DataTemplates.xaml`: two `Browse…`
-(~437, ~612), `Optimize with feedback` (~1135), and the optimizer wizard's whole navigation footer
-(~1257–1331: Cancel, Start, Back, Review frames, Continue optimizing, Use run's settings, Accept, Back to
-summary, Optimize with feedback, Close). These predate this branch and are deliberately out of its scope — not
-fixed here, left for the maintainer to decide. Neither the button-content `TextBlock` scan nor
-`XamlResourceResolutionTests` catches this form — both check that resource keys resolve, not foreground-vs-
-background contrast — so there is no automated net against it; it needs a deliberate audit.
+the identical keyless-implicit-style rule — so it also paints `PrimaryBrush` on `ButtonBackgroundBrush`. The
+fix differs, and an explicit `Foreground` on the `Button` is **not** one: a style setter outranks an inherited
+value, so the generated label ignores it. It takes a `Style` whose template puts an empty
+`<Style TargetType="TextBlock" />` in `ContentPresenter.Resources` — that dictionary is nearest, so it wins the
+implicit-style lookup, and carrying no `Foreground` of its own it lets the inherited value through again. Two
+such styles exist; use one, or fall back to an explicit `<TextBlock Foreground="…">` child:
+
+| Style | Where | Use for |
+|---|---|---|
+| `HF_TextButton` | `StarDetection/Optimization/DataTemplates.xaml` | Ordinary themed buttons. Byte-for-byte NINA's `StandardButton` look (same theme brushes, borders, hover/pressed/disabled), with `Foreground` pinned to `ButtonForegroundBrush` in **every** visual state — NINA's own triggers re-point `Foreground` at the (selected) background brush on hover/press, which would re-hide the label. |
+| `HF_ReviewToolbarButton` | `.../Review/StarReviewControl.xaml`, `FrameReviewControl.xaml`, `AutoFocus/Review/AutoFocusFrameReviewControl.xaml` (one copy each) | The review panels' fixed dark chrome. Self-contained fixed light palette, deliberately theme-independent. |
+
+The 13 previously-unfixed `Content="…"` sites in `StarDetection/Optimization/DataTemplates.xaml` (two `Browse…`,
+`Optimize with feedback`, and the optimizer wizard's whole navigation footer) all carry `HF_TextButton` now; the
+footer's `Close`, which needs its own visibility triggers, gets it through `BasedOn` on its inline
+`<Button.Style>`.
+
+`Resources/ButtonContentForegroundGuardTests.cs` is the automated net — the one thing that was missing when this
+trap kept recurring. It walks every plugin `.xaml` and enforces both forms: a string `Content` must name a
+style from a small allowlist, and a `TextBlock` used as button content must name its own `Foreground` (or
+`Style`). Both rules are contrast rules, not resolution rules, which is exactly why
+`XamlResourceResolutionTests` could never see them — every key involved resolves fine.
+
+Residual limitation, left as-is deliberately: this only restores the plugin's own pre-existing convention — it
+takes the Dark and Alternative Custom schemas from 1.00:1 to 1.44:1, still short of WCAG AA (see the note under
+the explicit-`TextBlock` form above).
 
 **Related trap: a local value outranks a style *trigger*, not just a style setter.** WPF dependency-property
 precedence puts a local value (rank 3) above both a style setter (rank 8) and a style trigger (rank 6). So an

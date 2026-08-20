@@ -3136,6 +3136,155 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             });
         }
 
+        // --- Auto Focus Binning (NINA's CAPTURE binning, not the star detector's software DetectionBinning) --
+
+        // The sensor as it physically is, and the one screw move the two runs below both measure.
+        //
+        // (A, B) are focuser steps per NORMALIZED image coordinate, so they are IDENTICAL whatever binning the
+        // frames were captured at -- normalized coordinates do not shrink with the frame. The only things that
+        // change between a 1x1 and a 2x2 run are the frame's pixel dimensions (halved) and the pitch of one of
+        // its pixels (doubled), and those two changes cancel: the sensor is the same piece of silicon. So the
+        // recovered thread pitch MUST come out the same, and the physical constants below are shared by both.
+        private const int SensorWidthPixels = 6248;
+        private const int SensorHeightPixels = 4176;
+        private const double NativePixelSizeMicrons = 3.76;      // the profile's CameraSettings.PixelSize
+        private const double BinningFocuserStepMicrons = 3.6;
+        private const double BinningScrewRadiusMm = 44.0;
+
+        // Screw 1's move, chosen along +x only (physical direction 90 deg); screw 2 gets the same magnitude at
+        // 210 deg -- a 3-screw adapter's ideal 120 deg gap, so no screw-angle-gap warning muddies the result.
+        private const double Screw1A = 50.0;
+
+        private static double BinningSensorWidthMicrons => SensorWidthPixels * NativePixelSizeMicrons;
+        private static double BinningSensorHeightMicrons => SensorHeightPixels * NativePixelSizeMicrons;
+
+        // |ΔG| for screw 1's move, in physical gradient units (µm of focuser travel per µm of sensor).
+        private static double BinningScrewMoveGradient => Screw1A * BinningFocuserStepMicrons / BinningSensorWidthMicrons;
+
+        // Runs one full 6-step calibration whose frames were captured at `binning`, and returns the pitch the
+        // wizard recovered. Everything except the FRAME (its dimensions and its pixel pitch) is held fixed --
+        // including the profile pixel size handed to RunCalibrationMath, which is always the camera's native
+        // value because that is what production reads from the profile.
+        private static (double recoveredPitch, bool hasWarning, string warningText) RunBinnedCalibration(int binning) {
+            var (vm, options, _, _) = Build(screwCount: 3);
+
+            double capturedPitch = double.NaN;
+            options.When(o => o.LastMeasuredThreadPitchMicrons = Arg.Any<double>())
+                   .Do(ci => capturedPitch = ci.Arg<double>());
+
+            // The frame as captured: binning shrinks the pixel grid and coarsens each pixel by the same factor.
+            var tiltPlane = new TiltPlaneModel(
+                new System.Drawing.Size(SensorWidthPixels / binning, SensorHeightPixels / binning), fRatio: 7,
+                a: 0, b: 0, c: 0, mean: 10000, focuserStepSizeMicrons: BinningFocuserStepMicrons,
+                centerPosition: 10000, topLeftPosition: 10000, topRightPosition: 10000,
+                bottomLeftPosition: 10000, bottomRightPosition: 10000,
+                pixelSizeMicrons: NativePixelSizeMicrons * binning);
+
+            double g = BinningScrewMoveGradient;
+            double screw2A = -0.5 * g * BinningSensorWidthMicrons / BinningFocuserStepMicrons;
+            double screw2B = (Math.Sqrt(3.0) / 2.0) * g * BinningSensorHeightMicrons / BinningFocuserStepMicrons;
+
+            // The all-inward step is a PURE PISTON: no tilt change, and a mean-focus shift sized so the
+            // geometry-free piston-implied pitch lands exactly on the true pitch. That makes the wizard's
+            // tilt-vs-piston agreement check a direct read-out of whether the tilt side got the geometry right.
+            double truePitchMicrons = 1.5 * BinningScrewRadiusMm * 1000.0 * g / vm.CalibrationAppliedAmount;
+            double pistonShiftSteps = truePitchMicrons * vm.CalibrationAppliedAmount / BinningFocuserStepMicrons;
+
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 10000.0);
+            vm.SeedStepReading(WizardStep.AllInward, 0.0, 0.0, 10000.0 + pistonShiftSteps);
+            vm.SeedStepReading(WizardStep.ReBaseline1, 0.0, 0.0, 10000.0);
+            vm.SeedStepReading(WizardStep.Screw1, Screw1A, 0.0, 10000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 10000.0);
+            vm.SeedStepReading(WizardStep.Screw2, screw2A, screw2B, 10000.0);
+
+            vm.RunCalibrationForTest(radiusMm: BinningScrewRadiusMm, pixelSizeMicrons: NativePixelSizeMicrons,
+                focuserStepMicrons: BinningFocuserStepMicrons, tiltPlaneOverride: tiltPlane);
+
+            return (capturedPitch, vm.HasWarning, vm.WarningText);
+        }
+
+        // REGRESSION (Auto Focus Binning): the wizard used to pair the tilt plane's BINNED ImageSize with the
+        // profile's NATIVE CameraSettings.PixelSize, so the sensor's physical width/height came out N times too
+        // small and every physical gradient -- and with it the recovered thread pitch / stepper step size --
+        // was inflated by exactly the binning factor. A 2x2 run reported double the true pitch, which then
+        // became the µm-per-turn every automated correction divides by.
+        [Test]
+        public void RunCalibrationForTest_AutoFocusBinning_RecoversTheSamePitchAtEveryBinning() {
+            var bin1 = RunBinnedCalibration(1);
+            var bin2 = RunBinnedCalibration(2);
+            var bin4 = RunBinnedCalibration(4);
+
+            // The closed-form truth, independent of the wizard: a single screw on a 3-screw adapter moves with
+            // a 1.5*R lever arm, so its axial move is 1.5*R*|ΔG| and the pitch is that over the applied turns.
+            double expected = 1.5 * BinningScrewRadiusMm * 1000.0 * BinningScrewMoveGradient
+                / Build(screwCount: 3).vm.CalibrationAppliedAmount;
+
+            Assert.Multiple(() => {
+                Assert.That(expected, Is.GreaterThan(0),
+                    "precondition: the applied amount must be non-zero or every run is vacuously NaN");
+                Assert.That(bin1.recoveredPitch, Is.EqualTo(expected).Within(1e-6), "1x1");
+                Assert.That(bin2.recoveredPitch, Is.EqualTo(expected).Within(1e-6), "2x2 (was 2x the truth)");
+                Assert.That(bin4.recoveredPitch, Is.EqualTo(expected).Within(1e-6), "4x4 (was 4x the truth)");
+            });
+        }
+
+        // The user-visible face of the same bug: the piston-implied pitch needs NO sensor geometry, so it
+        // stayed honest while the tilt-derived pitch was inflated by the binning factor -- and the two were
+        // then compared. At 2x2 they differed by 50%, well past the 20% threshold, so a physically perfect
+        // calibration reported "the piston-implied pitch and the tilt-derived pitch differ".
+        [Test]
+        public void RunCalibrationForTest_AutoFocusBinning_DoesNotFireThePistonDisagreementWarning() {
+            var bin1 = RunBinnedCalibration(1);
+            var bin2 = RunBinnedCalibration(2);
+
+            Assert.Multiple(() => {
+                Assert.That(bin1.hasWarning, Is.False, $"1x1 baseline must be clean: {bin1.warningText}");
+                Assert.That(bin2.warningText, Does.Not.Contain("piston-implied"));
+                Assert.That(bin2.hasWarning, Is.False, $"2x2 must be equally clean: {bin2.warningText}");
+            });
+        }
+
+        // The other half of the same pairing: screw ORIENTATION survives symmetric binning untouched, because
+        // gx and gy are inflated by the same factor and atan2 is scale-invariant. Worth pinning explicitly --
+        // it is the reason the bug was invisible on the diagram while the pitch was silently doubling, and it
+        // would stop being true the moment someone "fixed" one axis' pixel pitch without the other.
+        [Test]
+        public void RunCalibrationForTest_AutoFocusBinning_LeavesScrewAnglesUnchanged() {
+            var (vm1, options1, _, _) = Build(screwCount: 3);
+            var (vm2, options2, _, _) = Build(screwCount: 3);
+
+            double captured1 = double.NaN, captured2 = double.NaN;
+            options1.When(o => o.Screw1AngleDegrees = Arg.Any<double>()).Do(ci => captured1 = ci.Arg<double>());
+            options2.When(o => o.Screw1AngleDegrees = Arg.Any<double>()).Do(ci => captured2 = ci.Arg<double>());
+
+            SeedBinningScrewMoves(vm1, 1);
+            SeedBinningScrewMoves(vm2, 2);
+
+            Assert.Multiple(() => {
+                Assert.That(captured1, Is.EqualTo(90.0).Within(1e-6), "screw 1's move points along +x, i.e. 90 deg");
+                Assert.That(captured2, Is.EqualTo(captured1).Within(1e-9));
+            });
+        }
+
+        private static void SeedBinningScrewMoves(TiltAdapterWizardVM vm, int binning) {
+            var tiltPlane = new TiltPlaneModel(
+                new System.Drawing.Size(SensorWidthPixels / binning, SensorHeightPixels / binning), fRatio: 7,
+                a: 0, b: 0, c: 0, mean: 10000, focuserStepSizeMicrons: BinningFocuserStepMicrons,
+                centerPosition: 10000, topLeftPosition: 10000, topRightPosition: 10000,
+                bottomLeftPosition: 10000, bottomRightPosition: 10000,
+                pixelSizeMicrons: NativePixelSizeMicrons * binning);
+            double g = BinningScrewMoveGradient;
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 10000.0);
+            vm.SeedStepReading(WizardStep.Screw1, Screw1A, 0.0, 10000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.0, 0.0, 10000.0);
+            vm.SeedStepReading(WizardStep.Screw2,
+                -0.5 * g * BinningSensorWidthMicrons / BinningFocuserStepMicrons,
+                (Math.Sqrt(3.0) / 2.0) * g * BinningSensorHeightMicrons / BinningFocuserStepMicrons,
+                10000.0);
+            vm.RunCalibrationForTest(radiusMm: BinningScrewRadiusMm, pixelSizeMicrons: NativePixelSizeMicrons,
+                focuserStepMicrons: BinningFocuserStepMicrons, tiltPlaneOverride: tiltPlane);
+        }
+
         // --- Piston-implied-pitch warning wiring (Task 4) -------------------------------------------------
 
         // Both piston tests share the same clean screw geometry: Screw1's delta is (0, -g), Screw2's is

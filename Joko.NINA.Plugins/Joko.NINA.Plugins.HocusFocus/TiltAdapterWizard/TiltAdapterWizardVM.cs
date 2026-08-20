@@ -1626,7 +1626,26 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
-        public string CalibrationPixelSizeDisplay => calibrationPixelSizeMicrons > 0 ? $"{calibrationPixelSizeMicrons:0.##} µm" : "—";
+        /// <summary>
+        /// The pixel pitch this calibration's geometry actually used. Under Auto Focus Binning that is the
+        /// BINNED pitch, which is deliberately not the number the user typed into the "Pixel size (µm)" box
+        /// further up the page (that one edits the camera profile's native value) — so when the two differ by
+        /// a clean integer factor, say so, rather than leaving a reader to wonder which of the two is wrong.
+        /// </summary>
+        public string CalibrationPixelSizeDisplay {
+            get {
+                if (!(calibrationPixelSizeMicrons > 0)) return "—";
+                double nativePixelSize = profileService.ActiveProfile.CameraSettings.PixelSize;
+                if (nativePixelSize > 0) {
+                    double ratio = calibrationPixelSizeMicrons / nativePixelSize;
+                    int binning = (int)Math.Round(ratio);
+                    if (binning >= 2 && Math.Abs(ratio - binning) < 0.01) {
+                        return $"{calibrationPixelSizeMicrons:0.##} µm ({nativePixelSize:0.##} µm at {binning}x{binning} binning)";
+                    }
+                }
+                return $"{calibrationPixelSizeMicrons:0.##} µm";
+            }
+        }
         public string CalibrationFocuserStepDisplay => calibrationFocuserStepMicrons > 0 ? $"{calibrationFocuserStepMicrons:0.###} µm" : "—";
         public string CalibrationScrewRadiusDisplay => calibrationScrewRadiusMm > 0 ? $"{calibrationScrewRadiusMm:0.##} mm" : "not set";
         public string CalibrationAppliedAmountDisplay => IsStepperAdjustment ? $"{CalibrationAppliedAmount:0.##} steps" : $"{CalibrationAppliedAmount:0.##} turns";
@@ -2474,6 +2493,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 ScrewThreadPitchMicrons = tiltAdapterOptions.ThreadPitchMicrons,
                 StepperStepSizeMicrons = tiltAdapterOptions.StepperStepSizeMicrons,
                 ScrewRadiusMillimeters = tiltAdapterOptions.ScrewRadiusMillimeters,
+                // Native pitch: no frame has been captured yet, so the binning is not knowable here.
+                // FinalizeMetadata overwrites this with the effective (binning-scaled) pitch the calibration
+                // actually used — see TiltCalibrationMetadata.PixelSizeMicrons.
                 PixelSizeMicrons = profileService.ActiveProfile.CameraSettings.PixelSize,
                 FocuserStepSizeMicrons = EffectiveFocuserStepMicrons(),
                 CalibrationAppliedAmount = CalibrationAppliedAmount,
@@ -2891,6 +2913,23 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
+        // The pixel pitch that must be paired with a tilt plane's ImageSize to get the sensor's PHYSICAL
+        // extent. Prefer the pitch the model itself was built from (TiltPlaneModel.PixelSizeMicrons — the
+        // camera's pixel size times the binning the frames were captured at, carried through from star
+        // detection), because that is exactly the value SensorModelAberrationResult.CreateTiltPlaneModel used
+        // to produce the (A, B) being inverted here, making the round trip exact.
+        //
+        // The profile's CameraSettings.PixelSize is the NATIVE pitch and is only a correct partner for a
+        // 1x1 frame. With NINA's Auto Focus Binning set to N, ImageSize is the binned (N× smaller) frame while
+        // the profile value stays native, so sensorWidth/Height came out N× too small and every gradient — and
+        // with it the recovered thread pitch / stepper step size, the per-step tilt-angle readout, and the
+        // tilt-vs-piston agreement check — was inflated by exactly N. It stays the fallback for models that
+        // do not know their own pitch (the 4-corner AF plane, test-injected planes).
+        private static double EffectivePixelSizeMicrons(TiltPlaneModel model, double profilePixelSizeMicrons) {
+            double modelPixelSize = model?.PixelSizeMicrons ?? double.NaN;
+            return modelPixelSize > 0 && !double.IsNaN(modelPixelSize) ? modelPixelSize : profilePixelSizeMicrons;
+        }
+
         // Converts a step's (A, B) tilt-plane reading (focuser steps per normalized image coordinate) into the
         // physical best-focus gradient (gx, gy): microns of focuser travel per micron of sensor displacement.
         // Shared by ComputeTiltAngleDeg (magnitude) and the per-state DirectionDeg (atan2(gx,-gy)) so both read
@@ -2899,7 +2938,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // model or the focuser/pixel size inputs are unavailable.
         private (double gx, double gy) StateGradient(double a, double b, TiltPlaneModel model) {
             if (model == null) return (double.NaN, double.NaN);
-            var pixelSizeMicrons = profileService.ActiveProfile.CameraSettings.PixelSize;
+            var pixelSizeMicrons = EffectivePixelSizeMicrons(model, profileService.ActiveProfile.CameraSettings.PixelSize);
             var fStepMicrons = model.FocuserStepSizeMicrons;
             // Fall back to the connected focuser's reported step size when the inspector
             // option (MicronsPerFocuserStep) hasn't been configured.
@@ -3133,7 +3172,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
-        private void RunCalibrationMath(int screwCount, double radiusMm, double pixelSize, double fStep,
+        private void RunCalibrationMath(int screwCount, double radiusMm, double profilePixelSize, double fStep,
             double appliedAmount, bool isStepper, bool deviceDriven) {
             bool measuredCurvature = stepReadings.ContainsKey(WizardStep.AllInward);
             // Task 6: the optional measured final re-baseline. Presence in stepReadings (NOT
@@ -3181,6 +3220,17 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 curvatureChannelDisagreement = null;
             }
 
+            // The tilt plane the whole calibration is built from. Read once here (not just where the
+            // TiltCalibrationInputs are assembled) because the effective pixel pitch below comes off it.
+            var model = CalibrationTiltPlane;
+
+            // AUTO FOCUS BINNING: model.ImageSize is the BINNED frame, so it must be paired with the BINNED
+            // pixel pitch — see EffectivePixelSizeMicrons. Resolved once, here, and used for everything
+            // downstream (the readouts, BOTH TiltCalibrationInputs, and the metadata this run saves) so no
+            // consumer can pick up the caller's native profile value by accident. The caller's value stays as
+            // the fallback for a model that does not know its own pitch (a seeded/test-only run).
+            double pixelSize = EffectivePixelSizeMicrons(model, profilePixelSize);
+
             calibrationScrewRadiusMm = radiusMm;
             calibrationPixelSizeMicrons = pixelSize;
             calibrationFocuserStepMicrons = fStep;
@@ -3193,7 +3243,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // Screw1..4AngleDegrees or the "unequal tilt changes" warning until this refactor. Tasks 3-6 add
             // fields to Calibrate's inputs/result; wiring them here (not duplicating them) is what makes them
             // reach production automatically.
-            var model = CalibrationTiltPlane;
+            //
             // A model-less run (e.g. a seeded/test-only run with no live/replayed tilt plane) has no known
             // sensor size; fall back to a square 1x1 pseudo-sensor so the angle/ratio/confidence conversion
             // stays isotropic instead of aspect-distorted -- a uniform scale of the raw (A,B) delta reproduces
@@ -4024,6 +4074,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         private void FinalizeMetadata() {
             if (!saveAFRuns || currentMetadata == null) return;
+            // Record the pixel pitch the calibration ACTUALLY used, which under Auto Focus Binning is the
+            // binned pitch and not the profile's native value BuildInitialMetadata could only guess at. A
+            // replay or the headless TestApp validator re-derives the sensor's physical extent from this
+            // number and the saved frames' dimensions, so the two must describe the same frame.
+            if (calibrationPixelSizeMicrons > 0) {
+                currentMetadata.PixelSizeMicrons = calibrationPixelSizeMicrons;
+            }
             currentMetadata.Calibration = new TiltCalibrationResultRecord {
                 Screw1AngleDegrees = tiltAdapterOptions.Screw1AngleDegrees,
                 Screw2AngleDegrees = tiltAdapterOptions.Screw2AngleDegrees,

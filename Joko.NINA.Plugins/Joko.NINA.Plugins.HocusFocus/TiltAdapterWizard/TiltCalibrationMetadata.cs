@@ -125,7 +125,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     /// </summary>
     public sealed class TiltCalibrationMetadata {
 
-        public const int CurrentSchemaVersion = 3;
+        // 4: PixelSizeMicrons became the EFFECTIVE (binning-scaled) pitch of the saved frames rather than the
+        //    profile's native camera pixel size. Purely informational — nothing gates on the version — but a
+        //    file written by version <= 3 at an Auto Focus Binning above 1x1 carries the native pitch, so its
+        //    sensor extent (and every gradient derived from it) is short by the binning factor. The wizard's
+        //    replay is immune either way: it prefers the pitch carried by the tilt plane it just re-fitted from
+        //    the frames themselves (TiltPlaneModel.PixelSizeMicrons) over this stored number.
+        public const int CurrentSchemaVersion = 4;
 
         /// <summary>The six discrete measurement steps, in capture order. Same for 3- and 4-screw adapters.</summary>
         public static readonly string[] StepOrder = {
@@ -151,6 +157,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public double ScrewThreadPitchMicrons { get; set; } = -1;     // µm/turn (screws)
         public double StepperStepSizeMicrons { get; set; } = -1;      // µm/step (steppers)
         public double ScrewRadiusMillimeters { get; set; }
+
+        /// <summary>
+        /// The EFFECTIVE pixel pitch of the frames this run measured — the camera's native pixel size times
+        /// the Auto Focus Binning they were captured at — because it only ever appears multiplied by a frame
+        /// dimension to get the sensor's physical extent, and the saved frames are binned. Seeded from the
+        /// profile's native <c>CameraSettings.PixelSize</c> when the run starts (no frame exists yet) and
+        /// overwritten with the value the calibration actually used once the run completes, so a saved run is
+        /// self-describing for replay and for the headless TestApp validator. Identical to the native pixel
+        /// size for the usual 1x1 case.
+        /// </summary>
         public double PixelSizeMicrons { get; set; }
         public double FocuserStepSizeMicrons { get; set; }
         public double CalibrationAppliedAmount { get; set; } = 1.0;   // turns/steps applied per screw step
