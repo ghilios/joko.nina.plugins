@@ -794,9 +794,7 @@ Worked example — the block at 2244–2260 becomes:
 ```xml
                     <Border
                         Margin="0,5"
-                        Padding="5"
-                        BorderBrush="{StaticResource NotificationErrorBrush}"
-                        BorderThickness="1">
+                        Padding="5">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -814,7 +812,20 @@ Worked example — the block at 2244–2260 becomes:
                     </Border>
 ```
 
-The local `Padding="5"` / `BorderThickness="1"` attributes stay: a local value beats a style setter in WPF, so they keep their existing spacing and only `Background` + `CornerRadius` come from the style. That is intended.
+**Delete the local `BorderBrush` and `BorderThickness` attributes; keep `Margin` and `Padding`.** WPF's
+dependency-property precedence puts a local value (rank 3) above a style setter (rank 8), so anything left on the
+element pins itself and stops following the style. `Padding="5"` is a genuine override worth keeping — the style
+says `6,4` and these blocks should keep their existing spacing. But `BorderThickness="1"` and
+`BorderBrush="{StaticResource NotificationErrorBrush}"` are byte-identical to what `HF_AlertErrorBadge` already
+sets, so leaving them changes nothing today while silently pinning those six Borders against any future central
+change to the badge style — a footgun that would not show up in a diff. Remove them.
+
+**Invariant, and it is counter-intuitive — do not break it.** Local value also outranks *style triggers* (rank 6),
+not just plain setters. So an element must **never** carry a local `Visibility` attribute when its `Style` sets
+`Visibility` from a `DataTrigger`: the local value wins permanently and the trigger becomes dead code, with no
+error and no warning. That is why every badge in this task keeps `Visibility` inside `<Border.Style>` and sets
+none on the element, while Tasks 7 and 10 — which apply `Style="{StaticResource HF_Alert*Badge}"` directly and set
+`Visibility` locally — are safe only because those shared styles set no `Visibility` at all.
 
 ### 4b. Wrap the bare connection warning (line 1875)
 
