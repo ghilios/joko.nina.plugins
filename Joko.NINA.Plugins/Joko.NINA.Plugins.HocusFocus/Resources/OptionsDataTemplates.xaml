@@ -17,6 +17,12 @@
     xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
     xmlns:xceed="http://schemas.xceed.com/wpf/xaml/toolkit"
     mc:Ignorable="d">
+    <!--  Alert chrome. Merged (not cross-dictionary StaticResource) so the keys resolve at parse time in every
+          dictionary that merges this one: AutoFocus, TiltAdapterWizard and StarDetection/Optimization all merge
+          OptionsDataTemplates already, so they inherit it for free.  -->
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="AlertBrushes.xaml" />
+    </ResourceDictionary.MergedDictionaries>
     <hfconverters:ShowStructureMapToVisibilityConverter x:Key="HF_ShowStructureMapToVisibilityConverter" />
     <hfconverters:DoubleZeroToVisibilityConverter x:Key="HF_DoubleZeroToVisibilityConverter" />
     <hfconverters:IntNegativeToVisibilityConverter x:Key="HF_IntNegativeToVisibilityConverter" />

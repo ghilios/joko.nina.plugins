@@ -7,6 +7,13 @@
     xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
     xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core">
 
+    <!--  MERGED, not reached for: a merged dictionary's keys resolve inside this dictionary's own parse-time
+          scope, so it is not the cross-dictionary load-order race the note below is about. Only AlertBrushes is
+          merged, not the large OptionsDataTemplates.  -->
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="../../Resources/AlertBrushes.xaml" />
+    </ResourceDictionary.MergedDictionaries>
+
     <!--  Declared locally rather than reached for across dictionaries: StaticResource resolves at parse time and
           the merge order of separately-exported plugin ResourceDictionaries into Application.Current.Resources is
           not guaranteed, so a cross-dictionary lookup would be a load-order race (see
