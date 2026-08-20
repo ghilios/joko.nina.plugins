@@ -19,7 +19,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
     /// WCAG 2.x contrast math, and the two color decisions the alert brushes are built from.
     ///
     /// WHY THIS EXISTS: NINA's ColorSchema exposes NotificationErrorColor / NotificationWarningColor as FILL
-    /// colors (it only ever uses them as a Background), and 14 of its 16 built-in schemas set them to near-black
+    /// colors (it only ever uses them as a Background), and 15 of its 18 built-in schemas set them to near-black
     /// #FF700000 / #FF5E330B. Used as a Foreground — which this plugin did in 27 places — they land at 1.06:1
     /// against a dark page background. Its paired NotificationErrorTextColor is not a way out either: the "Dark"
     /// schema sets it to #FF02010A, i.e. near-black text on near-black-red fill, 1.67:1. So both alert text
@@ -81,7 +81,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
 
             bool goLighter;
             if (lighterReaches && darkerReaches) {
-                // Both poles work, so head for the one the background is furthest from.
+                // Unreachable at TargetContrastRatio = 4.6, and deliberately kept anyway: reaching white
+                // needs background luminance <= 1.05/T - 0.05, reaching black needs >= (T-1)/20, and those
+                // ranges are disjoint for any T above sqrt(21) ~= 4.583. Lower the threshold and this
+                // becomes live, so the tie-break stays. Do not try to unit-test it at the current T.
                 goLighter = ContrastRatio(Colors.White, pageBackground) >= ContrastRatio(Colors.Black, pageBackground);
             } else if (lighterReaches) {
                 goLighter = true;
@@ -115,7 +118,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
             double min = Math.Min(r, Math.Min(g, b));
             l = (max + min) / 2.0;
             double delta = max - min;
-            if (delta <= double.Epsilon) {
+            // Exact-zero test, deliberately: r/g/b are byte/255.0, so channel maths is exact and an
+            // achromatic color lands on delta == 0.0 precisely rather than merely near it.
+            if (delta == 0.0) {
                 h = 0.0;
                 s = 0.0;
                 return;
@@ -132,7 +137,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
 
         private static Color FromHsl(double h, double s, double l, byte alpha) {
             l = Math.Max(0.0, Math.Min(1.0, l));
-            if (s <= double.Epsilon) {
+            // Exact-zero test, deliberately: s is only ever 0.0 here because RgbToHsl set it that way for an
+            // exact-zero delta (see above), never as a result of accumulated floating-point error.
+            if (s == 0.0) {
                 byte v = (byte)Math.Round(l * 255.0);
                 return Color.FromArgb(alpha, v, v, v);
             }

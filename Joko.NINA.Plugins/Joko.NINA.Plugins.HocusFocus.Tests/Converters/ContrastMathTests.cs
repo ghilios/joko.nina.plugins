@@ -65,6 +65,33 @@ public class ContrastMathTests {
         });
     }
 
+    [Test]
+    public void AccessibleAccent_DarkensAnAchromaticColourAgainstALightBackground() {
+        // Forces the goLighter == false branch: white background means only the dark pole can reach the
+        // target. No built-in NINA schema exercises this path, so without this test an inverted comparison
+        // in the bisection's else-branch would go unnoticed.
+        var accent = ContrastMath.AccessibleAccent(Hex("D0D0D0"), Colors.White);
+        Assert.Multiple(() => {
+            Assert.That(ContrastMath.ContrastRatio(accent, Colors.White),
+                Is.GreaterThanOrEqualTo(ContrastMath.MinContrastRatio));
+            Assert.That(ContrastMath.RelativeLuminance(accent),
+                Is.LessThan(ContrastMath.RelativeLuminance(Hex("D0D0D0"))), "must have moved darker");
+        });
+    }
+
+    [Test]
+    public void AccessibleAccent_DarkeningPreservesHue() {
+        var alert = Hex("FFD54F");   // amber, too light to read on white
+        var accent = ContrastMath.AccessibleAccent(alert, Colors.White);
+        Assert.Multiple(() => {
+            Assert.That(ContrastMath.ContrastRatio(accent, Colors.White),
+                Is.GreaterThanOrEqualTo(ContrastMath.MinContrastRatio));
+            Assert.That(ContrastMath.RelativeLuminance(accent), Is.LessThan(ContrastMath.RelativeLuminance(alert)));
+            Assert.That(accent.R, Is.GreaterThan(accent.G), "still amber");
+            Assert.That(accent.G, Is.GreaterThan(accent.B), "still amber");
+        });
+    }
+
     // The regression that would have caught the original bug: every built-in NINA schema, both roles.
     [Test]
     public void EveryBuiltInNinaSchema_ClearsWcagAaForBadgeTextAndAccent() {
