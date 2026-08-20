@@ -2510,7 +2510,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
         internal static string AutomaticAdjustmentRemediationTextFor(ITiltAdapterOptions options) {
             if (!IsCalibrationDeviceLinked(options)) {
                 return (options?.CalibrationIsManual ?? false)
-                    ? "This calibration was entered by hand, so Automatic Adjustment is disabled — HocusFocus can't " +
+                    ? "This calibration was entered or edited by hand, so Automatic Adjustment is disabled — HocusFocus can't " +
                       "confirm your screw numbering matches the device's motor wiring. Re-run calibration with the " +
                       "device connected, or trust it explicitly in the Tilt Adapter Wizard."
                     : "This calibration is not linked to the connected device. Re-run calibration with the device connected.";

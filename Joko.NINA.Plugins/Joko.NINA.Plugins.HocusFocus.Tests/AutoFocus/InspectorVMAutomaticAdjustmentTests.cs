@@ -106,6 +106,12 @@ public class InspectorVMAutomaticAdjustmentTests {
             Is.EqualTo("This calibration is low-confidence (it did not pass quality validation). Re-run calibration to enable Automatic Adjustment."));
     }
 
+    [Test]
+    public void RemediationText_NullOptions_ReturnsTheNotLinkedWording() {
+        Assert.That(InspectorVM.AutomaticAdjustmentRemediationTextFor(null),
+            Is.EqualTo("This calibration is not linked to the connected device. Re-run calibration with the device connected."));
+    }
+
     #endregion
 
     #region CanExecuteAutomaticAdjustment
