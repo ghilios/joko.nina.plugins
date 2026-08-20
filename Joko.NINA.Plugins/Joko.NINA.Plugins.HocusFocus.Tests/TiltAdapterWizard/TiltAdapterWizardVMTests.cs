@@ -85,6 +85,27 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             return (vm, options, camera, focuser);
         }
 
+        // A saved, valid calibration on a motorized preset — the state the Trust banner is about.
+        // "ASG Electronic EAT - 90mm" is a real registered preset name; TiltMotionControllerRegistry.IsMotorized
+        // does an exact-name lookup, so an invented name would silently make every banner test pass vacuously.
+        private const string MotorizedPreset = "ASG Electronic EAT - 90mm";
+
+        // 4 screws, not 3: the ctor's re-lock-on-load ApplyDevice writes the motorized preset's own ScrewCount
+        // (4) onto the substitute -- and an NSubstitute property SET does feed its getter -- so a 3-screw stub
+        // would leave ScrewCount(4) != CalibratedScrewCount(3) and IsCalibrationValid false, silently hiding
+        // the banner for a reason that has nothing to do with automation trust.
+        private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options) BuildCalibrated(
+            string deviceName = MotorizedPreset, string linkedDevice = "", bool reliable = false) {
+            var (vm, options, _, _) = Build(screwCount: 4, configureOptions: o => {
+                o.DeviceName.Returns(deviceName);
+                o.IsCalibrated.Returns(true);
+                o.CalibratedScrewCount.Returns(4);
+                o.DeviceLinkedCalibrationDeviceName.Returns(linkedDevice);
+                o.CalibrationIsReliable.Returns(reliable);
+            });
+            return (vm, options);
+        }
+
         // --- Motorized device connection pane (T10) test rig -------------------------------------------------
 
         // Deterministic ITiltDeviceTimeSource test double (mirrors TiltDeviceConnectionServiceTests): UtcNow is
@@ -3574,6 +3595,161 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 options.DidNotReceive().ScrewInwardCurvatureSign = Arg.Any<int>();
                 options.DidNotReceive().Screw1AngleDegrees = Arg.Any<double>();
                 options.DidNotReceive().IsCalibrated = Arg.Any<bool>();
+            });
+        }
+
+        // --- Opt-in re-link: trusting a hand-entered calibration for automation (Task 9) --------------------
+
+        [Test]
+        public void TrustCalibration_AloneWritesNothing() {
+            var (vm, options) = BuildCalibrated();
+            options.ClearReceivedCalls();
+
+            vm.TrustCalibrationCommand.Execute(null);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.IsTrustCalibrationPending, Is.True, "the button only arms the confirmation");
+                options.DidNotReceive().DeviceLinkedCalibrationDeviceName = Arg.Any<string>();
+                options.DidNotReceive().CalibrationIsReliable = Arg.Any<bool>();
+            });
+        }
+
+        [Test]
+        public void ConfirmTrustCalibration_ArmsBothAutomationMarkersForTheCurrentDevice() {
+            var (vm, options) = BuildCalibrated();
+            options.ClearReceivedCalls();
+
+            vm.TrustCalibrationCommand.Execute(null);
+            vm.ConfirmTrustCalibrationCommand.Execute(null);
+
+            Assert.Multiple(() => {
+                options.Received().DeviceLinkedCalibrationDeviceName = MotorizedPreset;
+                options.Received().CalibrationIsReliable = true;
+                Assert.That(vm.IsTrustCalibrationPending, Is.False);
+            });
+        }
+
+        [Test]
+        public void CancelTrustCalibration_WritesNothing() {
+            var (vm, options) = BuildCalibrated();
+            options.ClearReceivedCalls();
+
+            vm.TrustCalibrationCommand.Execute(null);
+            vm.CancelTrustCalibrationCommand.Execute(null);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.IsTrustCalibrationPending, Is.False);
+                options.DidNotReceive().DeviceLinkedCalibrationDeviceName = Arg.Any<string>();
+                options.DidNotReceive().CalibrationIsReliable = Arg.Any<bool>();
+            });
+        }
+
+        [Test]
+        public void ApplyManualCalibration_DisarmsAPendingTrustConfirmation() {
+            // A stale confirmation must not survive the state change that invalidated it.
+            var (vm, options) = BuildCalibrated(linkedDevice: MotorizedPreset, reliable: true);
+            options.ScrewInwardCurvatureSign.Returns(1);
+            vm.TrustCalibrationCommand.Execute(null);
+            vm.ManualScrew1AngleDegrees = 30;
+
+            vm.ApplyManualCalibration();
+
+            Assert.Multiple(() => {
+                Assert.That(vm.IsTrustCalibrationPending, Is.False);
+                options.Received().DeviceLinkedCalibrationDeviceName = string.Empty;
+                options.Received().CalibrationIsReliable = false;
+            });
+        }
+
+        [Test]
+        public void ClearCalibration_AlsoClearsTheAutomationMarkers() {
+            var (vm, options) = BuildCalibrated(linkedDevice: MotorizedPreset, reliable: true);
+            options.ClearReceivedCalls();
+
+            vm.ClearCalibrationCommand.Execute(null);
+
+            Assert.Multiple(() => {
+                options.Received().DeviceLinkedCalibrationDeviceName = string.Empty;
+                options.Received().CalibrationIsReliable = false;
+            });
+        }
+
+        [Test]
+        public void AutomationTrustBanner_IsHiddenForADeviceLinkedReliableCalibration() {
+            var (vm, _) = BuildCalibrated(linkedDevice: MotorizedPreset, reliable: true);
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False);
+        }
+
+        [Test]
+        public void AutomationTrustBanner_IsShownForAManualCalibrationOnAMotorizedPreset() {
+            var (vm, _) = BuildCalibrated();
+            Assert.That(vm.AutomationTrustBannerVisible, Is.True);
+        }
+
+        [Test]
+        public void AutomationTrustBanner_IsHiddenOnANonMotorizedPreset() {
+            var (vm, _) = BuildCalibrated(deviceName: TiltAdapterDevicePreset.ManualName);
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False,
+                "there is nothing to automate without a motorized device");
+        }
+
+        [Test]
+        public void AutomationTrustBanner_IsHiddenWithNoSavedCalibration() {
+            var (vm, _, _, _) = Build(screwCount: 3, configureOptions: o => {
+                o.DeviceName.Returns(MotorizedPreset);
+                o.IsCalibrated.Returns(false);
+            });
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False);
+        }
+
+        [Test]
+        public void ConfirmedTrust_SatisfiesTheAutomaticAdjustmentGate() {
+            // The point of the whole feature: the Inspector's gate reads exactly these two markers.
+            var (vm, options) = BuildCalibrated();
+            vm.TrustCalibrationCommand.Execute(null);
+            vm.ConfirmTrustCalibrationCommand.Execute(null);
+            // NSubstitute property setters do not feed the getters back, so mirror what was written.
+            options.DeviceLinkedCalibrationDeviceName.Returns(MotorizedPreset);
+            options.CalibrationIsReliable.Returns(true);
+
+            Assert.Multiple(() => {
+                Assert.That(InspectorVM.IsCalibrationDeviceLinked(options), Is.True);
+                Assert.That(InspectorVM.CanExecuteAutomaticAdjustment(
+                    serviceConnected: true, controllerAvailable: true,
+                    deviceLinked: InspectorVM.IsCalibrationDeviceLinked(options),
+                    calibrationIsReliable: options.CalibrationIsReliable,
+                    hasNumericGuidance: true, isOperationActive: false,
+                    currentGeneration: 2, lastExecutedGeneration: 1), Is.True);
+                Assert.That(vm.AutomationTrustBannerVisible, Is.False, "the banner retires once trust is granted");
+            });
+        }
+
+        [Test]
+        public void ChangingTheDevicePreset_DisarmsAPendingTrustConfirmation() {
+            // The confirmation was armed against the PREVIOUS preset's screw wiring — confirming it afterwards
+            // would link a hand-entered calibration to a device it was never entered for.
+            var (vm, options) = BuildCalibrated();
+            vm.TrustCalibrationCommand.Execute(null);
+            Assert.That(vm.IsTrustCalibrationPending, Is.True, "precondition: armed");
+
+            options.DeviceName.Returns("ASG Electronic EAT - ZWO 461");
+            options.PropertyChanged += Raise.Event<System.ComponentModel.PropertyChangedEventHandler>(
+                options, new System.ComponentModel.PropertyChangedEventArgs(nameof(ITiltAdapterOptions.DeviceName)));
+
+            Assert.That(vm.IsTrustCalibrationPending, Is.False);
+        }
+
+        [Test]
+        public void SelectingADifferentDevicePreset_RevokesTheTrust() {
+            // No explicit revoke needed: IsCalibrationDeviceLinked compares against the CURRENT DeviceName.
+            var (vm, options) = BuildCalibrated(linkedDevice: MotorizedPreset, reliable: true);
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False, "precondition: trusted");
+
+            options.DeviceName.Returns("ASG Electronic EAT - ZWO 461");
+
+            Assert.Multiple(() => {
+                Assert.That(InspectorVM.IsCalibrationDeviceLinked(options), Is.False);
+                Assert.That(vm.AutomationTrustBannerVisible, Is.True);
             });
         }
 

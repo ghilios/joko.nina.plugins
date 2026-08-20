@@ -935,6 +935,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             realAdapter.IsCalibrated = true;
             realAdapter.ScrewInwardCurvatureSignIsMeasured = false;
             realAdapter.CalibrationIsManual = true;
+            // [CRITICAL GATE] Same clears the wizard's manual-entry path makes. Setting DeviceName to Manual
+            // above already breaks IsCalibrationDeviceLinked implicitly, but leaving a stale device name in the
+            // marker is exactly the kind of thing that survives a later preset change.
+            realAdapter.DeviceLinkedCalibrationDeviceName = string.Empty;
+            realAdapter.CalibrationIsReliable = false;
             // Retire the previous adapter's wizard measurements, so the inspector's pitch-mismatch warning cannot
             // compare the values we just wrote against a stale measurement (the manual-entry path does the same).
             realAdapter.LastMeasuredThreadPitchMicrons = -1;
