@@ -2126,8 +2126,7 @@
                           started as a device-driven run) — survives the advance to Complete (below), so it is
                           rendered there too.  -->
                     <Border
-                        Margin="0,6,0,0"
-                        Padding="5">
+                        Margin="0,6,0,0">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -2146,8 +2145,7 @@
 
                     <!--  Consistency warning (shown when tilt measurements across runs diverge)  -->
                     <Border
-                        Margin="0,6,0,0"
-                        Padding="5">
+                        Margin="0,6,0,0">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -2298,8 +2296,7 @@
                     <!--  Device-link dropped mid-run: it survives the advance to Complete (the step panel that
                           raised it is already hidden), so it must render here too  -->
                     <Border
-                        Margin="0,5"
-                        Padding="5">
+                        Margin="0,5">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -2319,8 +2316,7 @@
                     <!--  Consistency warning raised by the final step's repeats: it survives the advance to
                           Complete (the step panel that raised it is already hidden), so it must render here too  -->
                     <Border
-                        Margin="0,5"
-                        Padding="5">
+                        Margin="0,5">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -2339,8 +2335,7 @@
 
                     <!--  Re-baseline drift warning (an undo between moves left residual tilt)  -->
                     <Border
-                        Margin="0,5"
-                        Padding="5">
+                        Margin="0,5">
                         <Border.Style>
                             <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -2360,9 +2355,11 @@
                     <!--  Low calibration confidence: measurement noise rivals the screw-move signal (do not apply)  -->
                     <Border
                         Margin="0,5"
-                        Padding="5">
+                        Padding="5"
+                        BorderBrush="{StaticResource NotificationErrorBrush}"
+                        BorderThickness="1">
                         <Border.Style>
-                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
+                            <Style TargetType="Border">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasConfidenceWarning}" Value="True">
@@ -2372,7 +2369,7 @@
                             </Style>
                         </Border.Style>
                         <TextBlock
-                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
+                            Foreground="{StaticResource HF_AlertErrorAccentBrush}"
                             Text="{Binding ConfidenceWarningText}"
                             TextWrapping="Wrap" />
                     </Border>

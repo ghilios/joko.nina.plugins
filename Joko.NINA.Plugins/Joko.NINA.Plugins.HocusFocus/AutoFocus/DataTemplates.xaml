@@ -123,9 +123,7 @@
     <DataTemplate DataType="{x:Type tiltdevices:TiltDeviceIdleCountdownVM}">
         <Border
             Margin="0,4,0,4"
-            Padding="6,4"
-            Background="{StaticResource NotificationWarningBrush}"
-            CornerRadius="3"
+            Style="{StaticResource HF_AlertWarningBadge}"
             Visibility="{Binding IsVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
             <StackPanel>
                 <TextBlock

@@ -223,9 +223,7 @@
                   It names the fields it will overwrite, per the UX design.  -->
             <Border
                 Margin="0,6,0,0"
-                Padding="6,4"
-                Background="{StaticResource NotificationWarningBrush}"
-                CornerRadius="3"
+                Style="{StaticResource HF_AlertWarningBadge}"
                 Visibility="{Binding IsCopyToAdapterPending, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
                 <StackPanel>
                     <TextBlock
@@ -272,9 +270,7 @@
                   rapid-click loop must never be interrupted by a dialog.  -->
             <Border
                 Margin="0,0,0,6"
-                Padding="6,4"
-                Background="{StaticResource NotificationWarningBrush}"
-                CornerRadius="3"
+                Style="{StaticResource HF_AlertWarningBadge}"
                 Visibility="{Binding HasConfigurationBanner, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
                 <WrapPanel>
                     <TextBlock
@@ -287,9 +283,7 @@
 
             <Border
                 Margin="0,0,0,6"
-                Padding="6,4"
-                Background="{StaticResource NotificationWarningBrush}"
-                CornerRadius="3"
+                Style="{StaticResource HF_AlertWarningBadge}"
                 Visibility="{Binding ShowAberrationsDisabledBanner, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
                 <WrapPanel>
                     <TextBlock
