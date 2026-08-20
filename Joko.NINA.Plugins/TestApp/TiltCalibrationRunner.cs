@@ -198,14 +198,25 @@ namespace TestApp {
                 Console.WriteLine($"  {r.Step,-10} -> {Path.GetFileName(r.Folder)} ({r.Frames.Count} frames, {r.Frames.Select(f => f.Focuser).Distinct().Count()} positions)");
             }
 
-            // PixelScale = arcsec/pixel from the dataset pixel size + the profile's focal length.
-            // metadata.PixelSizeMicrons is the EFFECTIVE pitch of the saved frames (native x Auto Focus Binning)
-            // for runs written by schema 4 and later, so this is already the binned scale and every
-            // ImageSize x PixelSizeMicrons product below is the true sensor extent. A run saved by an older
-            // wizard at a binning above 1x1 stored the NATIVE pitch instead: this headless path then measures
-            // the same binning-factor-inflated gradients (and thus pitch) the wizard itself used to report.
-            // Replay such a run through the wizard, which re-derives the pitch from the frames.
-            var pixelScale = MathUtility.ArcsecPerPixel(metadata.PixelSizeMicrons, activeProfile.TelescopeSettings.FocalLength);
+            // The pitch of one pixel of the SAVED frames, read from a frame header rather than from the metadata
+            // (see ResolveEffectivePixelSizeAsync) — this is the single number every ImageSize x pixelSize
+            // product below turns into the sensor's physical extent, and getting it wrong scales the recovered
+            // thread pitch / stepper step size by the binning factor.
+            var pixelSizeResolution = await ResolveEffectivePixelSizeAsync(orderedRuns, metadata, profileService).ConfigureAwait(false);
+            double pixelSizeMicrons = pixelSizeResolution.Microns;
+            string pixelSizeProvenance = pixelSizeResolution.Provenance;
+            Console.WriteLine($"Pixel size: {F(pixelSizeMicrons)} um effective ({pixelSizeProvenance})");
+            if (EffectivePixelSize.DisagreesWithMetadata(pixelSizeResolution, metadata.PixelSizeMicrons)) {
+                // Expected, and benign, for any run saved before metadata schema 4 at a binning above 1x1: the
+                // stored value is the native pitch. Say so rather than silently disagreeing with the file.
+                Console.WriteLine($"  NOTE: metadata records {F(metadata.PixelSizeMicrons)} um. The frame header wins -- " +
+                    "a run saved before metadata schema 4 stored the NATIVE pitch, which would inflate the recovered " +
+                    "hardware by the binning factor.");
+            }
+
+            // PixelScale = arcsec/pixel of the frames as captured. Matches the live app, which multiplies the
+            // profile's native arcsec/pixel by the capture binning (HocusFocusStarDetection.ApplyDetectionImageContext).
+            var pixelScale = MathUtility.ArcsecPerPixel(pixelSizeMicrons, activeProfile.TelescopeSettings.FocalLength);
 
             // Resolve the detection params: stored optimized settings (default), a fresh optimization run, or the
             // optimizer is forced via --reoptimize. The result is applied only to this transient params object.
@@ -228,7 +239,7 @@ namespace TestApp {
                 Console.WriteLine($"Measuring 4-corner tilt for {run.Step} ({Path.GetFileName(run.Folder)}, {run.Frames.Count} frames x 5 regions) ...");
                 var sw4c = System.Diagnostics.Stopwatch.StartNew();
                 var stepResult = await MeasureTiltAsync(run, detection, detectionParams, regions, fRatio,
-                    metadata.FocuserStepSizeMicrons, metadata.PixelSizeMicrons,
+                    metadata.FocuserStepSizeMicrons, pixelSizeMicrons,
                     profileService, alglibAPI, afOptions.HyperbolicFitModel).ConfigureAwait(false);
                 perStep.Add(stepResult);
                 Console.WriteLine($"    [4-corner {run.Step}] done in {sw4c.ElapsedMilliseconds} ms");
@@ -256,7 +267,7 @@ namespace TestApp {
                 FallbackCurvatureSign = metadata.Calibration?.CurvatureSign ?? 0,
                 ImageWidthPixels = imageSize.Width,
                 ImageHeightPixels = imageSize.Height,
-                PixelSizeMicrons = metadata.PixelSizeMicrons,
+                PixelSizeMicrons = pixelSizeMicrons,
                 FocuserStepMicrons = metadata.FocuserStepSizeMicrons,
                 ScrewRadiusMillimeters = metadata.ScrewRadiusMillimeters,
                 CalibrationAppliedAmount = metadata.CalibrationAppliedAmount,
@@ -271,7 +282,7 @@ namespace TestApp {
                 Console.WriteLine($"Paraboloid (per-star) tilt for {run.Step} ...");
                 var mean = byStep[run.Step].Gradient.MeanFocuserPosition;
                 var ps = await MeasureTiltViaParaboloidAsync(run, detector, detectionParams, metadata.FocuserStepSizeMicrons,
-                    metadata.PixelSizeMicrons, mean, profileService, inspectorOptions, afOptions, alglibAPI,
+                    pixelSizeMicrons, mean, profileService, inspectorOptions, afOptions, alglibAPI,
                     diagDir: Path.Combine(outDir, "diag")).ConfigureAwait(false);
                 paraboloidSteps.Add(ps);
                 Console.WriteLine(ps.Fitted
@@ -296,7 +307,7 @@ namespace TestApp {
                     FallbackCurvatureSign = metadata.Calibration?.CurvatureSign ?? 0,
                     ImageWidthPixels = imageSize.Width,
                     ImageHeightPixels = imageSize.Height,
-                    PixelSizeMicrons = metadata.PixelSizeMicrons,
+                    PixelSizeMicrons = pixelSizeMicrons,
                     FocuserStepMicrons = metadata.FocuserStepSizeMicrons,
                     ScrewRadiusMillimeters = metadata.ScrewRadiusMillimeters,
                     CalibrationAppliedAmount = metadata.CalibrationAppliedAmount,
@@ -305,7 +316,7 @@ namespace TestApp {
                 paraboloidCalibration = TiltCalibrationCalculator.Calibrate(pinputs);
             }
 
-            WriteReport(outDir, metadata, optimizationSource, perStep, inputs, calibration, paraboloidSteps, paraboloidCalibration, pinputs, regions);
+            WriteReport(outDir, metadata, optimizationSource, perStep, inputs, calibration, paraboloidSteps, paraboloidCalibration, pinputs, regions, pixelSizeProvenance);
             Console.WriteLine($"Wrote tilt_summary.txt and tilt_summary.json to {outDir}");
         }
 
@@ -770,6 +781,42 @@ namespace TestApp {
         /// BuildDetectionContext each build their own source Mat), so one load per frame serves every region and
         /// every candidate evaluation.
         /// </summary>
+        /// <summary>
+        /// The EFFECTIVE pixel pitch of the saved frames — the camera's own pixel size times the binning they
+        /// were captured at — derived exactly as the live app derives it in
+        /// <c>HocusFocusStarDetection.BuildResultHeader</c>: <c>MetaData.Camera.PixelSize × max(BinX, 1)</c>.
+        ///
+        /// <para>Every consumer here multiplies this by a frame DIMENSION to get the sensor's physical extent, so
+        /// it must describe the same frame those dimensions came from. Under NINA's Auto Focus Binning of N the
+        /// frame is N× smaller per axis and each of its pixels N× coarser; pairing a binned frame with a native
+        /// pitch understates the sensor by N and inflates every recovered gradient — and with it the reported
+        /// thread pitch / stepper step size — by exactly N. That is the bug the wizard carried until
+        /// <c>TiltPlaneModel</c> started carrying its own pitch.</para>
+        ///
+        /// <para>Read from the FRAMES rather than from <c>metadata.PixelSizeMicrons</c> on purpose: that field is
+        /// the effective pitch only from metadata schema 4 onward and the NATIVE pitch before it, so trusting it
+        /// would silently reproduce the old inflation on every run an older wizard saved. The header is
+        /// unambiguous at every schema — both the FITS and XISF readers divide the stored (binned) XPIXSZ back out
+        /// by XBINNING, so <c>Camera.PixelSize</c> is always native and <c>BinX</c> always carries the factor.
+        /// Falls back to the metadata value only when a header carries no pixel size at all.</para>
+        /// </summary>
+        private static async Task<EffectivePixelSize.Resolution> ResolveEffectivePixelSizeAsync(
+            List<RunStep> orderedRuns, TiltCalibrationMetadata metadata, ProfileService profileService) {
+            var firstFrame = orderedRuns.SelectMany(r => r.Frames).OrderBy(f => f.Focuser).Select(f => f.Path).FirstOrDefault();
+            if (firstFrame == null) {
+                return EffectivePixelSize.FromMetadata(metadata.PixelSizeMicrons, "no frames to read a header from");
+            }
+            try {
+                var image = await DiagnosticUtil.LoadRenderedImage(firstFrame, profileService).ConfigureAwait(false);
+                var camera = image.RawImageData.MetaData.Camera;
+                return EffectivePixelSize.FromFrameHeader(
+                    camera.PixelSize, camera.BinX, metadata.PixelSizeMicrons, Path.GetFileName(firstFrame));
+            } catch (Exception ex) {
+                Logger.Warning($"Could not read the pixel size from {firstFrame}: {ex.Message}");
+                return EffectivePixelSize.FromMetadata(metadata.PixelSizeMicrons, $"header unreadable: {ex.Message}");
+            }
+        }
+
         private static async Task<List<(int Focuser, string Path, IRenderedImage Image)>> LoadRunImagesAsync(RunStep run, ProfileService profileService) {
             var result = new List<(int, string, IRenderedImage)>(run.Frames.Count);
             foreach (var (focuser, path) in run.Frames.OrderBy(f => f.Focuser)) {
@@ -819,9 +866,13 @@ namespace TestApp {
             string outDir, TiltCalibrationMetadata metadata, string optimizationSource, List<StepResult> perStep,
             TiltCalibrationInputs inputs, TiltCalibrationResult calibration,
             List<ParaboloidStepResult> paraboloidSteps, TiltCalibrationResult paraboloidCalibration,
-            TiltCalibrationInputs pinputs, List<StarDetectionRegion> regions) {
+            TiltCalibrationInputs pinputs, List<StarDetectionRegion> regions, string pixelSizeProvenance) {
 
             bool isStepper = inputs.IsStepperAdjustment;
+            // The pitch the calibration actually ran on, taken off the inputs Calibrate() consumed rather than
+            // re-read from the metadata — the two differ on a pre-schema-4 run captured with binning, and the
+            // report has to quote the number the numbers below were produced with.
+            double pixelSizeMicrons = inputs.PixelSizeMicrons;
             double groundTruthHardware = isStepper ? metadata.StepperStepSizeMicrons : metadata.ScrewThreadPitchMicrons;
             double measuredHardware = calibration.MeasuredHardwareMicrons;
             double hardwarePctDelta = (groundTruthHardware > 0 && !double.IsNaN(measuredHardware))
@@ -836,7 +887,10 @@ namespace TestApp {
             Line($"Screws: {metadata.NumberOfScrews}   Adjustment: {(isStepper ? "StepperMotors" : "Screws")}");
             Line($"Ground truth: radius={F(metadata.ScrewRadiusMillimeters)} mm, " +
                 $"{(isStepper ? "step size" : "thread pitch")}={F(groundTruthHardware)} um/{(isStepper ? "step" : "turn")}, " +
-                $"pixel={F(metadata.PixelSizeMicrons)} um, focuser={F(metadata.FocuserStepSizeMicrons)} um/step");
+                $"focuser={F(metadata.FocuserStepSizeMicrons)} um/step");
+            Line($"Pixel size: {F(pixelSizeMicrons)} um effective ({pixelSizeProvenance})" +
+                (metadata.PixelSizeMicrons > 0 && Math.Abs(pixelSizeMicrons - metadata.PixelSizeMicrons) > EffectivePixelSize.DisagreementToleranceMicrons
+                    ? $"; metadata records {F(metadata.PixelSizeMicrons)} um" : string.Empty));
             Line($"Applied per screw step: {F(metadata.CalibrationAppliedAmount)} {(isStepper ? "steps" : "turns")}");
             Line($"Expected Screw 1 angle: {F(metadata.ExpectedPositionAngleScrew1Deg)} deg   Defocus-aware: {metadata.DefocusAwareDetectionNeeded}");
             Line($"Detection settings source: {optimizationSource}");
@@ -978,8 +1032,8 @@ namespace TestApp {
             // vs. this harness's own paraboloid-predicted sag) — useful for noticing a large same-run disagreement,
             // but its magnitude should NOT be expected to reproduce the design doc's live-AF-report-derived ×2.
             var (cornerXNorm, cornerYNorm) = CornerDesignPoint(regions);
-            double sensorWidthMicrons = perStep[0].ImageSize.Width * metadata.PixelSizeMicrons;
-            double sensorHeightMicrons = perStep[0].ImageSize.Height * metadata.PixelSizeMicrons;
+            double sensorWidthMicrons = perStep[0].ImageSize.Width * pixelSizeMicrons;
+            double sensorHeightMicrons = perStep[0].ImageSize.Height * pixelSizeMicrons;
             double rEffMicrons = Math.Sqrt(Math.Pow(cornerXNorm * sensorWidthMicrons, 2) + Math.Pow(cornerYNorm * sensorHeightMicrons, 2));
             double rEffSquaredMicrons2 = rEffMicrons * rEffMicrons;
 

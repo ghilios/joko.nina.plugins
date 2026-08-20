@@ -26,6 +26,10 @@
     <Compile Include="..\TestApp\GoldenGeometry.cs" Link="Golden\GoldenGeometry.cs" />
     <Compile Include="..\TestApp\BankVerification.cs" Link="Bank\BankVerification.cs" />
     <Compile Include="..\TestApp\HarnessSettingsStore.cs" Link="Harness\HarnessSettingsStore.cs" />
+    <!-- Which pixel pitch a headless tilt validation reasons in. TiltCalibrationRunner loads NINA rendered
+         images and cannot be linked, so the whole frame-header-vs-metadata decision lives in this one pure
+         file, which the runner only calls: the same shape as TruthDisclosure/CapSemantics above. -->
+    <Compile Include="..\TestApp\EffectivePixelSize.cs" Link="Harness\EffectivePixelSize.cs" />
     <Compile Include="..\TestApp\HarnessFitInputs.cs" Link="Harness\HarnessFitInputs.cs" />
     <Compile Include="..\TestApp\LandingWriteback.cs" Link="Harness\LandingWriteback.cs" />
     <Compile Include="..\TestApp\MadFloorArgs.cs" Link="Harness\MadFloorArgs.cs" />
