@@ -221,7 +221,9 @@ violate that rule, and they are the only reason the run looks wrong.
 
 Wording only; no behavior change, no math change.
 
-1. `TiltAdapterWizardVM.StepTitleText` gains a `bool isStepper = false` parameter:
+1. `TiltAdapterWizardVM.StepTitleText` gains a **required** `bool isStepper` parameter (no default — its two
+   sibling methods `StepInstructionsText` and `BaselineRecoveryText` already require it, and that is what forces
+   every call site to make an explicit choice; a defaulted bool silently gives a stepper rig screw wording):
    - screws → `"All Screws Clockwise"`
    - steppers → `"All Motors Positive Steps"`
 
