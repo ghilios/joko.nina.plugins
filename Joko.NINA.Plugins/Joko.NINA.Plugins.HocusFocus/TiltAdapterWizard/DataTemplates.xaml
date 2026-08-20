@@ -1698,7 +1698,7 @@
                                         HorizontalAlignment="Left"
                                         FontWeight="Bold"
                                         Foreground="{StaticResource HF_AlertWarningTextBrush}"
-                                        Text="If your screw numbering does not match the device's motor wiring, Automatic Adjustment will drive the adapter unattended in the wrong direction and make tilt worse. Verify with a single manual adjustment before leaving it unattended."
+                                        Text="If your screw numbering does not match the device's motor wiring, Automatic Adjustment will drive the adapter unattended in the wrong direction and make tilt worse. Before trusting it, use Manual adjustment to move one screw a small amount and confirm the corner that actually moves is the one you expect for that screw label — then it is safe."
                                         TextWrapping="Wrap" />
                                     <WrapPanel Margin="0,6,0,0">
                                         <Button
