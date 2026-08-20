@@ -26,12 +26,13 @@ Key facts an engineer new to this codebase will otherwise get wrong:
    ```
    Allow up to 600 s. A single flaky test, `SendAsync_WritesOnABackgroundThread`, is known-unrelated — if it is the only failure, re-run it alone to confirm and move on.
 6. **Building deploys the plugin** into NINA's plugin folder via a PostBuild `xcopy`. Close NINA before running tests.
-7. **Commit identity** — every commit in this plan must use:
+7. **NSubstitute gotcha, verified in this repo (5.3.0).** A plain property *setter* call on a substitute **does** feed its own getter, and it wins even over an earlier explicit `.Returns(...)`. Two consequences: a test that writes a marker can assert on the getter directly (no re-stubbing), and production code that writes a property onto the substitute — e.g. the wizard ctor's `ApplyDevice` writing the selected preset's own `ScrewCount` — is visible to every later read. A calibrated test fixture must therefore be self-consistent with the preset it selects: a 4-screw preset needs `screwCount: 4`, or `IsCalibrationValid` goes false for a reason unrelated to what the test is about.
+8. **Commit identity** — every commit in this plan must use:
    ```bash
    GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com" \
      git commit --author="George Hilios <322725+ghilios@users.noreply.github.com>" -m "..."
    ```
-8. **Branch:** `ghilios/tilt-calibration-ux-feedback` (already created, spec already committed). Never push to `develop`.
+9. **Branch:** `ghilios/tilt-calibration-ux-feedback` (already created, spec already committed). Never push to `develop`.
 
 **Paths are relative to the repo root** `/home/ghilios/src/hocus-focus`. The plugin lives at `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus/`, abbreviated **`PLUGIN/`** below. Tests live at `Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus.Tests/`, abbreviated **`TESTS/`**.
 
@@ -1488,9 +1489,9 @@ then the tests:
             var (vm, options) = BuildCalibrated();
             vm.TrustCalibrationCommand.Execute(null);
             vm.ConfirmTrustCalibrationCommand.Execute(null);
-            // NSubstitute property setters do not feed the getters back, so mirror what was written.
-            options.DeviceLinkedCalibrationDeviceName.Returns(MotorizedPreset);
-            options.CalibrationIsReliable.Returns(true);
+            // No re-stubbing needed: an NSubstitute property setter feeds its own getter, so the getters
+            // below return exactly what ConfirmTrustCalibration just wrote. That is the point — the assertion
+            // reads production state, not test state.
 
             Assert.Multiple(() => {
                 Assert.That(InspectorVM.IsCalibrationDeviceLinked(options), Is.True);
