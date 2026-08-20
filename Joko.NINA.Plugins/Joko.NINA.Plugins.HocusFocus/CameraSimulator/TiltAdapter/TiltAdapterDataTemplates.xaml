@@ -231,7 +231,7 @@
                     <TextBlock
                         MaxWidth="380"
                         HorizontalAlignment="Left"
-                        Foreground="{StaticResource NotificationWarningTextBrush}"
+                        Foreground="{StaticResource HF_AlertWarningTextBrush}"
                         Text="{Binding CopyToAdapterConfirmText}"
                         TextWrapping="Wrap" />
                     <WrapPanel Margin="0,4,0,0">
@@ -279,7 +279,7 @@
                 <WrapPanel>
                     <TextBlock
                         VerticalAlignment="Center"
-                        Foreground="{StaticResource NotificationWarningTextBrush}"
+                        Foreground="{StaticResource HF_AlertWarningTextBrush}"
                         Text="{Binding ConfigurationBannerText}"
                         TextWrapping="Wrap" />
                 </WrapPanel>
@@ -294,7 +294,7 @@
                 <WrapPanel>
                     <TextBlock
                         VerticalAlignment="Center"
-                        Foreground="{StaticResource NotificationWarningTextBrush}"
+                        Foreground="{StaticResource HF_AlertWarningTextBrush}"
                         Text="Aberrations are disabled — the plane below has no effect on rendered frames"
                         TextWrapping="Wrap" />
                     <!--  Operate deliberately stays enabled: editing an inert state is legal, just inert.  -->
@@ -331,7 +331,7 @@
                     Margin="8,0,0,0"
                     VerticalAlignment="Center"
                     FontStyle="Italic"
-                    Foreground="{StaticResource NotificationWarningBrush}"
+                    Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                     Text="{Binding ExtremeTiltText}"
                     Visibility="{Binding HasExtremeTilt, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
             </WrapPanel>

@@ -2619,7 +2619,7 @@
                 MaxWidth="420"
                 HorizontalAlignment="Left"
                 FontStyle="Italic"
-                Foreground="{StaticResource NotificationWarningBrush}"
+                Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                 Text="{Binding PerFilterEditBinder.ActiveFilterWarning}"
                 TextWrapping="Wrap">
                 <TextBlock.Style>
@@ -3362,7 +3362,7 @@
                         HorizontalAlignment="Left"
                         VerticalAlignment="Center"
                         FontStyle="Italic"
-                        Foreground="{StaticResource NotificationWarningBrush}"
+                        Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                         Text="⚠ differs from the focuser driver"
                         ToolTip="{StaticResource FocuserStepSizeMismatch_Tooltip}"
                         Visibility="{Binding InspectorOptions.HasFocuserStepSizeMismatch, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
