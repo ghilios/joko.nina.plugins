@@ -36,6 +36,66 @@
     <TextBlock x:Key="SDOpt_CaptureNewSweep_Tooltip" Text="Captures a whole new auto-focus sweep at this exposure and re-runs the optimization on the fresh frames — the only way to fix a run whose stars were too faint, since no setting recovers signal the frames never had. It takes new exposures and moves the focuser, so it costs a full sweep of sky time. The box starts at the recommended exposure and is yours to change. Any detection binning change you have already re-optimized at still applies. Nothing is saved until you Accept the new result." />
     <TextBlock x:Key="SDOpt_FocusRecovery_Tooltip" Text="Widens the live sweep by this many extra steps on EACH side, so the auto-focus curve can still bracket focus when you start well off focus. The extra far-from-focus frames are down-weighted in the fit and exempt from the star-count requirements, so they help find focus without skewing it. Set 0 to disable recovery." />
 
+    <!--  Themed button whose label is a plain string Content. Visually identical to NINA's StandardButton (same
+          theme brushes, same border/corner radii, same hover / pressed / disabled behaviour) — the ONLY change is
+          that the label is guaranteed to paint in ButtonForegroundBrush.
+
+          Why a whole Style is needed for that: a string Content is rendered by a TextBlock the ContentPresenter
+          generates, and NINA.WPF.Base ships a KEYLESS TextBlock style (Resources/Styles/TextBlock.xaml, BasedOn
+          StandardTextBlock => Foreground = PrimaryBrush) in Application.Resources. A style setter outranks an
+          inherited value, so that generated label ignores the button's own Foreground and paints PrimaryBrush —
+          and NINA's StandardButton deliberately sets Foreground = ButtonBackgroundBrush (its own buttons carry
+          Path icons that supply ButtonForegroundBrush themselves), so nothing else corrects it either. On the
+          "Dark" and "Alternative Custom" schemas PrimaryBrush and ButtonBackgroundBrush are the SAME colour
+          (#FF550C18), so the label rendered at 1.00:1 — literally invisible.
+
+          The empty style in ContentPresenter.Resources is found first (nearest dictionary wins the implicit-style
+          lookup) and carries no Foreground, so the inherited value — TextElement.Foreground below, i.e. the
+          button's own Foreground — reaches the glyph again. Setting Foreground on the Button alone does NOT
+          work, and neither does an implicit TextBlock style in this dictionary: a control-scope implicit style
+          does not reach template-generated content at all. Same fix, same reason, as HF_ReviewToolbarButton in
+          StarDetection/Optimization/Review/StarReviewControl.xaml.
+
+          The triggers keep Foreground on ButtonForegroundBrush in every state: NINA's own triggers re-point
+          Foreground at the (selected) background brush on hover/press, which would re-hide the label here.  -->
+    <Style x:Key="HF_TextButton" TargetType="Button">
+        <Setter Property="Background" Value="{StaticResource ButtonBackgroundBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource ButtonForegroundBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border BorderBrush="{StaticResource BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="0">
+                        <Border x:Name="Fill" Background="{TemplateBinding Background}" CornerRadius="1">
+                            <ContentPresenter
+                                Margin="0"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                TextElement.Foreground="{TemplateBinding Foreground}">
+                                <ContentPresenter.Resources>
+                                    <Style TargetType="TextBlock" />
+                                </ContentPresenter.Resources>
+                            </ContentPresenter>
+                        </Border>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Fill" Property="Background" Value="{StaticResource ButtonBackgroundSelectedBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="Fill" Property="Background" Value="{StaticResource ButtonBackgroundBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.4" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!--  Auto-focus curve chart for ONE settings variant. The Summary panel hosts this via a ContentControl bound to
           SelectedCurve, so toggling the variant rebuilds the plot from a fresh OptimizationCurve instance (a robust
           OxyPlot re-render without InvalidatePlot). Bindings are relative to the OptimizationCurve. Mirrors the AF
@@ -438,7 +498,8 @@
                                         Width="80"
                                         Command="{Binding DataContext.BrowseSourceCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                         CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter}, Path=(ItemsControl.AlternationIndex)}"
-                                        Content="Browse…" />
+                                        Content="Browse…"
+                                        Style="{StaticResource HF_TextButton}" />
                                     <TextBlock
                                         Width="440"
                                         Margin="8,0,0,0"
@@ -613,6 +674,7 @@
                                 Width="80"
                                 Command="{Binding BrowseSaveFolderCommand}"
                                 Content="Browse…"
+                                Style="{StaticResource HF_TextButton}"
                                 ToolTip="{StaticResource SDOpt_LiveSaveFolder_Tooltip}" />
                             <TextBlock
                                 Width="360"
@@ -1137,6 +1199,7 @@
                                         HorizontalAlignment="Left"
                                         Command="{Binding ReOptimizeCommand}"
                                         Content="Optimize with feedback"
+                                        Style="{StaticResource HF_TextButton}"
                                         ToolTip="{StaticResource SDOpt_ReOptimize_Tooltip}" />
                                 </StackPanel>
 
@@ -1259,6 +1322,7 @@
                     Margin="0,0,8,0"
                     Command="{Binding CancelCommand}"
                     Content="Cancel"
+                    Style="{StaticResource HF_TextButton}"
                     Visibility="{Binding ShowProgress, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
                 <!--  SelectSource: Start (Close is the shared button below).  -->
@@ -1267,6 +1331,7 @@
                     Margin="0,0,8,0"
                     Command="{Binding StartCommand}"
                     Content="Start"
+                    Style="{StaticResource HF_TextButton}"
                     Visibility="{Binding ShowSelectSource, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
                 <!--  Summary (results) page: Back, Review, Accept. Accept is always shown but disabled (via CanAccept)
@@ -1276,12 +1341,14 @@
                     Margin="0,0,8,0"
                     Command="{Binding BackCommand}"
                     Content="Back"
+                    Style="{StaticResource HF_TextButton}"
                     Visibility="{Binding ShowSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 <Button
                     Width="120"
                     Margin="0,0,8,0"
                     Command="{Binding ReviewCommand}"
                     Content="Review frames"
+                    Style="{StaticResource HF_TextButton}"
                     ToolTip="{StaticResource SDOpt_Review_Tooltip}"
                     Visibility="{Binding ShowSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 <!--  Continue optimizing: another pass from the current best. Disabled (greyed) once 3 passes have
@@ -1291,6 +1358,7 @@
                     Margin="0,0,8,0"
                     Command="{Binding ContinueOptimizationCommand}"
                     Content="Continue optimizing"
+                    Style="{StaticResource HF_TextButton}"
                     ToolTip="{StaticResource SDOpt_Continue_Tooltip}"
                     Visibility="{Binding ShowSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 <!--  Import this run's saved settings: shown only when a loaded run actually carries a settings
@@ -1300,6 +1368,7 @@
                     Margin="0,0,8,0"
                     Command="{Binding ImportRunSettingsCommand}"
                     Content="Use run's settings"
+                    Style="{StaticResource HF_TextButton}"
                     ToolTip="{StaticResource SDOpt_ImportRunSettings_Tooltip}"
                     Visibility="{Binding CanImportRunSettings, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 <Button
@@ -1307,6 +1376,7 @@
                     Margin="0,0,8,0"
                     Command="{Binding AcceptCommand}"
                     Content="Accept"
+                    Style="{StaticResource HF_TextButton}"
                     Visibility="{Binding ShowSummary, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
                 <!--  Review (labeling) page: Back to summary + Optimize with feedback (enabled once anything is
@@ -1316,12 +1386,14 @@
                     Margin="0,0,8,0"
                     Command="{Binding BackToSummaryCommand}"
                     Content="Back to summary"
+                    Style="{StaticResource HF_TextButton}"
                     Visibility="{Binding ShowReview, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
                 <Button
                     Width="180"
                     Margin="0,0,8,0"
                     Command="{Binding ReOptimizeCommand}"
                     Content="Optimize with feedback"
+                    Style="{StaticResource HF_TextButton}"
                     ToolTip="{StaticResource SDOpt_ReOptimize_Tooltip}"
                     Visibility="{Binding ShowReview, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />
 
@@ -1333,7 +1405,7 @@
                     <Button.Style>
                         <!--  BasedOn the theme's implicit Button style so Close matches the other footer buttons'
                               font/look (a style without BasedOn would drop the NINA default style).  -->
-                        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                        <Style TargetType="Button" BasedOn="{StaticResource HF_TextButton}">
                             <Setter Property="Visibility" Value="Collapsed" />
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding ShowSelectSource}" Value="True">
