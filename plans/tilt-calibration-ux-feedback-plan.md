@@ -1606,8 +1606,13 @@ In `ApplyManualCalibration()`, capture the prior state before the `[CRITICAL GAT
 ```csharp
             // Whether this entry actually TAKES automation away, so a first-ever manual entry (which never had
             // it) does not warn about losing something the user never had.
+            // AND, not OR: CanExecuteAutomaticAdjustment requires BOTH, so automation was only genuinely
+            // available — and therefore only genuinely revoked — when both held. With OR, a calibration that
+            // was reliable but never device-linked (a wizard run on the Manual preset, or a disconnected live
+            // run) warns about losing something it never had, and points at a Trust button the non-motorized
+            // banner never shows.
             bool revokedAutomation =
-                InspectorVM.IsCalibrationDeviceLinked(tiltAdapterOptions) || tiltAdapterOptions.CalibrationIsReliable;
+                InspectorVM.IsCalibrationDeviceLinked(tiltAdapterOptions) && tiltAdapterOptions.CalibrationIsReliable;
 ```
 
 and immediately after `tiltAdapterOptions.CalibrationIsReliable = false;`:
