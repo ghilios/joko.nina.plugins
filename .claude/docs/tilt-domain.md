@@ -80,3 +80,21 @@ needs a *current* model that is also gone after a restart.
 ## Image mirroring
 
 Camera images may be mirrored horizontally and/or vertically depending on the optical train (e.g., a star diagonal introduces a mirror). **Do not assume that screws numbered clockwise around the physical adapter will appear clockwise around the sensor image.** The screw orientations must be determined from the actual image coordinates after accounting for any mirroring. Plans and features that involve tilt correction must track orientation in image-space, not physical-space.
+
+## Wording: "inward/outward" is adapter-plate motion only
+
+Screw and motor moves are worded CLOCKWISE / COUNTER-CLOCKWISE or as signed steps — never "inward/outward".
+The wizard's all-motors step is titled "All Screws Clockwise" / "All Motors Positive Steps", never "All Screws
+Inward": it applies `+N` to every motor and **measures** which way the plate travels (that is what sets
+`ScrewInwardCurvatureSign`). `WizardStep.AllInward` keeps its historical enum name because it is persisted in
+saved replay runs. `TiltAdapterWizardVMTests.NoUserFacingMoveWording_ClaimsInwardOrOutward` is the guard.
+
+## Trusting a hand-entered calibration for automation
+
+`ApplyManualCalibration` clears `DeviceLinkedCalibrationDeviceName` and `CalibrationIsReliable`, which blocks
+Automatic Adjustment — a hand-entered screw numbering is not guaranteed to match the device's motor wiring.
+The wizard now warns when that revokes something, and the saved-calibration pane offers **Trust This
+Calibration for Automation** (a two-step in-pane confirmation, `TrustCalibrationCommand` →
+`ConfirmTrustCalibrationCommand`) which re-arms both markers deliberately. There is no new persisted option:
+`CalibrationIsManual == true` together with a device link already means "manually trusted". The trust is
+revoked by a fresh manual entry, by `ClearCalibration`, and for free by a device-preset change.

@@ -104,3 +104,72 @@ public class PositiveOddIntegerRule : ValidationRule {
 ```
 
 Convention: `-1` means "auto/infinite" — validated by `PositiveIntegerOrInfiniteRule`.
+
+## Alert colours — never use the NINA notification brushes as a Foreground
+
+`NotificationErrorBrush` / `NotificationWarningBrush` are **fill** colours. NINA only ever uses them as a
+`Background`, and 13 of its 18 built-in schemas set them to near-black (`#FF700000`, `#FF5E330B`). Used as a
+`Foreground` they render at 1.06–1.9:1 against a dark page background. Their paired
+`NotificationErrorTextBrush` is not a fix either — the "Dark" schema sets it to `#FF02010A`, i.e. near-black
+text on near-black-red fill, 1.67:1.
+
+Use `Resources/AlertBrushes.xaml` instead:
+
+| Need | Brush |
+|---|---|
+| Text inside a filled alert badge | `HF_AlertErrorTextBrush` / `HF_AlertWarningTextBrush` |
+| Alert text drawn on the page background | `HF_AlertErrorAccentBrush` / `HF_AlertWarningAccentBrush` |
+| The filled badge `Border` itself | `HF_AlertErrorBadge` / `HF_AlertWarningBadge` (both `BasedOn`-able) |
+
+Both text colours are computed by `Converters/ContrastMath.cs` and hold ≥ 4.5:1 on all 18 built-in schemas;
+`ContrastMathTests.EveryBuiltInNinaSchema_ClearsWcagAaForBadgeTextAndAccent` is the regression.
+
+Filled vs outlined follows the existing house rule (`AutoFocus/DataTemplates.xaml:120` and `:2967`): **filled**
+for a short alert that carries an action or announces a lost capability, **outlined with accent text** for
+advisory copy and for long banners that wrap paragraphs and buttons. When a `Border` does become filled, every
+`TextBlock` inside it needs the badge text brush — children with no explicit `Foreground` otherwise inherit
+`PrimaryBrush` onto the fill.
+
+**Related trap: `Button`-content `TextBlock`s need their own foreground too, for the same reason.** A
+`TextBlock` used as a `Button`'s content, with no explicit `Foreground` and no explicit `Style`, does not
+inherit the button's foreground — NINA.WPF.Base ships a keyless implicit `TextBlock` style in
+`Application.Resources` (`Foreground = PrimaryBrush`), and an implicit style beats inherited value. The label
+therefore renders in `PrimaryBrush` on `ButtonBackgroundBrush`, and on the **Dark** and **Alternative Custom**
+schemas those two are the identical colour `#FF550C18` — the label renders at 1.00:1, literally invisible.
+Always set `Foreground="{StaticResource ButtonForegroundBrush}"` on a button-content `TextBlock`:
+
+```xml
+<TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Stay connected" />
+```
+
+Residual limitation, left as-is deliberately: this only restores the plugin's own pre-existing convention — it
+takes those two schemas from 1.00:1 to 1.44:1, still short of WCAG AA. NINA's button palette itself
+(`ButtonForegroundColor` on `ButtonBackgroundColor`) clears 4.5:1 on only 12 of its 18 built-in schemas.
+Computing a contrast-safe button foreground would make every button in this plugin look different from every
+other button in NINA — a product decision for the maintainer, not a bug fix, and deliberately not taken here.
+Exception: `TiltAdapterDevices/Prompt/TiltDeviceAdjustmentPromptControl.xaml` carries its own self-contained,
+theme-independent palette (`Fg`, `FgDim`, `WarnFg`, `DangerFg`); match that file's local foreground keys there
+instead of `ButtonForegroundBrush`.
+
+**A second form of the same trap: `Button Content="…"` (no `TextBlock` in the markup at all).** WPF's
+`ContentPresenter` generates a `TextBlock` at runtime for string content, and that generated `TextBlock` hits
+the identical keyless-implicit-style rule — so it also paints `PrimaryBrush` on `ButtonBackgroundBrush`. Only
+the explicit-`TextBlock`-child form above is fixed plugin-wide today; the `Content="…"` form is not. The fix
+differs: an explicit `Foreground` on the `Button` itself, or the `ContentPresenter.Resources` empty-`Style`
+pattern already solved and commented in `StarDetection/Optimization/Review/StarReviewControl.xaml`
+(`HF_ReviewToolbarButton`, ~line 171) and reused in `AutoFocus/Review/AutoFocusFrameReviewControl.xaml` and
+`StarDetection/Optimization/Review/FrameReviewControl.xaml` — use that as the worked example. **13 known,
+unfixed `Content="…"` sites remain**, all in `StarDetection/Optimization/DataTemplates.xaml`: two `Browse…`
+(~437, ~612), `Optimize with feedback` (~1135), and the optimizer wizard's whole navigation footer
+(~1257–1331: Cancel, Start, Back, Review frames, Continue optimizing, Use run's settings, Accept, Back to
+summary, Optimize with feedback, Close). These predate this branch and are deliberately out of its scope — not
+fixed here, left for the maintainer to decide. Neither the button-content `TextBlock` scan nor
+`XamlResourceResolutionTests` catches this form — both check that resource keys resolve, not foreground-vs-
+background contrast — so there is no automated net against it; it needs a deliberate audit.
+
+**Related trap: a local value outranks a style *trigger*, not just a style setter.** WPF dependency-property
+precedence puts a local value (rank 3) above both a style setter (rank 8) and a style trigger (rank 6). So an
+element must never carry a local `Visibility` attribute when its `Style` sets `Visibility` from a trigger — the
+local value wins permanently and the trigger becomes dead code, with no error and no warning. This is why every
+badge above keeps `Visibility` inside its `Style` and sets none on the element itself; it is safe to set
+`Visibility` locally only on an element whose `Style` sets no `Visibility` at all.
