@@ -1869,14 +1869,12 @@
                         Content="{Binding}"
                         ContentTemplate="{StaticResource HF_TiltDevicePositionsGrid}" />
 
-                    <!--  Device connection warning: shown when Run Measurement is visible but devices are not connected  -->
-                    <TextBlock
-                        Margin="0,0,0,4"
-                        Foreground="{StaticResource NotificationErrorBrush}"
-                        Text="{Binding ConnectionWarningText}"
-                        TextWrapping="Wrap">
-                        <TextBlock.Style>
-                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
+                    <!--  Device connection warning: shown when Run Measurement is visible but devices are not
+                          connected. The BORDER owns the visibility trigger, not the TextBlock — otherwise the
+                          filled badge would render as an empty red pill whenever the text is blank.  -->
+                    <Border Margin="0,0,0,4">
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <MultiDataTrigger>
@@ -1889,8 +1887,12 @@
                                     </MultiDataTrigger>
                                 </Style.Triggers>
                             </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
+                        </Border.Style>
+                        <TextBlock
+                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
+                            Text="{Binding ConnectionWarningText}"
+                            TextWrapping="Wrap" />
+                    </Border>
 
                     <!--  Measurement progress area: visible while measuring  -->
                     <StackPanel>
@@ -2041,11 +2043,9 @@
                           rendered there too.  -->
                     <Border
                         Margin="0,6,0,0"
-                        Padding="5"
-                        BorderBrush="{StaticResource NotificationErrorBrush}"
-                        BorderThickness="1">
+                        Padding="5">
                         <Border.Style>
-                            <Style TargetType="Border">
+                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasDeviceLinkDroppedWarning}" Value="True">
@@ -2055,7 +2055,7 @@
                             </Style>
                         </Border.Style>
                         <TextBlock
-                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
                             Text="{Binding DeviceLinkDroppedWarningText}"
                             TextWrapping="Wrap" />
                     </Border>
@@ -2063,11 +2063,9 @@
                     <!--  Consistency warning (shown when tilt measurements across runs diverge)  -->
                     <Border
                         Margin="0,6,0,0"
-                        Padding="5"
-                        BorderBrush="{StaticResource NotificationErrorBrush}"
-                        BorderThickness="1">
+                        Padding="5">
                         <Border.Style>
-                            <Style TargetType="Border">
+                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasMeasurementConsistencyWarning}" Value="True">
@@ -2077,7 +2075,7 @@
                             </Style>
                         </Border.Style>
                         <TextBlock
-                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
                             Text="{Binding MeasurementConsistencyWarningText}"
                             TextWrapping="Wrap" />
                     </Border>
@@ -2217,11 +2215,9 @@
                           raised it is already hidden), so it must render here too  -->
                     <Border
                         Margin="0,5"
-                        Padding="5"
-                        BorderBrush="{StaticResource NotificationErrorBrush}"
-                        BorderThickness="1">
+                        Padding="5">
                         <Border.Style>
-                            <Style TargetType="Border">
+                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasDeviceLinkDroppedWarning}" Value="True">
@@ -2231,7 +2227,7 @@
                             </Style>
                         </Border.Style>
                         <TextBlock
-                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
                             Text="{Binding DeviceLinkDroppedWarningText}"
                             TextWrapping="Wrap" />
                     </Border>
@@ -2240,11 +2236,9 @@
                           Complete (the step panel that raised it is already hidden), so it must render here too  -->
                     <Border
                         Margin="0,5"
-                        Padding="5"
-                        BorderBrush="{StaticResource NotificationErrorBrush}"
-                        BorderThickness="1">
+                        Padding="5">
                         <Border.Style>
-                            <Style TargetType="Border">
+                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasMeasurementConsistencyWarning}" Value="True">
@@ -2254,7 +2248,7 @@
                             </Style>
                         </Border.Style>
                         <TextBlock
-                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
                             Text="{Binding MeasurementConsistencyWarningText}"
                             TextWrapping="Wrap" />
                     </Border>
@@ -2262,11 +2256,9 @@
                     <!--  Re-baseline drift warning (an undo between moves left residual tilt)  -->
                     <Border
                         Margin="0,5"
-                        Padding="5"
-                        BorderBrush="{StaticResource NotificationErrorBrush}"
-                        BorderThickness="1">
+                        Padding="5">
                         <Border.Style>
-                            <Style TargetType="Border">
+                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasRebaselineDriftWarning}" Value="True">
@@ -2276,7 +2268,7 @@
                             </Style>
                         </Border.Style>
                         <TextBlock
-                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
                             Text="{Binding RebaselineDriftWarningText}"
                             TextWrapping="Wrap" />
                     </Border>
@@ -2284,11 +2276,9 @@
                     <!--  Low calibration confidence: measurement noise rivals the screw-move signal (do not apply)  -->
                     <Border
                         Margin="0,5"
-                        Padding="5"
-                        BorderBrush="{StaticResource NotificationErrorBrush}"
-                        BorderThickness="1">
+                        Padding="5">
                         <Border.Style>
-                            <Style TargetType="Border">
+                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasConfidenceWarning}" Value="True">
@@ -2298,7 +2288,7 @@
                             </Style>
                         </Border.Style>
                         <TextBlock
-                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
                             Text="{Binding ConfidenceWarningText}"
                             TextWrapping="Wrap" />
                     </Border>
