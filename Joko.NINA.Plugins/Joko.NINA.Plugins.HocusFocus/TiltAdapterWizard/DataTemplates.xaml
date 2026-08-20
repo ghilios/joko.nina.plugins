@@ -1754,7 +1754,8 @@
                     <TextBlock
                         Margin="0,1,0,6"
                         FontWeight="Bold"
-                        Text="{Binding StepTitle}" />
+                        Text="{Binding StepTitle}"
+                        ToolTip="Moving every screw or motor together changes backfocus, and this step measures which way the adapter plate actually travels. A '+' step is not assumed to be inward — determining that direction is the point of the step." />
 
                     <TextBlock
                         Margin="0,0,0,10"

@@ -685,16 +685,46 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             });
         }
 
-        [TestCase(WizardStep.Baseline, "Baseline Measurement")]
-        [TestCase(WizardStep.AllInward, "All Screws Inward")]
-        [TestCase(WizardStep.ReBaseline1, "Return to Baseline")]
-        [TestCase(WizardStep.Screw1, "Move Screw 1")]
-        [TestCase(WizardStep.ReBaseline2, "Return to Baseline")]
-        [TestCase(WizardStep.Screw2, "Move Screw 2")]
-        [TestCase(WizardStep.Complete, "Calibration Complete")]
-        [TestCase(WizardStep.ReBaseline3, "Return to Baseline")]
-        public void StepTitleText_IsShortPerStepHeader(WizardStep step, string expected) {
-            Assert.That(TiltAdapterWizardVM.StepTitleText(step), Is.EqualTo(expected));
+        [TestCase(WizardStep.Baseline, false, "Baseline Measurement")]
+        [TestCase(WizardStep.AllInward, false, "All Screws Clockwise")]
+        [TestCase(WizardStep.AllInward, true, "All Motors + Steps")]
+        [TestCase(WizardStep.ReBaseline1, false, "Return to Baseline")]
+        [TestCase(WizardStep.Screw1, false, "Move Screw 1")]
+        [TestCase(WizardStep.ReBaseline2, false, "Return to Baseline")]
+        [TestCase(WizardStep.Screw2, false, "Move Screw 2")]
+        [TestCase(WizardStep.Complete, false, "Calibration Complete")]
+        [TestCase(WizardStep.ReBaseline3, false, "Return to Baseline")]
+        public void StepTitleText_IsShortPerStepHeader(WizardStep step, bool isStepper, string expected) {
+            Assert.That(TiltAdapterWizardVM.StepTitleText(step, isStepper: isStepper), Is.EqualTo(expected));
+        }
+
+        // The wizard reserves "inward"/"outward" for ADAPTER-PLATE motion; screw and motor moves are worded
+        // clockwise/counter-clockwise or as signed steps. A step titled "All Screws Inward" while the device
+        // applies +N to every motor is what made a correct move look like a bug — and "+N is inward" is not
+        // something the wizard knows, it is what this very step measures.
+        [Test]
+        public void NoUserFacingMoveWording_ClaimsInwardOrOutward() {
+            var offenders = new List<string>();
+            foreach (var step in Enum.GetValues<WizardStep>()) {
+                foreach (var isStepper in new[] { false, true }) {
+                    foreach (var screwCount in new[] { 3, 4 }) {
+                        offenders.AddRange(new[] {
+                            TiltAdapterWizardVM.StepTitleText(step, null, isStepper),
+                            TiltAdapterWizardVM.StepInstructionsText(step, screwCount, isStepper, 1.0),
+                            TiltAdapterWizardVM.BaselineRecoveryText(step, screwCount, isStepper, 1.0),
+                        }.Where(t => t != null &&
+                            (t.IndexOf("inward", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                             t.IndexOf("outward", StringComparison.OrdinalIgnoreCase) >= 0)));
+                    }
+                }
+                var move = EatWizardMapping.MoveForStep(step, 150);
+                if (move?.Description != null &&
+                    (move.Description.IndexOf("inward", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     move.Description.IndexOf("outward", StringComparison.OrdinalIgnoreCase) >= 0)) {
+                    offenders.Add(move.Description);
+                }
+            }
+            Assert.That(offenders, Is.Empty, "user-facing move wording must not claim a direction the wizard has not measured");
         }
 
         [Test]

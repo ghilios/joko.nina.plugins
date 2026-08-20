@@ -53,6 +53,17 @@ public class EatWizardMappingTests {
         });
     }
 
+    [Test]
+    public void AllInward_DescriptionDoesNotClaimAPhysicalDirection() {
+        var move = EatWizardMapping.MoveForStep(WizardStep.AllInward, 150);
+        Assert.Multiple(() => {
+            Assert.That(move.Description, Does.Contain("All Motors"));
+            Assert.That(move.Description, Does.Not.Contain("Inward"));
+            Assert.That(move.Steps, Is.EqualTo(150), "wording only — the move itself is unchanged");
+            Assert.That(move.Axis, Is.EqualTo(TiltMoveAxis.Backfocus), "wording only — the axis is unchanged");
+        });
+    }
+
     [TestCase(150)]
     [TestCase(30)]
     public void MoveForStep_ReBaseline1_MatchesWizardInstruction(int n) {

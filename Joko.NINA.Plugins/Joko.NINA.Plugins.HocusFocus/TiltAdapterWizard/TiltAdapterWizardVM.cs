@@ -64,7 +64,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     /// </summary>
     public enum WizardStep {
         Baseline = 0,     // a
-        AllInward = 1,    // b: all screws inward once (curvature/backfocus sign via a→b)
+        AllInward = 1,    // b: all screws clockwise / all motors +N once (curvature/backfocus sign via a→b;
+                          // the NAME is historical and stays — it is persisted in saved replay runs — but no
+                          // user-facing string may claim "+N" is physically inward: measuring that is the
+                          // whole purpose of this step.
         ReBaseline1 = 2,  // c: all screws back out once (≈ baseline)
         Screw1 = 3,       // d: screw 1 inward once (4-screw: + screw 3 outward)
         ReBaseline2 = 4,  // e: undo the screw-1 move (≈ c)
@@ -480,6 +483,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     // Adjustment type changes the prompt vocabulary (screw turns vs signed steps).
                     RaisePropertyChanged(nameof(CwDirectionLabel));
                     RaisePropertyChanged(nameof(StepInstructions));
+                    RaisePropertyChanged(nameof(StepTitle));
                     RaisePropertyChanged(nameof(BaselineRecoveryInstructions));
                     RaiseHardwareSummaryChanged();
                 }
@@ -748,12 +752,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         // Short, scannable title shown above the longer StepInstructions paragraph so the user can tell where
         // they are without re-reading the instructions.
-        public string StepTitle => StepTitleText(currentStep, ScrewLabels);
+        public string StepTitle => StepTitleText(currentStep, ScrewLabels, IsStepperAdjustment);
 
-        internal static string StepTitleText(WizardStep step, IScrewLabelProvider labels = null) {
+        internal static string StepTitleText(WizardStep step, IScrewLabelProvider labels = null, bool isStepper = false) {
             switch (step) {
                 case WizardStep.Baseline: return "Baseline Measurement";
-                case WizardStep.AllInward: return "All Screws Inward";
+                // NOT "All Screws Inward": the wizard applies +N to every motor and MEASURES which way the
+                // adapter plate goes. Naming the direction here contradicts the step and misreads as a bug.
+                case WizardStep.AllInward: return isStepper ? "All Motors + Steps" : "All Screws Clockwise";
                 case WizardStep.ReBaseline1: return "Return to Baseline";
                 case WizardStep.Screw1: return $"Move {TiltScrewLabels.Resolve(labels, 1)}";
                 case WizardStep.ReBaseline2: return "Return to Baseline";
@@ -1039,7 +1045,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // IsTiltDeviceConnected is false whenever the service is null or not connected).
         public string StepInstructions =>
             IsReplaying
-                ? ReplayStepInstructionsText(currentStep, ScrewLabels)
+                ? ReplayStepInstructionsText(currentStep, ScrewLabels, IsStepperAdjustment)
                 : (IsTiltDeviceConnected && IsMotorizedDevice)
                     ? DeviceStepInstructionsText(currentStep, (int)Math.Round(CalibrationAppliedAmount), IsAutoRunningAll,
                         ActiveRunHasFinalRebaseline)
@@ -1048,8 +1054,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // Replay wording: a replay re-analyzes already-captured frames, so every imperative in the live copy
         // ("turn ALL screws CLOCKWISE", "click Run Measurement") is wrong — nothing is captured, no hardware
         // moves, and the measurement buttons are collapsed by the IsMeasuring trigger for the whole replay.
-        internal static string ReplayStepInstructionsText(WizardStep step, IScrewLabelProvider labels = null) =>
-            $"Replaying — re-analyzing the saved frames for {StepTitleText(step, labels)}. No action needed: nothing is " +
+        internal static string ReplayStepInstructionsText(WizardStep step, IScrewLabelProvider labels = null, bool isStepper = false) =>
+            $"Replaying — re-analyzing the saved frames for {StepTitleText(step, labels, isStepper)}. No action needed: nothing is " +
             "captured and the tilt adapter is not moved during a replay.";
 
         // Automated-status wording for a connected, device-driven run: describes what the wizard will send
