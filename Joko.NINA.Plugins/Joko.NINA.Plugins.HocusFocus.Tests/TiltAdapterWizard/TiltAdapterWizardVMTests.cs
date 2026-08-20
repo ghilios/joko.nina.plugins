@@ -3787,9 +3787,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             var (vm, options) = BuildCalibrated();
             vm.TrustCalibrationCommand.Execute(null);
             vm.ConfirmTrustCalibrationCommand.Execute(null);
-            // NSubstitute property setters do not feed the getters back, so mirror what was written.
-            options.DeviceLinkedCalibrationDeviceName.Returns(MotorizedPreset);
-            options.CalibrationIsReliable.Returns(true);
+            // No re-stubbing needed: an NSubstitute property setter feeds its own getter, so the getters below
+            // return exactly what ConfirmTrustCalibration just wrote. That is the point -- the assertion reads
+            // production state, not test state.
 
             Assert.Multiple(() => {
                 Assert.That(InspectorVM.IsCalibrationDeviceLinked(options), Is.True);
@@ -3800,6 +3800,31 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                     hasNumericGuidance: true, isOperationActive: false,
                     currentGeneration: 2, lastExecutedGeneration: 1), Is.True);
                 Assert.That(vm.AutomationTrustBannerVisible, Is.False, "the banner retires once trust is granted");
+            });
+        }
+
+        [Test]
+        public void RunCalibrationForTest_DisarmsAPendingTrustConfirmation() {
+            // Same invariant as the manual-entry / clear / preset-change disarms: a fresh run rewrites both
+            // automation markers, so a confirmation armed against the PREVIOUS calibration is stale. Seed data
+            // is the device-driven-but-low-confidence case (the one that leaves the banner showing), copied
+            // from RunCalibrationForTest_DeviceDriven_UnreliableCalibration_SetsCalibrationIsReliableFalse_EvenThoughDeviceLinked.
+            var (vm, options, _, _, _, _) = BuildMotorized();
+            options.IsCalibrated.Returns(true);
+            options.CalibratedScrewCount.Returns(4);
+            vm.TrustCalibrationCommand.Execute(null);
+            Assert.That(vm.IsTrustCalibrationPending, Is.True, "precondition: armed");
+
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.4, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, 0.9, 0.0, 1000.0);
+            vm.RunCalibrationForTest(deviceDriven: true, pixelSizeMicrons: 3.76, focuserStepMicrons: 3.6);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.IsTrustCalibrationPending, Is.False);
+                // The banner is back to its arm state: device-linked but not reliable still blocks automation.
+                Assert.That(vm.AutomationTrustBannerVisible, Is.True);
             });
         }
 

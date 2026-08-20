@@ -3308,7 +3308,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // the same lastConfidence.IsReliable the wizard already surfaces as the (previously non-blocking)
             // HasConfidenceWarning banner above.
             tiltAdapterOptions.CalibrationIsReliable = lastConfidence?.IsReliable ?? false;
+            // A stale confirmation must not survive the state change that invalidated it -- the same invariant
+            // ApplyManualCalibration, ClearCalibration and the DeviceName handler apply. A fresh run rewrites
+            // both automation markers above, so a Trust confirmation armed against the PREVIOUS calibration is
+            // no longer about the calibration on screen; re-arm from the banner's button if it is still needed.
+            IsTrustCalibrationPending = false;
             RaiseHardwareSummaryChanged();
+            // Neither marker written above routes back through the options PropertyChanged handler that raises
+            // the banner, and IsCalibrated/CalibratedScrewCount raise nothing when a re-calibration leaves them
+            // unchanged -- so the banner would otherwise keep showing the previous run's verdict.
+            RaisePropertyChanged(nameof(AutomationTrustBannerVisible));
         }
 
         private void RaiseHardwareSummaryChanged() {
