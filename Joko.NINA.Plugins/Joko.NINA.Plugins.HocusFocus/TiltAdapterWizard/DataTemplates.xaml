@@ -6,7 +6,8 @@
     xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
     xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
     xmlns:s="clr-namespace:System;assembly=mscorlib"
-    xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces">
+    xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces"
+    xmlns:local="clr-namespace:NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard">
     <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="../Resources/OptionsDataTemplates.xaml" />
         <ResourceDictionary Source="../Resources/SharedTooltips.xaml" />
@@ -1754,8 +1755,21 @@
                     <TextBlock
                         Margin="0,1,0,6"
                         FontWeight="Bold"
-                        Text="{Binding StepTitle}"
-                        ToolTip="Moving every screw or motor together changes backfocus, and this step measures which way the adapter plate actually travels. A '+' step is not assumed to be inward — determining that direction is the point of the step." />
+                        Text="{Binding StepTitle}">
+                        <!--  The tooltip is about the all-motors step SPECIFICALLY, and this one TextBlock renders
+                              every step's title, so it must be scoped. Unscoped it would tell a user hovering
+                              "Move Screw 1" about a different step's mechanics — a smaller version of the
+                              text-does-not-match-the-hardware confusion this task exists to remove.  -->
+                        <TextBlock.Style>
+                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="{x:Static local:WizardStep.AllInward}">
+                                        <Setter Property="ToolTip" Value="Moving every screw or motor together changes backfocus, and this step measures which way the adapter plate actually travels. A '+' step is not assumed to be inward — determining that direction is the point of the step." />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
 
                     <TextBlock
                         Margin="0,0,0,10"

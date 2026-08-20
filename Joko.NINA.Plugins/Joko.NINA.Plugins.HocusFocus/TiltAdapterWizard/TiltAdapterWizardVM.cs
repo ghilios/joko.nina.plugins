@@ -555,6 +555,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged(nameof(HasCurvatureCalibration));
                 RaisePropertyChanged(nameof(IsCalibrationValid));
                 RaisePropertyChanged(nameof(StepInstructions));
+                RaisePropertyChanged(nameof(StepTitle));
                 RaisePropertyChanged(nameof(BaselineRecoveryInstructions));
                 RaisePropertyChanged(nameof(AdjustmentType));
                 RaisePropertyChanged(nameof(IsStepperAdjustment));
@@ -768,12 +769,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // they are without re-reading the instructions.
         public string StepTitle => StepTitleText(currentStep, ScrewLabels, IsStepperAdjustment);
 
-        internal static string StepTitleText(WizardStep step, IScrewLabelProvider labels = null, bool isStepper = false) {
+        internal static string StepTitleText(WizardStep step, IScrewLabelProvider labels, bool isStepper) {
             switch (step) {
                 case WizardStep.Baseline: return "Baseline Measurement";
                 // NOT "All Screws Inward": the wizard applies +N to every motor and MEASURES which way the
                 // adapter plate goes. Naming the direction here contradicts the step and misreads as a bug.
-                case WizardStep.AllInward: return isStepper ? "All Motors + Steps" : "All Screws Clockwise";
+                // "Positive Steps", not "+ Steps": the latter parses as two nouns ("motors AND steps") rather
+                // than naming the sign the instruction body actually uses ("Apply +N steps to EVERY motor").
+                case WizardStep.AllInward: return isStepper ? "All Motors Positive Steps" : "All Screws Clockwise";
                 case WizardStep.ReBaseline1: return "Return to Baseline";
                 case WizardStep.Screw1: return $"Move {TiltScrewLabels.Resolve(labels, 1)}";
                 case WizardStep.ReBaseline2: return "Return to Baseline";
@@ -1112,7 +1115,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // Replay wording: a replay re-analyzes already-captured frames, so every imperative in the live copy
         // ("turn ALL screws CLOCKWISE", "click Run Measurement") is wrong — nothing is captured, no hardware
         // moves, and the measurement buttons are collapsed by the IsMeasuring trigger for the whole replay.
-        internal static string ReplayStepInstructionsText(WizardStep step, IScrewLabelProvider labels = null, bool isStepper = false) =>
+        internal static string ReplayStepInstructionsText(WizardStep step, IScrewLabelProvider labels, bool isStepper) =>
             $"Replaying — re-analyzing the saved frames for {StepTitleText(step, labels, isStepper)}. No action needed: nothing is " +
             "captured and the tilt adapter is not moved during a replay.";
 
@@ -3753,7 +3756,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     // Safe mid-replay despite the setter's NotifyCommandsCanExecuteChanged: IsMeasuring is true for
                     // the whole run, which is what actually gates every measurement command's canExecute.
                     CurrentStep = step;
-                    StatusText = $"Replaying {StepTitleText(step, ScrewLabels)}...";
+                    StatusText = $"Replaying {StepTitleText(step, ScrewLabels, IsStepperAdjustment)}...";
                     // Capture-time modes ("use captured in memory" and "update profile") replay each step with its own
                     // detached capture-time star-detection snapshot as an override, so the live profile is untouched
                     // during the replay. "Use current settings" passes null and uses the current profile.

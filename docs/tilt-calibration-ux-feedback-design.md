@@ -223,7 +223,7 @@ Wording only; no behavior change, no math change.
 
 1. `TiltAdapterWizardVM.StepTitleText` gains a `bool isStepper = false` parameter:
    - screws → `"All Screws Clockwise"`
-   - steppers → `"All Motors + Steps"`
+   - steppers → `"All Motors Positive Steps"`
 
    Callers: `StepTitle` (passes `IsStepperAdjustment`) and `ReplayStepInstructionsText` (threads it through).
 2. `EatWizardMapping.MoveForStep`: `"Wizard All Inward: +150 backfocus"` → `"Wizard All Motors: +150 backfocus"`.
@@ -367,5 +367,5 @@ The existing not-linked and low-confidence branches are unchanged.
 ## Verification
 
 - `dotnet test Joko.NINA.Plugins/Joko.NINA.Plugins.sln -c Debug --nologo` green.
-- Live check in NINA on the **Dark** schema: wizard alert text legible, step titled "All Motors + Steps" on an
+- Live check in NINA on the **Dark** schema: wizard alert text legible, step titled "All Motors Positive Steps" on an
   EAT preset, Trust button appears after a manual entry and re-enables Automatic Adjustment.

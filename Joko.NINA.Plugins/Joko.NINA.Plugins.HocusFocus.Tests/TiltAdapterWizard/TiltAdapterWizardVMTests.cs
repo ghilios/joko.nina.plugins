@@ -701,14 +701,14 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         public void StepTitleText_UsesTheScrewName() {
             var eat = TiltScrewLabels.ForScheme(ScrewLabelScheme.AsgEat);
             Assert.Multiple(() => {
-                Assert.That(TiltAdapterWizardVM.StepTitleText(WizardStep.Screw1, eat), Is.EqualTo("Move M1"));
-                Assert.That(TiltAdapterWizardVM.StepTitleText(WizardStep.Screw2, eat), Is.EqualTo("Move M2"));
+                Assert.That(TiltAdapterWizardVM.StepTitleText(WizardStep.Screw1, eat, false), Is.EqualTo("Move M1"));
+                Assert.That(TiltAdapterWizardVM.StepTitleText(WizardStep.Screw2, eat, false), Is.EqualTo("Move M2"));
             });
         }
 
         [TestCase(WizardStep.Baseline, false, "Baseline Measurement")]
         [TestCase(WizardStep.AllInward, false, "All Screws Clockwise")]
-        [TestCase(WizardStep.AllInward, true, "All Motors + Steps")]
+        [TestCase(WizardStep.AllInward, true, "All Motors Positive Steps")]
         [TestCase(WizardStep.ReBaseline1, false, "Return to Baseline")]
         [TestCase(WizardStep.Screw1, false, "Move Screw 1")]
         [TestCase(WizardStep.ReBaseline2, false, "Return to Baseline")]
@@ -716,7 +716,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         [TestCase(WizardStep.Complete, false, "Calibration Complete")]
         [TestCase(WizardStep.ReBaseline3, false, "Return to Baseline")]
         public void StepTitleText_IsShortPerStepHeader(WizardStep step, bool isStepper, string expected) {
-            Assert.That(TiltAdapterWizardVM.StepTitleText(step, isStepper: isStepper), Is.EqualTo(expected));
+            Assert.That(TiltAdapterWizardVM.StepTitleText(step, null, isStepper), Is.EqualTo(expected));
         }
 
         // The wizard reserves "inward"/"outward" for ADAPTER-PLATE motion; screw and motor moves are worded
@@ -733,6 +733,17 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                             TiltAdapterWizardVM.StepTitleText(step, null, isStepper),
                             TiltAdapterWizardVM.StepInstructionsText(step, screwCount, isStepper, 1.0),
                             TiltAdapterWizardVM.BaselineRecoveryText(step, screwCount, isStepper, 1.0),
+                        }.Where(t => t != null &&
+                            (t.IndexOf("inward", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                             t.IndexOf("outward", StringComparison.OrdinalIgnoreCase) >= 0)));
+                    }
+                }
+                // DeviceStepInstructionsText is the wording actually shown for a connected motorized run — it
+                // must be in the sweep, not merely safe transitively via StepInstructionsText.
+                foreach (var autoRunning in new[] { false, true }) {
+                    foreach (var measuredFinalRebaseline in new[] { false, true }) {
+                        offenders.AddRange(new[] {
+                            TiltAdapterWizardVM.DeviceStepInstructionsText(step, 150, autoRunning, measuredFinalRebaseline),
                         }.Where(t => t != null &&
                             (t.IndexOf("inward", StringComparison.OrdinalIgnoreCase) >= 0 ||
                              t.IndexOf("outward", StringComparison.OrdinalIgnoreCase) >= 0)));
@@ -2758,18 +2769,86 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                         "Step 1 of 6", "Step 2 of 6", "Step 3 of 6", "Step 4 of 6", "Step 5 of 6", "Step 6 of 6" }));
                     // The title must track the step too -- same root cause, separately visible to the user.
                     Assert.That(observed.Select(o => o.title),
-                        Is.EqualTo(steps.Select(s => TiltAdapterWizardVM.StepTitleText(s))));
+                        Is.EqualTo(steps.Select(s => TiltAdapterWizardVM.StepTitleText(s, null, false))));
                     // Status text uses the human step title, not the raw enum name.
                     Assert.That(observed.Select(o => o.status),
-                        Is.EqualTo(steps.Select(s => $"Replaying {TiltAdapterWizardVM.StepTitleText(s)}...")));
+                        Is.EqualTo(steps.Select(s => $"Replaying {TiltAdapterWizardVM.StepTitleText(s, null, false)}...")));
                     // A replay re-analyzes saved frames: the instruction paragraph must not tell the user to turn
                     // screws or click a button that is collapsed for the whole replay.
                     Assert.That(observed.Select(o => o.instructions),
-                        Is.EqualTo(steps.Select(s => TiltAdapterWizardVM.ReplayStepInstructionsText(s))));
+                        Is.EqualTo(steps.Select(s => TiltAdapterWizardVM.ReplayStepInstructionsText(s, null, false))));
                     Assert.That(observed.Select(o => o.instructions),
                         Has.None.Contains("Run Measurement").And.None.Contains("CLOCKWISE"));
                     // The replay flag is transient: it must be cleared once the replay finishes.
                     Assert.That(vm.IsReplaying, Is.False);
+                });
+            } finally {
+                System.IO.Directory.Delete(runRoot, recursive: true);
+            }
+        }
+
+        // CRITICAL regression (code review of Task 8): the bold StepTitle header and the StatusText line
+        // directly below it are both derived from StepTitleText, but ReplayAsync's StatusText assignment
+        // used to omit isStepper -- silently defaulting to false. On a stepper rig replaying a saved run,
+        // StepTitle correctly read "All Motors Positive Steps" while StatusText, on screen at the same
+        // time, read "Replaying All Screws Clockwise...": title and status visibly disagreeing about the
+        // rig's own adjustment type. The previous test (screw rig, isStepper defaults to false on both
+        // sides) could never have caught this -- it passed by coincidence. This test forces a stepper rig
+        // and asserts title and status agree.
+        [Test]
+        public void ReplayAsync_OnStepperRig_TitleAndStatusAgreeOnAdjustmentType() {
+            var (vm, _, _, _) = Build(screwCount: 3, configureOptions: o => {
+                o.MeasureCurvatureDuringCalibration.Returns(true);
+                o.AdjustmentType.Returns(TiltAdjustmentType.StepperMotors);
+            });
+
+            string runRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hf-tilt-replay-stepper-test-" + Guid.NewGuid().ToString("N"));
+            var stepFolders = new[] { "01_Baseline", "02_AllInward", "03_ReBaseline1", "04_Screw1", "05_ReBaseline2", "06_Screw2" };
+            var steps = new[] { WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1, WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2 };
+            System.IO.Directory.CreateDirectory(runRoot);
+            try {
+                foreach (var stepFolder in stepFolders) {
+                    System.IO.Directory.CreateDirectory(System.IO.Path.Combine(runRoot, stepFolder));
+                }
+                var metadata = new TiltCalibrationMetadata {
+                    NumberOfScrews = 3,
+                    PixelSizeMicrons = 3.76,
+                    FocuserStepSizeMicrons = 3.6,
+                    ScrewRadiusMillimeters = 44,
+                    CalibrationAppliedAmount = 1.0,
+                    RunStepMapping = steps.Select((s, i) => new TiltRunStepMapping { Step = s.ToString(), Folder = stepFolders[i] }).ToList()
+                };
+                System.IO.File.WriteAllText(System.IO.Path.Combine(runRoot, "metadata.json"), metadata.Serialize());
+
+                var tiltPlane = new TiltPlaneModel(new System.Drawing.Size(6248, 4176), fRatio: 7,
+                    a: 0.1, b: 0.05, c: 0, mean: 7000, focuserStepSizeMicrons: 3.6,
+                    centerPosition: 7000, topLeftPosition: 7000, topRightPosition: 7000,
+                    bottomLeftPosition: 7000, bottomRightPosition: 7000);
+                vm.CalibrationTiltPlaneOverrideForTest = tiltPlane;
+                vm.SelectReplayFolderForTest = _ => runRoot;
+                vm.SelectReplaySettingsForTest = _ => Task.FromResult(ReplaySettingsChoice.UseCurrentSettings);
+
+                var observed = new List<(WizardStep step, string title, string status)>();
+                vm.ReplayStepOverrideForTest = (step, ct) => {
+                    observed.Add((step, vm.StepTitle, vm.StatusText));
+                    return Task.FromResult(true);
+                };
+
+                ((AsyncRelayCommand)vm.ReplayCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+                Assert.Multiple(() => {
+                    Assert.That(vm.IsComplete, Is.True, "precondition: the replay actually ran to completion");
+                    // The AllInward step is where the two used to disagree: the title said stepper wording,
+                    // the status line said screw wording, for the same rig at the same instant.
+                    var allInward = observed.Single(o => o.step == WizardStep.AllInward);
+                    Assert.That(allInward.title, Is.EqualTo("All Motors Positive Steps"));
+                    Assert.That(allInward.status, Is.EqualTo("Replaying All Motors Positive Steps..."));
+                    Assert.That(allInward.status, Does.Not.Contain("Clockwise"), "status must not show screw wording on a stepper rig");
+                    // Every step, not just AllInward: the status line's embedded title must always equal the
+                    // bold title shown above it, whatever the rig.
+                    foreach (var o in observed) {
+                        Assert.That(o.status, Is.EqualTo($"Replaying {o.title}..."), $"title/status must agree for {o.step}");
+                    }
                 });
             } finally {
                 System.IO.Directory.Delete(runRoot, recursive: true);
