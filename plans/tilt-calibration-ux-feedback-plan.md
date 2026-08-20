@@ -601,6 +601,14 @@ Create `PLUGIN/Resources/AlertBrushes.xaml`:
 
         When a Border becomes a filled badge, EVERY TextBlock inside it needs the badge text brush — children
         with no explicit Foreground otherwise inherit PrimaryBrush onto the fill.
+
+        Mode=OneWay is stated EXPLICITLY on every binding below, and is not decoration. Both converters throw
+        NotSupportedException from ConvertBack, and WPF does NOT catch exceptions thrown out of a converter's
+        ConvertBack — unlike a failed Convert, which it logs and leaves the target unset, a throwing ConvertBack
+        propagates and can take the application down. These bindings resolve to OneWay implicitly today only
+        because SolidColorBrush.ColorProperty is registered through Animatable.RegisterProperty, which carries no
+        BindsTwoWayByDefault. Saying OneWay outright makes the guarantee structural instead of incidental, so it
+        survives someone re-pointing a converter at a target property whose metadata does default to two-way.
     -->
 
     <hfconverters:BadgeTextColorConverter x:Key="HF_BadgeTextColorConverter" />
@@ -610,28 +618,30 @@ Create `PLUGIN/Resources/AlertBrushes.xaml`:
         x:Key="HF_AlertErrorTextBrush"
         Color="{Binding Source={StaticResource NotificationErrorBrush},
                         Path=Color,
+                        Mode=OneWay,
                         Converter={StaticResource HF_BadgeTextColorConverter}}" />
 
     <SolidColorBrush
         x:Key="HF_AlertWarningTextBrush"
         Color="{Binding Source={StaticResource NotificationWarningBrush},
                         Path=Color,
+                        Mode=OneWay,
                         Converter={StaticResource HF_BadgeTextColorConverter}}" />
 
     <SolidColorBrush x:Key="HF_AlertErrorAccentBrush">
         <SolidColorBrush.Color>
-            <MultiBinding Converter="{StaticResource HF_AccessibleAccentColorConverter}">
-                <Binding Path="Color" Source="{StaticResource NotificationErrorBrush}" />
-                <Binding Path="Color" Source="{StaticResource BackgroundBrush}" />
+            <MultiBinding Converter="{StaticResource HF_AccessibleAccentColorConverter}" Mode="OneWay">
+                <Binding Path="Color" Source="{StaticResource NotificationErrorBrush}" Mode="OneWay" />
+                <Binding Path="Color" Source="{StaticResource BackgroundBrush}" Mode="OneWay" />
             </MultiBinding>
         </SolidColorBrush.Color>
     </SolidColorBrush>
 
     <SolidColorBrush x:Key="HF_AlertWarningAccentBrush">
         <SolidColorBrush.Color>
-            <MultiBinding Converter="{StaticResource HF_AccessibleAccentColorConverter}">
-                <Binding Path="Color" Source="{StaticResource NotificationWarningBrush}" />
-                <Binding Path="Color" Source="{StaticResource BackgroundBrush}" />
+            <MultiBinding Converter="{StaticResource HF_AccessibleAccentColorConverter}" Mode="OneWay">
+                <Binding Path="Color" Source="{StaticResource NotificationWarningBrush}" Mode="OneWay" />
+                <Binding Path="Color" Source="{StaticResource BackgroundBrush}" Mode="OneWay" />
             </MultiBinding>
         </SolidColorBrush.Color>
     </SolidColorBrush>
