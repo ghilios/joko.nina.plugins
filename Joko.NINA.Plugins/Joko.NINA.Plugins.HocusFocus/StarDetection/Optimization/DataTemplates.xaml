@@ -999,7 +999,7 @@
                                     VerticalAlignment="Center"
                                     Command="{Binding CaptureNewSweepCommand}"
                                     ToolTip="{StaticResource SDOpt_CaptureNewSweep_Tooltip}">
-                                    <TextBlock Margin="12,6" Text="Capture a new sweep and optimize" />
+                                    <TextBlock Margin="12,6" Foreground="{StaticResource ButtonForegroundBrush}" Text="Capture a new sweep and optimize" />
                                 </Button>
                             </StackPanel>
                         </StackPanel>
@@ -1034,7 +1034,7 @@
                                 HorizontalAlignment="Left"
                                 Command="{Binding OptimizeAgainAtRecommendedBinningCommand}"
                                 Visibility="{Binding ShowOptimizeAgainAtRecommendedBinning, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
-                                <TextBlock Margin="12,6" Text="{Binding OptimizeAgainAtRecommendedBinningText}" />
+                                <TextBlock Margin="12,6" Foreground="{StaticResource ButtonForegroundBrush}" Text="{Binding OptimizeAgainAtRecommendedBinningText}" />
                             </Button>
                         </StackPanel>
 

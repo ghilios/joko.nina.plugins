@@ -208,14 +208,14 @@
                     Command="{Binding CopyFromAdapterCommand}"
                     Style="{StaticResource StandardButton}"
                     ToolTip="Replaces this simulated adapter's geometry with the real tilt-adapter settings. Does not touch the real settings.">
-                    <TextBlock Margin="6,2" Text="Copy from adapter settings" />
+                    <TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Copy from adapter settings" />
                 </Button>
                 <Button
                     Margin="6,0,0,0"
                     Command="{Binding CopyToAdapterCommand}"
                     Style="{StaticResource StandardButton}"
                     ToolTip="Overwrites the real tilt-adapter calibration with this simulated adapter's geometry. Asks for confirmation first.">
-                    <TextBlock Margin="6,2" Text="Copy to adapter settings…" />
+                    <TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Copy to adapter settings…" />
                 </Button>
             </WrapPanel>
 
@@ -236,13 +236,13 @@
                         TextWrapping="Wrap" />
                     <WrapPanel Margin="0,4,0,0">
                         <Button Command="{Binding ConfirmCopyToAdapterCommand}" Style="{StaticResource StandardButton}">
-                            <TextBlock Margin="6,2" Text="Overwrite" />
+                            <TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Overwrite" />
                         </Button>
                         <Button
                             Margin="6,0,0,0"
                             Command="{Binding CancelCopyToAdapterCommand}"
                             Style="{StaticResource StandardButton}">
-                            <TextBlock Margin="6,2" Text="Cancel" />
+                            <TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Cancel" />
                         </Button>
                     </WrapPanel>
                 </StackPanel>
@@ -303,7 +303,7 @@
                         VerticalAlignment="Center"
                         Command="{Binding EnableAberrationsCommand}"
                         Style="{StaticResource StandardButton}">
-                        <TextBlock Margin="6,1" Text="Enable" />
+                        <TextBlock Margin="6,1" Foreground="{StaticResource ButtonForegroundBrush}" Text="Enable" />
                     </Button>
                 </WrapPanel>
             </Border>
@@ -353,7 +353,7 @@
                     Command="{Binding UndoCommand}"
                     Style="{StaticResource StandardButton}"
                     ToolTip="Reverts the last click — the injected plane, the best-focus position and the net counters.">
-                    <TextBlock Margin="6,1" Text="Undo" />
+                    <TextBlock Margin="6,1" Foreground="{StaticResource ButtonForegroundBrush}" Text="Undo" />
                 </Button>
             </WrapPanel>
 
@@ -488,7 +488,7 @@
                     Command="{Binding RezeroCommand}"
                     Style="{StaticResource StandardButton}"
                     ToolTip="{Binding RezeroTooltip}">
-                    <TextBlock Margin="6,1" Text="Re-zero" />
+                    <TextBlock Margin="6,1" Foreground="{StaticResource ButtonForegroundBrush}" Text="Re-zero" />
                 </Button>
             </WrapPanel>
 
@@ -565,7 +565,7 @@
                         Command="{Binding ZeroAberrationsCommand}"
                         Style="{StaticResource StandardButton}"
                         ToolTip="Flattens the injected plane instantly, for starting a fresh scenario.">
-                        <TextBlock Margin="6,2" Text="Zero all aberrations" />
+                        <TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Zero all aberrations" />
                     </Button>
                 </StackPanel>
             </Expander>

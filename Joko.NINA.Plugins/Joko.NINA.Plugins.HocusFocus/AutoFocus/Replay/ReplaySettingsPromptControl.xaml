@@ -132,7 +132,7 @@
             HorizontalAlignment="Right"
             Orientation="Horizontal">
             <Button MinWidth="90" Command="{Binding CloseCommand}">
-                <TextBlock Margin="12,6" Text="Cancel" />
+                <TextBlock Margin="12,6" Foreground="{StaticResource ButtonForegroundBrush}" Text="Cancel" />
             </Button>
         </StackPanel>
     </Grid>

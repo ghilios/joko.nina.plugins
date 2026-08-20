@@ -150,7 +150,7 @@
                         Style="{StaticResource StandardButton}"
                         ToolTip="Resets the idle timer and keeps the device connected."
                         AutomationProperties.Name="Keep the tilt adapter connected">
-                        <TextBlock Margin="6,2" Text="Stay connected" />
+                        <TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Stay connected" />
                     </Button>
                 </WrapPanel>
             </StackPanel>
@@ -721,7 +721,7 @@
                     VerticalAlignment="Center"
                     Command="{Binding ReviewFramesCommand}"
                     ToolTip="Open the Review Frames window to inspect each frame of the last auto-focus run started from this pane (a live run or a Replay Saved AF) — its detected stars with the Hocus Focus Star Annotator's bounds, per-star text, rejection-reason and ROI boxes, plus per-frame HFR statistics. Enabled after such a run completes with &quot;Keep frames for review&quot; turned on.">
-                    <TextBlock Margin="5,0,5,0" Text="Review Frames" />
+                    <TextBlock Margin="5,0,5,0" Foreground="{StaticResource ButtonForegroundBrush}" Text="Review Frames" />
                 </Button>
                 <StackPanel
                     VerticalAlignment="Center"
@@ -3364,7 +3364,7 @@
                                     HorizontalAlignment="Left"
                                     Command="{Binding AutomaticAdjustmentCommand}"
                                     ToolTip="Computes a move plan from this measurement's fitted sensor model, shows an approval dialog listing the exact device commands, and executes it on the connected tilt-adapter device. Disabled until a fresh measurement is available to adjust from, or if the current calibration is not linked to the connected device.">
-                                    <TextBlock Margin="5,0,5,0" Text="Automatic Adjustment" />
+                                    <TextBlock Margin="5,0,5,0" Foreground="{StaticResource ButtonForegroundBrush}" Text="Automatic Adjustment" />
                                 </Button>
                                 <TextBlock
                                     Margin="0,4,0,0"
