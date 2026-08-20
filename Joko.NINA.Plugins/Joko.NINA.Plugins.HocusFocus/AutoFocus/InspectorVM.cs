@@ -2499,10 +2499,24 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus {
             IsTiltDeviceConnected &&
             (!IsCalibrationDeviceLinked(tiltAdapterOptions) || !(tiltAdapterOptions?.CalibrationIsReliable ?? false));
 
-        public string AutomaticAdjustmentRemediationText =>
-            !IsCalibrationDeviceLinked(tiltAdapterOptions)
-                ? "This calibration is not linked to the connected device. Re-run calibration with the device connected."
-                : "This calibration is low-confidence (it did not pass quality validation). Re-run calibration to enable Automatic Adjustment.";
+        public string AutomaticAdjustmentRemediationText => AutomaticAdjustmentRemediationTextFor(tiltAdapterOptions);
+
+        /// <summary>
+        /// Pure form of <see cref="AutomaticAdjustmentRemediationText"/>, so the wording is unit-testable
+        /// without a live VM. Names MANUAL ENTRY explicitly when that is the cause: the previous copy said only
+        /// "not linked to the connected device", which is true but gave a user who had just corrected an angle
+        /// by hand no way to connect the message to what they did, and no remedy but a full re-run.
+        /// </summary>
+        internal static string AutomaticAdjustmentRemediationTextFor(ITiltAdapterOptions options) {
+            if (!IsCalibrationDeviceLinked(options)) {
+                return (options?.CalibrationIsManual ?? false)
+                    ? "This calibration was entered or edited by hand, so Automatic Adjustment is disabled — HocusFocus can't " +
+                      "confirm your screw numbering matches the device's motor wiring. Re-run calibration with the " +
+                      "device connected, or trust it explicitly in the Tilt Adapter Wizard."
+                    : "This calibration is not linked to the connected device. Re-run calibration with the device connected.";
+            }
+            return "This calibration is low-confidence (it did not pass quality validation). Re-run calibration to enable Automatic Adjustment.";
+        }
 
         /// <summary>
         /// [CRITICAL GATE] True only when the stored calibration was produced by a completed, connected

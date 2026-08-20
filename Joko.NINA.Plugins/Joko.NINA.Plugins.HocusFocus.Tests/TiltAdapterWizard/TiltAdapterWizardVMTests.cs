@@ -85,6 +85,33 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
             return (vm, options, camera, focuser);
         }
 
+        // A saved, valid calibration on a motorized preset — the state the Trust banner is about.
+        // "ASG Electronic EAT - 90mm" is a real registered preset name; TiltMotionControllerRegistry.IsMotorized
+        // does an exact-name lookup, so an invented name would silently make every banner test pass vacuously.
+        private const string MotorizedPreset = "ASG Electronic EAT - 90mm";
+
+        // 4 screws, not 3: the ctor's re-lock-on-load ApplyDevice writes the motorized preset's own ScrewCount
+        // (4) onto the substitute -- and an NSubstitute property SET does feed its getter -- so a 3-screw stub
+        // would leave ScrewCount(4) != CalibratedScrewCount(3) and IsCalibrationValid false, silently hiding
+        // the banner for a reason that has nothing to do with automation trust.
+        //
+        // manual defaults TRUE because the Trust banner is about a HAND-ENTERED calibration specifically; pass
+        // false for the device-driven/replay states that also lack the automation markers but must NOT be
+        // offered a Trust button.
+        private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options) BuildCalibrated(
+            string deviceName = MotorizedPreset, string linkedDevice = "", bool reliable = false,
+            bool manual = true, IProfileService profileService = null) {
+            var (vm, options, _, _) = Build(screwCount: 4, profileService: profileService, configureOptions: o => {
+                o.DeviceName.Returns(deviceName);
+                o.IsCalibrated.Returns(true);
+                o.CalibratedScrewCount.Returns(4);
+                o.CalibrationIsManual.Returns(manual);
+                o.DeviceLinkedCalibrationDeviceName.Returns(linkedDevice);
+                o.CalibrationIsReliable.Returns(reliable);
+            });
+            return (vm, options);
+        }
+
         // --- Motorized device connection pane (T10) test rig -------------------------------------------------
 
         // Deterministic ITiltDeviceTimeSource test double (mirrors TiltDeviceConnectionServiceTests): UtcNow is
@@ -680,21 +707,62 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         public void StepTitleText_UsesTheScrewName() {
             var eat = TiltScrewLabels.ForScheme(ScrewLabelScheme.AsgEat);
             Assert.Multiple(() => {
-                Assert.That(TiltAdapterWizardVM.StepTitleText(WizardStep.Screw1, eat), Is.EqualTo("Move M1"));
-                Assert.That(TiltAdapterWizardVM.StepTitleText(WizardStep.Screw2, eat), Is.EqualTo("Move M2"));
+                Assert.That(TiltAdapterWizardVM.StepTitleText(WizardStep.Screw1, eat, false), Is.EqualTo("Move M1"));
+                Assert.That(TiltAdapterWizardVM.StepTitleText(WizardStep.Screw2, eat, false), Is.EqualTo("Move M2"));
             });
         }
 
-        [TestCase(WizardStep.Baseline, "Baseline Measurement")]
-        [TestCase(WizardStep.AllInward, "All Screws Inward")]
-        [TestCase(WizardStep.ReBaseline1, "Return to Baseline")]
-        [TestCase(WizardStep.Screw1, "Move Screw 1")]
-        [TestCase(WizardStep.ReBaseline2, "Return to Baseline")]
-        [TestCase(WizardStep.Screw2, "Move Screw 2")]
-        [TestCase(WizardStep.Complete, "Calibration Complete")]
-        [TestCase(WizardStep.ReBaseline3, "Return to Baseline")]
-        public void StepTitleText_IsShortPerStepHeader(WizardStep step, string expected) {
-            Assert.That(TiltAdapterWizardVM.StepTitleText(step), Is.EqualTo(expected));
+        [TestCase(WizardStep.Baseline, false, "Baseline Measurement")]
+        [TestCase(WizardStep.AllInward, false, "All Screws Clockwise")]
+        [TestCase(WizardStep.AllInward, true, "All Motors Positive Steps")]
+        [TestCase(WizardStep.ReBaseline1, false, "Return to Baseline")]
+        [TestCase(WizardStep.Screw1, false, "Move Screw 1")]
+        [TestCase(WizardStep.ReBaseline2, false, "Return to Baseline")]
+        [TestCase(WizardStep.Screw2, false, "Move Screw 2")]
+        [TestCase(WizardStep.Complete, false, "Calibration Complete")]
+        [TestCase(WizardStep.ReBaseline3, false, "Return to Baseline")]
+        public void StepTitleText_IsShortPerStepHeader(WizardStep step, bool isStepper, string expected) {
+            Assert.That(TiltAdapterWizardVM.StepTitleText(step, null, isStepper), Is.EqualTo(expected));
+        }
+
+        // The wizard reserves "inward"/"outward" for ADAPTER-PLATE motion; screw and motor moves are worded
+        // clockwise/counter-clockwise or as signed steps. A step titled "All Screws Inward" while the device
+        // applies +N to every motor is what made a correct move look like a bug — and "+N is inward" is not
+        // something the wizard knows, it is what this very step measures.
+        [Test]
+        public void NoUserFacingMoveWording_ClaimsInwardOrOutward() {
+            var offenders = new List<string>();
+            foreach (var step in Enum.GetValues<WizardStep>()) {
+                foreach (var isStepper in new[] { false, true }) {
+                    foreach (var screwCount in new[] { 3, 4 }) {
+                        offenders.AddRange(new[] {
+                            TiltAdapterWizardVM.StepTitleText(step, null, isStepper),
+                            TiltAdapterWizardVM.StepInstructionsText(step, screwCount, isStepper, 1.0),
+                            TiltAdapterWizardVM.BaselineRecoveryText(step, screwCount, isStepper, 1.0),
+                        }.Where(t => t != null &&
+                            (t.IndexOf("inward", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                             t.IndexOf("outward", StringComparison.OrdinalIgnoreCase) >= 0)));
+                    }
+                }
+                // DeviceStepInstructionsText is the wording actually shown for a connected motorized run — it
+                // must be in the sweep, not merely safe transitively via StepInstructionsText.
+                foreach (var autoRunning in new[] { false, true }) {
+                    foreach (var measuredFinalRebaseline in new[] { false, true }) {
+                        offenders.AddRange(new[] {
+                            TiltAdapterWizardVM.DeviceStepInstructionsText(step, 150, autoRunning, measuredFinalRebaseline),
+                        }.Where(t => t != null &&
+                            (t.IndexOf("inward", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                             t.IndexOf("outward", StringComparison.OrdinalIgnoreCase) >= 0)));
+                    }
+                }
+                var move = EatWizardMapping.MoveForStep(step, 150);
+                if (move?.Description != null &&
+                    (move.Description.IndexOf("inward", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                     move.Description.IndexOf("outward", StringComparison.OrdinalIgnoreCase) >= 0)) {
+                    offenders.Add(move.Description);
+                }
+            }
+            Assert.That(offenders, Is.Empty, "user-facing move wording must not claim a direction the wizard has not measured");
         }
 
         [Test]
@@ -2707,18 +2775,86 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                         "Step 1 of 6", "Step 2 of 6", "Step 3 of 6", "Step 4 of 6", "Step 5 of 6", "Step 6 of 6" }));
                     // The title must track the step too -- same root cause, separately visible to the user.
                     Assert.That(observed.Select(o => o.title),
-                        Is.EqualTo(steps.Select(s => TiltAdapterWizardVM.StepTitleText(s))));
+                        Is.EqualTo(steps.Select(s => TiltAdapterWizardVM.StepTitleText(s, null, false))));
                     // Status text uses the human step title, not the raw enum name.
                     Assert.That(observed.Select(o => o.status),
-                        Is.EqualTo(steps.Select(s => $"Replaying {TiltAdapterWizardVM.StepTitleText(s)}...")));
+                        Is.EqualTo(steps.Select(s => $"Replaying {TiltAdapterWizardVM.StepTitleText(s, null, false)}...")));
                     // A replay re-analyzes saved frames: the instruction paragraph must not tell the user to turn
                     // screws or click a button that is collapsed for the whole replay.
                     Assert.That(observed.Select(o => o.instructions),
-                        Is.EqualTo(steps.Select(s => TiltAdapterWizardVM.ReplayStepInstructionsText(s))));
+                        Is.EqualTo(steps.Select(s => TiltAdapterWizardVM.ReplayStepInstructionsText(s, null, false))));
                     Assert.That(observed.Select(o => o.instructions),
                         Has.None.Contains("Run Measurement").And.None.Contains("CLOCKWISE"));
                     // The replay flag is transient: it must be cleared once the replay finishes.
                     Assert.That(vm.IsReplaying, Is.False);
+                });
+            } finally {
+                System.IO.Directory.Delete(runRoot, recursive: true);
+            }
+        }
+
+        // CRITICAL regression (code review of Task 8): the bold StepTitle header and the StatusText line
+        // directly below it are both derived from StepTitleText, but ReplayAsync's StatusText assignment
+        // used to omit isStepper -- silently defaulting to false. On a stepper rig replaying a saved run,
+        // StepTitle correctly read "All Motors Positive Steps" while StatusText, on screen at the same
+        // time, read "Replaying All Screws Clockwise...": title and status visibly disagreeing about the
+        // rig's own adjustment type. The previous test (screw rig, isStepper defaults to false on both
+        // sides) could never have caught this -- it passed by coincidence. This test forces a stepper rig
+        // and asserts title and status agree.
+        [Test]
+        public void ReplayAsync_OnStepperRig_TitleAndStatusAgreeOnAdjustmentType() {
+            var (vm, _, _, _) = Build(screwCount: 3, configureOptions: o => {
+                o.MeasureCurvatureDuringCalibration.Returns(true);
+                o.AdjustmentType.Returns(TiltAdjustmentType.StepperMotors);
+            });
+
+            string runRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "hf-tilt-replay-stepper-test-" + Guid.NewGuid().ToString("N"));
+            var stepFolders = new[] { "01_Baseline", "02_AllInward", "03_ReBaseline1", "04_Screw1", "05_ReBaseline2", "06_Screw2" };
+            var steps = new[] { WizardStep.Baseline, WizardStep.AllInward, WizardStep.ReBaseline1, WizardStep.Screw1, WizardStep.ReBaseline2, WizardStep.Screw2 };
+            System.IO.Directory.CreateDirectory(runRoot);
+            try {
+                foreach (var stepFolder in stepFolders) {
+                    System.IO.Directory.CreateDirectory(System.IO.Path.Combine(runRoot, stepFolder));
+                }
+                var metadata = new TiltCalibrationMetadata {
+                    NumberOfScrews = 3,
+                    PixelSizeMicrons = 3.76,
+                    FocuserStepSizeMicrons = 3.6,
+                    ScrewRadiusMillimeters = 44,
+                    CalibrationAppliedAmount = 1.0,
+                    RunStepMapping = steps.Select((s, i) => new TiltRunStepMapping { Step = s.ToString(), Folder = stepFolders[i] }).ToList()
+                };
+                System.IO.File.WriteAllText(System.IO.Path.Combine(runRoot, "metadata.json"), metadata.Serialize());
+
+                var tiltPlane = new TiltPlaneModel(new System.Drawing.Size(6248, 4176), fRatio: 7,
+                    a: 0.1, b: 0.05, c: 0, mean: 7000, focuserStepSizeMicrons: 3.6,
+                    centerPosition: 7000, topLeftPosition: 7000, topRightPosition: 7000,
+                    bottomLeftPosition: 7000, bottomRightPosition: 7000);
+                vm.CalibrationTiltPlaneOverrideForTest = tiltPlane;
+                vm.SelectReplayFolderForTest = _ => runRoot;
+                vm.SelectReplaySettingsForTest = _ => Task.FromResult(ReplaySettingsChoice.UseCurrentSettings);
+
+                var observed = new List<(WizardStep step, string title, string status)>();
+                vm.ReplayStepOverrideForTest = (step, ct) => {
+                    observed.Add((step, vm.StepTitle, vm.StatusText));
+                    return Task.FromResult(true);
+                };
+
+                ((AsyncRelayCommand)vm.ReplayCommand).ExecuteAsync(null).GetAwaiter().GetResult();
+
+                Assert.Multiple(() => {
+                    Assert.That(vm.IsComplete, Is.True, "precondition: the replay actually ran to completion");
+                    // The AllInward step is where the two used to disagree: the title said stepper wording,
+                    // the status line said screw wording, for the same rig at the same instant.
+                    var allInward = observed.Single(o => o.step == WizardStep.AllInward);
+                    Assert.That(allInward.title, Is.EqualTo("All Motors Positive Steps"));
+                    Assert.That(allInward.status, Is.EqualTo("Replaying All Motors Positive Steps..."));
+                    Assert.That(allInward.status, Does.Not.Contain("Clockwise"), "status must not show screw wording on a stepper rig");
+                    // Every step, not just AllInward: the status line's embedded title must always equal the
+                    // bold title shown above it, whatever the rig.
+                    foreach (var o in observed) {
+                        Assert.That(o.status, Is.EqualTo($"Replaying {o.title}..."), $"title/status must agree for {o.step}");
+                    }
                 });
             } finally {
                 System.IO.Directory.Delete(runRoot, recursive: true);
@@ -3544,6 +3680,270 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 options.DidNotReceive().ScrewInwardCurvatureSign = Arg.Any<int>();
                 options.DidNotReceive().Screw1AngleDegrees = Arg.Any<double>();
                 options.DidNotReceive().IsCalibrated = Arg.Any<bool>();
+            });
+        }
+
+        // --- Opt-in re-link: trusting a hand-entered calibration for automation (Task 9) --------------------
+
+        [Test]
+        public void TrustCalibration_AloneWritesNothing() {
+            var (vm, options) = BuildCalibrated();
+            options.ClearReceivedCalls();
+
+            vm.TrustCalibrationCommand.Execute(null);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.IsTrustCalibrationPending, Is.True, "the button only arms the confirmation");
+                options.DidNotReceive().DeviceLinkedCalibrationDeviceName = Arg.Any<string>();
+                options.DidNotReceive().CalibrationIsReliable = Arg.Any<bool>();
+            });
+        }
+
+        [Test]
+        public void ConfirmTrustCalibration_ArmsBothAutomationMarkersForTheCurrentDevice() {
+            var (vm, options) = BuildCalibrated();
+            options.ClearReceivedCalls();
+
+            vm.TrustCalibrationCommand.Execute(null);
+            vm.ConfirmTrustCalibrationCommand.Execute(null);
+
+            Assert.Multiple(() => {
+                options.Received().DeviceLinkedCalibrationDeviceName = MotorizedPreset;
+                options.Received().CalibrationIsReliable = true;
+                Assert.That(vm.IsTrustCalibrationPending, Is.False);
+            });
+        }
+
+        [Test]
+        public void CancelTrustCalibration_WritesNothing() {
+            var (vm, options) = BuildCalibrated();
+            options.ClearReceivedCalls();
+
+            vm.TrustCalibrationCommand.Execute(null);
+            vm.CancelTrustCalibrationCommand.Execute(null);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.IsTrustCalibrationPending, Is.False);
+                options.DidNotReceive().DeviceLinkedCalibrationDeviceName = Arg.Any<string>();
+                options.DidNotReceive().CalibrationIsReliable = Arg.Any<bool>();
+            });
+        }
+
+        [Test]
+        public void ApplyManualCalibration_DisarmsAPendingTrustConfirmation() {
+            // A stale confirmation must not survive the state change that invalidated it.
+            var (vm, options) = BuildCalibrated(linkedDevice: MotorizedPreset, reliable: true);
+            options.ScrewInwardCurvatureSign.Returns(1);
+            vm.TrustCalibrationCommand.Execute(null);
+            vm.ManualScrew1AngleDegrees = 30;
+
+            vm.ApplyManualCalibration();
+
+            Assert.Multiple(() => {
+                Assert.That(vm.IsTrustCalibrationPending, Is.False);
+                options.Received().DeviceLinkedCalibrationDeviceName = string.Empty;
+                options.Received().CalibrationIsReliable = false;
+            });
+        }
+
+        [Test]
+        public void ClearCalibration_AlsoClearsTheAutomationMarkers() {
+            var (vm, options) = BuildCalibrated(linkedDevice: MotorizedPreset, reliable: true);
+            options.ClearReceivedCalls();
+
+            vm.ClearCalibrationCommand.Execute(null);
+
+            Assert.Multiple(() => {
+                options.Received().DeviceLinkedCalibrationDeviceName = string.Empty;
+                options.Received().CalibrationIsReliable = false;
+            });
+        }
+
+        [Test]
+        public void AutomationTrustBanner_IsHiddenForADeviceLinkedReliableCalibration() {
+            var (vm, _) = BuildCalibrated(linkedDevice: MotorizedPreset, reliable: true);
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False);
+        }
+
+        [Test]
+        public void AutomationTrustBanner_IsShownForAManualCalibrationOnAMotorizedPreset() {
+            var (vm, _) = BuildCalibrated();
+            Assert.That(vm.AutomationTrustBannerVisible, Is.True);
+        }
+
+        [Test]
+        public void AutomationTrustBanner_IsHiddenOnANonMotorizedPreset() {
+            var (vm, _) = BuildCalibrated(deviceName: TiltAdapterDevicePreset.ManualName);
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False,
+                "there is nothing to automate without a motorized device");
+        }
+
+        [Test]
+        public void AutomationTrustBanner_IsHiddenWithNoSavedCalibration() {
+            var (vm, _, _, _) = Build(screwCount: 3, configureOptions: o => {
+                o.DeviceName.Returns(MotorizedPreset);
+                o.IsCalibrated.Returns(false);
+            });
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False);
+        }
+
+        [Test]
+        public void ConfirmedTrust_SatisfiesTheAutomaticAdjustmentGate() {
+            // The point of the whole feature: the Inspector's gate reads exactly these two markers.
+            var (vm, options) = BuildCalibrated();
+            vm.TrustCalibrationCommand.Execute(null);
+            vm.ConfirmTrustCalibrationCommand.Execute(null);
+            // No re-stubbing needed: an NSubstitute property setter feeds its own getter, so the getters below
+            // return exactly what ConfirmTrustCalibration just wrote. That is the point -- the assertion reads
+            // production state, not test state.
+
+            Assert.Multiple(() => {
+                Assert.That(InspectorVM.IsCalibrationDeviceLinked(options), Is.True);
+                Assert.That(InspectorVM.CanExecuteAutomaticAdjustment(
+                    serviceConnected: true, controllerAvailable: true,
+                    deviceLinked: InspectorVM.IsCalibrationDeviceLinked(options),
+                    calibrationIsReliable: options.CalibrationIsReliable,
+                    hasNumericGuidance: true, isOperationActive: false,
+                    currentGeneration: 2, lastExecutedGeneration: 1), Is.True);
+                Assert.That(vm.AutomationTrustBannerVisible, Is.False, "the banner retires once trust is granted");
+            });
+        }
+
+        [Test]
+        public void RunCalibrationForTest_DisarmsAPendingTrustConfirmation() {
+            // Same invariant as the manual-entry / clear / preset-change disarms: a fresh run rewrites both
+            // automation markers, so a confirmation armed against the PREVIOUS calibration is stale. Seed data
+            // is the device-driven-but-low-confidence case (the one that leaves the banner showing), copied
+            // from RunCalibrationForTest_DeviceDriven_UnreliableCalibration_SetsCalibrationIsReliableFalse_EvenThoughDeviceLinked.
+            var (vm, options, _, _, _, _) = BuildMotorized();
+            options.IsCalibrated.Returns(true);
+            options.CalibratedScrewCount.Returns(4);
+            vm.TrustCalibrationCommand.Execute(null);
+            Assert.That(vm.IsTrustCalibrationPending, Is.True, "precondition: armed");
+
+            vm.SeedStepReading(WizardStep.Baseline, 0.0, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw1, 0.5, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.ReBaseline2, 0.4, 0.0, 1000.0);
+            vm.SeedStepReading(WizardStep.Screw2, 0.9, 0.0, 1000.0);
+            vm.RunCalibrationForTest(deviceDriven: true, pixelSizeMicrons: 3.76, focuserStepMicrons: 3.6);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.IsTrustCalibrationPending, Is.False);
+                // And NO Trust button afterwards: the run cleared CalibrationIsManual, and a low-confidence
+                // calibration is not something the banner's screw-numbering check could validate anyway.
+                Assert.That(vm.AutomationTrustBannerVisible, Is.False);
+            });
+        }
+
+        [Test]
+        public void SwitchingProfiles_DisarmsAPendingTrustConfirmation() {
+            // [CRITICAL GATE] TiltAdapterOptions' own ProfileChanged reload raises one broadcast (null-name)
+            // PropertyChanged that the VM's named-property handler never matches, so the VM re-raises its
+            // derived properties in its ProfileChanged handler instead. An armed confirmation left standing
+            // there would end up describing a DIFFERENT profile's calibration.
+            var profileService = Substitute.For<IProfileService>();
+            var (vm, _) = BuildCalibrated(profileService: profileService);
+            vm.TrustCalibrationCommand.Execute(null);
+            Assert.That(vm.IsTrustCalibrationPending, Is.True, "precondition: armed");
+
+            var raised = new List<string>();
+            vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+            profileService.ProfileChanged += Raise.Event<EventHandler>(profileService, EventArgs.Empty);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.IsTrustCalibrationPending, Is.False);
+                Assert.That(raised, Does.Contain(nameof(TiltAdapterWizardVM.AutomationTrustBannerVisible)),
+                    "the banner must re-read the new profile's calibration, not keep showing the old one's");
+            });
+        }
+
+        [Test]
+        public void ConfirmTrustCalibration_WithTheBannerHidden_WritesNothing() {
+            // The button lives inside the collapsed banner Border, but this write unlocks unattended hardware
+            // motion -- it must not rest on a XAML binding alone.
+            var (vm, options) = BuildCalibrated(deviceName: TiltAdapterDevicePreset.ManualName);
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False, "precondition: nothing to trust");
+            options.ClearReceivedCalls();
+
+            vm.TrustCalibrationCommand.Execute(null);
+            vm.ConfirmTrustCalibrationCommand.Execute(null);
+
+            Assert.Multiple(() => {
+                Assert.That(vm.IsTrustCalibrationPending, Is.False);
+                options.DidNotReceive().DeviceLinkedCalibrationDeviceName = Arg.Any<string>();
+                options.DidNotReceive().CalibrationIsReliable = Arg.Any<bool>();
+            });
+        }
+
+        // [CRITICAL GATE] The warning fires only when automation was genuinely available, which is the SAME
+        // conjunction InspectorVM.CanExecuteAutomaticAdjustment requires -- not either half on its own.
+        [TestCase(true, true, true, TestName = "ManualEntryRevokesAutomation_LinkedAndReliable_Revokes")]
+        [TestCase(false, true, false, TestName = "ManualEntryRevokesAutomation_ReliableButNeverLinked_RevokesNothing")]
+        [TestCase(true, false, false, TestName = "ManualEntryRevokesAutomation_LinkedButUnreliable_RevokesNothing")]
+        [TestCase(false, false, false, TestName = "ManualEntryRevokesAutomation_NeitherMarker_RevokesNothing")]
+        public void ManualEntryRevokesAutomation_MirrorsTheAutomationGateExactly(
+                bool linked, bool reliable, bool expected) {
+            var options = Substitute.For<ITiltAdapterOptions>();
+            options.DeviceName.Returns(MotorizedPreset);
+            options.DeviceLinkedCalibrationDeviceName.Returns(linked ? MotorizedPreset : string.Empty);
+            options.CalibrationIsReliable.Returns(reliable);
+
+            Assert.That(TiltAdapterWizardVM.ManualEntryRevokesAutomation(options), Is.EqualTo(expected));
+            // Whatever the warning claims must match what the gate actually permits.
+            Assert.That(InspectorVM.CanExecuteAutomaticAdjustment(
+                serviceConnected: true, controllerAvailable: true,
+                deviceLinked: InspectorVM.IsCalibrationDeviceLinked(options),
+                calibrationIsReliable: options.CalibrationIsReliable,
+                hasNumericGuidance: true, isOperationActive: false,
+                currentGeneration: 2, lastExecutedGeneration: 1), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void AutomationTrustBanner_IsHiddenForADeviceDrivenLowConfidenceCalibration() {
+            // [CRITICAL GATE] Device-linked but not reliable, and NOT hand-entered (RunCalibrationMath writes
+            // CalibrationIsManual = false). Trust writes CalibrationIsReliable = true, which overrides the
+            // noise-vs-signal quality check -- and the banner's verification ("move one screw, watch which
+            // corner moves") cannot detect a noise-dominated calibration, which has correct screw numbering and
+            // wrong angles. The remedy for this state is re-running the calibration, not trusting it.
+            var (vm, _) = BuildCalibrated(linkedDevice: MotorizedPreset, reliable: false, manual: false);
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False);
+        }
+
+        [Test]
+        public void AutomationTrustBanner_IsHiddenForAReplayedCalibration() {
+            // A replay clears the device link (not a connected run) and CalibrationIsManual -- so it lands in
+            // the same not-automatable state as a hand entry, but "entered or edited by hand" would be false.
+            var (vm, _) = BuildCalibrated(linkedDevice: "", reliable: true, manual: false);
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False,
+                "the banner asserts hand-entry; a replay is not hand-entry");
+        }
+
+        [Test]
+        public void ChangingTheDevicePreset_DisarmsAPendingTrustConfirmation() {
+            // The confirmation was armed against the PREVIOUS preset's screw wiring — confirming it afterwards
+            // would link a hand-entered calibration to a device it was never entered for.
+            var (vm, options) = BuildCalibrated();
+            vm.TrustCalibrationCommand.Execute(null);
+            Assert.That(vm.IsTrustCalibrationPending, Is.True, "precondition: armed");
+
+            options.DeviceName.Returns("ASG Electronic EAT - ZWO 461");
+            options.PropertyChanged += Raise.Event<System.ComponentModel.PropertyChangedEventHandler>(
+                options, new System.ComponentModel.PropertyChangedEventArgs(nameof(ITiltAdapterOptions.DeviceName)));
+
+            Assert.That(vm.IsTrustCalibrationPending, Is.False);
+        }
+
+        [Test]
+        public void SelectingADifferentDevicePreset_RevokesTheTrust() {
+            // No explicit revoke needed: IsCalibrationDeviceLinked compares against the CURRENT DeviceName.
+            var (vm, options) = BuildCalibrated(linkedDevice: MotorizedPreset, reliable: true);
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False, "precondition: trusted");
+
+            options.DeviceName.Returns("ASG Electronic EAT - ZWO 461");
+
+            Assert.Multiple(() => {
+                Assert.That(InspectorVM.IsCalibrationDeviceLinked(options), Is.False);
+                Assert.That(vm.AutomationTrustBannerVisible, Is.True);
             });
         }
 

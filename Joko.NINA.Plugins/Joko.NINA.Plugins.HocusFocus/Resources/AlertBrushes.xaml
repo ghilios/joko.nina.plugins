@@ -1,0 +1,84 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:hfconverters="clr-namespace:NINA.Joko.Plugins.HocusFocus.Converters">
+
+    <!--
+        Accessible alert chrome. NINA's NotificationError/WarningBrush are FILL colours (it only ever uses them
+        as a Background) and are near-black in 13 of its 18 built-in schemas, so using them as a Foreground
+        renders at 1.06-1.9:1 on every dark theme. Its paired NotificationErrorTextBrush is no better — the
+        "Dark" schema sets it to #FF02010A, near-black on near-black-red, 1.67:1. Both text colours are
+        therefore COMPUTED (see Converters/ContrastMath.cs), which holds >= 4.5:1 on all 18 built-in schemas and
+        on custom ones.
+
+        The Color properties are BOUND rather than fixed so a live colour-schema change flows through, the same
+        shape NINA uses in NINA.WPF.Base/Resources/StaticResources/Brushes.xaml.
+
+        USAGE:
+          HF_Alert*TextBrush   -> text INSIDE a filled badge
+          HF_Alert*AccentBrush -> alert text drawn straight on the page background
+          HF_Alert*Badge       -> the filled Border itself (BasedOn-able, so a local Style can add triggers)
+
+        When a Border becomes a filled badge, EVERY TextBlock inside it needs the badge text brush — children
+        with no explicit Foreground otherwise inherit PrimaryBrush onto the fill.
+
+        Mode=OneWay is stated EXPLICITLY on every binding below, and is not decoration. Both converters throw
+        NotSupportedException from ConvertBack, and WPF does NOT catch exceptions thrown out of a converter's
+        ConvertBack — unlike a failed Convert, which it logs and leaves the target unset, a throwing ConvertBack
+        propagates and can take the application down. These bindings resolve to OneWay implicitly today only
+        because SolidColorBrush.ColorProperty is registered through Animatable.RegisterProperty, which carries no
+        BindsTwoWayByDefault. Saying OneWay outright makes the guarantee structural instead of incidental, so it
+        survives someone re-pointing a converter at a target property whose metadata does default to two-way.
+    -->
+
+    <hfconverters:BadgeTextColorConverter x:Key="HF_BadgeTextColorConverter" />
+    <hfconverters:AccessibleAccentColorConverter x:Key="HF_AccessibleAccentColorConverter" />
+
+    <SolidColorBrush
+        x:Key="HF_AlertErrorTextBrush"
+        Color="{Binding Source={StaticResource NotificationErrorBrush},
+                        Path=Color,
+                        Mode=OneWay,
+                        Converter={StaticResource HF_BadgeTextColorConverter}}" />
+
+    <SolidColorBrush
+        x:Key="HF_AlertWarningTextBrush"
+        Color="{Binding Source={StaticResource NotificationWarningBrush},
+                        Path=Color,
+                        Mode=OneWay,
+                        Converter={StaticResource HF_BadgeTextColorConverter}}" />
+
+    <SolidColorBrush x:Key="HF_AlertErrorAccentBrush">
+        <SolidColorBrush.Color>
+            <MultiBinding Converter="{StaticResource HF_AccessibleAccentColorConverter}" Mode="OneWay">
+                <Binding Path="Color" Source="{StaticResource NotificationErrorBrush}" Mode="OneWay" />
+                <Binding Path="Color" Source="{StaticResource BackgroundBrush}" Mode="OneWay" />
+            </MultiBinding>
+        </SolidColorBrush.Color>
+    </SolidColorBrush>
+
+    <SolidColorBrush x:Key="HF_AlertWarningAccentBrush">
+        <SolidColorBrush.Color>
+            <MultiBinding Converter="{StaticResource HF_AccessibleAccentColorConverter}" Mode="OneWay">
+                <Binding Path="Color" Source="{StaticResource NotificationWarningBrush}" Mode="OneWay" />
+                <Binding Path="Color" Source="{StaticResource BackgroundBrush}" Mode="OneWay" />
+            </MultiBinding>
+        </SolidColorBrush.Color>
+    </SolidColorBrush>
+
+    <Style x:Key="HF_AlertErrorBadge" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource NotificationErrorBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource NotificationErrorBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="3" />
+        <Setter Property="Padding" Value="6,4" />
+    </Style>
+
+    <Style x:Key="HF_AlertWarningBadge" TargetType="Border">
+        <Setter Property="Background" Value="{StaticResource NotificationWarningBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource NotificationWarningBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="3" />
+        <Setter Property="Padding" Value="6,4" />
+    </Style>
+</ResourceDictionary>

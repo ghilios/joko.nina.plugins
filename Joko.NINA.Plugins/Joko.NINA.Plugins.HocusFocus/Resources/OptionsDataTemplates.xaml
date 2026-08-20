@@ -17,6 +17,12 @@
     xmlns:util="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
     xmlns:xceed="http://schemas.xceed.com/wpf/xaml/toolkit"
     mc:Ignorable="d">
+    <!--  Alert chrome. Merged (not cross-dictionary StaticResource) so the keys resolve at parse time in every
+          dictionary that merges this one: AutoFocus, TiltAdapterWizard and StarDetection/Optimization all merge
+          OptionsDataTemplates already, so they inherit it for free.  -->
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="AlertBrushes.xaml" />
+    </ResourceDictionary.MergedDictionaries>
     <hfconverters:ShowStructureMapToVisibilityConverter x:Key="HF_ShowStructureMapToVisibilityConverter" />
     <hfconverters:DoubleZeroToVisibilityConverter x:Key="HF_DoubleZeroToVisibilityConverter" />
     <hfconverters:IntNegativeToVisibilityConverter x:Key="HF_IntNegativeToVisibilityConverter" />
@@ -2613,7 +2619,7 @@
                 MaxWidth="420"
                 HorizontalAlignment="Left"
                 FontStyle="Italic"
-                Foreground="{StaticResource NotificationWarningBrush}"
+                Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                 Text="{Binding PerFilterEditBinder.ActiveFilterWarning}"
                 TextWrapping="Wrap">
                 <TextBlock.Style>
@@ -3356,7 +3362,7 @@
                         HorizontalAlignment="Left"
                         VerticalAlignment="Center"
                         FontStyle="Italic"
-                        Foreground="{StaticResource NotificationWarningBrush}"
+                        Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                         Text="⚠ differs from the focuser driver"
                         ToolTip="{StaticResource FocuserStepSizeMismatch_Tooltip}"
                         Visibility="{Binding InspectorOptions.HasFocuserStepSizeMismatch, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}" />

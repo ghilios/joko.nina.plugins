@@ -6,7 +6,8 @@
     xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
     xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core"
     xmlns:s="clr-namespace:System;assembly=mscorlib"
-    xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces">
+    xmlns:interfaces="clr-namespace:NINA.Joko.Plugins.HocusFocus.Interfaces"
+    xmlns:local="clr-namespace:NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard">
     <ResourceDictionary.MergedDictionaries>
         <ResourceDictionary Source="../Resources/OptionsDataTemplates.xaml" />
         <ResourceDictionary Source="../Resources/SharedTooltips.xaml" />
@@ -369,13 +370,13 @@
                                                         <TextBlock.Style>
                                                             <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
                                                                 <Setter Property="Visibility" Value="Collapsed" />
-                                                                <Setter Property="Foreground" Value="{StaticResource NotificationWarningBrush}" />
+                                                                <Setter Property="Foreground" Value="{StaticResource HF_AlertWarningAccentBrush}" />
                                                                 <Style.Triggers>
                                                                     <DataTrigger Binding="{Binding HasLimitTag}" Value="True">
                                                                         <Setter Property="Visibility" Value="Visible" />
                                                                     </DataTrigger>
                                                                     <DataTrigger Binding="{Binding IsBlocking}" Value="True">
-                                                                        <Setter Property="Foreground" Value="{StaticResource NotificationErrorBrush}" />
+                                                                        <Setter Property="Foreground" Value="{StaticResource HF_AlertErrorAccentBrush}" />
                                                                         <Setter Property="FontWeight" Value="Bold" />
                                                                     </DataTrigger>
                                                                 </Style.Triggers>
@@ -400,7 +401,7 @@
                                       enforces the travel window, just against a possibly-stale estimate.  -->
                                 <TextBlock
                                     Margin="0,6,0,0"
-                                    Foreground="{StaticResource NotificationWarningBrush}"
+                                    Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                                     Text="{Binding PositionsUnknownAdvisory}"
                                     TextWrapping="Wrap">
                                     <TextBlock.Style>
@@ -417,7 +418,7 @@
 
                                 <TextBlock
                                     Margin="0,6,0,0"
-                                    Foreground="{StaticResource NotificationWarningBrush}"
+                                    Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                                     Text="{Binding SendDisabledReason}"
                                     TextWrapping="Wrap">
                                     <TextBlock.Style>
@@ -507,7 +508,7 @@
                                             </TextBlock>
                                             <!--  Only present when the request contains twist: the position this
                                                   motor will actually reach, which is not the one typed above.  -->
-                                            <TextBlock FontSize="10" Foreground="{StaticResource NotificationWarningBrush}" Text="{Binding WillReachText}">
+                                            <TextBlock FontSize="10" Foreground="{StaticResource HF_AlertWarningAccentBrush}" Text="{Binding WillReachText}">
                                                 <TextBlock.Style>
                                                     <Style TargetType="TextBlock" BasedOn="{StaticResource StandardTextBlock}">
                                                         <Setter Property="Visibility" Value="Collapsed" />
@@ -534,7 +535,7 @@
                                             <Setter Property="Visibility" Value="Visible" />
                                         </DataTrigger>
                                         <DataTrigger Binding="{Binding TargetHintIsError}" Value="True">
-                                            <Setter Property="Foreground" Value="{StaticResource NotificationErrorBrush}" />
+                                            <Setter Property="Foreground" Value="{StaticResource HF_AlertErrorAccentBrush}" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -566,7 +567,7 @@
 
                         <TextBlock
                             Margin="0,6,0,0"
-                            Foreground="{StaticResource NotificationWarningBrush}"
+                            Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                             Text="{Binding ReviewDisabledReason}"
                             TextWrapping="Wrap">
                             <TextBlock.Style>
@@ -1652,12 +1653,81 @@
                                 Content="{Binding}" />
                         </Grid>
 
+                        <!--  [CRITICAL GATE] Automation is blocked for a calibration that is not device-linked or
+                              not confidence-checked. Clearing those markers used to be entirely silent — a user
+                              who corrected one angle by hand after a device-driven run lost Automatic Adjustment
+                              with no message and no way back short of repeating the calibration. Filled badge
+                              rather than the quiet outlined style because this CARRIES AN ACTION and explains a
+                              capability that has disappeared (same reasoning as the idle-countdown banner in
+                              AutoFocus/DataTemplates.xaml).  -->
+                        <Border Margin="0,10,0,0" Visibility="{Binding AutomationTrustBannerVisible, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}"
+                            Style="{StaticResource HF_AlertWarningBadge}">
+                            <StackPanel>
+                                <TextBlock
+                                    MaxWidth="520"
+                                    HorizontalAlignment="Left"
+                                    FontWeight="Bold"
+                                    Foreground="{StaticResource HF_AlertWarningTextBrush}"
+                                    Text="Automatic Adjustment is disabled"
+                                    TextWrapping="Wrap" />
+                                <TextBlock
+                                    MaxWidth="520"
+                                    Margin="0,3,0,0"
+                                    HorizontalAlignment="Left"
+                                    Foreground="{StaticResource HF_AlertWarningTextBrush}"
+                                    Text="This calibration was entered or edited by hand, so HocusFocus cannot verify that your screw numbering matches the device's motor wiring. Re-run the wizard with the device connected, or trust this calibration explicitly using the button below."
+                                    TextWrapping="Wrap" />
+
+                                <!--  Step 1: arm.  -->
+                                <Button
+                                    Margin="0,6,0,0"
+                                    HorizontalAlignment="Left"
+                                    Command="{Binding TrustCalibrationCommand}"
+                                    Visibility="{Binding IsTrustCalibrationPending, Converter={StaticResource InverseBooleanToVisibilityCollapsedConverter}}">
+                                    <TextBlock
+                                        Margin="10,5,10,5"
+                                        Foreground="{StaticResource ButtonForegroundBrush}"
+                                        Text="Trust This Calibration for Automation" />
+                                </Button>
+
+                                <!--  Step 2: the risk, then confirm or back out.  -->
+                                <StackPanel Visibility="{Binding IsTrustCalibrationPending, Converter={StaticResource BooleanToVisibilityCollapsedConverter}}">
+                                    <TextBlock
+                                        MaxWidth="520"
+                                        Margin="0,6,0,0"
+                                        HorizontalAlignment="Left"
+                                        FontWeight="Bold"
+                                        Foreground="{StaticResource HF_AlertWarningTextBrush}"
+                                        Text="If your screw numbering does not match the device's motor wiring, Automatic Adjustment will drive the adapter unattended in the wrong direction and make tilt worse. Before trusting it, use Manual adjustment to move one screw a small amount and confirm the corner that actually moves is the one you expect for that screw label — then it is safe."
+                                        TextWrapping="Wrap" />
+                                    <WrapPanel Margin="0,6,0,0">
+                                        <Button
+                                            AutomationProperties.Name="Confirm trusting this calibration for automation"
+                                            Command="{Binding ConfirmTrustCalibrationCommand}">
+                                            <TextBlock
+                                                Margin="10,5,10,5"
+                                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                                Text="Yes, trust it" />
+                                        </Button>
+                                        <Button
+                                            Margin="6,0,0,0"
+                                            AutomationProperties.Name="Cancel trusting this calibration"
+                                            Command="{Binding CancelTrustCalibrationCommand}">
+                                            <TextBlock
+                                                Margin="10,5,10,5"
+                                                Foreground="{StaticResource ButtonForegroundBrush}"
+                                                Text="Cancel" />
+                                        </Button>
+                                    </WrapPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
                         <Button
                             Margin="0,10,0,0"
                             HorizontalAlignment="Left"
                             Command="{Binding ClearCalibrationCommand}"
                             ToolTip="Clears the saved calibration (screw angles and the calibrated/manual flags), returning this pane to &quot;No calibration saved.&quot; The device selection and its configured hardware/direction are kept — re-run the wizard or use Manual Calibration Entry to set a new one.">
-                            <TextBlock Margin="6,2" Text="Clear Calibration" />
+                            <TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Clear Calibration" />
                         </Button>
                     </StackPanel>
 
@@ -1754,7 +1824,21 @@
                     <TextBlock
                         Margin="0,1,0,6"
                         FontWeight="Bold"
-                        Text="{Binding StepTitle}" />
+                        Text="{Binding StepTitle}">
+                        <!--  The tooltip is about the all-motors step SPECIFICALLY, and this one TextBlock renders
+                              every step's title, so it must be scoped. Unscoped it would tell a user hovering
+                              "Move Screw 1" about a different step's mechanics — a smaller version of the
+                              text-does-not-match-the-hardware confusion this task exists to remove.  -->
+                        <TextBlock.Style>
+                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding CurrentStep}" Value="{x:Static local:WizardStep.AllInward}">
+                                        <Setter Property="ToolTip" Value="Moving every screw or motor together changes backfocus, and this step measures which way the adapter plate actually travels. A '+' step is not assumed to be inward — determining that direction is the point of the step." />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
 
                     <TextBlock
                         Margin="0,0,0,10"
@@ -1869,14 +1953,12 @@
                         Content="{Binding}"
                         ContentTemplate="{StaticResource HF_TiltDevicePositionsGrid}" />
 
-                    <!--  Device connection warning: shown when Run Measurement is visible but devices are not connected  -->
-                    <TextBlock
-                        Margin="0,0,0,4"
-                        Foreground="{StaticResource NotificationErrorBrush}"
-                        Text="{Binding ConnectionWarningText}"
-                        TextWrapping="Wrap">
-                        <TextBlock.Style>
-                            <Style BasedOn="{StaticResource StandardTextBlock}" TargetType="TextBlock">
+                    <!--  Device connection warning: shown when Run Measurement is visible but devices are not
+                          connected. The BORDER owns the visibility trigger, not the TextBlock — otherwise the
+                          filled badge would render as an empty red pill whenever the text is blank.  -->
+                    <Border Margin="0,0,0,4">
+                        <Border.Style>
+                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <MultiDataTrigger>
@@ -1889,8 +1971,12 @@
                                     </MultiDataTrigger>
                                 </Style.Triggers>
                             </Style>
-                        </TextBlock.Style>
-                    </TextBlock>
+                        </Border.Style>
+                        <TextBlock
+                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
+                            Text="{Binding ConnectionWarningText}"
+                            TextWrapping="Wrap" />
+                    </Border>
 
                     <!--  Measurement progress area: visible while measuring  -->
                     <StackPanel>
@@ -1996,7 +2082,7 @@
                         <StackPanel>
                             <TextBlock
                                 Margin="0,0,0,6"
-                                Foreground="{StaticResource NotificationErrorBrush}"
+                                Foreground="{StaticResource HF_AlertErrorAccentBrush}"
                                 Text="{Binding MeasurementFailureText}"
                                 TextWrapping="Wrap" />
                             <Button
@@ -2040,12 +2126,9 @@
                           started as a device-driven run) — survives the advance to Complete (below), so it is
                           rendered there too.  -->
                     <Border
-                        Margin="0,6,0,0"
-                        Padding="5"
-                        BorderBrush="{StaticResource NotificationErrorBrush}"
-                        BorderThickness="1">
+                        Margin="0,6,0,0">
                         <Border.Style>
-                            <Style TargetType="Border">
+                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasDeviceLinkDroppedWarning}" Value="True">
@@ -2055,19 +2138,16 @@
                             </Style>
                         </Border.Style>
                         <TextBlock
-                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
                             Text="{Binding DeviceLinkDroppedWarningText}"
                             TextWrapping="Wrap" />
                     </Border>
 
                     <!--  Consistency warning (shown when tilt measurements across runs diverge)  -->
                     <Border
-                        Margin="0,6,0,0"
-                        Padding="5"
-                        BorderBrush="{StaticResource NotificationErrorBrush}"
-                        BorderThickness="1">
+                        Margin="0,6,0,0">
                         <Border.Style>
-                            <Style TargetType="Border">
+                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasMeasurementConsistencyWarning}" Value="True">
@@ -2077,7 +2157,7 @@
                             </Style>
                         </Border.Style>
                         <TextBlock
-                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
                             Text="{Binding MeasurementConsistencyWarningText}"
                             TextWrapping="Wrap" />
                     </Border>
@@ -2216,12 +2296,9 @@
                     <!--  Device-link dropped mid-run: it survives the advance to Complete (the step panel that
                           raised it is already hidden), so it must render here too  -->
                     <Border
-                        Margin="0,5"
-                        Padding="5"
-                        BorderBrush="{StaticResource NotificationErrorBrush}"
-                        BorderThickness="1">
+                        Margin="0,5">
                         <Border.Style>
-                            <Style TargetType="Border">
+                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasDeviceLinkDroppedWarning}" Value="True">
@@ -2231,7 +2308,7 @@
                             </Style>
                         </Border.Style>
                         <TextBlock
-                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
                             Text="{Binding DeviceLinkDroppedWarningText}"
                             TextWrapping="Wrap" />
                     </Border>
@@ -2239,12 +2316,9 @@
                     <!--  Consistency warning raised by the final step's repeats: it survives the advance to
                           Complete (the step panel that raised it is already hidden), so it must render here too  -->
                     <Border
-                        Margin="0,5"
-                        Padding="5"
-                        BorderBrush="{StaticResource NotificationErrorBrush}"
-                        BorderThickness="1">
+                        Margin="0,5">
                         <Border.Style>
-                            <Style TargetType="Border">
+                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasMeasurementConsistencyWarning}" Value="True">
@@ -2254,19 +2328,16 @@
                             </Style>
                         </Border.Style>
                         <TextBlock
-                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
                             Text="{Binding MeasurementConsistencyWarningText}"
                             TextWrapping="Wrap" />
                     </Border>
 
                     <!--  Re-baseline drift warning (an undo between moves left residual tilt)  -->
                     <Border
-                        Margin="0,5"
-                        Padding="5"
-                        BorderBrush="{StaticResource NotificationErrorBrush}"
-                        BorderThickness="1">
+                        Margin="0,5">
                         <Border.Style>
-                            <Style TargetType="Border">
+                            <Style TargetType="Border" BasedOn="{StaticResource HF_AlertErrorBadge}">
                                 <Setter Property="Visibility" Value="Collapsed" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding HasRebaselineDriftWarning}" Value="True">
@@ -2276,7 +2347,7 @@
                             </Style>
                         </Border.Style>
                         <TextBlock
-                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Foreground="{StaticResource HF_AlertErrorTextBrush}"
                             Text="{Binding RebaselineDriftWarningText}"
                             TextWrapping="Wrap" />
                     </Border>
@@ -2298,7 +2369,7 @@
                             </Style>
                         </Border.Style>
                         <TextBlock
-                            Foreground="{StaticResource NotificationErrorBrush}"
+                            Foreground="{StaticResource HF_AlertErrorAccentBrush}"
                             Text="{Binding ConfidenceWarningText}"
                             TextWrapping="Wrap" />
                     </Border>

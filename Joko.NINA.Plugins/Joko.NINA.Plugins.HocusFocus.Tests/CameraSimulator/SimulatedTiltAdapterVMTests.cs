@@ -861,6 +861,59 @@ public class SimulatedTiltAdapterVMTests {
     }
 
     [Test]
+    public void ConfirmCopyToAdapter_ClearsTheAutomationMarkers() {
+        // [CRITICAL GATE] This writes a hand-made calibration over the user's real one, so it must make the
+        // same clears the wizard's manual-entry path makes: the sim geometry's screw numbering has no
+        // established correspondence to any device's motor wiring. Setting DeviceName to Manual breaks
+        // IsCalibrationDeviceLinked implicitly, but a stale device name left in the marker is exactly what
+        // survives a later preset change.
+        //
+        // realAdapter here is a REAL TiltAdapterOptions (this fixture's convention), not a substitute, so this
+        // asserts resulting state rather than Received() calls. Both markers are SEEDED to the "automation
+        // trusted" values first -- their defaults are already empty/false, so without the seed this test would
+        // pass unchanged even if the production clears were deleted.
+        var options = Configured(screwCount: 4, curvatureSign: -1);
+        var real = BuildRealAdapterOptions();
+        real.DeviceName = "ASG Electronic EAT - 90mm";
+        real.DeviceLinkedCalibrationDeviceName = "ASG Electronic EAT - 90mm";
+        real.CalibrationIsReliable = true;
+        Assert.Multiple(() => {
+            Assert.That(real.DeviceLinkedCalibrationDeviceName, Is.Not.Empty, "precondition: automation-trusted");
+            Assert.That(real.CalibrationIsReliable, Is.True, "precondition: automation-trusted");
+        });
+
+        var vm = new SimulatedTiltAdapterVM(options, real);
+        vm.CopyToAdapterCommand.Execute(null);
+        // The copy revokes automation, so the confirmation must SAY so before the user agrees to it.
+        Assert.That(vm.CopyToAdapterConfirmText, Does.Contain("Automatic Adjustment will be disabled"));
+        vm.ConfirmCopyToAdapterCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            Assert.That(real.DeviceLinkedCalibrationDeviceName, Is.Empty);
+            Assert.That(real.CalibrationIsReliable, Is.False);
+            Assert.That(real.CalibrationIsManual, Is.True, "precondition for the clears: this IS a manual calibration now");
+        });
+    }
+
+    [Test]
+    public void CopyToAdapterConfirmText_DoesNotClaimToDisableAutomationThatWasNeverEnabled() {
+        // Mirrors the wizard's manual-entry warning: the clears are unconditional, but the ANNOUNCEMENT is not.
+        // A real adapter with no device link had Automatic Adjustment blocked already.
+        var options = Configured(screwCount: 4, curvatureSign: -1);
+        var real = BuildRealAdapterOptions();
+        real.CalibrationIsReliable = true; // reliable but never device-linked -> automation was still blocked
+
+        var vm = new SimulatedTiltAdapterVM(options, real);
+        vm.CopyToAdapterCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CopyToAdapterConfirmText, Does.Not.Contain("Automatic Adjustment"));
+            Assert.That(vm.CopyToAdapterConfirmText, Does.Contain("marked as a manual calibration"),
+                "the rest of the confirmation is unchanged");
+        });
+    }
+
+    [Test]
     public void CoherenceBadge_IsHonestWhenThereIsNoRealAdapterToCompare() {
         var vm = new SimulatedTiltAdapterVM(Configured(screwCount: 3), realAdapterOptions: null);
         Assert.Multiple(() => {

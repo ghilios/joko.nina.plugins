@@ -64,7 +64,10 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
     /// </summary>
     public enum WizardStep {
         Baseline = 0,     // a
-        AllInward = 1,    // b: all screws inward once (curvature/backfocus sign via a→b)
+        AllInward = 1,    // b: all screws clockwise / all motors +N once (curvature/backfocus sign via a→b;
+                          // the NAME is historical and stays — it is persisted in saved replay runs — but no
+                          // user-facing string may claim "+N" is physically inward: measuring that is the
+                          // whole purpose of this step.
         ReBaseline1 = 2,  // c: all screws back out once (≈ baseline)
         Screw1 = 3,       // d: screw 1 inward once (4-screw: + screw 3 outward)
         ReBaseline2 = 4,  // e: undo the screw-1 move (≈ c)
@@ -359,6 +362,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             RetryMeasurementCommand = new AsyncRelayCommand(RunMeasurementAsync, () => HasMeasurementFailureChoice && IsOnMeasurementStep && !IsMeasuring && AreDevicesConnected && !deviceRunAbandoned);
             ApplyManualCalibrationCommand = new RelayCommand(ApplyManualCalibration);
             ClearCalibrationCommand = new RelayCommand(ClearCalibration);
+            // No canExecute predicate on purpose: the whole banner that hosts these buttons is collapsed
+            // unless AutomationTrustBannerVisible, so gating them again would only add a second source of
+            // truth that NotifyCommandsCanExecuteChangedCore does not know to refresh.
+            TrustCalibrationCommand = new RelayCommand(() => IsTrustCalibrationPending = true);
+            ConfirmTrustCalibrationCommand = new RelayCommand(ConfirmTrustCalibration);
+            CancelTrustCalibrationCommand = new RelayCommand(() => IsTrustCalibrationPending = false);
             RefreshPortsCommand = new RelayCommand(RefreshPorts);
             ConnectDeviceCommand = new AsyncRelayCommand(ConnectTiltDeviceAsync, () =>
                 IsMotorizedDevice && this.tiltDeviceConnectionService != null && !IsTiltDeviceConnected && !string.IsNullOrEmpty(SelectedPortName));
@@ -437,11 +446,20 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 }
                 if (e.PropertyName == nameof(ITiltAdapterOptions.CalibrationIsManual)) {
                     RaisePropertyChanged(nameof(IsCalibrationValid));
+                    RaisePropertyChanged(nameof(AutomationTrustBannerVisible));
+                }
+                // The banner reads both automation markers directly, so it must re-raise when they change --
+                // structurally, not by relying on every writer to also move a watched property or raise it by
+                // hand. Cheap, and it makes a future writer correct by default.
+                if (e.PropertyName == nameof(ITiltAdapterOptions.DeviceLinkedCalibrationDeviceName) ||
+                    e.PropertyName == nameof(ITiltAdapterOptions.CalibrationIsReliable)) {
+                    RaisePropertyChanged(nameof(AutomationTrustBannerVisible));
                 }
                 if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewCount) ||
                     e.PropertyName == nameof(ITiltAdapterOptions.IsCalibrated) ||
                     e.PropertyName == nameof(ITiltAdapterOptions.CalibratedScrewCount)) {
                     RaisePropertyChanged(nameof(IsCalibrationValid));
+                    RaisePropertyChanged(nameof(AutomationTrustBannerVisible));
                     RebuildDiagram();
                 }
                 if (e.PropertyName == nameof(ITiltAdapterOptions.MeasurementAverageCount)) {
@@ -451,6 +469,12 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     RaisePropertyChanged(nameof(SelectedDevice));
                     RaisePropertyChanged(nameof(IsManualDevice));
                     RaisePropertyChanged(nameof(IsMotorizedDevice));
+                    RaisePropertyChanged(nameof(AutomationTrustBannerVisible));
+                    // [CRITICAL GATE] A pending Trust confirmation was armed against the PREVIOUS preset's screw
+                    // wiring; confirming it after a preset change would link the calibration to a device it was
+                    // never entered for. Same reasoning as ApplyManualCalibration's disarm: a stale confirmation
+                    // must not survive the state change that invalidated it.
+                    IsTrustCalibrationPending = false;
                     // A preset change swaps which stored label set is in effect, and which default names
                     // apply when the user has stored none -- every label-derived surface has to re-read.
                     RaiseScrewLabelsChanged();
@@ -480,6 +504,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     // Adjustment type changes the prompt vocabulary (screw turns vs signed steps).
                     RaisePropertyChanged(nameof(CwDirectionLabel));
                     RaisePropertyChanged(nameof(StepInstructions));
+                    RaisePropertyChanged(nameof(StepTitle));
                     RaisePropertyChanged(nameof(BaselineRecoveryInstructions));
                     RaiseHardwareSummaryChanged();
                 }
@@ -536,7 +561,15 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                 RaisePropertyChanged(nameof(CwDirectionLabel));
                 RaisePropertyChanged(nameof(HasCurvatureCalibration));
                 RaisePropertyChanged(nameof(IsCalibrationValid));
+                // [CRITICAL GATE] The banner is derived from IsCalibrationValid + the two automation markers,
+                // and the options reload above raises only the broadcast (null-name) PropertyChanged the named
+                // filters never match -- so without these two lines an armed confirmation stays on screen
+                // across a profile switch, now describing a DIFFERENT profile's calibration, and "Yes, trust
+                // it" would write both markers for a calibration the user never saw the arm-step warning for.
+                IsTrustCalibrationPending = false;
+                RaisePropertyChanged(nameof(AutomationTrustBannerVisible));
                 RaisePropertyChanged(nameof(StepInstructions));
+                RaisePropertyChanged(nameof(StepTitle));
                 RaisePropertyChanged(nameof(BaselineRecoveryInstructions));
                 RaisePropertyChanged(nameof(AdjustmentType));
                 RaisePropertyChanged(nameof(IsStepperAdjustment));
@@ -748,12 +781,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
         // Short, scannable title shown above the longer StepInstructions paragraph so the user can tell where
         // they are without re-reading the instructions.
-        public string StepTitle => StepTitleText(currentStep, ScrewLabels);
+        public string StepTitle => StepTitleText(currentStep, ScrewLabels, IsStepperAdjustment);
 
-        internal static string StepTitleText(WizardStep step, IScrewLabelProvider labels = null) {
+        internal static string StepTitleText(WizardStep step, IScrewLabelProvider labels, bool isStepper) {
             switch (step) {
                 case WizardStep.Baseline: return "Baseline Measurement";
-                case WizardStep.AllInward: return "All Screws Inward";
+                // NOT "All Screws Inward": the wizard applies +N to every motor and MEASURES which way the
+                // adapter plate goes. Naming the direction here contradicts the step and misreads as a bug.
+                // "Positive Steps", not "+ Steps": the latter parses as two nouns ("motors AND steps") rather
+                // than naming the sign the instruction body actually uses ("Apply +N steps to EVERY motor").
+                case WizardStep.AllInward: return isStepper ? "All Motors Positive Steps" : "All Screws Clockwise";
                 case WizardStep.ReBaseline1: return "Return to Baseline";
                 case WizardStep.Screw1: return $"Move {TiltScrewLabels.Resolve(labels, 1)}";
                 case WizardStep.ReBaseline2: return "Return to Baseline";
@@ -795,6 +832,80 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public bool IsCalibrationValid =>
             tiltAdapterOptions.IsCalibrated &&
             tiltAdapterOptions.ScrewCount == tiltAdapterOptions.CalibratedScrewCount;
+
+        private bool isTrustCalibrationPending;
+
+        /// <summary>
+        /// True once the user has asked to trust a hand-entered calibration and the in-pane confirmation is
+        /// showing. Two-step rather than a modal, mirroring SimulatedTiltAdapterVM's CopyToAdapter trio, which
+        /// guards the structurally identical decision — and unlike a MyMessageBox it stays unit-testable.
+        /// </summary>
+        public bool IsTrustCalibrationPending {
+            get => isTrustCalibrationPending;
+            private set {
+                if (isTrustCalibrationPending != value) {
+                    isTrustCalibrationPending = value;
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// [CRITICAL GATE] Shown when a HAND-ENTERED calibration cannot drive Automatic Adjustment because it is
+        /// not linked to the selected device preset, or did not pass its own confidence check — the exact pair
+        /// InspectorVM.CanExecuteAutomaticAdjustment requires. Gated on a motorized preset because there is
+        /// nothing to automate otherwise.
+        ///
+        /// This exists because clearing those markers used to be completely silent: a user who corrected one
+        /// angle by hand after a device-driven run lost Automatic Adjustment with no message, no cause named,
+        /// and no remedy short of repeating the whole calibration.
+        ///
+        /// CalibrationIsManual is load-bearing, not decoration. Without it this is also true for three states
+        /// that are NOT hand-entry — a device-driven run that completed but was low-confidence, a replay, and a
+        /// disconnected live run — where the banner's "entered or edited by hand" copy would simply be false.
+        ///
+        /// Deliberately NOT offered for the low-confidence case, and do not widen it back: Trust writes
+        /// CalibrationIsReliable = true, which overrides the noise-vs-signal QUALITY check, not the device link.
+        /// The verification the risk copy asks for — move one screw, watch which corner moves — can confirm a
+        /// screw numbering, but it cannot detect a noise-dominated calibration, which has correct numbering and
+        /// wrong angles. Consenting to that would be uninformed consent, and the Inspector already prescribes
+        /// the right remedy ("Re-run calibration to enable Automatic Adjustment").
+        /// </summary>
+        public bool AutomationTrustBannerVisible =>
+            IsCalibrationValid
+            && IsMotorizedDevice
+            && tiltAdapterOptions.CalibrationIsManual
+            && !(InspectorVM.IsCalibrationDeviceLinked(tiltAdapterOptions) && tiltAdapterOptions.CalibrationIsReliable);
+
+        /// <summary>
+        /// [CRITICAL GATE] Whether automation was actually AVAILABLE before a manual entry wipes the markers --
+        /// i.e. whether the warning has anything true to report. Deliberately AND, exactly mirroring
+        /// InspectorVM.CanExecuteAutomaticAdjustment (which requires deviceLinked AND calibrationIsReliable) and
+        /// AutomationTrustBannerVisible's !(linked &amp;&amp; reliable). With OR, a calibration that was reliable but
+        /// never device-linked (a wizard run on the Manual preset, or a disconnected live run) would warn that
+        /// Automatic Adjustment "is now disabled" when it had been blocked all along -- and point at a Trust
+        /// button the non-motorized banner never shows.
+        /// </summary>
+        internal static bool ManualEntryRevokesAutomation(ITiltAdapterOptions options) =>
+            InspectorVM.IsCalibrationDeviceLinked(options) && (options?.CalibrationIsReliable ?? false);
+
+        private void ConfirmTrustCalibration() {
+            IsTrustCalibrationPending = false;
+            // The precondition that justified showing the button at all. Its Border being collapsed is a
+            // UI-only guarantee, and this write unlocks unattended hardware motion -- too much to rest on a
+            // XAML binding. This is NOT the second source of truth the ctor comment warns about: that concern
+            // is specific to a canExecute predicate, which NotifyCommandsCanExecuteChangedCore would have to
+            // remember to refresh. An early return in the body is evaluated fresh on every click.
+            if (!AutomationTrustBannerVisible) return;
+            // Deliberately re-arming the two markers ApplyManualCalibration cleared. The user has been told,
+            // in the confirmation copy, exactly what goes wrong if the screw numbering does not match the
+            // device's wiring. Both markers are re-cleared by every path that invalidates the correspondence:
+            // a fresh manual entry, ClearCalibration, or selecting a different device preset (which
+            // IsCalibrationDeviceLinked invalidates for free by comparing against the CURRENT DeviceName).
+            tiltAdapterOptions.DeviceLinkedCalibrationDeviceName = tiltAdapterOptions.DeviceName;
+            tiltAdapterOptions.CalibrationIsReliable = true;
+            RaisePropertyChanged(nameof(AutomationTrustBannerVisible));
+        }
 
         public bool HasCurvatureCalibration => tiltAdapterOptions.ScrewInwardCurvatureSign != 0;
 
@@ -1039,7 +1150,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // IsTiltDeviceConnected is false whenever the service is null or not connected).
         public string StepInstructions =>
             IsReplaying
-                ? ReplayStepInstructionsText(currentStep, ScrewLabels)
+                ? ReplayStepInstructionsText(currentStep, ScrewLabels, IsStepperAdjustment)
                 : (IsTiltDeviceConnected && IsMotorizedDevice)
                     ? DeviceStepInstructionsText(currentStep, (int)Math.Round(CalibrationAppliedAmount), IsAutoRunningAll,
                         ActiveRunHasFinalRebaseline)
@@ -1048,8 +1159,8 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         // Replay wording: a replay re-analyzes already-captured frames, so every imperative in the live copy
         // ("turn ALL screws CLOCKWISE", "click Run Measurement") is wrong — nothing is captured, no hardware
         // moves, and the measurement buttons are collapsed by the IsMeasuring trigger for the whole replay.
-        internal static string ReplayStepInstructionsText(WizardStep step, IScrewLabelProvider labels = null) =>
-            $"Replaying — re-analyzing the saved frames for {StepTitleText(step, labels)}. No action needed: nothing is " +
+        internal static string ReplayStepInstructionsText(WizardStep step, IScrewLabelProvider labels, bool isStepper) =>
+            $"Replaying — re-analyzing the saved frames for {StepTitleText(step, labels, isStepper)}. No action needed: nothing is " +
             "captured and the tilt adapter is not moved during a replay.";
 
         // Automated-status wording for a connected, device-driven run: describes what the wizard will send
@@ -1231,6 +1342,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         public ICommand RetryMeasurementCommand { get; }
         public ICommand ApplyManualCalibrationCommand { get; }
         public ICommand ClearCalibrationCommand { get; }
+        public ICommand TrustCalibrationCommand { get; }
+        public ICommand ConfirmTrustCalibrationCommand { get; }
+        public ICommand CancelTrustCalibrationCommand { get; }
         public ICommand RefreshPortsCommand { get; }
         public ICommand ConnectDeviceCommand { get; }
         public ICommand DisconnectDeviceCommand { get; }
@@ -1368,6 +1482,9 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             tiltAdapterOptions.IsCalibrated = true;
             tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured = false;
             tiltAdapterOptions.CalibrationIsManual = true;
+            // Whether this entry actually TAKES automation away, so a first-ever manual entry (which never had
+            // it) does not warn about losing something the user never had.
+            bool revokedAutomation = ManualEntryRevokesAutomation(tiltAdapterOptions);
             // [CRITICAL GATE] A manual entry's screw numbering/orientation is not guaranteed to match how the
             // device's motors are wired — clear any device-linked marker so automation (the wizard's
             // hands-off calibration and the inspector's Automatic Adjustment, T14) stays blocked until a
@@ -1377,6 +1494,14 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // tilt vectors — the user typed a single angle) — conservative default: not automation-trusted
             // until a fresh calibration run demonstrably passes its own confidence check.
             tiltAdapterOptions.CalibrationIsReliable = false;
+            // A stale confirmation must not survive the state change that invalidated it.
+            IsTrustCalibrationPending = false;
+            if (revokedAutomation) {
+                Notification.ShowWarning(
+                    "Automatic Adjustment is now disabled: a hand-entered calibration can't be checked against the " +
+                    "device's motor wiring. Use \"Trust This Calibration for Automation\" in the wizard to re-enable it, " +
+                    "or re-run calibration with the device connected.");
+            }
             // A manual entry supersedes whatever wizard run last measured the hardware — reset to the
             // unset sentinel (-1, what the options initialize to; PitchMismatchExceeds ignores <= 0) so
             // the inspector's pitch-mismatch warning can't compare the new adapter's configured pitch
@@ -1399,6 +1524,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ClearSummaryRows();
             RaiseHardwareSummaryChanged();
             RebuildDiagram();
+            RaisePropertyChanged(nameof(AutomationTrustBannerVisible));
         }
 
         /// <summary>
@@ -1416,6 +1542,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             tiltAdapterOptions.CalibratedScrewCount = 0;
             tiltAdapterOptions.IsCalibrated = false;
             tiltAdapterOptions.CalibrationIsManual = false;
+            // [CRITICAL GATE] Clearing the calibration must also clear what made it automation-trusted; leaving
+            // these set would let a later Trust-free calibration inherit a stale link.
+            tiltAdapterOptions.DeviceLinkedCalibrationDeviceName = string.Empty;
+            tiltAdapterOptions.CalibrationIsReliable = false;
+            IsTrustCalibrationPending = false;
             tiltAdapterOptions.ScrewInwardCurvatureSignIsMeasured = false;
             tiltAdapterOptions.LastMeasuredThreadPitchMicrons = -1;
             tiltAdapterOptions.LastMeasuredStepperStepSizeMicrons = -1;
@@ -1433,6 +1564,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             ClearSummaryRows();
             RaiseHardwareSummaryChanged();
             RebuildDiagram();
+            RaisePropertyChanged(nameof(AutomationTrustBannerVisible));
         }
 
         // Shared by ApplyManualCalibration, ClearCalibration, and Restart: every path that invalidates the
@@ -3219,7 +3351,16 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             // the same lastConfidence.IsReliable the wizard already surfaces as the (previously non-blocking)
             // HasConfidenceWarning banner above.
             tiltAdapterOptions.CalibrationIsReliable = lastConfidence?.IsReliable ?? false;
+            // A stale confirmation must not survive the state change that invalidated it -- the same invariant
+            // ApplyManualCalibration, ClearCalibration and the DeviceName handler apply. A fresh run rewrites
+            // both automation markers above, so a Trust confirmation armed against the PREVIOUS calibration is
+            // no longer about the calibration on screen; re-arm from the banner's button if it is still needed.
+            IsTrustCalibrationPending = false;
             RaiseHardwareSummaryChanged();
+            // Neither marker written above routes back through the options PropertyChanged handler that raises
+            // the banner, and IsCalibrated/CalibratedScrewCount raise nothing when a re-calibration leaves them
+            // unchanged -- so the banner would otherwise keep showing the previous run's verdict.
+            RaisePropertyChanged(nameof(AutomationTrustBannerVisible));
         }
 
         private void RaiseHardwareSummaryChanged() {
@@ -3667,7 +3808,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     // Safe mid-replay despite the setter's NotifyCommandsCanExecuteChanged: IsMeasuring is true for
                     // the whole run, which is what actually gates every measurement command's canExecute.
                     CurrentStep = step;
-                    StatusText = $"Replaying {StepTitleText(step, ScrewLabels)}...";
+                    StatusText = $"Replaying {StepTitleText(step, ScrewLabels, IsStepperAdjustment)}...";
                     // Capture-time modes ("use captured in memory" and "update profile") replay each step with its own
                     // detached capture-time star-detection snapshot as an override, so the live profile is untouched
                     // during the replay. "Use current settings" passes null and uses the current profile.

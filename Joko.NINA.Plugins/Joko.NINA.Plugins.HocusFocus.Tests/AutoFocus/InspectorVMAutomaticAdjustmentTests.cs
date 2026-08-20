@@ -68,6 +68,50 @@ public class InspectorVMAutomaticAdjustmentTests {
         Assert.That(InspectorVM.IsCalibrationDeviceLinked(options), Is.EqualTo(expected));
     }
 
+    [Test]
+    public void RemediationText_ForAHandEnteredCalibration_NamesManualEntryAsTheCause() {
+        var options = Substitute.For<ITiltAdapterOptions>();
+        options.DeviceName.Returns("ASG Electronic EAT - 90mm");
+        options.DeviceLinkedCalibrationDeviceName.Returns(string.Empty);
+        options.CalibrationIsManual.Returns(true);
+
+        var text = InspectorVM.AutomaticAdjustmentRemediationTextFor(options);
+
+        Assert.Multiple(() => {
+            Assert.That(text, Does.Contain("by hand"));
+            Assert.That(text, Does.Contain("Tilt Adapter Wizard"), "the remedy must point at where the Trust button is");
+        });
+    }
+
+    [Test]
+    public void RemediationText_ForANonManualUnlinkedCalibration_KeepsTheExistingWording() {
+        var options = Substitute.For<ITiltAdapterOptions>();
+        options.DeviceName.Returns("ASG Electronic EAT - 90mm");
+        options.DeviceLinkedCalibrationDeviceName.Returns(string.Empty);
+        options.CalibrationIsManual.Returns(false);
+
+        Assert.That(InspectorVM.AutomaticAdjustmentRemediationTextFor(options),
+            Is.EqualTo("This calibration is not linked to the connected device. Re-run calibration with the device connected."));
+    }
+
+    [Test]
+    public void RemediationText_ForALinkedButLowConfidenceCalibration_KeepsTheExistingWording() {
+        var options = Substitute.For<ITiltAdapterOptions>();
+        options.DeviceName.Returns("ASG Electronic EAT - 90mm");
+        options.DeviceLinkedCalibrationDeviceName.Returns("ASG Electronic EAT - 90mm");
+        options.CalibrationIsReliable.Returns(false);
+        options.CalibrationIsManual.Returns(true);   // manual must NOT hijack the low-confidence branch
+
+        Assert.That(InspectorVM.AutomaticAdjustmentRemediationTextFor(options),
+            Is.EqualTo("This calibration is low-confidence (it did not pass quality validation). Re-run calibration to enable Automatic Adjustment."));
+    }
+
+    [Test]
+    public void RemediationText_NullOptions_ReturnsTheNotLinkedWording() {
+        Assert.That(InspectorVM.AutomaticAdjustmentRemediationTextFor(null),
+            Is.EqualTo("This calibration is not linked to the connected device. Re-run calibration with the device connected."));
+    }
+
     #endregion
 
     #region CanExecuteAutomaticAdjustment

@@ -59,7 +59,7 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
         /// Each case is annotated with the exact <c>StepInstructionsText</c> wording (four-screw,
         /// isStepper) it realizes. Two variants of the executed sequence both sum to (0,0,0,0) per corner --
         /// the device returns to baseline by the end either way; see EatWizardMappingTests for both
-        /// full-sequence regressions that pin this: the standard six-move sequence (AllInward, ReBaseline1,
+        /// full-sequence regressions that pin this: the standard six-move sequence (AllInward (all motors), ReBaseline1,
         /// Screw1, ReBaseline2, Screw2, Complete, <paramref name="measuredFinalRebaseline"/> false) and the
         /// optional seven-move sequence that substitutes a measured ReBaseline3 restore for Complete's move
         /// (<paramref name="measuredFinalRebaseline"/> true, Complete becomes a no-move).
@@ -73,10 +73,11 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.AsgEat {
 
                 case WizardStep.AllInward:
                     // "Apply +N steps to EVERY motor, then click Run Measurement." -> all four wizard
-                    // screws +N -> (+N,+N,+N,+N) = Backfocus(+N).
+                    // screws +N -> (+N,+N,+N,+N) = Backfocus(+N). Described as "All Motors", never "Inward":
+                    // whether +N is physically inward is exactly what this step measures.
                     return new TiltAdapterMove(
                         TiltMoveAxis.Backfocus, appliedSteps, TiltMoveGroup.Backfocus,
-                        $"Wizard All Inward: {FormatSigned(appliedSteps)} backfocus");
+                        $"Wizard All Motors: {FormatSigned(appliedSteps)} backfocus");
 
                 case WizardStep.ReBaseline1:
                     // "Apply -N steps to every motor, returning to the baseline position, then click Run

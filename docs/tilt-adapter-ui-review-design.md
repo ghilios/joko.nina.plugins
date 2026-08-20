@@ -80,7 +80,7 @@ confirmed.
    Optionally append the variant: "Step 3 of 6 (direction measurement included)".
 
 2. **[H] Per-step header (request b).** Add a short `StepTitle` above the instruction paragraph: Baseline →
-   "Baseline Measurement", AllInward → "All Screws Inward", ReBaseline → "Return to Baseline", Screw1/2 →
+   "Baseline Measurement", AllInward → "All Screws Clockwise" / "All Motors Positive Steps", ReBaseline → "Return to Baseline", Screw1/2 →
    "Move Screw 1/2", Complete → "Calibration Complete". Render bold, mirroring Panel C's existing bold header.
 
 3. **[H] Auto-Run-All copy (request c).** `DeviceStepInstructionsText` always ends "Click Run Measurement (or

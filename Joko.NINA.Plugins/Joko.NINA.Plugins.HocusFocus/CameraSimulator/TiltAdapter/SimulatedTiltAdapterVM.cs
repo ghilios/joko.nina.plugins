@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using NINA.Core.Utility;
+using NINA.Core.Utility.Notification;
 using NINA.Joko.Plugins.HocusFocus.CameraSimulator.Sensors;
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.TiltAdapterDevices.Manual;
@@ -166,7 +167,13 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             ZeroAberrationsCommand = new RelayCommand(ZeroAberrations);
             EnableAberrationsCommand = new RelayCommand(() => options.EnableAberrations = true);
             CopyFromAdapterCommand = new RelayCommand(CopyFromAdapter, () => CanCopyAdapterSettings);
-            CopyToAdapterCommand = new RelayCommand(() => IsCopyToAdapterPending = true, () => CanCopyAdapterSettings);
+            CopyToAdapterCommand = new RelayCommand(() => {
+                // The text is conditional on the real adapter's automation markers, which change underneath this
+                // VM -- re-read it every time the confirmation is armed rather than trusting a one-time binding
+                // evaluation.
+                RaisePropertyChanged(nameof(CopyToAdapterConfirmText));
+                IsCopyToAdapterPending = true;
+            }, () => CanCopyAdapterSettings);
             ConfirmCopyToAdapterCommand = new RelayCommand(ConfirmCopyToAdapter);
             CancelCopyToAdapterCommand = new RelayCommand(() => IsCopyToAdapterPending = false);
 
@@ -641,11 +648,20 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             }
         }
 
-        /// <summary>Names exactly what the copy overwrites — this is real, hand-measured calibration.</summary>
+        /// <summary>
+        /// Names exactly what the copy overwrites — this is real, hand-measured calibration. The automation
+        /// sentence appears only when automation was genuinely available: the marker clears below are
+        /// unconditional, but announcing the loss of something already unavailable is the same false claim the
+        /// wizard's manual-entry warning avoids.
+        /// </summary>
         public string CopyToAdapterConfirmText =>
             "Overwrite the real tilt adapter settings — screw count, screw angles, adapter direction, adjustment type, " +
             $"{(IsStepper ? "stepper step size" : "thread pitch")} and screw radius — with this simulated adapter's values? " +
-            "The result is marked as a manual calibration.";
+            "The result is marked as a manual calibration." +
+            (TiltAdapterWizardVM.ManualEntryRevokesAutomation(realAdapter)
+                ? " Automatic Adjustment will be disabled: a hand-made calibration can't be checked against the " +
+                  "device's motor wiring. Re-run calibration with the device connected to re-enable it."
+                : string.Empty);
 
         // ---- Turning ---------------------------------------------------------------------------------
 
@@ -917,6 +933,11 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             IsCopyToAdapterPending = false;
             if (realAdapter == null) return;
 
+            // Captured BEFORE ANY write below -- in particular before DeviceName becomes "Manual", which by
+            // itself makes IsCalibrationDeviceLinked false and would make this always report "nothing revoked".
+            // Same test, and the same message, as TiltAdapterWizardVM's manual-entry path.
+            bool revokedAutomation = TiltAdapterWizardVM.ManualEntryRevokesAutomation(realAdapter);
+
             realAdapter.ScrewCount = ScrewCount;
             realAdapter.Screw1AngleDegrees = options.SimScrew1AngleDegrees;
             realAdapter.Screw2AngleDegrees = options.SimScrew2AngleDegrees;
@@ -935,11 +956,21 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             realAdapter.IsCalibrated = true;
             realAdapter.ScrewInwardCurvatureSignIsMeasured = false;
             realAdapter.CalibrationIsManual = true;
+            // [CRITICAL GATE] Same clears the wizard's manual-entry path makes. Setting DeviceName to Manual
+            // above already breaks IsCalibrationDeviceLinked implicitly, but leaving a stale device name in the
+            // marker is exactly the kind of thing that survives a later preset change.
+            realAdapter.DeviceLinkedCalibrationDeviceName = string.Empty;
+            realAdapter.CalibrationIsReliable = false;
             // Retire the previous adapter's wizard measurements, so the inspector's pitch-mismatch warning cannot
             // compare the values we just wrote against a stale measurement (the manual-entry path does the same).
             realAdapter.LastMeasuredThreadPitchMicrons = -1;
             realAdapter.LastMeasuredStepperStepSizeMicrons = -1;
 
+            if (revokedAutomation) {
+                Notification.ShowWarning(
+                    "Automatic Adjustment is now disabled: a hand-made calibration can't be checked against the " +
+                    "device's motor wiring. Re-run calibration with the device connected to re-enable it.");
+            }
             RaiseCoherenceChanged();
         }
 

@@ -7,6 +7,13 @@
     xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary"
     xmlns:rules="clr-namespace:NINA.Core.Utility.ValidationRules;assembly=NINA.Core">
 
+    <!--  MERGED, not reached for: a merged dictionary's keys resolve inside this dictionary's own parse-time
+          scope, so it is not the cross-dictionary load-order race the note below is about. Only AlertBrushes is
+          merged, not the large OptionsDataTemplates.  -->
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="../../Resources/AlertBrushes.xaml" />
+    </ResourceDictionary.MergedDictionaries>
+
     <!--  Declared locally rather than reached for across dictionaries: StaticResource resolves at parse time and
           the merge order of separately-exported plugin ResourceDictionaries into Application.Current.Resources is
           not guaranteed, so a cross-dictionary lookup would be a load-order race (see
@@ -201,14 +208,14 @@
                     Command="{Binding CopyFromAdapterCommand}"
                     Style="{StaticResource StandardButton}"
                     ToolTip="Replaces this simulated adapter's geometry with the real tilt-adapter settings. Does not touch the real settings.">
-                    <TextBlock Margin="6,2" Text="Copy from adapter settings" />
+                    <TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Copy from adapter settings" />
                 </Button>
                 <Button
                     Margin="6,0,0,0"
                     Command="{Binding CopyToAdapterCommand}"
                     Style="{StaticResource StandardButton}"
                     ToolTip="Overwrites the real tilt-adapter calibration with this simulated adapter's geometry. Asks for confirmation first.">
-                    <TextBlock Margin="6,2" Text="Copy to adapter settings…" />
+                    <TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Copy to adapter settings…" />
                 </Button>
             </WrapPanel>
 
@@ -216,26 +223,24 @@
                   It names the fields it will overwrite, per the UX design.  -->
             <Border
                 Margin="0,6,0,0"
-                Padding="6,4"
-                Background="{StaticResource NotificationWarningBrush}"
-                CornerRadius="3"
+                Style="{StaticResource HF_AlertWarningBadge}"
                 Visibility="{Binding IsCopyToAdapterPending, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
                 <StackPanel>
                     <TextBlock
                         MaxWidth="380"
                         HorizontalAlignment="Left"
-                        Foreground="{StaticResource NotificationWarningTextBrush}"
+                        Foreground="{StaticResource HF_AlertWarningTextBrush}"
                         Text="{Binding CopyToAdapterConfirmText}"
                         TextWrapping="Wrap" />
                     <WrapPanel Margin="0,4,0,0">
                         <Button Command="{Binding ConfirmCopyToAdapterCommand}" Style="{StaticResource StandardButton}">
-                            <TextBlock Margin="6,2" Text="Overwrite" />
+                            <TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Overwrite" />
                         </Button>
                         <Button
                             Margin="6,0,0,0"
                             Command="{Binding CancelCopyToAdapterCommand}"
                             Style="{StaticResource StandardButton}">
-                            <TextBlock Margin="6,2" Text="Cancel" />
+                            <TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Cancel" />
                         </Button>
                     </WrapPanel>
                 </StackPanel>
@@ -265,14 +270,12 @@
                   rapid-click loop must never be interrupted by a dialog.  -->
             <Border
                 Margin="0,0,0,6"
-                Padding="6,4"
-                Background="{StaticResource NotificationWarningBrush}"
-                CornerRadius="3"
+                Style="{StaticResource HF_AlertWarningBadge}"
                 Visibility="{Binding HasConfigurationBanner, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
                 <WrapPanel>
                     <TextBlock
                         VerticalAlignment="Center"
-                        Foreground="{StaticResource NotificationWarningTextBrush}"
+                        Foreground="{StaticResource HF_AlertWarningTextBrush}"
                         Text="{Binding ConfigurationBannerText}"
                         TextWrapping="Wrap" />
                 </WrapPanel>
@@ -280,14 +283,12 @@
 
             <Border
                 Margin="0,0,0,6"
-                Padding="6,4"
-                Background="{StaticResource NotificationWarningBrush}"
-                CornerRadius="3"
+                Style="{StaticResource HF_AlertWarningBadge}"
                 Visibility="{Binding ShowAberrationsDisabledBanner, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}">
                 <WrapPanel>
                     <TextBlock
                         VerticalAlignment="Center"
-                        Foreground="{StaticResource NotificationWarningTextBrush}"
+                        Foreground="{StaticResource HF_AlertWarningTextBrush}"
                         Text="Aberrations are disabled — the plane below has no effect on rendered frames"
                         TextWrapping="Wrap" />
                     <!--  Operate deliberately stays enabled: editing an inert state is legal, just inert.  -->
@@ -296,7 +297,7 @@
                         VerticalAlignment="Center"
                         Command="{Binding EnableAberrationsCommand}"
                         Style="{StaticResource StandardButton}">
-                        <TextBlock Margin="6,1" Text="Enable" />
+                        <TextBlock Margin="6,1" Foreground="{StaticResource ButtonForegroundBrush}" Text="Enable" />
                     </Button>
                 </WrapPanel>
             </Border>
@@ -324,7 +325,7 @@
                     Margin="8,0,0,0"
                     VerticalAlignment="Center"
                     FontStyle="Italic"
-                    Foreground="{StaticResource NotificationWarningBrush}"
+                    Foreground="{StaticResource HF_AlertWarningAccentBrush}"
                     Text="{Binding ExtremeTiltText}"
                     Visibility="{Binding HasExtremeTilt, Converter={StaticResource HFSim_BooleanToVisibilityConverter}}" />
             </WrapPanel>
@@ -346,7 +347,7 @@
                     Command="{Binding UndoCommand}"
                     Style="{StaticResource StandardButton}"
                     ToolTip="Reverts the last click — the injected plane, the best-focus position and the net counters.">
-                    <TextBlock Margin="6,1" Text="Undo" />
+                    <TextBlock Margin="6,1" Foreground="{StaticResource ButtonForegroundBrush}" Text="Undo" />
                 </Button>
             </WrapPanel>
 
@@ -481,7 +482,7 @@
                     Command="{Binding RezeroCommand}"
                     Style="{StaticResource StandardButton}"
                     ToolTip="{Binding RezeroTooltip}">
-                    <TextBlock Margin="6,1" Text="Re-zero" />
+                    <TextBlock Margin="6,1" Foreground="{StaticResource ButtonForegroundBrush}" Text="Re-zero" />
                 </Button>
             </WrapPanel>
 
@@ -558,7 +559,7 @@
                         Command="{Binding ZeroAberrationsCommand}"
                         Style="{StaticResource StandardButton}"
                         ToolTip="Flattens the injected plane instantly, for starting a fresh scenario.">
-                        <TextBlock Margin="6,2" Text="Zero all aberrations" />
+                        <TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Zero all aberrations" />
                     </Button>
                 </StackPanel>
             </Expander>
