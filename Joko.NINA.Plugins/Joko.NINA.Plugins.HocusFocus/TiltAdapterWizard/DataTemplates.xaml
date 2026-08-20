@@ -1675,7 +1675,7 @@
                                     Margin="0,3,0,0"
                                     HorizontalAlignment="Left"
                                     Foreground="{StaticResource HF_AlertWarningTextBrush}"
-                                    Text="This calibration was entered or edited by hand, so HocusFocus cannot verify that your screw numbering matches the device's motor wiring. Re-run the wizard with the device connected, or trust this calibration explicitly."
+                                    Text="This calibration was entered or edited by hand, so HocusFocus cannot verify that your screw numbering matches the device's motor wiring. Re-run the wizard with the device connected, or trust this calibration explicitly using the button below."
                                     TextWrapping="Wrap" />
 
                                 <!--  Step 1: arm.  -->
@@ -1701,13 +1701,18 @@
                                         Text="If your screw numbering does not match the device's motor wiring, Automatic Adjustment will drive the adapter unattended in the wrong direction and make tilt worse. Verify with a single manual adjustment before leaving it unattended."
                                         TextWrapping="Wrap" />
                                     <WrapPanel Margin="0,6,0,0">
-                                        <Button Command="{Binding ConfirmTrustCalibrationCommand}">
+                                        <Button
+                                            AutomationProperties.Name="Confirm trusting this calibration for automation"
+                                            Command="{Binding ConfirmTrustCalibrationCommand}">
                                             <TextBlock
                                                 Margin="10,5,10,5"
                                                 Foreground="{StaticResource ButtonForegroundBrush}"
                                                 Text="Yes, trust it" />
                                         </Button>
-                                        <Button Margin="6,0,0,0" Command="{Binding CancelTrustCalibrationCommand}">
+                                        <Button
+                                            Margin="6,0,0,0"
+                                            AutomationProperties.Name="Cancel trusting this calibration"
+                                            Command="{Binding CancelTrustCalibrationCommand}">
                                             <TextBlock
                                                 Margin="10,5,10,5"
                                                 Foreground="{StaticResource ButtonForegroundBrush}"
