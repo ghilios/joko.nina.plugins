@@ -1883,6 +1883,124 @@ GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.nor
 
 ---
 
+## Task 11b: Button text that renders invisible on the Dark schema
+
+**Found during Task 6's review, not in the original spec.** Scoped in because it is the same defect class the whole
+plan exists to fix, and one instance sits *inside* the idle-countdown badge Task 6 just made readable.
+
+**Files:**
+- Modify: 16 sites across `PLUGIN/AutoFocus/DataTemplates.xaml`, `PLUGIN/AutoFocus/Replay/ReplaySettingsPromptControl.xaml`, `PLUGIN/CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml`, `PLUGIN/StarDetection/Optimization/DataTemplates.xaml`, `PLUGIN/TiltAdapterDevices/Prompt/TiltDeviceAdjustmentPromptControl.xaml`, `PLUGIN/TiltAdapterWizard/DataTemplates.xaml`
+
+### The defect
+
+A `TextBlock` used as `Button` content with **no explicit `Foreground` and no explicit `Style`** does not inherit the
+button's foreground. NINA.WPF.Base ships a **keyless** `TextBlock` style (`Resources/Styles/TextBlock.xaml`,
+`Foreground = PrimaryBrush`) in `Application.Resources`, and an implicit style beats an inherited value. So the text
+renders in `PrimaryBrush` on `ButtonBackgroundBrush`.
+
+On NINA's **Dark** and **Alternative Custom** schemas those two colours are the *same value* — `#FF550C18` — so the
+button label is **1.00:1: literally invisible**. `TiltAdapterWizard/DataTemplates.xaml` already documents this
+implicit-style hazard in its header comment; these 16 sites simply predate or missed it.
+
+The rest of the plugin already follows the correct convention, e.g. every button in the wizard sets
+`Foreground="{StaticResource ButtonForegroundBrush}"` on its content `TextBlock`.
+
+### What this task does and does not fix
+
+Adding `ButtonForegroundBrush` takes those two schemas from **1.00:1 to 1.44:1** and restores consistency with every
+other button in the plugin and in NINA. It does **not** make button text WCAG-legible, because NINA's own button
+palette is the limit: `ButtonForegroundColor` on `ButtonBackgroundColor` clears 4.5:1 on only **12 of 18** built-in
+schemas (Dark and Alternative Custom 1.44, Dark Nebula and Custom 4.01, High Contrast 4.00, Vivid Malachite 4.45).
+
+**Do not "fix" that by computing a contrast-safe button foreground.** Every button in this plugin would then look
+different from every other button in NINA, which is a product decision for the maintainer, not a bug fix. This task
+only removes the fully-invisible case.
+
+- [ ] **Step 1: Add the missing foreground at all 16 sites**
+
+Each is a one-attribute addition to a `TextBlock` that is the direct content of a `Button`:
+
+```xml
+<TextBlock Margin="6,2" Foreground="{StaticResource ButtonForegroundBrush}" Text="Stay connected" />
+```
+
+The 16 sites (line numbers are pre-edit; locate by button text, and note some files shift as you edit):
+
+| File | Line | Button text |
+|---|---|---|
+| `AutoFocus/DataTemplates.xaml` | 153 | Stay connected |
+| `AutoFocus/DataTemplates.xaml` | 724 | Review Frames |
+| `AutoFocus/DataTemplates.xaml` | 3367 | Automatic Adjustment |
+| `AutoFocus/Replay/ReplaySettingsPromptControl.xaml` | 135 | Cancel |
+| `CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml` | 211 | Copy from adapter settings |
+| `CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml` | 218 | Copy to adapter settings… |
+| `CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml` | 239 | Overwrite |
+| `CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml` | 245 | Cancel |
+| `CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml` | 306 | Enable |
+| `CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml` | 356 | Undo |
+| `CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml` | 491 | Re-zero |
+| `CameraSimulator/TiltAdapter/TiltAdapterDataTemplates.xaml` | 568 | Zero all aberrations |
+| `StarDetection/Optimization/DataTemplates.xaml` | 1002 | Capture a new sweep and optimize |
+| `StarDetection/Optimization/DataTemplates.xaml` | 1037 | (bound content) |
+| `TiltAdapterDevices/Prompt/TiltDeviceAdjustmentPromptControl.xaml` | 373 | Cancel |
+| `TiltAdapterWizard/DataTemplates.xaml` | 1660 | Clear Calibration |
+
+**Check `TiltDeviceAdjustmentPromptControl.xaml:373` before editing it.** That control deliberately carries its own
+self-contained, theme-independent palette (`Fg`, `FgDim`, `WarnFg`, `DangerFg`, fixed hex values) so it stays legible
+regardless of schema. If its buttons are styled from that local palette, use the local foreground key that matches its
+siblings rather than `ButtonForegroundBrush` — match the file, not this table.
+
+- [ ] **Step 2: Build**
+
+```bash
+dotnet.exe build "$(wslpath -w Joko.NINA.Plugins/Joko.NINA.Plugins.sln)" -c Debug --nologo
+```
+Expected: `Build succeeded`, 0 errors.
+
+- [ ] **Step 3: Verify no Button-content TextBlock is left without a foreground**
+
+```bash
+python3 - <<'SCAN'
+import re, glob
+root='Joko.NINA.Plugins/Joko.NINA.Plugins.HocusFocus'
+def spans(src):
+    out=[]; depth=0; start=None
+    for m in re.finditer(r'<(/?)Button\b([^>]*?)(/?)>', src, re.S):
+        closing, _, selfclose = m.group(1), m.group(2), m.group(3)
+        if closing:
+            depth-=1
+            if depth==0 and start is not None: out.append((start,m.end())); start=None
+        elif selfclose: continue
+        else:
+            if depth==0: start=m.start()
+            depth+=1
+    return out
+bad=[]
+for f in sorted(glob.glob(root+'/**/*.xaml', recursive=True)):
+    if '/obj/' in f or '/bin/' in f: continue
+    src=open(f,encoding='utf-8-sig',errors='replace').read()
+    for s,e in spans(src):
+        for tb in re.finditer(r'<TextBlock\b[^>]*?/>|<TextBlock\b[^>]*?>.*?</TextBlock>', src[s:e], re.S):
+            t=tb.group(0)
+            if 'Foreground' in t or 'Style=' in t: continue
+            bad.append(f"{f}:{src[:s+tb.start()].count(chr(10))+1}")
+print("remaining:", len(bad))
+for b in bad: print("  ", b)
+SCAN
+```
+Expected: `remaining: 0`.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add -A
+GIT_COMMITTER_NAME="George Hilios" GIT_COMMITTER_EMAIL="322725+ghilios@users.noreply.github.com" \
+  git commit --author="George Hilios <322725+ghilios@users.noreply.github.com>" \
+  -m "Stop button labels rendering invisible on the Dark colour schema"
+```
+
+---
+
 ## Task 12: Documentation, full suite, live verification
 
 **Files:**
