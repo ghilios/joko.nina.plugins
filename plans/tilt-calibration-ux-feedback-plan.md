@@ -16,7 +16,7 @@
 
 Key facts an engineer new to this codebase will otherwise get wrong:
 
-1. **NINA's `NotificationErrorBrush` / `NotificationWarningBrush` are FILL colors, not text colors.** In 14 of the 16 built-in schemas they are `#FF700000` and `#FF5E330B` — near-black. NINA only ever uses them as `Background`. This plugin used them as `Foreground`, which is the bug.
+1. **NINA's `NotificationErrorBrush` / `NotificationWarningBrush` are FILL colors, not text colors.** 13 of NINA's 18 built-in schemas use the near-black pair `#FF700000` / `#FF5E330B`, and 15 of the 18 render error text below 4.5:1 today. NINA only ever uses them as `Background`. This plugin used them as `Foreground`, which is the bug.
 2. **`NotificationErrorTextBrush` is not a safe fix either.** On the "Dark" schema it is `#FF02010A` — near-black text on near-black-red fill, 1.67:1. That is why this plan computes the badge text color instead of reading it.
 3. **`WizardStep.AllInward` keeps its enum name.** It is persisted in saved replay runs. Only user-facing strings change.
 4. **The wizard's motion is correct.** Do not "fix" any sign, axis, or move. Part 2 is wording only.
@@ -211,7 +211,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
     /// WCAG 2.x contrast math, and the two color decisions the alert brushes are built from.
     ///
     /// WHY THIS EXISTS: NINA's ColorSchema exposes NotificationErrorColor / NotificationWarningColor as FILL
-    /// colors (it only ever uses them as a Background), and 14 of its 16 built-in schemas set them to near-black
+    /// colors (it only ever uses them as a Background), and 13 of its 18 built-in schemas set them to near-black
     /// #FF700000 / #FF5E330B. Used as a Foreground — which this plugin did in 27 places — they land at 1.06:1
     /// against a dark page background. Its paired NotificationErrorTextColor is not a way out either: the "Dark"
     /// schema sets it to #FF02010A, i.e. near-black text on near-black-red fill, 1.67:1. So both alert text
@@ -406,7 +406,7 @@ public class AlertColorConverterTests {
 
     // WPF pushes DependencyProperty.UnsetValue on the first pass of a resource-level binding. Returning
     // Binding.DoNothing would leave SolidColorBrush.Color at Transparent, i.e. invisible text; white is the
-    // right answer for 15 of the 16 built-in schemas anyway.
+    // answer on all 18 built-in schemas anyway.
     [Test]
     public void BadgeText_OnNonColourInput_FallsBackToWhite() {
         var converter = new BadgeTextColorConverter();
@@ -484,7 +484,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture) {
             // The first pass of a resource-level binding arrives as DependencyProperty.UnsetValue. White rather
             // than Binding.DoNothing: DoNothing would leave SolidColorBrush.Color at Transparent (invisible
-            // text), and white is correct on 15 of the 16 built-in schemas.
+            // text), and white is the computed answer on all 18 built-in schemas.
             return value is Color fill ? ContrastMath.BestContrastText(fill) : Colors.White;
         }
 
@@ -585,10 +585,10 @@ Create `PLUGIN/Resources/AlertBrushes.xaml`:
 
     <!--
         Accessible alert chrome. NINA's NotificationError/WarningBrush are FILL colours (it only ever uses them
-        as a Background) and are near-black in 14 of its 16 built-in schemas, so using them as a Foreground
+        as a Background) and are near-black in 13 of its 18 built-in schemas, so using them as a Foreground
         renders at 1.06-1.9:1 on every dark theme. Its paired NotificationErrorTextBrush is no better — the
         "Dark" schema sets it to #FF02010A, near-black on near-black-red, 1.67:1. Both text colours are
-        therefore COMPUTED (see Converters/ContrastMath.cs), which holds >= 4.5:1 on all 16 built-in schemas and
+        therefore COMPUTED (see Converters/ContrastMath.cs), which holds >= 4.5:1 on all 18 built-in schemas and
         on custom ones.
 
         The Color properties are BOUND rather than fixed so a live colour-schema change flows through, the same
@@ -1853,7 +1853,7 @@ Append to `.claude/docs/wpf-xaml.md`:
 ## Alert colours — never use the NINA notification brushes as a Foreground
 
 `NotificationErrorBrush` / `NotificationWarningBrush` are **fill** colours. NINA only ever uses them as a
-`Background`, and 14 of its 16 built-in schemas set them to near-black (`#FF700000`, `#FF5E330B`). Used as a
+`Background`, and 13 of its 18 built-in schemas set them to near-black (`#FF700000`, `#FF5E330B`). Used as a
 `Foreground` they render at 1.06–1.9:1 against a dark page background. Their paired
 `NotificationErrorTextBrush` is not a fix either — the "Dark" schema sets it to `#FF02010A`, i.e. near-black
 text on near-black-red fill, 1.67:1.
@@ -1866,7 +1866,7 @@ Use `Resources/AlertBrushes.xaml` instead:
 | Alert text drawn on the page background | `HF_AlertErrorAccentBrush` / `HF_AlertWarningAccentBrush` |
 | The filled badge `Border` itself | `HF_AlertErrorBadge` / `HF_AlertWarningBadge` (both `BasedOn`-able) |
 
-Both text colours are computed by `Converters/ContrastMath.cs` and hold ≥ 4.5:1 on all 16 built-in schemas;
+Both text colours are computed by `Converters/ContrastMath.cs` and hold ≥ 4.5:1 on all 18 built-in schemas;
 `ContrastMathTests.EveryBuiltInNinaSchema_ClearsWcagAaForBadgeTextAndAccent` is the regression.
 
 Filled vs outlined follows the existing house rule (`AutoFocus/DataTemplates.xaml:120` and `:2967`): **filled**

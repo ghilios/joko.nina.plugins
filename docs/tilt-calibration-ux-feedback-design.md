@@ -20,8 +20,9 @@ NINA's color schemas define `NotificationErrorColor` / `NotificationWarningColor
 `NotificationErrorTextColor` / `NotificationWarningTextColor`. NINA itself only ever uses them as `Background`
 (`NINA.Sequencer/Trigger/Datatemplates.xaml`, `MiniSequenceItem.xaml`, `ProgressStyle.xaml`).
 
-HocusFocus uses them as `Foreground` in 27 places. In 14 of the 16 built-in schemas that color is `#FF700000`
-(error) and `#FF5E330B` (warning) — near-black reds — so against a dark page background the text is invisible:
+HocusFocus uses them as `Foreground` in 27 places. 13 of NINA's 18 built-in schemas use the near-black pair
+`#FF700000` (error) and `#FF5E330B` (warning), and against a dark page background that text is invisible — 15 of
+the 18 schemas render error text below 4.5:1 today, and 14 render warning text below it:
 
 | Schema | page bg | red text on page (today) |
 |---|---|---|
@@ -92,7 +93,8 @@ dictionary-level `Style`), so no `ProfileService` binding proxy is needed.
 
 ### Verified output
 
-Computed for every built-in NINA schema (`ColorSchemas.ReadColorSchemas()`):
+Computed for every built-in NINA schema (`ColorSchemas.ReadColorSchemas()`, which returns 18 — the 16 named
+themes plus the editable "Custom" and "Alternative Custom" defaults; the table groups schemas that share a row):
 
 | Schema | page bg | error accent | ratio | warning accent | ratio | badge text ratio (err / warn) |
 |---|---|---|---|---|---|---|
@@ -107,10 +109,12 @@ Computed for every built-in NINA schema (`ColorSchemas.ReadColorSchemas()`):
 | Slate | `#1E2129` | `#FF3E3E` | 4.61 | `#CF7118` | 4.62 | 12.43 / 10.75 |
 | Wisteria | `#2D0D25` | `#FF2222` | 4.60 | `#C66B17` | 4.61 | 12.43 / 10.75 |
 | Navy | `#0C141F` | `#F91E1E` | 4.61 | `#EA3F1E` | 4.60 | 5.20 / 5.10 |
-| Dark Nebula / Dichromacy | `#191A1C` | `#FF2626` | 4.61 | `#CD6808` | 4.63 | 12.43 / 4.69 |
+| Dark Nebula / Dichromacy / Custom | `#191A1C` | `#FF2626` | 4.61 | `#CD6808` | 4.63 | 12.43 / 4.69 |
+| Alternative Custom | `#02010A` | `#EE0707` | 4.62 | `#F5A300` (unchanged) | 10.01 | 5.20 / 10.12 |
 
-Worst case across 16 schemas × 4 roles: **4.60:1**. Light-background schemas are left untouched, because the
-existing color already passes there.
+Worst case across 18 schemas × 4 roles (72 checks): **4.60:1**. Light-background schemas are left untouched, because the
+existing color already passes there — as is Alternative Custom's warning, the one dark-schema alert colour NINA
+already ships bright enough to read.
 
 ### Call-site changes
 
