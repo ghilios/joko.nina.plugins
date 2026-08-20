@@ -198,7 +198,13 @@ namespace TestApp {
                 Console.WriteLine($"  {r.Step,-10} -> {Path.GetFileName(r.Folder)} ({r.Frames.Count} frames, {r.Frames.Select(f => f.Focuser).Distinct().Count()} positions)");
             }
 
-            // PixelScale = arcsec/pixel from the dataset pixel size + the profile's focal length (binning 1).
+            // PixelScale = arcsec/pixel from the dataset pixel size + the profile's focal length.
+            // metadata.PixelSizeMicrons is the EFFECTIVE pitch of the saved frames (native x Auto Focus Binning)
+            // for runs written by schema 4 and later, so this is already the binned scale and every
+            // ImageSize x PixelSizeMicrons product below is the true sensor extent. A run saved by an older
+            // wizard at a binning above 1x1 stored the NATIVE pitch instead: this headless path then measures
+            // the same binning-factor-inflated gradients (and thus pitch) the wizard itself used to report.
+            // Replay such a run through the wizard, which re-derives the pitch from the frames.
             var pixelScale = MathUtility.ArcsecPerPixel(metadata.PixelSizeMicrons, activeProfile.TelescopeSettings.FocalLength);
 
             // Resolve the detection params: stored optimized settings (default), a fresh optimization run, or the
