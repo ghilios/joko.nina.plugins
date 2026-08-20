@@ -19,7 +19,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Converters {
     /// WCAG 2.x contrast math, and the two color decisions the alert brushes are built from.
     ///
     /// WHY THIS EXISTS: NINA's ColorSchema exposes NotificationErrorColor / NotificationWarningColor as FILL
-    /// colors (it only ever uses them as a Background), and 15 of its 18 built-in schemas set them to near-black
+    /// colors (it only ever uses them as a Background), and 13 of its 18 built-in schemas set them to near-black
     /// #FF700000 / #FF5E330B. Used as a Foreground — which this plugin did in 27 places — they land at 1.06:1
     /// against a dark page background. Its paired NotificationErrorTextColor is not a way out either: the "Dark"
     /// schema sets it to #FF02010A, i.e. near-black text on near-black-red fill, 1.67:1. So both alert text

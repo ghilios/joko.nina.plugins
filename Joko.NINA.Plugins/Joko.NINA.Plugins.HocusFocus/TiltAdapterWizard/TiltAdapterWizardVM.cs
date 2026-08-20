@@ -448,6 +448,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
                     RaisePropertyChanged(nameof(IsCalibrationValid));
                     RaisePropertyChanged(nameof(AutomationTrustBannerVisible));
                 }
+                // The banner reads both automation markers directly, so it must re-raise when they change --
+                // structurally, not by relying on every writer to also move a watched property or raise it by
+                // hand. Cheap, and it makes a future writer correct by default.
+                if (e.PropertyName == nameof(ITiltAdapterOptions.DeviceLinkedCalibrationDeviceName) ||
+                    e.PropertyName == nameof(ITiltAdapterOptions.CalibrationIsReliable)) {
+                    RaisePropertyChanged(nameof(AutomationTrustBannerVisible));
+                }
                 if (e.PropertyName == nameof(ITiltAdapterOptions.ScrewCount) ||
                     e.PropertyName == nameof(ITiltAdapterOptions.IsCalibrated) ||
                     e.PropertyName == nameof(ITiltAdapterOptions.CalibratedScrewCount)) {
@@ -844,18 +851,30 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
         }
 
         /// <summary>
-        /// [CRITICAL GATE] Shown when a saved calibration cannot drive Automatic Adjustment because it is not
-        /// linked to the selected device preset, or did not pass its own confidence check — the exact pair
+        /// [CRITICAL GATE] Shown when a HAND-ENTERED calibration cannot drive Automatic Adjustment because it is
+        /// not linked to the selected device preset, or did not pass its own confidence check — the exact pair
         /// InspectorVM.CanExecuteAutomaticAdjustment requires. Gated on a motorized preset because there is
         /// nothing to automate otherwise.
         ///
         /// This exists because clearing those markers used to be completely silent: a user who corrected one
         /// angle by hand after a device-driven run lost Automatic Adjustment with no message, no cause named,
         /// and no remedy short of repeating the whole calibration.
+        ///
+        /// CalibrationIsManual is load-bearing, not decoration. Without it this is also true for three states
+        /// that are NOT hand-entry — a device-driven run that completed but was low-confidence, a replay, and a
+        /// disconnected live run — where the banner's "entered or edited by hand" copy would simply be false.
+        ///
+        /// Deliberately NOT offered for the low-confidence case, and do not widen it back: Trust writes
+        /// CalibrationIsReliable = true, which overrides the noise-vs-signal QUALITY check, not the device link.
+        /// The verification the risk copy asks for — move one screw, watch which corner moves — can confirm a
+        /// screw numbering, but it cannot detect a noise-dominated calibration, which has correct numbering and
+        /// wrong angles. Consenting to that would be uninformed consent, and the Inspector already prescribes
+        /// the right remedy ("Re-run calibration to enable Automatic Adjustment").
         /// </summary>
         public bool AutomationTrustBannerVisible =>
             IsCalibrationValid
             && IsMotorizedDevice
+            && tiltAdapterOptions.CalibrationIsManual
             && !(InspectorVM.IsCalibrationDeviceLinked(tiltAdapterOptions) && tiltAdapterOptions.CalibrationIsReliable);
 
         /// <summary>

@@ -94,13 +94,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
         // (4) onto the substitute -- and an NSubstitute property SET does feed its getter -- so a 3-screw stub
         // would leave ScrewCount(4) != CalibratedScrewCount(3) and IsCalibrationValid false, silently hiding
         // the banner for a reason that has nothing to do with automation trust.
+        //
+        // manual defaults TRUE because the Trust banner is about a HAND-ENTERED calibration specifically; pass
+        // false for the device-driven/replay states that also lack the automation markers but must NOT be
+        // offered a Trust button.
         private static (TiltAdapterWizardVM vm, ITiltAdapterOptions options) BuildCalibrated(
             string deviceName = MotorizedPreset, string linkedDevice = "", bool reliable = false,
-            IProfileService profileService = null) {
+            bool manual = true, IProfileService profileService = null) {
             var (vm, options, _, _) = Build(screwCount: 4, profileService: profileService, configureOptions: o => {
                 o.DeviceName.Returns(deviceName);
                 o.IsCalibrated.Returns(true);
                 o.CalibratedScrewCount.Returns(4);
+                o.CalibrationIsManual.Returns(manual);
                 o.DeviceLinkedCalibrationDeviceName.Returns(linkedDevice);
                 o.CalibrationIsReliable.Returns(reliable);
             });
@@ -3824,8 +3829,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
 
             Assert.Multiple(() => {
                 Assert.That(vm.IsTrustCalibrationPending, Is.False);
-                // The banner is back to its arm state: device-linked but not reliable still blocks automation.
-                Assert.That(vm.AutomationTrustBannerVisible, Is.True);
+                // And NO Trust button afterwards: the run cleared CalibrationIsManual, and a low-confidence
+                // calibration is not something the banner's screw-numbering check could validate anyway.
+                Assert.That(vm.AutomationTrustBannerVisible, Is.False);
             });
         }
 
@@ -3890,6 +3896,26 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.TiltAdapterWizard {
                 calibrationIsReliable: options.CalibrationIsReliable,
                 hasNumericGuidance: true, isOperationActive: false,
                 currentGeneration: 2, lastExecutedGeneration: 1), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void AutomationTrustBanner_IsHiddenForADeviceDrivenLowConfidenceCalibration() {
+            // [CRITICAL GATE] Device-linked but not reliable, and NOT hand-entered (RunCalibrationMath writes
+            // CalibrationIsManual = false). Trust writes CalibrationIsReliable = true, which overrides the
+            // noise-vs-signal quality check -- and the banner's verification ("move one screw, watch which
+            // corner moves") cannot detect a noise-dominated calibration, which has correct screw numbering and
+            // wrong angles. The remedy for this state is re-running the calibration, not trusting it.
+            var (vm, _) = BuildCalibrated(linkedDevice: MotorizedPreset, reliable: false, manual: false);
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False);
+        }
+
+        [Test]
+        public void AutomationTrustBanner_IsHiddenForAReplayedCalibration() {
+            // A replay clears the device link (not a connected run) and CalibrationIsManual -- so it lands in
+            // the same not-automatable state as a hand entry, but "entered or edited by hand" would be false.
+            var (vm, _) = BuildCalibrated(linkedDevice: "", reliable: true, manual: false);
+            Assert.That(vm.AutomationTrustBannerVisible, Is.False,
+                "the banner asserts hand-entry; a replay is not hand-entry");
         }
 
         [Test]

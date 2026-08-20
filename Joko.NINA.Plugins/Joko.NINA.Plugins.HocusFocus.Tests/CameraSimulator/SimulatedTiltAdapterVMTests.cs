@@ -1,4 +1,4 @@
-﻿#region "copyright"
+#region "copyright"
 
 /*
     Copyright © 2021 - 2026 George Hilios <ghilios+NINA@googlemail.com>
@@ -884,12 +884,32 @@ public class SimulatedTiltAdapterVMTests {
 
         var vm = new SimulatedTiltAdapterVM(options, real);
         vm.CopyToAdapterCommand.Execute(null);
+        // The copy revokes automation, so the confirmation must SAY so before the user agrees to it.
+        Assert.That(vm.CopyToAdapterConfirmText, Does.Contain("Automatic Adjustment will be disabled"));
         vm.ConfirmCopyToAdapterCommand.Execute(null);
 
         Assert.Multiple(() => {
             Assert.That(real.DeviceLinkedCalibrationDeviceName, Is.Empty);
             Assert.That(real.CalibrationIsReliable, Is.False);
             Assert.That(real.CalibrationIsManual, Is.True, "precondition for the clears: this IS a manual calibration now");
+        });
+    }
+
+    [Test]
+    public void CopyToAdapterConfirmText_DoesNotClaimToDisableAutomationThatWasNeverEnabled() {
+        // Mirrors the wizard's manual-entry warning: the clears are unconditional, but the ANNOUNCEMENT is not.
+        // A real adapter with no device link had Automatic Adjustment blocked already.
+        var options = Configured(screwCount: 4, curvatureSign: -1);
+        var real = BuildRealAdapterOptions();
+        real.CalibrationIsReliable = true; // reliable but never device-linked -> automation was still blocked
+
+        var vm = new SimulatedTiltAdapterVM(options, real);
+        vm.CopyToAdapterCommand.Execute(null);
+
+        Assert.Multiple(() => {
+            Assert.That(vm.CopyToAdapterConfirmText, Does.Not.Contain("Automatic Adjustment"));
+            Assert.That(vm.CopyToAdapterConfirmText, Does.Contain("marked as a manual calibration"),
+                "the rest of the confirmation is unchanged");
         });
     }
 
