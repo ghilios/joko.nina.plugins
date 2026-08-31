@@ -499,21 +499,68 @@ namespace NINA.Joko.Plugins.HocusFocus.Inspection {
                 }
                 ReferenceImage = refIndex;
 
+                // refIndex stays -1 only when EVERY frame detected zero stars, which would index [-1] into the
+                // frame list further down (RANSAC alignment, or the KdTree match when RANSAC is off). Fail with
+                // a message that names the actual problem instead.
+                if (refIndex < 0) {
+                    throw new Exception($"Sensor modeling failed. None of the {allDetectedStars.Count} frames in this run had any detected stars.");
+                }
+
                 ct.ThrowIfCancellationRequested();
 
                 RegisteredStar[] registeredStars = null;
                 TrianglesByImage = new Dictionary<int, List<RANSACRegistration.StarTriangle>>();
 
                 // set relative brightness level for each star in each image
+                //
+                // Star detection legitimately returns an EMPTY star list for a frame (an extreme-defocus sweep
+                // endpoint, a frame lost to cloud), and the AutoFocus curve fit tolerates that by discarding the
+                // point (it filters on Y > 0). This loop did not: Max/Min over the empty list threw
+                // "Sequence contains no elements" and killed the whole inspection AFTER a successful AF run.
+                // Empty frames are skipped here and contribute nothing downstream: the KdTree match iterates
+                // their (empty) star list, and RANSAC alignment builds no triangles for them, so they end up
+                // reported as unaligned (see RANSACRegistration.BuildStarTriangles, which needed the same
+                // empty-input guard). They are deliberately left IN the list so frame indices stay aligned with
+                // ReferenceImage / TrianglesByImage and with the Review Frames snapshot, which is built from the
+                // same unfiltered list and is where the user goes to see which frame came back empty.
+                var framesWithoutStars = 0;
+                var framesWithoutBrightnessRange = 0;
                 foreach (var detectedStars in allDetectedStars) {
-                    double imageMaxBrightness = detectedStars.StarDetectionResult.StarList.Max(s => s.AverageBrightness);
-                    double imageMinBrightness = detectedStars.StarDetectionResult.StarList.Min(s => s.AverageBrightness);
-                    foreach (var (star, index) in detectedStars.StarDetectionResult.StarList
+                    var starList = detectedStars.StarDetectionResult.StarList;
+                    if (starList.Count == 0) {
+                        ++framesWithoutStars;
+                        continue;
+                    }
+
+                    double imageMaxBrightness = starList.Max(s => s.AverageBrightness);
+                    double imageMinBrightness = starList.Min(s => s.AverageBrightness);
+                    // A frame with a single star (or, degenerately, several of identical brightness) has no
+                    // brightness range to normalise against, and the division produced NaN. NaN silently poisons
+                    // the brightness-difference match filter in MatchStarsUsingKdTree — every |NaN - x| < tol
+                    // comparison is false, so those stars were unmatchable rather than merely unreliable — and
+                    // rides along into the RANSAC Point2D brightness component. Use the midpoint of the [0, 1]
+                    // normalised range instead: finite, in-range, deterministic, and (being equidistant from
+                    // both ends) the choice that minimises the worst-case error against the unknown true value.
+                    var brightnessRange = imageMaxBrightness - imageMinBrightness;
+                    var hasBrightnessRange = brightnessRange > 0.0;
+                    if (!hasBrightnessRange) {
+                        ++framesWithoutBrightnessRange;
+                    }
+                    foreach (var (star, index) in starList
                                                                     .Select((star, index) => ((HocusFocusDetectedStar)star, index))) {
-                        star.NormalisedBrightness = (float)((star.AverageBrightness - imageMinBrightness) / (imageMaxBrightness - imageMinBrightness));
+                        star.NormalisedBrightness = hasBrightnessRange
+                            ? (float)((star.AverageBrightness - imageMinBrightness) / brightnessRange)
+                            : 0.5f;
                         star.OriginalPosition = star.Position;
                         star.OriginalBoundingBox = star.BoundingBox;
                     }
+                }
+                if (framesWithoutStars > 0) {
+                    Logger.Warning($"{framesWithoutStars} of {allDetectedStars.Count} frames had no detected stars and contribute nothing to the sensor model. Review Frames shows which.");
+                    Report($"{framesWithoutStars} frame(s) had no detected stars and were skipped.  A run where every frame detects stars will give more reliable results.");
+                }
+                if (framesWithoutBrightnessRange > 0) {
+                    Logger.Warning($"{framesWithoutBrightnessRange} of {allDetectedStars.Count} frames had too few stars to normalise brightness against; their stars were assigned a neutral brightness.");
                 }
                 stopwatch.RecordEntry("normalise brightness");
                 ct.ThrowIfCancellationRequested();

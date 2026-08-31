@@ -270,6 +270,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             private List<double> normalizeBrightnesses(double minBrightness, double maxBrightness) {
                 var brightnesses = Points.Select(p => p.NormalisedBrightness).ToList();
                 double range = maxBrightness - minBrightness;
+                // Pass the values through unscaled when the frame has no brightness range, rather than dividing
+                // by zero: the resulting NaNs flow into AsBrightnessMatrix/AsShapeAndBrightnessMatrix and corrupt
+                // every triangle-similarity distance computed from them. Mirrors the guard normalizePositions
+                // (the sibling below, called on the same two arguments) has always had.
+                if (range <= 0.0) {
+                    return brightnesses;
+                }
                 for (int i = 0; i < brightnesses.Count; i++) {
                     brightnesses[i] = (brightnesses[i] - minBrightness) / range;
                 }
@@ -418,6 +425,15 @@ namespace NINA.Joko.Plugins.HocusFocus.Utility {
             // of an O(n) SameTriangle scan per candidate. Point2D uses reference equality, matching SameTriangle.
             var seenTriangles = new HashSet<(Point2D, Point2D, Point2D)>();
             int id = 0;
+            // A triangle needs three points, so a frame with fewer can produce none — and star detection
+            // legitimately returns zero stars for a frame (an extreme-defocus sweep endpoint, a frame lost to
+            // cloud). Bail out before the Min/Max below, which threw "Sequence contains no elements" on such a
+            // frame and took the whole aberration inspection down with it. Returning empty is what the caller
+            // already handles: no triangles means no putative matches, which means the frame simply fails to
+            // align (SensorModel reports "N frames failed to align").
+            if (point2Ds.Count < 3) {
+                return triangles;
+            }
             var brightnesses = point2Ds.Select(p => p.NormalisedBrightness);
             var minBrightness = brightnesses.Min();
             var maxBrightness = brightnesses.Max();
