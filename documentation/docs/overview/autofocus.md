@@ -9,7 +9,7 @@ A focus sweep produces a set of (focuser position, HFR) points that form a V: sh
 - **Multiple curve-fitting models.** Hyperbolic (several asymmetric variants), parabolic, and trendline fits, each with a goodness-of-fit rejection gate (\(R^2\) or reduced \(\chi^2\)). See [Hyperbolic Curve Fitting](hyperbola-fitting.md) for the model formulas and when each applies.
 - **Hybrid model selection.** At the end of a run every hyperbolic model is refit and the one with the least expected error for the best-focus position is kept, so each run self-selects its most trustworthy fit.
 - **Weighted fitting.** Each point carries its own measurement uncertainty \(\sigma\) (the per-frame star-HFR scatter), and the fit can weight points by \(1/\sigma^2\) so a noisy point counts for less.
-- **Outlier rejection.** An iterative two-tailed Grubbs test removes points that do not belong on the curve (e.g. a frame ruined by a cloud or satellite).
+- **Outlier rejection.** An iterative two-tailed Grubbs test can drop points that do not belong on the curve (e.g. a frame ruined by a cloud or satellite). It removes nothing until you raise **Max Outlier Rejections**, which is 0 by default.
 - **Stability reporting.** A leave-one-out (LOO) cross-validation estimates how much the best-focus position would move if any single point were dropped.
 - **HFR-improvement validation.** An optional before/after check confirms the run actually made the stars sharper, retrying the run if it did not.
 
@@ -26,7 +26,9 @@ A focus sweep produces a set of (focuser position, HFR) points that form a V: sh
 
 **Initial HFR (optional).** When *Validate HFR Improvement* is on, the engine first takes Frames Per Point exposures at the starting position and averages their HFR into the baseline `InitialHFR`.
 
-**Bracketing the minimum.** The focuser moves outward by the configured offset-steps × step-size, then steps back inward. After each group of frames a trendline is refit to all points collected so far; the sweep continues until the trendline establishes a clear minimum with enough points on both sides, then queues whatever extra points are needed to reach the target count on each side of the V.
+**Bracketing the minimum.** The focuser moves outward by the configured offset-steps × step-size, then steps back inward. After each group of frames a trendline is refit to all points collected so far; the sweep continues until the trendline establishes a clear minimum with enough points on both sides, then queues whatever extra points are needed to reach the target count on each side of the V. **Max Blind Steps Per Direction** limits how far the sweep walks one way without bracketing focus. Any step that lowers the lowest measured HFR resets the count, so only steps that make no progress add to it; when the limit is reached the focuser returns to the starting position and the sweep walks the other way once.
+
+**Frames with no usable stars.** When the detector finds no usable stars in a frame, that point measures an HFR of 0 and is left out of every fit. Failed points are also counted: when that count reaches the sweep's initial offset steps, the attempt stops walking that direction. With **Max Blind Steps Per Direction** above 0 it reverses once and keeps going; otherwise the attempt ends, NINA shows a warning, and the whole run is retried up to NINA's configured number of attempts. Longer exposures, or detection settings tuned for the defocused ends of the sweep, are the usual fix.
 
 **Per-point measurement.** At each focuser position the engine collects Frames Per Point frames, runs star detection on each, measures HFR, and, when more than one frame is taken, combines them into a single point with an associated \(\sigma\). The fit is updated live as each new point arrives, so the chart fills in during the run.
 
@@ -83,11 +85,12 @@ All tooltips below are quoted verbatim from the plugin UI.
 | **Fit Rejection Criterion** | R² | R² / Reduced χ² | "Which goodness-of-fit metric decides whether an auto-focus run is rejected. R² (default) keeps the existing behavior, rejecting when the fit's R² falls below NINA's R² threshold (Focuser settings). Reduced χ² instead rejects when the hyperbolic fit's reduced χ² exceeds the threshold below — a scatter-units goodness-of-fit bound for a focus curve, but it is only valid when 'Weighted Hyperbolic Fit' is enabled (it relies on per-point measurement σ). Quadratic and trendline fits always use R² regardless of this setting." |
 | **Reduced χ² Rejection Threshold** | 5.0 | 0–1000 (0 disables) | "Upper bound on the hyperbolic fit's reduced χ² (χ² per degree of freedom) above which the run is rejected, when the rejection criterion is set to Reduced χ². … Treat this threshold as a coarse sanity bound rather than a calibrated statistical test. Set to 0 to disable. Meaningful only with weighted fits." |
 | **R² Rejection Threshold** | from NINA | 0–1 | "The minimum R² (coefficient of determination) below which an auto-focus run is rejected, when the rejection criterion is set to R². This is NINA's own R² threshold from the Focuser settings; editing it here changes that same profile setting. R² closer to 1 indicates a better fit to the measured focus curve." |
-| **Max Outlier Rejections** | 1 | ≥ 0 | "Controls the maximum number of points that can be rejected as outliers during Auto Focus curve fitting." |
+| **Max Outlier Rejections** | 0 | ≥ 0 (0 disables) | "Controls the maximum number of points that can be rejected as outliers during Auto Focus curve fitting." |
 | **Outlier Rejection Confidence** (entered as a percentage) | 0.95 | > 0.5, < 1.0 | "Confidence level for a two-tailed Grubbs statistical test of outliers to use during Auto Focus curve fitting. 95% is a reasonable default. Must be above 50% and below 100%." |
 | **Save** | Off | — | "Saves details about every Auto Focus run, including a copy of the image, the star detection results, and the stretched annotated image" |
 | **Save Path** | (empty) | folder | "The folder to save Auto Focus runs" |
 | **Focuser Offset** | 0 | any | "Advanced Only! Moves the focuser this fixed amount at the end of an AutoFocus" |
+| **Max Blind Steps Per Direction** | 8 | ≥ 0 (0 disables) | "Maximum number of blind AutoFocus steps attempted in each direction before reversing to try the other side. Set to 0 to disable the cap." |
 
 !!! tip "When these help"
     - Leave **Weighted Hyperbolic Fit** on and **Hyperbolic Fit Model** set to **Hybrid (Best Fit)**. Those are the defaults, and they let each run pick its most reliable model and discount noisy points; only the reduced-\(\chi^2\) gate depends on the weighting being enabled.
@@ -101,7 +104,8 @@ Two separate settings decide how many pixels an autofocus frame is measured on.
 **NINA's Auto Focus Binning** (Options → Focuser, and per filter in the filter wheel settings) changes the
 capture: the camera returns a smaller frame with larger pixels. Set it to the binning you image at, so focus
 is found for the frames you actually shoot. Hocus Focus reads it back from the frame's metadata to compute
-pixel scale.
+pixel scale, and everything built on that scale uses the binned pitch, including the calibration in the
+[Tilt Adapter Wizard](tilt-adapter-wizard.md).
 
 **Hocus Focus Detection Binning** (Star Detector tab, default **1x1**) does not touch the capture. It
 resamples the frame for star detection only, to bring star sizes into the range the detector is tuned for,
@@ -112,6 +116,31 @@ setting recommends a factor from your last measured in-focus HFR, and you choose
 The two multiply. If you raise Detection Binning while Auto Focus Binning is above 1x1, Hocus Focus explains
 the difference and offers to set the NINA setting back to 1x1. The recommendation already accounts for camera
 binning, so it backs off on its own when the camera is already binning.
+
+## Replaying and reviewing a run
+
+The **Auto Focus** panel in NINA's **Imaging** tab carries three controls of its own, below the chart.
+
+**Replay Saved AF** re-runs the analysis on a run you saved earlier, with no hardware involved. Point it at the
+`AutoFocus_<date>_<time>` folder, or at the `attemptNN` folder inside it when a run needed more than one attempt.
+If the saved run recorded the settings it was captured with, a prompt asks how to replay it:
+
+- **Use current settings**: replay with your current profile's detection and AutoFocus settings.
+- **Use the captured settings (don't change my profile)**: replay with the settings from when the run was
+  captured, held in memory only.
+- **Update my profile to the captured settings**: overwrite your profile's detection, AutoFocus, and ROI settings
+  with the captured ones, then replay.
+
+**Keep frames for review** keeps every frame of a run started from this panel in memory so you can look at it
+afterwards. It is off by default and applies only to runs started here: auto focus during an imaging sequence
+never keeps frames. The frames are released when you start another run or close the review window. With [**Fit
+PSF**](../settings/psf-modeling.md) enabled on the Star Detector tab, a run kept for review also fits PSF models,
+which a normal auto-focus run skips for speed; the HFR points are the same either way.
+
+**Review Frames** opens the review window on the last run started from this panel, one frame at a time: the frame
+with its detected stars drawn to your Star Annotator settings, the focuser position, **Detected stars**, and the
+frame's median HFR (its mean, if **Measurement Averaging** is set to Mean + Outlier Detection). It is the fastest
+way to see which frame of a sweep came up empty, and what the detector made of the rest.
 
 ## How it uses the star detector
 

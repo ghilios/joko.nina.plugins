@@ -63,8 +63,11 @@ because there are only four points to fit.
 
 **Backfocus** is read off the same regions rather than the plane: it is the mean of the four corner
 best-focus positions minus the center position, converted to microns with *Focuser Step Size*,
-and compared against the critical focus zone. A positive value means the corners focus past the
-center, a sign the sensor sits too far from the corrector. The screw-by-screw guidance built from this
+and compared against the critical focus zone. A positive value means the corners reach focus at a
+higher focuser position than the center. With **Increasing focuser position** left at its default,
+that means the sensor sits too far from the corrector, and the panel says so: *Move sensor TOWARDS
+flattener*. Set that option to **reversed** and the same reading points the other way (see [which way
+does your focuser travel](tilt-aberration-inspector.md#which-way-does-your-focuser-travel)). The screw-by-screw guidance built from this
 plane is covered under
 [Guiding tilt-adapter screw adjustments](tilt-adapter-wizard.md).
 
@@ -105,6 +108,13 @@ older parameterization written directly in \((\theta, \varphi, K)\); writing the
 function of \(G_x, G_y, K_x, K_y\) removes a numerical trap at zero tilt (where the tilt direction is
 undefined) and lets the curvature cross zero, so a single fit covers a bowl, a dome, and a flat field
 without special cases.
+
+The fit also yields a tilt plane in the same form as the 4-corners model above: the planar part of the
+surface evaluated at the four sensor corners. It carries the pixel pitch it was fit at, so the [Tilt
+Adapter Wizard](tilt-adapter-wizard.md), which reads the plane's slopes back as microns of focuser
+travel per micron of sensor displacement, uses the pitch of the frames the plane came from rather than
+the camera profile's unbinned value. A calibration measured at 2x2 binning therefore recovers the same
+hardware numbers as one measured at 1x1.
 
 ![The fitted sensor surface rendered as a 3D best-focus map, decomposed into its tilt-plane and curvature parts](../assets/figures/sensor-surface-decomposition.png){ width=720 }
 
@@ -155,12 +165,27 @@ aligns on the first pass, is neither altered nor slowed. If any frame still cann
 matching for the whole sweep reverts to the wider nearest-neighbor search radius used when alignment
 is off.
 
+A frame whose star detection comes back empty (an extreme-defocus end of the sweep, a frame lost to
+cloud) does not stop the analysis. It stays in the run but contributes nothing: with no stars it has
+nothing to match and forms no triangles, so it never aligns. With alignment on, it therefore counts
+toward the "*N frames failed to align*" line that drops the whole sweep back to the wider search
+radius, and the inspector warns about it separately as well: "*N frame(s) had no detected stars and
+were skipped*". The remaining frames fit the model normally. If every frame in the run is empty there
+is no reference frame to register against, and the analysis fails with a message that says so
+("*Sensor modeling failed. None of the … frames in this run had any detected stars.*"). Longer
+exposures, or more sensitive [star detection settings](../settings/index.md), are the fix.
+
 A star must be matched in **at least five frames** to be fit, so its focus curve has enough points to
 be meaningful.
 
 **Building the points.** Each surviving star contributes one data point: its sensor position in
 microns, \(\bigl((\text{pixel} - \tfrac{W}{2})\cdot p,\ (\text{pixel} - \tfrac{H}{2})\cdot p\bigr)\)
-for pixel size \(p\), and its best-focus position in microns. The point carries the per-star
+for pixel size \(p\), and its best-focus position in microns. \(p\) is the pitch of the frames as they
+were captured: the camera pixel size from the frame's own metadata, multiplied by the binning the frame
+was taken at. A sweep captured with NINA's **Auto Focus Binning** at 2x2 uses twice the native pitch, so
+the sensor's physical size still comes out right. [Detection Binning](../settings/detection-binning.md)
+does not enter it, because the detector reports star positions back in the captured frame's pixels. The
+point carries the per-star
 uncertainty \(\sigma\), which becomes the fit weight
 
 \[
@@ -169,7 +194,10 @@ w_i = \frac{1}{\sigma_i} .
 
 A tightly-pinned star pulls on the fit harder than a loosely-pinned one. When a star's \(\sigma\) is
 unavailable it is filled in with the **median** \(\sigma\) of the other stars, so an unknown
-uncertainty is treated like a typical star rather than dominating or being ignored.
+uncertainty is treated like a typical star rather than dominating or being ignored. Every \(\sigma\),
+imputed or not, then gets a 2-micron floor added in quadrature. A per-star curve fit can report a
+formal standard error far below the real star-to-star scatter, and without that floor a handful of
+stars would carry nearly all of the fit's weight.
 
 ## Fitting the surface
 
@@ -203,12 +231,17 @@ A bad star (a blend, a hot pixel mistaken for a star, a cosmic ray) can land far
 surface. The model rejects outliers at three levels, from the individual measurement up to the whole
 surface.
 
-**Within a star's focus curve.** Before a star's best focus is trusted, its own HFR points are
-screened with a Grubbs test on the median- and MAD-scaled residuals, dropping a single gross outlier
-and refitting. The screen never prunes a star below five points, so it cannot manufacture a tight fit
-by deleting data.
+**Within a star's focus curve.** With the inspector's **Outlier rejection** on (the default), a star's
+own HFR points are screened with a Grubbs test on the median- and MAD-scaled residuals before its best
+focus is trusted, and the star is refit without the point that fails. How many points the screen may
+drop is capped by the AutoFocus **Max Outlier Rejections** setting, which is 0 out of the box, so no
+point is dropped until you raise it. Under the default **Hybrid (Best Fit)** model each candidate curve
+proposes its own outliers and only the points every one of them flags are removed, so no curve can win
+the [model comparison](hyperbola-fitting.md#the-hybrid-selector-default) by pruning its own data. The
+screen never prunes a star below five points.
 
-**Across the surface.** After the surface is fit, the residual of every point is measured and the
+**Across the surface.** After the surface is fit, every point's weighted residual is measured (its
+distance from the surface divided by its own \(\sigma\), the quantity the fit minimizes) and the
 spread of those residuals is summarized robustly with the scaled median absolute deviation
 
 \[
@@ -216,10 +249,11 @@ spread of those residuals is summarized robustly with the scaled median absolute
 \]
 
 where the constant makes the MAD a consistent estimate of the standard deviation for clean Gaussian
-scatter. Any point whose residual exceeds \(2.5\,\operatorname{MAD}\) in magnitude is dropped and the
-surface is refit on what remains. This repeats until no point is dropped (capped at ten passes), and
-it backs out to the previous fit if a pass fails to improve the overall fit quality, so the rejection
-can never make the model worse.
+scatter. Any point that lands more than \(2.5\,\operatorname{MAD}\) from the median residual is dropped
+and the surface is refit on what remains. This repeats until a pass drops nothing, capped at ten passes
+and at a tenth of the points in total. That cap is the backstop: rejection is there to remove a few bad
+stars, so once more than 10% of the data looks like an outlier the pruning stops rather than trimming
+the data into agreeing with the model.
 
 ![A cross-section of the fitted surface with per-star best-focus points; points outside the band are dropped and the surface is refit](../assets/figures/sensor-outlier-rejection.png){ width=640 }
 
@@ -266,7 +300,9 @@ Reduced chi-squared is the \(\chi^2\) per degree of freedom,
 \chi^2_\nu = \frac{1}{n - p} \sum_i w_i^2 \,\bigl(z(x_i, y_i) - z_i\bigr)^2 ,
 \]
 
-with \(n\) enabled points and \(p\) free parameters. Because the per-star \(\sigma\) is an approximate
+with \(n\) enabled points and \(p\) the model's parameter count (six, or seven with **Astigmatic
+field curvature** on; a pinned center still counts here, unlike in the covariance below). Because the
+per-star \(\sigma\) is an approximate
 uncertainty rather than a calibrated one, \(\chi^2_\nu\) routinely runs above 1 even for good fits and
 its absolute scale depends on the rig, which is why it only rejects a model in combination with a low
 \(R^2\).

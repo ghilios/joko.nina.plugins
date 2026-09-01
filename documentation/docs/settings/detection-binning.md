@@ -25,14 +25,16 @@ Advanced mode.
 **Default:** `1x1 (Off)` &nbsp;•&nbsp; **Range:** 1x1 (Off), 2x2, 3x3, 4x4.
 
 Nothing chooses the factor for you. A line appears under the dropdown only when there is something to act on:
-no measurement yet, or a factor change:
+no measurement yet, a factor change, or a measurement below the range the detector is calibrated for:
 
 ```
 Run an auto-focus to get a recommendation
 Measured in-focus HFR 6.1 px - 2x2 recommended
+Measured in-focus HFR 1.4 px - below the 2-4 px range
 ```
 
-Once your setting matches what the measurement calls for, the line disappears: there is nothing to act on.
+Once your setting matches the factor the measurement calls for, and the measurement is not below the
+calibrated 2 to 4 px range, the line disappears: there is nothing to act on.
 Hover it for the reasoning, including when the measurement was taken. In the
 [Optimization Wizard](../optimization/index.md) the same line sits to the right of its dropdown, under the
 same rule, and its summary offers to re-run the search at the recommended factor.

@@ -30,8 +30,9 @@ correction takes at most three commands.
 2. Click **Connect**. Opening the port restarts the adapter's controller, so it takes a few seconds
    to boot before it responds; the status line then reads *Connected on COM7* (or whichever port you
    chose). There is no auto-connect: the plugin only opens the port when you click.
-3. Click **Disconnect** when you are done. If the connection sits unused for 30 minutes, a dialog
-   asks whether to disconnect it.
+3. Click **Disconnect** when you are done. If the connection sits unused for 30 minutes, a banner in
+   the tilt panels counts down for a minute and then disconnects on its own. **Stay connected** keeps
+   it, and so does moving the adapter or starting a run.
 
 While connected, a **Motor positions (steps)** grid shows each corner's current position counter,
 polled from the device. Each cell names its corner and the screw it holds (**TR · M1**, **TL · M2**,
@@ -80,12 +81,24 @@ you must do.
 Completing a calibration with the device connected also records that the calibration is **linked to
 that device**: because the wizard sent every move itself, the correspondence between wizard screws
 and physical corners is established by measurement rather than assumption. [Automatic
-Adjustment](#automatic-adjustment) requires this link. It is cleared by any calibration the wizard
-did not drive itself: a
+Adjustment](#automatic-adjustment) requires that link, and requires the calibration to have passed
+its own confidence check. The link is cleared by any calibration the wizard did not drive itself: a
 [Manual Calibration Entry](tilt-adapter-wizard.md#manual-calibration-entry), a
 [replayed](tilt-adapter-wizard.md#saving-and-replaying-a-calibration-run) calibration, a run
-performed without the device connected, or substituting **Use Saved AF** for a live measurement
-partway through a connected run.
+performed without the device connected, substituting **Use Saved AF** for a live measurement
+partway through a connected run, or copying the [Camera
+Simulator](camera-simulator.md)'s adapter geometry over it.
+
+A hand-entered calibration is the one case you can re-link without repeating the run. With a
+motorized preset selected, the wizard's saved-calibration panel offers [**Trust This Calibration for
+Automation**](tilt-adapter-wizard.md#trusting-a-hand-entered-calibration), which links the
+calibration to the selected preset and marks it reliable, the two things Automatic Adjustment tests
+for. Confirm the numbering yourself before you use it: with [Manual adjustment](#manual-adjustment),
+move one screw a small amount and check that the corner that moves is the one you expect for that
+screw's label. Trusting lifts nothing else, so Automatic Adjustment still needs a connected device
+and a fresh measurement to adjust from. It is not offered for a run that drove the device but failed
+its confidence check. That case has to be re-measured: confirming which corner moves proves the
+numbering, and numbering is not what a noisy run got wrong.
 
 ## Automatic Adjustment
 
@@ -294,12 +307,24 @@ few seconds to boot after the port opens, so a slow first response is normal.
 Connect it from the wizard's **Motorized Device Connection** section; the inspector uses the same
 connection.
 
-**Automatic Adjustment is disabled with "This calibration is not linked to the connected
-device."** Run a calibration with the device connected (Auto Run All is the easiest path). A
-calibration entered by hand or replayed from disk cannot prove which physical corner its screw 1
-refers to, and unattended automation applying a rotated correction would make tilt worse. The
-companion message, "This calibration is low-confidence", means the connected
-calibration ran but did not pass its own quality validation; re-run it under better conditions.
+**Automatic Adjustment is disabled, with an italic note below the button.** The note names one of
+three causes.
+
+- *"This calibration was entered or edited by hand..."* The saved calibration came from **Manual
+  Calibration Entry**, or from copying the [Camera Simulator](camera-simulator.md)'s adapter
+  geometry over it, so nothing has confirmed that its screw 1 is the corner the device's motor 1
+  drives. Run a calibration with the device connected (Auto Run All is the easiest path), or use
+  **Trust This Calibration for Automation** in the wizard after checking the numbering as [described
+  above](#hands-off-calibration).
+- *"This calibration is not linked to the connected device."* The calibration was measured some other
+  way: replayed from disk, run with nothing connected, or measured against a different **Device**
+  preset than the one now selected. Re-select the preset it was measured on, or re-run the
+  calibration with the device connected. Unattended automation applying a rotated correction would
+  make tilt worse, which is why the link is required.
+- *"This calibration is low-confidence (it did not pass quality validation)."* The run did drive the
+  device, but its screw moves did not stand clear of the measurement noise. Re-run it on a star-rich
+  field with a finer focus step. There is no Trust button for this case; only a better measurement
+  clears it.
 
 **Automatic Adjustment is disabled right after an adjustment.** That is the
 one-adjustment-per-measurement rule. Run a new Detailed Analysis; the button re-enables when it

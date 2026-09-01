@@ -24,7 +24,11 @@ which the fitted HFR reaches \(3 \times \text{HFR}_{\min}\): a coarse outward wa
 bisection refines it to high precision. The search is bounded (at most a few times the sampled focuser span)
 so a flat or degenerate fit cannot send it off to infinity. The left and right offsets are **averaged** so an
 asymmetric model still yields a single half-width; if only one side reaches the target, that side is used on
-its own, and if neither does, the recommender leaves your current step alone.
+its own. If neither side reaches it, the recommender checks what the sweep itself measured: when the sweep's
+own HFRs span less than three times their minimum, the band demonstrably was never sampled, so it widens the
+half-width to the most this sweep supports rather than holding your current step. Holding would stall a
+too-shallow sweep for good, since the next run would sweep at that same step again. Only when the sweep cannot
+say either way does the recommender leave your step alone.
 
 ![Step size derived from the 3x-minimum-HFR half-width with about 3.5 points per side](../assets/figures/step-size.png){ width=620 }
 *The shaded band spans the region where HFR is below three times its minimum. The recommended step (green lines)
@@ -50,16 +54,32 @@ that many points on each side of the estimated minimum lands neatly inside the f
     exceed the focuser's travel.
 
     The half-width is therefore capped at **1.5× the sampled half-span**, and the summary marks the
-    recommendation *capped by this sweep's width; re-run auto-focus to refine*. The cap does not change where
-    the recommendation converges, only how fast: each run widens the sweep, and a shallow rig reaches the same
-    answer in about three runs. It only engages when the sweep's ends reach less than roughly 2.1× the minimum
-    HFR; a well-shaped sweep is untouched.
+    recommendation as a partial step, naming how far this sweep reached and how fast it is converging: "14 → 24
+    (partial step: this sweep reaches 1.8× its minimum HFR and the step is sized from where HFR reaches 3×;
+    each run widens by about 1.7× until it gets there; re-run auto-focus to refine)". The cap does not change
+    where the recommendation converges, only how fast: each run widens the sweep, and a shallow rig reaches the
+    same answer in about three runs. It only engages when the sweep's ends reach less than roughly 2.1× the
+    minimum HFR; a well-shaped sweep is untouched.
+
+Capping the half-width at 1.5× the sampled half-span bounds how far one run may widen the sweep; a second bound works in the other direction. The
+half-width is also limited by the outermost offset from focus at which an ordinary (non-recovery) frame still
+detected the hard floor of three stars, so a fitted band reaching past where this run could still see stars is
+pulled back toward what the sweep measured. The 3× band is pure curve geometry and asks nothing about whether
+stars are still visible out there; this bound is measured, so it can only ever report a distance the sweep
+actually visited. It only ever tightens, and it may not pull the half-width below half the sampled half-span
+in one run, so a sweep whose only star-bearing frames sit near focus roughly halves the step instead of
+collapsing. The bound is absent when every sampled frame cleared the floor, the ordinary case on a healthy
+sweep, and it needs at least three qualifying frames: below that the recommender treats the limit as
+unmeasured rather than as proof that nothing is detectable.
 
 !!! note "Degenerate fits are left alone"
-    If the fit is missing, its minimum is not finite, the minimum HFR is not positive, or the curve never
-    reaches three times its minimum on either side within the bounded search, the recommender returns your
-    **current** step unchanged (with an undefined half-width) rather than guessing. You only get a new number
-    when the curve genuinely supports one.
+    If the fit is missing, its minimum is not finite, or the minimum HFR is not positive, the recommender
+    returns your **current** step unchanged (with an undefined half-width) rather than guessing. A curve that
+    never reaches three times its minimum on either side within the bounded search is treated the same way,
+    unless the sweep's own HFRs prove the band was never sampled, in which case the step is widened instead.
+    A held value is labeled as one: the summary reads "21 (NOT measured: the fitted curve has no usable
+    best-focus point, so your current step size was kept [non-finite-vertex])", so a number that was held is
+    never mistaken for a number that was measured.
 
 !!! tip "How to use the recommendation"
     Treat it as a starting point for your profile's **Auto Focus Step Size** on the same rig and filter. With

@@ -156,9 +156,12 @@ steps per side and is clamped to at least 1 (and to the focuser's limits when kn
 
 See [Step-size recommendation](step-size.md) for the full derivation.
 
-A degenerate or near-flat fit (no finite minimum, non-positive minimum HFR, or a curve that never
-reaches three times the minimum within the search budget) yields no usable half-width; the wizard then
-leaves your current step size unchanged rather than guessing. The recommendation is most reliable when
+A degenerate fit yields no usable half-width: no fit at all, a minimum that is not finite, or a non-positive
+minimum HFR. The wizard then leaves your current step size unchanged and marks the number as held rather than
+measured. A curve that never reaches three times the minimum within the bounded outward search from best focus is treated the same way
+only when the sweep cannot say whether the band was missed; when the sweep's own HFRs span less than three
+times their minimum, the band demonstrably was missed and the wizard widens the step to the most this sweep
+supports. The recommendation is most reliable when
 the fit is clean and the V-curve is well-formed, exactly the runs where the optimizer also scores high.
 
 !!! note

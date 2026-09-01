@@ -35,6 +35,27 @@ J_{\text{run}} \;=\; \frac{W_f\,S_{\text{focus}} + W_s\,S_{\text{stars}} + W_c\,
 The label term and \(W_\ell\) are present only when labels exist for the run; otherwise both the numerator
 term and the denominator term are dropped (the weights always renormalize to sum to 1).
 
+One last step follows the penalties. Most of the sub-scores stop improving once the data is good enough:
+\(S_{\text{stars}}\) saturates once the counts clear their knees, \(S_{\text{fit}}\) once the fit is clean, and
+\(S_{\text{focus}}\) flattens out as the focus uncertainty falls below its reference. On an easy run \(J\)
+therefore sits at 1.0, or a hair under, across a whole plateau of settings, and a search that accepts only
+strictly-improving moves stops at an arbitrary point on that plateau. So the score is blended with a small
+tie-breaker \(T\) that never saturates:
+
+\[
+J_{\text{run}} \;\leftarrow\; (1 - W_{\text{tie}})\,J_{\text{run}} + W_{\text{tie}}\,T, \qquad
+T = 0.6\,\frac{\bar{n}}{\bar{n} + N_{\text{target}}} + 0.4\,\frac{\rho_{\text{ref}}}{\rho_{\text{ref}} + \rho},
+\qquad W_{\text{tie}} = 0.02
+\]
+
+Here \(\bar{n}\) is the mean accepted-star count over the sweep's frames, leaving out the focus-recovery frames
+described below, while \(\rho\), \(\rho_{\text{ref}} = 0.25\) and \(N_{\text{target}} = 20\) are the normalized
+focus uncertainty, its reference value, and the median star-count knee, all defined in the sections below. Neither term saturates: the first
+keeps rising with star count, the second as focus uncertainty falls. \(T\) therefore still has a gradient where
+the primary sub-scores have none, and because \(W_{\text{tie}}\) is small, a real difference in \(J\) still
+decides the ranking. A genuine tie goes to the star-rich, sharper setting. A run
+that hits one of the hard floors below scores zero and is never blended.
+
 | Weight | Symbol | Value | Rewards |
 |---|---|---|---|
 | Focus | \(W_f\) | 0.55 | A tight, repeatable best-focus position |
@@ -61,8 +82,11 @@ Before any of the weighted math, two hard constraints can force \(J_{\text{run}}
 
 - **Starved frames.** If more than \(\text{MaxFramesBelowHardFloor} = 0\) frames have fewer than
   \(N_{\text{hard}} = 3\) accepted stars, the run scores zero. In other words, **every** frame in the sweep
-  (including the most defocused extremes) must hold at least 3 stars. A setting that loses the curve at the
-  ends is rejected outright.
+  must hold at least 3 stars. A setting that loses the curve at the ends is rejected outright. A Live sweep's
+  focus-recovery frames are the one exception: the extra positions added by **Focus recovery (extra
+  steps/side)** on the start page are tagged, and a tagged frame is exempt from this floor and left out of
+  \(S_{\text{stars}}\), because it sits far enough from focus to be sparse by design. A replayed run carries
+  no recovery tags, so there the floor applies to every frame.
 - **Unusable focus uncertainty.** If the fit produces no finite \(\sigma_{\text{focus}}\) and no finite
   leave-one-out fallback, the run scores zero.
 
@@ -275,6 +299,7 @@ Two properties make this safe:
 | Curve-fit weight | \(W_c\) | 0.25 | \(S_{\text{fit}}\) |
 | Coverage weight | \(W_{\text{cov}}\) | 0.05 | \(S_{\text{cov}}\) |
 | Label weight | \(W_\ell\) | 0.25 | \(S_{\text{label}}\) (labels only) |
+| Tie-breaker weight | \(W_{\text{tie}}\) | 0.02 | Plateau tie-breaker blend |
 | Focus reference | \(\rho_{\text{ref}}\) | 0.25 | \(S_{\text{focus}}\) |
 | Min-count knee | \(N_{\text{floor}}\) | 8 | \(S_{\text{stars}}\) |
 | Median-count knee | \(N_{\text{target}}\) | 20 | \(S_{\text{stars}}\) |

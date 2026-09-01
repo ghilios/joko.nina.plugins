@@ -46,6 +46,11 @@ t_{\text{new}} = t_{\text{old}} \left(\frac{10}{S_{\text{now}}}\right)^{2}
 where 10 is the shipped default Brightness Sensitivity gate: the faintest star that default,
 out-of-the-box gate would still admit.
 
+That law answers the signal question and nothing else. When the signal already meets the target but every
+usable frame is short of stars, the ratio is at or below 1 and the formula would argue for a shorter exposure,
+so the block sets the law aside; what it offers instead depends on whether the gate rejected anything. See
+[When the field is short of stars, not signal](#when-the-field-is-short-of-stars-not-signal).
+
 Below `MinFramesForRecommendation` = 3 usable frames, with no per-star SNR data recorded, or with a
 non-positive current exposure to scale from, there is not enough to trust a derived number: the block
 still names the floored gate, but the recommended-exposure row and its number are hidden. Older saved
@@ -108,18 +113,50 @@ evenly, so a value capped at 30 s always rounds to exactly 30 s, never past it.
     ```
 
     Its tooltip carries the arithmetic: "Sky-limited scaling: 3 s × (10 / 4.1)² = 18 s per frame,
-    roughly 3 minutes per auto-focus run. Capped at 12 s: one run may not raise the exposure by more than
-    4x, so a second run refines it."
+    roughly 3 minutes per auto-focus run. Capped at 12 s: one run raises exposure at most 4x. Run again to
+    refine."
 
 ## What it never does
 
-The recommender never proposes a **shorter** exposure than the one the run already used. If your
-brightest stars already clear the default gate (\(S_{\text{now}} \ge 10\)), the block says exactly that:
-exposure is not what is limiting this run, and the floored gate is instead admitting a long tail of far
-fainter candidates below your genuinely bright stars. When even one frame found fewer stars than the
-objective's star-count target, the block adds the count: "N of M frames found fewer stars than the
-star-count target, so the low gate is scraping for count in a star-poor field." That is a different
-problem than exposure.
+The recommender never proposes a **shorter** exposure than the one the run already used. When the measured
+signal already meets the target (\(S_{\text{now}} \ge 10\)) and at least one frame found a full
+\(N_{\text{target}}\) stars, the block says so: "Star brightness is not the problem: your brightest stars
+measure S/N 22.4, meeting the default S/N target of 10. Brightness Sensitivity is low, so far fainter
+candidates are being admitted below them." If some, but not all, frames came up short of the star-count
+target it adds the count: "3 of 9 frames found fewer stars than the star-count target; Brightness Sensitivity
+is low to scrape for count in a star-poor field."
+
+The instruction it ends on is about the gate, not the exposure: "The gate was lowered to admit more
+candidates, not because star brightness was missing. Set Brightness Sensitivity by hand in the star detection
+options and run this wizard again in 'use current settings' mode to compare that landing against this one."
+
+## When the field is short of stars, not signal
+
+When \(S_{\text{now}}\) meets the target but **every** usable frame found fewer than \(N_{\text{target}}\)
+stars, the run is short of stars rather than short of signal, and the sky-limited law has nothing to derive
+from. The block splits that case on one further measurement: did the Brightness Sensitivity gate reject any
+candidate?
+
+If the gate rejected candidates, or if it is provably inert, more signal might still convert something. The
+gate is inert when its threshold sits at or below Star Peak Response times the effective Star Clipping
+Multiplier, because the clipping stage guarantees every candidate that reaches the gate already measures above
+that, so a count of zero rejections there is empty by construction rather than evidence. The block then offers
+a fixed **2× probe** with its own stopping rule instead of a derived number: "All 9 frames found fewer stars
+than the star-count target: the stars found are bright enough (S/N 14.2), there are just too few. A longer
+exposure may or may not find more; try doubling it, and if the star count does not rise, the field is the
+limit and no exposure will fix it." The row's tooltip says the same about the arithmetic, that there is no S/N
+shortfall to derive from, and it names the 30 s ceiling when a doubling would cross it. The run-relative 4×
+cap never binds on a probe that only doubles.
+
+If the gate could have rejected something and did not, the run has shown that these frames hold every star the
+detector can find, and no exposure is offered: "All 9 frames found fewer stars than the star-count target, and
+no candidate was rejected for being too faint — these frames contain every star the detector can find. A
+longer exposure will not add more. Long focal lengths see few stars per frame; detection binning, a wider
+field, or accepting that this field supports fewer stars are the options."
+
+In both states the block adds a sweep-geometry note when candidates were discarded for being flat and
+featureless. That happens on frames far enough from focus that stars spread into plain discs, which no
+exposure recovers; a smaller step size keeps more of the sweep close enough to focus to be measurable.
 
 ## Live vs. saved runs
 
@@ -138,10 +175,10 @@ auto-focus exposure to about the recommended value in NINA's focuser options and
 Live mode once you have frames at the new exposure.
 
 Whichever of those three shapes applies, the block adds the same rider whenever the number it just quoted
-was trimmed by the absolute 30 s ceiling rather than the run-relative 4× cap: "if you are shooting
-narrowband, consider auto-focusing through a broadband filter with a filter offset instead." The capped
-number is still worth capturing in that case — the rider offers an alternative alongside it, not a
-replacement.
+was trimmed by the absolute 30 s ceiling rather than the run-relative 4× cap: the sentence loses its full stop
+and continues "; or, if you shoot narrowband, auto-focus through a broadband filter with a filter offset
+instead." The capped number is still worth capturing in that case: the rider offers an alternative alongside
+it, not a replacement.
 
 **Accepting the run in front of you is still a legitimate choice** in every case: the settings it found
 are the best fit for the frames you actually have.
@@ -155,19 +192,19 @@ are the best fit for the frames you actually have.
 
 ## When exposure has run out
 
-There is a second state, beyond the \(S_{\text{now}} \ge 10\) case in [What it never
-does](#what-it-never-does), where the block does not offer a longer exposure: the run's exposure is
+There is a third state where the block does not offer a longer exposure, beyond the \(S_{\text{now}} \ge
+10\) case in [What it never does](#what-it-never-does) and the no-rejections case in [When the field is
+short of stars, not signal](#when-the-field-is-short-of-stars-not-signal): the run's exposure is
 already at or past the 30 second absolute ceiling (see [The two caps](#the-two-caps)), and the measured
 signal still falls short of the default gate (\(S_{\text{now}} < 10\)). Unlike the \(S_{\text{now}} \ge
 10\) case, this is not a healthy field — the data genuinely wants more exposure. But the recommender's
 raw, uncapped factor would ask for something past 30 s, and the absolute cap pulls that back down to the
 current exposure rather than proposing anything shorter, so there is nothing longer left to recommend.
-The block says so directly: "Reaching the default gate would take longer per frame than an auto-focus
-sweep can spend, so there is no longer exposure to offer."
+The block says so directly: "Reaching the default S/N target would need more time per frame than an
+auto-focus sweep can spend; no longer exposure is offered."
 
-With the exposure route genuinely exhausted, the block's remedy here is a different lever entirely: "If
-you are shooting narrowband, consider auto-focusing through a broadband filter with a filter offset
-instead."
+With the exposure route genuinely exhausted, the block's remedy here is a different lever entirely: "If you
+shoot narrowband, auto-focus through a broadband filter with a filter offset instead."
 
 A narrowband filter passes so little broadband sky and star light that the exposure this recommendation
 would need to reach the default gate is already impractical for an autofocus sweep. Auto-focusing through
