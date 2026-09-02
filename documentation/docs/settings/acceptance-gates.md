@@ -34,7 +34,7 @@ This page documents the gates exposed as **Advanced** star-detection options. Th
 | Min Bounding Box Size | 5 px | ≥ 1 | Smallest allowed candidate side; rejects tiny structures as **Too Small** |
 | Min HFR | 1.2 px | > 0 | Smallest viable Half-Flux Radius; rejects hot-pixel-like spikes as **Too Low HFR** |
 | Background Box Expansion | 3 px | ≥ 1 | Annulus width for the local-background estimate |
-| Defocus-Aware Gates | Off | on/off | Relaxes distortion + centering for large (defocused) candidates |
+| Defocus-Aware Gates | Off | on/off | Relaxes distortion + centering for large (defocused) candidates, but the Defocus-Aware Donut Detection master toggle is what switches that relaxation on; this toggle changes nothing on its own |
 | Defocus Size Reference | 30 px | 1–1000 | Size at/below which strict thresholds still apply |
 | Defocus Distortion Min Factor | 0.25 | 0.01–1 | Most permissive distortion multiplier for huge donuts |
 | Defocus Centering Tolerance Factor | 2.0 | 1–10 | Most permissive centering multiplier for huge donuts |
@@ -92,9 +92,9 @@ The option is shown as a percentage (default 75%), so a candidate fails when its
 
 ## Max Distortion
 
-Rejects candidates whose pixels do not fill their bounding box compactly enough, tagging them **Too Distorted**.
+Rejects candidates whose pixels do not fill their bounding box compactly enough, tagging them **Too Distorted**. The field is labeled **Max Distortion (min fill ratio)** in the advanced list.
 
-> The ratio of star pixels to the size of a perfect square bounding box. A perfect circule has a distortion of PI/4, which is approximately 0.7. The default value of 0.5 allows for some distortion and measurement error and should work for most cases.
+> A MINIMUM fill ratio, despite the name: the ratio of star pixels to the area of the bounding box, where a candidate is rejected as Too Distorted when its fill ratio falls BELOW this value. Raising it makes the gate stricter, not looser. A perfectly round star fills PI/4, approximately 0.785, so values above that reject every round star. The default of 0.5 allows for some distortion and measurement error and should work for most cases.
 
 This is a **fill ratio**: the number of structure pixels divided by \(d^2\), where \(d\) is the larger of the bounding-box width and height. A perfectly round star fills about \(\pi/4 \approx 0.79\) of its square box. Elongated or stringy shapes (diffraction spikes, satellite trails, merged double stars, hot columns) fill much less and are rejected when
 
@@ -177,7 +177,7 @@ The detector fits a robust local background plane to the annulus of pixels just 
 
 ## Defocus-Aware Gates
 
-A single opt-in toggle that relaxes both the Max Distortion and Star Center Tolerance gates for large candidates, which act as a proxy for heavy defocus. It is **off by default**, and when off, detection is bit-identical to the strict gates.
+A toggle that relaxes both the Max Distortion and Star Center Tolerance gates for large candidates, which act as a proxy for heavy defocus. It is **off by default**. What actually switches the two relaxations on is the **Defocus-Aware Donut Detection** master toggle described further down this page: with the master off neither relaxation runs, whatever this toggle says, and detection is bit-identical to the strict gates; with the master on both run whether or not this toggle is ticked. The three numeric knobs below are what change how far the relaxation goes.
 
 ![The Defocus-Aware Gates, Defocus-Aware Structure, and Defocus-Aware Donut Detection settings at the bottom of the advanced list](../assets/screenshots/advanced-defocus-donut.png){ width=400 }
 
@@ -211,7 +211,7 @@ A single opt-in toggle that relaxes both the Max Distortion and Star Center Tole
 Stars admitted only by the relaxation are flagged internally so the optimizer can discourage over-relaxing into false positives.
 
 !!! tip "When this helps"
-    Enable it when you deliberately collect autofocus frames far from focus (wide sweeps) and see donut stars dropped as **Too Distorted** or **Not Centered** at the sweep extremes. It does nothing for near-focus imaging frames, and it should stay off there so the strict gates keep filtering noise. If even heavily defocused stars never appear as candidates at all (not merely rejected), that is a structure-detection problem, not a gate problem; see Defocus-Aware Structure on the [Structure detection](structure-detection.md) page.
+    Enable the **Defocus-Aware Donut Detection** master toggle when you deliberately collect autofocus frames far from focus (wide sweeps) and see donut stars dropped as **Too Distorted** or **Not Centered** at the sweep extremes. That is what puts this relaxation into effect, and it only loosens the two gates for large candidates. It does nothing for near-focus imaging frames, and it should stay off there so the strict gates keep filtering noise. If even heavily defocused stars never appear as candidates at all (not merely rejected), that is a structure-detection problem, not a gate problem; see Defocus-Aware Structure on the [Structure detection](structure-detection.md) page.
 
 ### Defocus Size Reference
 

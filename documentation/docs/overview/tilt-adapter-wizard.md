@@ -88,8 +88,9 @@ comes from the adapter direction setting in the wizard's **Measurement** section
 moves adapter** (or **+ steps move adapter** for steppers):
 either **Toward the camera** (outward, the default) or **Toward the objective** (inward). Until it
 is measured, guidance marks the direction "(assumed)". To measure it, turn on **Measure direction**:
-this adds two steps (an all-screws-clockwise move plus a return to baseline) and reads the direction
-off the **change in mean best-focus position** between them. Turning every screw clockwise is a pure
+this adds two steps (**All Screws Clockwise**, or **All Motors Positive Steps** on a stepper adapter,
+followed by **Return to Baseline**) and reads the direction off the **change in mean best-focus
+position** between them. Turning every screw clockwise is a pure
 piston, so if the mean best-focus position *drops*, the plate moved toward the camera — on a standard
 focuser, that means clockwise moves the adapter toward the camera. The saved calibration then reports
 the direction as measured. That same all-screws step also feeds the **Piston-implied** pitch estimate
@@ -158,6 +159,41 @@ click **Apply**; if you change that setting later, click **Apply** again. If gui
 tilt the wrong way after a manual entry, the numbering direction is flipped: switch it and Apply
 again. A wrong adapter direction setting inverts guidance the same way; correct that setting and
 click **Apply** again.
+
+**Apply** also blocks [Automatic Adjustment](motorized-tilt-adapter.md#automatic-adjustment),
+because a typed angle cannot show that your screw numbering matches how the motors are wired. If the
+calibration you replaced was one Automatic Adjustment could have used, a notification says so;
+otherwise there was nothing to lose and **Apply** stays quiet.
+
+### Trusting a hand-entered calibration
+
+[Automatic Adjustment](motorized-tilt-adapter.md#automatic-adjustment) asks two things of a
+calibration: that the wizard drove the adapter itself, which is what establishes which physical
+corner each screw number belongs to, and that the run passed its own confidence check. A hand-entered
+calibration has neither. With a motorized preset selected and a hand-entered calibration saved, the
+saved-calibration panel shows a warning headed **Automatic Adjustment is disabled**. The device does
+not have to be connected for it to appear.
+
+The warning carries a **Trust This Calibration for Automation** button. Clicking it trusts nothing
+yet: it replaces itself with the risk (wrong numbering means unattended automation drives the adapter
+the wrong way and makes tilt worse) and a **Yes, trust it** / **Cancel** pair. Do the check the
+warning asks for before you confirm. Use [Manual
+adjustment](motorized-tilt-adapter.md#manual-adjustment) to move one screw a small amount, and
+confirm the corner that moves is the one you expect for that screw's label.
+
+**Yes, trust it** links the calibration to the selected preset and marks it reliable, which is what
+Automatic Adjustment tests for, and the warning disappears. Nothing else changes: the panel still
+reads "Manually entered calibration (not measured by the wizard)", and every other condition on
+Automatic Adjustment still applies, including the one-adjustment-per-measurement rule.
+
+Trust lasts only as long as the numbering it vouched for. Applying a manual entry again and **Clear
+Calibration** both drop it, and any completed calibration run replaces it with that run's own result.
+It also belongs to the preset that was selected when you confirmed: switch the **Device** list to
+another preset and automation is blocked again, switch back and the trust returns.
+
+The button is not offered for a calibration the wizard measured but flagged as low-confidence. The
+check above can confirm a screw numbering; it cannot recover angles that measurement noise dominated.
+Re-run that calibration instead.
 
 ## Hardware model and device presets
 
@@ -231,6 +267,20 @@ radius yourself.
 
     Without a valid hardware model, adjustments are still reported in focuser steps (and, if *Focuser
     Step Size* is set, in microns); you just do not get the turn/step figure.
+
+At the foot of the **Measured Adapter Hardware** panel, **Inputs to this calculation** lists the four
+numbers the measurement used: **Pixel size**, **Focuser step size**, **Screw radius**, and **Applied
+per screw**. The pixel size is the pitch of the frames as they were captured, so with NINA's [Auto
+Focus Binning](autofocus.md#binning-during-autofocus) above 1x1 it is the binned pitch and says so,
+for example `7.52 µm (3.76 µm at 2x2 binning)`. That is deliberately not the **Pixel size (µm)** box
+higher up the pane, which edits your camera profile's native pixel size.
+
+A calibration measured before Hocus Focus 4.0.0.17 with Auto Focus Binning above 1x1 recovered a
+thread pitch (or step size) too large by the binning factor. If you clicked **Use measured value** on
+such a run, that inflated figure is your saved hardware now, and every correction computed from it
+comes out that much too small. Nothing repairs it on its own. Replay that run (replay re-fits the tilt
+plane from the saved frames, so the pitch comes out right whatever the file recorded) or re-calibrate,
+then click **Use measured value** again.
 
 ## Saving and replaying a calibration run
 

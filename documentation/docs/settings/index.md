@@ -62,7 +62,7 @@ This preset compensates for pixel scale by nudging a few knobs. [Detection Binni
 
 ### How the optimized snapshot interacts with the presets
 
-When **Use Optimized Settings** is on and a wizard result exists, Simple mode first derives the preset baseline, then overlays the curated subset of parameters from the saved snapshot (sensitivity, clipping multipliers, peak response, distortion, min HFR, center tolerance, structure layers, noise-reduction radius, minimum bounding box, and the hotpixel knobs). Non-curated advanced knobs keep their preset defaults; the curated ones win. See [Labels, Recall & Precision](../optimization/labels-recall-precision.md) for how those values are chosen.
+When **Use Optimized Settings** is on and a wizard result exists, Simple mode first derives the preset baseline, then overlays the curated subset of parameters from the saved snapshot (sensitivity, clipping multipliers, peak response, distortion, min HFR, center tolerance, structure layers, noise-reduction radius, minimum bounding box, the hotpixel knobs, the two adaptive-binarization settings, and the whole defocus-aware and donut group, including the Defocus-Aware Donut Detection master toggle). Non-curated advanced knobs keep their preset defaults; the curated ones win. See [Labels, Recall & Precision](../optimization/labels-recall-precision.md) for how those values are chosen.
 
 ### Exporting and importing star-detection settings
 

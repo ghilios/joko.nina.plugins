@@ -91,7 +91,7 @@ outliers are detected and rejected, see [Sensor Model Fitting](sensor-model.md).
     matched star) and needs enough matched stars to be meaningful, so leave it off for a quick tilt
     check.
 
-!!! note "Frame alignment holds up under heavy defocus"
+!!! note "When frames fail to align or come back empty"
     Matching stars across frames is hardest at the defocused extremes of the sweep, where stars are
     bloated and sparse. The matcher chains alignment through neighboring frames, retries against a
     denser reference, and escalates its search box for the hardest frames rather than giving up, so the
@@ -101,6 +101,16 @@ outliers are detected and rejected, see [Sensor Model Fitting](sensor-model.md).
     [donut-recovery settings](../settings/acceptance-gates.md#recover-out-of-focus-donut-stars)) and
     re-run.
 
+    A frame where the detector finds no stars at all (one from an extreme end of the sweep, or one
+    lost to cloud) does not stop the analysis. It is skipped, and the run reports
+    "*N frame(s) had no detected stars and were skipped*". Such a frame cannot align either, so
+    with **Align images before matching** on, it also counts toward the failed-to-align total. To see
+    which frame it was, run with **Keep frames for Review** on and open **Review Frames**, where it
+    reads *Detected stars: 0*. If every frame comes back empty there is no reference frame to build
+    on and the analysis stops outright, reporting
+    "*Sensor modeling failed. None of the N frames in this run had any detected stars*"; longer
+    exposures or looser detection settings are the fix.
+
 ## Correcting tilt with a tilt adapter
 
 Once tilt is measured, a **tilt adapter** lets you correct the linear (tilt-plane) part of it. The
@@ -109,12 +119,29 @@ hardware model, then converts the measured tilt into concrete screw-turn (or ste
 instructions. See [Tilt Adapter Wizard](tilt-adapter-wizard.md).
 
 The arrows describe what the adapter must do: ⬆ means that corner of the adapter plate moves toward
-the objective, ⬇ toward the camera — the same on every rig with the same **Increasing focuser
-position** setting ([below](#which-way-does-your-focuser-travel)). The numeric rows each carry the screw
-rotation that produces the move: `1.25 ⟳` means 1.25 turns clockwise (tighten), `0.50 ⟲`
-counter-clockwise (loosen); stepper adapters show signed steps (`+35 steps`) matching the wizard's
-prompts. A legend at the top of the section defines both conventions and is marked "(assumed)" until
-the adapter direction has been measured in the wizard.
+the objective, ⬇ toward the camera, the same on every rig with the same **Increasing focuser
+position** setting ([below](#which-way-does-your-focuser-travel)). ⬆ and ⬇ are the larger moves,
+↑ and ↓ the smaller ones. In the **Tilt** row the sizing is relative: a screw needing at least half
+the largest correction in the row gets a large arrow, one needing under a tenth of it gets a dash.
+In the **Backfocus** row it is absolute, taken from the measured **Curvature Effect**: a dash below
+10 µm, a small arrow up to 50 µm, a large arrow at 50 µm or more. That row reads the same on every
+screw, because backfocus moves the whole plate, and it appears only once a sensor curve model has
+been fit, since the curvature it corrects comes from that fit.
+
+Below the arrows, a second table gives the amount for each screw. Its three rows split the job into
+**Tilt**, **Backfocus**, and the **Total** you apply, and each amount carries the rotation that
+produces it: `1.25 ⟳` means 1.25 turns clockwise (tighten), `0.50 ⟲` counter-clockwise (loosen). A
+screw with nothing worth turning shows a dash instead. Stepper adapters show signed steps
+(`+35 steps`) matching the wizard's prompts; screw adapters get a **Display** selector for Turns,
+Degrees, or Minutes (60 minutes to a turn, a clock face rather than arcminutes). This table also
+needs a fitted sensor curve model, plus the adapter's thread pitch (or stepper step size) and screw
+radius from the wizard. A legend at the top of the section defines both conventions and is marked
+"(assumed)" until the adapter direction has been measured in the wizard.
+
+If the thread pitch (or stepper step size) saved for your adapter differs by more than 15% from the
+value the wizard last measured, a warning box naming both appears under the numbers. The amounts
+above are computed from the saved value, so settle that difference in the Tilt Adapter Wizard, by
+re-running the calibration or adopting the measured value, before you act on them.
 
 With a connected motorized adapter, the guidance section also shows the adapter's live motor
 positions and an **Automatic Adjustment** button: after you approve the planned motor moves in a

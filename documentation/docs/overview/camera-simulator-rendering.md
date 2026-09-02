@@ -11,7 +11,9 @@ position and the aberration surface, renders a point-spread function of the righ
 the star's magnitude into photoelectrons, and stamps the result into an electron accumulator. A
 uniform sky and dark-current background is added, and the accumulated electrons are then developed
 into a 16-bit frame by applying photon noise, read noise, gain, and the bias pedestal, pixel by
-pixel.
+pixel. The render always runs at the sensor's native resolution; when the exposure was requested at
+a binning above 1×1, the finished frame is binned last, by summing each block and clipping the sum
+at the ADC's full scale.
 
 ## From catalog to pixel positions
 
@@ -75,7 +77,7 @@ below, so switching from OIII to SII slightly changes the diffraction-limited PS
 
 ### Sensors
 
-The four sensor models carry datasheet-derived parameters. All share a Sony
+The five sensor models carry parameters taken from published specifications. All share a Sony
 back-illuminated QE curve anchored to a published IMX455 measurement (about 80% peak QE, falling
 toward the red: roughly 0.75 at 530 nm, 0.50 at Hα, 0.46 at SII).
 
@@ -85,6 +87,10 @@ toward the red: roughly 0.75 at 530 nm, 0.50 at Hα, 0.46 at SII).
 | IMX571 | 6248 × 4176 | 3.76 | 16 | 50000 | 2.8 → 1.5 |
 | IMX533 | 3008 × 3008 | 3.76 | 14 | 50000 | 3.8 → 1.5 |
 | IMX294 | 4144 × 2822 | 4.63 | 14 | 66000 | 7.0 → 1.3 |
+| IMX585 | 3840 × 2160 | 2.90 | 12 | 40000 | 3.3 → 1.0 |
+
+Sony publishes no full datasheet for the IMX585, so its row is assembled from ZWO and QHY published
+specifications for the ASI585MM and is approximate.
 
 ### Sky and dark current
 
@@ -171,6 +177,12 @@ tilt across the sensor therefore collapses onto a small set of kernels instead o
 With astigmatism enabled a kernel is identified by both of its defocuses and by its orientation,
 which is quantized on the same quarter-pixel budget; a 61-megapixel frame with tilt and backfocus
 injected typically builds a few hundred kernels rather than one.
+
+The cache has a fixed budget of 384 MB. An injected aberration large enough to exceed it makes the
+render coarsen the defocus quantum, by up to 16 times, and if that still does not fit it drops the
+elliptical model and renders circular donuts. Both fallbacks go to NINA's log with the numbers
+behind them, so stars that come back round with **Model Astigmatism** on have an explanation there.
+Reducing the tilt, the backfocus error, or the astigmatism brings the elliptical model back.
 
 ## Tilt and field curvature
 
@@ -296,8 +308,8 @@ Two options control it, inside the Field Aberrations group:
   1.67:1 corner at any tilt. Raise it to model a rig whose tilt is mostly a sagging focuser; set it to 0
   for a camera that is simply crooked in a square adapter. It is **signed**, and adds to the other two
   contributions signed, so a large enough tilt term of the opposite sign flips the whole field's
-  elongation direction the same way a bigger spacer would. Values at or beyond ±1 are rejected — at 1 the
-  star collapses to a line everywhere at once.
+  elongation direction the same way a bigger spacer would. The box accepts values up to ±0.95,
+  stopping short of the ±1 at which the star collapses to a line everywhere at once.
 
 Two things this deliberately does not change. The **inspector still recovers exactly what you
 inject**: the two surfaces' mean is the surface it fits, and reversing the defocus swaps the two
@@ -315,8 +327,8 @@ Development converts that to ADU with the full noise chain, per pixel:
    electrons, a Gaussian approximation above, where the distributions agree to within a percent).
 2. **Full-well clamp**: electrons saturate at the sensor's full-well capacity.
 3. **Read noise**: a Gaussian draw whose width follows the sensor's gain-dependent read-noise
-   curve, including the step down at the dual-conversion-gain threshold (gain 100 on the IMX
-   sensors here, 120 on the IMX294).
+   curve, including the step down at the dual-conversion-gain threshold (gain 100 on the
+   IMX455, IMX571 and IMX533, 120 on the IMX294, and 252 on the IMX585).
 4. **Digitization**: electrons divide by the e⁻/ADU gain, the **Bias Pedestal** is added, and the
    result clamps to the sensor's bit depth. The gain law is ZWO-style, 0.1 dB per gain unit:
    \(g_{e^-/\text{ADU}} = (\text{full well} / 2^{\text{bits}}) \cdot 10^{-\text{gain}/200}\).

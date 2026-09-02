@@ -9,8 +9,10 @@ them off, detection is identical to having them absent.
 ## The settings
 
 All defocus-aware behavior is gated by the **Defocus-Aware Donut Detection** master toggle. With the master off,
-**Defocus-Aware Gates** and **Defocus-Aware Structure** have no effect; with it on, those two act independently of
-each other. The numeric knobs and their full reference live on the
+**Defocus-Aware Gates** and **Defocus-Aware Structure** have no effect and detection is exactly as if the features
+were absent. With the master on, the distortion and centering relaxations run whether or not **Defocus-Aware
+Gates** is ticked, and the wavelet residual is computed two layers coarser unless **Defocus-Aware Structure** is
+ticked, in which case **Structure Layer Boost** sets the extra layers instead. The numeric knobs and their full reference live on the
 [Acceptance Gates](acceptance-gates.md#recover-out-of-focus-donut-stars) and
 [Structure Detection](structure-detection.md#defocus-aware-structure) pages:
 

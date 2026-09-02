@@ -23,7 +23,7 @@ The detector removes large-scale structure with an **à-trous (dyadic) B3-spline
 | Setting | Default | Range | Effect |
 |---|---|---|---|
 | Structure Layers | 4 | integer > 0 | Wavelet layers kept; structures larger than ~\(2^{\text{layers}}\) px are removed as background. More layers keep larger (e.g. defocused) stars. |
-| Defocus-Aware Structure | Off | On / Off | When on, removes background more coarsely so heavily defocused donut stars survive and form candidates. Detection is unchanged while off. |
+| Defocus-Aware Structure | Off | On / Off | Needs the Defocus-Aware Donut Detection master toggle. With the master on, it replaces the default 2-layer donut boost with your own Structure Layer Boost; with the master off it changes nothing. |
 | Structure Layer Boost | 0 | 0–6 | Extra wavelet layers added *only* while Defocus-Aware Structure is on. Higher values remove background more coarsely, so bigger donuts survive. |
 | Structure Dilation Size | 3 | 3–30 px | Diameter of the morphological filter that grows candidate blobs in the structure map. |
 | Structure Dilation Iterations | 0 | ≥ 0 | How many times the dilation is applied. 0 disables dilation. |
@@ -52,13 +52,15 @@ A targeted fix for the case where a heavily out-of-focus star is wiped out by ba
 
 **Default:** Off. **Range:** On / Off.
 
-When this is **off**, the effective layer count is exactly `StructureLayers`, so candidate formation is **bit-identical** to having the feature absent. When **on**, the wavelet residual is computed at `StructureLayers + StructureLayerBoost` layers (a coarser residual removes less star-scale structure), while the post-subtraction blur stays keyed to the unboosted `StructureLayers`.
+This option does nothing on its own. Like every defocus-aware setting it needs the **Defocus-Aware Donut Detection** master toggle as well, and with the master off the effective layer count is exactly `StructureLayers` whatever this option and the boost are set to, so candidate formation is **bit-identical** to having the feature absent.
+
+With the master on, the wavelet residual is already computed two layers coarser than `StructureLayers`, because donut recovery cannot un-erase a ring the residual has already removed. Turning this option on replaces that fixed 2 with your own number: the residual is computed at `StructureLayers + StructureLayerBoost` layers. A boost of 0 therefore gives *fewer* layers than leaving the option off, so raise the boost above 2 when you turn it on. The post-subtraction blur stays keyed to the unboosted `StructureLayers` in every case.
 
 ![Focused star versus a large defocused donut with a hollow center, plus a horizontal intensity cut](../assets/figures/defocused-donut.png){ width=620 }
 *A heavily defocused star becomes a large hollow donut, exactly the structure that aggressive background removal can erase before it is ever evaluated.*
 
 !!! tip "When to adjust"
-    **Enable it** only when collecting autofocus frames far from focus *and* you observe donut stars missing entirely (no candidate at all), not merely rejected by a gate. Pair it with a **Structure Layer Boost above 0**. On its own, with boost at 0, it changes nothing. If the donuts are present but rejected with a reason (**Too Distorted** / **Not Centered**), the fix is the **Defocus-Aware Gates** on the [Acceptance Gates](acceptance-gates.md) page, not this; if the donuts fragment into small arcs (rejected as **Too Small**), reach for the [Recover Out-of-Focus Donut Stars](acceptance-gates.md#recover-out-of-focus-donut-stars) group, which reconnects the ring. **Leave it off** for normal near-focus imaging; it adds nothing there and only widens what counts as a star.
+    **Enable it** only when collecting autofocus frames far from focus *and* you observe donut stars missing entirely (no candidate at all), not merely rejected by a gate. It also needs the **Defocus-Aware Donut Detection** master toggle on; without that, nothing here reaches detection at any boost. With the master on, pair it with a **Structure Layer Boost above 2**, because the master already adds 2 layers by itself and a smaller boost takes layers away. If the donuts are present but rejected with a reason (**Too Distorted** / **Not Centered**), the fix is the **Defocus-Aware Gates** on the [Acceptance Gates](acceptance-gates.md) page, not this; if the donuts fragment into small arcs (rejected as **Too Small**), reach for the [Recover Out-of-Focus Donut Stars](acceptance-gates.md#recover-out-of-focus-donut-stars) group, which reconnects the ring. **Leave it off** for normal near-focus imaging; it adds nothing there and only widens what counts as a star.
 
 ## Structure Layer Boost
 
@@ -71,7 +73,7 @@ The strength knob for Defocus-Aware Structure: how many extra wavelet layers to 
 Each extra layer roughly doubles the size scale that is preserved rather than erased, so a boost of \(n\) keeps structures up to about \(2^{(\text{StructureLayers}+n)}\) px.
 
 !!! tip "When to adjust"
-    **Raise it 1–6** when very out-of-focus stars never appear, increasing it gradually until they do. **Leave it at 0** unless Defocus-Aware Structure is enabled. It is ignored while that toggle is off. It can hurt when pushed too high: a coarser residual leaves more large-scale structure behind, so nebulosity and background gradients start registering as false candidates.
+    **Raise it above 2** when very out-of-focus stars never appear, increasing it gradually until they do. A boost of 2 changes nothing and anything below 2 takes layers away, because the **Defocus-Aware Donut Detection** master toggle already adds 2 layers by itself. **Leave it at 0** unless Defocus-Aware Structure is enabled. It is ignored while that toggle is off. It can hurt when pushed too high: a coarser residual leaves more large-scale structure behind, so nebulosity and background gradients start registering as false candidates.
 
 ## Structure Dilation Size
 

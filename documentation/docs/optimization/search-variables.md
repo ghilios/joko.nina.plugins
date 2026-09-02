@@ -17,7 +17,7 @@ Each row is one tunable axis. **Type** governs quantization (see [Quantization r
 | `StarClippingMultiplier` | Continuous | 0.25 | 10 | 0.5 | Star clipping multiplier |
 | `NoiseClippingMultiplier` | Continuous | 1 | 10 | 0.5 | Noise clipping multiplier (see [structure detection](../settings/structure-detection.md)) |
 | `PeakResponse` | Continuous | 0.1 | 1 | 0.05 | Peak response / flatness gate (see [acceptance gates](../settings/acceptance-gates.md)) |
-| `MaxDistortion` | Continuous | 0.1 | 1 | 0.1 | Max distortion gate |
+| `MaxDistortion` | Continuous | 0.1 | 0.785 (π/4) | 0.1 | Max distortion gate |
 | `MinHFR` | Continuous | 0.1 | 5 | 0.25 | Minimum HFR |
 | `StarCenterTolerance` | Continuous | 0.05 | 1 | 0.05 | Star center tolerance |
 | `StructureLayers` | Integer | 1 | 8 | 1 | Structure layers (see [structure detection](../settings/structure-detection.md)) |
@@ -31,6 +31,8 @@ Each row is one tunable axis. **Type** governs quantization (see [Quantization r
 Those are the **12** always-on axes. The two synthetic rows in the table above (`DefocusAwareGates`, `DefocusAwareStructure`) plus seven further defocus-tuning knobs (`DefocusDistortionSizeReference`, `DefocusDistortionMinFactor`, `DefocusCenteringToleranceFactor`, `DonutMorphCloseSize`, `DonutMinAnnularityHoleFraction`, `DonutMaxStreakEccentricity`, `DonutSaturationBloomRadius`) are added only when *Recover out-of-focus donut stars* is enabled, taking the curated set to **21** axes. With that master toggle off (the default) the optimizer never touches any defocus parameter.
 
 Several bounds are open-ended in the detector (there is no hard UI validation range), so the wizard applies pragmatic heuristic limits. `Sensitivity` was widened from a 20 to a 50 ceiling and `StarClippingMultiplier` to a `[0.25, 10]` range because rich star fields kept pinning the older, tighter bounds.
+
+`MaxDistortion` is the exception: its ceiling is geometric, not heuristic. Despite the name, the setting is a minimum fill ratio, and the gate rejects a candidate whose star pixels fill less of its bounding box than the threshold, so raising it makes the gate stricter (see [Max Distortion](../settings/acceptance-gates.md#max-distortion)). A perfectly round star can only reach the fill ratio of a disk inscribed in its own box, π/4 ≈ 0.785, so any threshold above that rejects every round star. The search axis stops there rather than leaving a dead band the pattern search could walk into.
 
 The two highest-impact axes, `Sensitivity` and `StarClippingMultiplier`, are also the pair the search grids over first in its coarse Phase A (see [search algorithm](search-algorithm.md)).
 

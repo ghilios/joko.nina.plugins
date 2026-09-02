@@ -114,14 +114,24 @@ A live run goes like this:
    on the current focuser position, so it has to start near focus.
 2. Choose **Live Auto-Focus**, set the **Exposure**, and choose the folder to **Save captured frames
    to**. The camera and focuser must be connected, and **Start** stays disabled until you pick a save
-   folder. The panel also shows the step size, number of points, capture binning, filter, and gain the
-   sweep will use; these come from your profile's auto-focus settings. **Detection binning** can also be
-   changed here; the whole search is tuned at whatever factor is in effect when the run starts (see
+   folder. The panel also shows the step size, capture binning, filter, and gain the sweep will
+   use; these come from your profile's auto-focus settings. **Focus recovery (extra
+   steps/side)** is editable and defaults to 1. Each recovery step widens the captured sweep by
+   one extra focuser step on each side, so the curve can still bracket focus when you start well
+   off it. Those outer frames are down-weighted in the fit and exempt from the star-count
+   requirements. Set it to 0 to capture exactly your profile's sweep. **Number of points** and
+   **Total frames** follow from the widened sweep, and **Estimated time** multiplies those
+   frames by the exposure you set here; the estimate counts exposure only, not
+   downloads or focuser moves. **Detection binning** can also be changed here; the whole search is
+   tuned at whatever factor is in effect when the run starts (see
    [Detection Binning](../settings/detection-binning.md)). A Replay run has the same control.
 3. Press **Start** and confirm the telescope is roughly focused when prompted. The wizard moves the
    focuser out and steps back across the range set by your profile's auto-focus step size and offset
-   steps, saves a frame at each point, then returns the focuser to where it started. The sweep does not
-   try to converge, so it captures a full set of frames even when the current settings detect nothing.
+   steps plus the recovery steps, saves a frame at each point, then returns the focuser to where it
+   started. The sweep does not try to converge, so it captures a full set of frames even when the
+   current settings detect nothing. If the outermost positions come back starless and no focus curve
+   can be fit at all, the wizard widens the recovery exemption far enough to leave those positions
+   out of the curve, optimizes on the rest, and says so on the page.
 4. From there the run behaves like a replay: the frames are optimized and the summary appears.
 
 !!! tip "Make the exposure long enough for the wings of the sweep"
@@ -176,7 +186,8 @@ ground-truth labels are present a further term \( W_\ell = 0.25 \) is added and 
 renormalized to sum to one. The weighted score is then scaled by two multiplicative penalties that
 default to 1.0: one for defocus-relaxed junk, and one for leaning on a saturated bright star's
 inflated HFR. A hard floor guards against starved frames: if any frame falls below 3 accepted stars,
-that run scores \( J_{\text{run}} = 0 \).
+that run scores \( J_{\text{run}} = 0 \). A Live sweep's focus-recovery frames are exempt, since they
+are captured beyond the profile's sweep and are expected to be sparse.
 
 The full breakdown of each sub-score lives on the dedicated pages below.
 

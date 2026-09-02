@@ -40,8 +40,11 @@ else, point **ASTAP Catalog Path** on the plugin's **Camera Sim** options tab at
 folder. The path is re-read for every exposure, so a change takes effect on the next frame without
 reconnecting the camera.
 
-If the database is missing, exposures fail with an error naming the folder it searched, and the
-Camera Sim tab's path field is where to fix it.
+A missing database does not fail the exposure. The simulator renders sky, dark current and noise
+with no stars, and logs the folder it searched. A frame that comes back starless is the symptom;
+**ASTAP Catalog Path** on the **Camera Sim** tab is where to fix it. A pointing with no catalog
+stars down to the **Limiting Magnitude** renders the same starless frame, and the log says which
+of the two happened.
 
 ## Connect it
 
@@ -70,7 +73,7 @@ Simulator Setup** dialog. This is the physical rig, set once:
 
 | Setting | Default | What it does |
 |---|---|---|
-| **Sensor Model** | IMX455 (ASI6200MM / QHY600M) | Chooses the sensor: IMX455, IMX571 (ASI2600MM / QHY268M), IMX533 (ASI533MM), or IMX294 (ASI294MM). Each brings its real resolution, pixel size, bit depth, full-well capacity, read-noise curve, and dark current. Change it while disconnected: NINA latches resolution and pixel size when the camera connects. |
+| **Sensor Model** | IMX455 (ASI6200MM / QHY600M) | Chooses the sensor: IMX455, IMX571 (ASI2600MM / QHY268M), IMX533 (ASI533MM), IMX294 (ASI294MM), or IMX585 (ASI585MM). Each brings its real resolution, pixel size, bit depth, full-well capacity, read-noise curve, and dark current. Change it while disconnected: NINA latches resolution and pixel size when the camera connects. |
 | **Aperture** (mm) | blank | Leave blank to infer from your NINA telescope settings; the greyed hint shows the value in effect. |
 | **Focal Length** (mm) | blank | Leave blank to take the focal length from **Options → Equipment → Telescope**. A fresh profile falls back to 980 mm at f/7. |
 | **Central Obstruction** | on | Whether the optic has a central obstruction. This is what puts the hole in defocused donut stars. |
@@ -162,6 +165,15 @@ The simulated adapter can also stand in for a **motorized** adapter: select an A
 preset in the wizard and connect to the **Simulator** port to run the hands-off calibration and the
 inspector's Automatic Adjustment against it. See the [Simulator
 port](motorized-tilt-adapter.md#the-simulator-port).
+
+Beside **Copy from adapter settings** is **Copy to adapter settings…**, which goes the opposite
+way: it overwrites your real tilt-adapter calibration with the simulated adapter's geometry. It
+asks first, and the confirmation names the fields it replaces. The copy sets the wizard's
+**Device** to **Manual** and marks the calibration as manually entered, which turns off the
+Aberration Inspector's **Automatic Adjustment** until you re-run the calibration with the device
+connected. NINA shows a warning when the copy actually took automation away. The wizard's
+**Trust This Calibration for Automation** button is not offered afterwards, because it appears
+only on a motorized device preset.
 
 !!! note "Match the simulated adapter to the real settings"
     The inspector computes its guidance from the *real* tilt-adapter settings, while the simulated

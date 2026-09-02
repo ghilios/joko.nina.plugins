@@ -37,7 +37,7 @@ These controls govern the always-on overlay drawn for accepted stars. ("Property
 | Show Star Bounds | On | on / off | *"Whether to draw the bounding box or ellipse around the star"*. |
 | Star Bounds Type | Box | Box, Ellipse, PSF | *"The type of boundary surrounding the star. Star detection internally uses a box, but an ellipse can be more aesthetically pleasing"*. |
 | Star Bounds Color | Red, 50% | ARGB color | *"The color of the bounding box or ellipse around the star"*. |
-| Show Property | HFR | None, HFR, FWHM, FWHM X, FWHM Y, FWHM Pixels, Eccentricity, PSF Rotation, Background, PSF Background, PSF Peak, Moffat Beta | *"What type of annotation to show for each star"*. Picks the text label drawn beside each star. |
+| Show Property | HFR | None, HFR, FWHM Arcseconds, FWHM X (Pixels), FWHM Y (Pixels), FWHM Pixels, Eccentricity, PSF Rotation, Background, PSF Background, PSF Peak, Moffat Beta | *"What type of annotation to show for each star"*. Picks the text label drawn beside each star. |
 | Property Color | Yellow | ARGB color | *"The color of the annotation text next to the star"*. |
 | Property Font | Arial | system font | Font family used for the text labels. |
 | Font size (inline pt box under **Property Font**) | 18 pt | > 0 | Point size of the text labels. It has no separate label in the UI. |
@@ -62,8 +62,8 @@ The label drawn beside each star reflects the selected annotation type. **HFR** 
 |---|---|---|
 | None | no label | — |
 | HFR | Half-Flux Radius (pixels) | No |
-| FWHM | FWHM in arcseconds | Yes |
-| FWHM X / FWHM Y | per-axis FWHM (pixels) | Yes |
+| FWHM Arcseconds | FWHM in arcseconds | Yes |
+| FWHM X (Pixels) / FWHM Y (Pixels) | per-axis FWHM in pixels | Yes |
 | FWHM Pixels | FWHM in pixels | Yes |
 | Eccentricity | axis-ratio eccentricity | Yes |
 | PSF Rotation | fit rotation angle in degrees | Yes |
@@ -116,7 +116,7 @@ The mask pixels are blended onto the image in **Structure Map Color** (*"The col
 
 **Tuning detection quality.** Cap labels (**Show All Stars** off, **Maximum Stars** ≈ 50), then enable the rejection toggles one or two at a time with distinct colors. Walk the gates until the accepted set looks right for your focal ratio and seeing.
 
-**Checking focus quality across the field.** Set **Show Property** to FWHM or Eccentricity (PSF modeling required) and watch for consistent, low values near best focus. The star-center reticule makes off-center or trailed stars at the defocus extremes easy to spot.
+**Checking focus quality across the field.** Set **Show Property** to FWHM Arcseconds or Eccentricity (PSF modeling required) and watch for consistent, low values near best focus. The star-center reticule makes off-center or trailed stars at the defocus extremes easy to spot.
 
 **Mapping the PSF across the sensor.** Combine **Star Bounds Type = PSF** with the Eccentricity or PSF Rotation label to overlay the actual fitted ellipse shape and orientation everywhere in the frame. Systematic stretch toward the corners points to tilt, coma, or curvature, the kind of thing the Tilt & Aberration Inspector quantifies.
 
