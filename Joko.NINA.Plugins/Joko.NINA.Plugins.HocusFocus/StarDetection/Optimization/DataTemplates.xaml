@@ -35,6 +35,7 @@
     <TextBlock x:Key="SDOpt_StarSignal_Tooltip" Text="Brightness Sensitivity is the acceptance gate a candidate must clear to count as a star: its brightness above the local background, divided by the local noise. It ranges from 0 to 50 and the shipped default is 10, so a value near the bottom means almost anything above the noise was admitted — whether the optimizer landed there or you set it by hand. The recommended exposure is what would put this run's stars back at the default gate, assuming sky noise dominates, so quadrupling the exposure doubles S/N. It scales from the exposure the run's own frames were captured with, or from your profile's auto-focus exposure when the frames record none. One run never recommends more than 30 s per frame, and derives at most 4x the current exposure before that number is rounded up to a practical exposure-time step — which can land the shown value a little past 4x, but never past 30 s." />
     <TextBlock x:Key="SDOpt_CaptureNewSweep_Tooltip" Text="Captures a whole new auto-focus sweep at this exposure and re-runs the optimization on the fresh frames — the only way to fix a run whose stars were too faint, since no setting recovers signal the frames never had. It takes new exposures and moves the focuser, so it costs a full sweep of sky time. The box starts at the recommended exposure and is yours to change. Any detection binning change you have already re-optimized at still applies. Nothing is saved until you Accept the new result." />
     <TextBlock x:Key="SDOpt_FocusRecovery_Tooltip" Text="Widens the live sweep by this many extra steps on EACH side, so the auto-focus curve can still bracket focus when you start well off focus. The extra far-from-focus frames are down-weighted in the fit and exempt from the star-count requirements, so they help find focus without skewing it. Set 0 to disable recovery." />
+    <TextBlock x:Key="SDOpt_GpuAcceleration_Tooltip" Text="Run this wizard's star detection pipeline on a CUDA-capable NVIDIA GPU when one is present, typically speeding optimization up 2-3x. Only this wizard uses the GPU: auto focus, sensor modeling, and regular star detection always run on the CPU. This is a per-computer setting (it is not exported or shared per-filter), it persists immediately, and it is skipped automatically when no suitable GPU is found or frames are too small to benefit. Applies the next time a run is loaded." />
 
     <!--  Themed button whose label is a plain string Content. Visually identical to NINA's StandardButton (same
           theme brushes, same border/corner radii, same hover / pressed / disabled behaviour) — the ONLY change is
@@ -482,6 +483,22 @@
                             IsEnabled="{Binding IsOptimizeMode}"
                             Text="Optimize for aberration inspection (favor more stars)"
                             ToolTip="{StaticResource SDOpt_Inspection_Tooltip}" />
+                    </StackPanel>
+
+                    <!--  GPU acceleration toggle (machine-local profile option; its ONLY UI home — GPU is used
+                          solely by this wizard, so the toggle lives with the wizard rather than the options
+                          pane). Persists on click; enabled in BOTH modes (Use-current evaluations run the same
+                          accelerated detection); auto-declines without a suitable CUDA device.  -->
+                    <StackPanel Margin="0,4" Orientation="Horizontal">
+                        <CheckBox
+                            VerticalAlignment="Center"
+                            IsChecked="{Binding GpuAccelerationEnabled}"
+                            ToolTip="{StaticResource SDOpt_GpuAcceleration_Tooltip}" />
+                        <TextBlock
+                            Margin="6,0,0,0"
+                            VerticalAlignment="Center"
+                            Text="GPU acceleration (NVIDIA CUDA, this computer only)"
+                            ToolTip="{StaticResource SDOpt_GpuAcceleration_Tooltip}" />
                     </StackPanel>
 
                     <!--  Single saved-run folder picker (Saved Auto-Focus only). Optimizing against one run at a time

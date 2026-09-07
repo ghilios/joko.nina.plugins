@@ -596,7 +596,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         // Machine-local (MachineLocalKeys): describes this computer's hardware. Gates ONLY the star-detection
         // optimization wizard's GPU path (GpuAccelerationPolicy + StarDetectorParams.AllowGpuAcceleration) —
-        // autofocus, sensor modeling, and single-frame detection are unaffected.
+        // autofocus, sensor modeling, and single-frame detection are unaffected. Edited on the wizard START
+        // PAGE (StarDetection/Optimization/DataTemplates.xaml), not OptionsDataTemplates.xaml — the wizard is
+        // the option's only consumer (the ITiltAdapterOptions-style UI-home exception).
         public bool GpuAccelerationEnabled {
             get => gpuAccelerationEnabled;
             set {

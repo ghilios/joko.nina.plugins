@@ -148,7 +148,10 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         /// <summary>Machine-local (describes this computer's hardware, never imported/per-filter): allow the
         /// star-detection OPTIMIZATION wizard to run its early detection pipeline on a CUDA GPU when one is
         /// present and the GpuAccelerationPolicy heuristic approves. Autofocus, sensor modeling, and
-        /// single-frame detection never use the GPU regardless of this setting.</summary>
+        /// single-frame detection never use the GPU regardless of this setting.
+        /// <para>UI home: the Star Detection Optimization wizard START PAGE, not the options pane — the
+        /// wizard is the option's only consumer, so the toggle sits next to the controls that give it
+        /// meaning (the ITiltAdapterOptions-style exception in .claude/docs/options-system.md).</para></summary>
         bool GpuAccelerationEnabled { get; set; }
         bool StarMeasurementNoiseReductionEnabled { get; set; }
         StarDetectorPSFFitType PSFFitType { get; set; }

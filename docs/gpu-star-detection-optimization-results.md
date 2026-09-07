@@ -296,8 +296,8 @@ Everything above was promoted from spike to plugin:
   contamination boundary that v3's TIGHT bounding box (13×13 vs the walker's gap-jump-inflated 14×13,
   which shifts the background annulus one pixel) flips. That razor-edge case is the entire class of
   CCL-vs-legacy measurement difference observed.
-- **`GpuAccelerationEnabled` option** (default ON; machine-local — never imported or per-filter; advanced
-  Star Detection pane). It gates ONLY the optimization wizard/harness, which stamp
+- **`GpuAccelerationEnabled` option** (default ON; machine-local — never imported or per-filter; edited on
+  the optimization wizard's START page, its only consumer). It gates ONLY the optimization wizard/harness, which stamp
   `StarDetectorParams.AllowGpuAcceleration` (an EARLY cache-key param, so contexts never cross backends)
   after `GpuAccelerationPolicy` approves: CUDA device initializes, frames ≥ 2 MP, VRAM ≥ working set +
   1 GB slack. `GpuEarlyPipeline` latches itself off after 3 per-build failures (one warning). Autofocus,

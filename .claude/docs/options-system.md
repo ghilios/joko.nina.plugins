@@ -73,6 +73,11 @@ pane (`TiltAdapterWizard/DataTemplates.xaml`), not here; `OptionsDataTemplates.x
 preset, screw count, screw radius), and several are locked by the selected preset. A new tilt option
 therefore goes in that pane. The invariant itself still holds: it must be reachable somewhere in the UI.
 
+**Exception — `GpuAccelerationEnabled`.** Same principle: the star-detection optimization wizard is the
+option's only consumer, so its CheckBox lives on the wizard START page
+(`StarDetection/Optimization/DataTemplates.xaml`), not in `OptionsDataTemplates.xaml`. It is also
+machine-local (`MachineLocalKeys` + `ExcludedFromImport` + snapshot `CopyMachineLocalFrom`/`Scrub`).
+
 Genuinely internal persisted state (`TiltDeviceShadowPositions`, `DeviceLinkedCalibrationDeviceName`,
 `CalibrationIsReliable`, the migration markers) is exempt from both and is documented as such at its
 declaration.

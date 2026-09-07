@@ -10,8 +10,10 @@ GPU from inside NINA.
    behavior change ⇒ `StarDetectorVersion` bump; suite tests pinning legacy candidate behavior get re-pinned
    after verifying the deltas are the documented CCL effects (surviving shadowed neighbors, unified donuts).
    TestApp keeps an escape hatch for A/B: `--legacy-collector`.
-2. **New persisted option `GpuAccelerationEnabled` (default ON)** + CheckBox in
-   `Resources/OptionsDataTemplates.xaml` (options-system invariant). The option gates the OPTIMIZATION path
+2. **New persisted option `GpuAccelerationEnabled` (default ON)** + CheckBox on the optimization wizard's
+   START page (`StarDetection/Optimization/DataTemplates.xaml` — the wizard is the option's only consumer,
+   the ITiltAdapterOptions-style UI-home exception; originally landed in `OptionsDataTemplates.xaml` and
+   moved per user direction). The option gates the OPTIMIZATION path
    only: a non-persisted `StarDetectorParams.AllowGpuAcceleration` flag (EARLY cache key — GPU results are
    tolerance-different) is set solely where the optimization wizard/harness build their seed/baseline
    params. Sensor modeling, autofocus, and single-frame detection never set it.

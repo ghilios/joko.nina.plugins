@@ -434,7 +434,6 @@
     <TextBlock x:Key="RSquaredRejectionThreshold_Tooltip" Text="The minimum R² (coefficient of determination) below which an auto-focus run is rejected, when the rejection criterion is set to R². This is NINA's own R² threshold from the Focuser settings; editing it here changes that same profile setting. R² closer to 1 indicates a better fit to the measured focus curve." />
     <TextBlock x:Key="HotpixelFiltering_Tooltip" Text="Uses a 3x3 box median convolution to filter out hotpixels. This should be on, unless you're working with a calibrated image with hotpixels removed" />
     <TextBlock x:Key="HotpixelThresholdingEnabled_Tooltip" Text="A more sophisticated version of hotpixel filtering that limits pixel replacement to those where the median is far off of the pixel value. This prevents the whole image from being blurred, which can have a negative effect on HFR and PSF measurement accuracy" />
-    <TextBlock x:Key="GpuAccelerationEnabled_Tooltip" Text="Allow the Star Detection Optimization wizard to run its detection pipeline on a CUDA-capable NVIDIA GPU when one is present, typically speeding optimization up 2-3x. Only the optimization wizard uses the GPU: auto focus, sensor modeling, and regular star detection always run on the CPU. This is a per-computer setting (it is not exported or shared per-filter), and it is skipped automatically when no suitable GPU is found or frames are too small to benefit." />
     <TextBlock x:Key="HotpixelThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a hotpixel. It's the percentage of full well difference between the 3x3 median blurred value and the pixel value" />
     <TextBlock x:Key="SaturationThreshold_Tooltip" Text="A percentage representing the cutoff threshold for detecting a saturated pixel. Star candidates containing saturated pixels are processed with those pixels masked during PSF fitting" />
     <TextBlock x:Key="ExcludeSaturatedStarsFromHFR_Tooltip" Text="When enabled (default), partially-saturated stars (those whose peak reaches the Saturation Threshold) are left out of the per-frame HFR average — their flat, saturated cores bias HFR high and can pull the focus curve. The stars are still detected and counted; only the HFR average excludes them, and only while enough unsaturated stars remain. Disable to include every star's HFR as before." />
@@ -1203,9 +1202,6 @@
                 <!--  54: Detection Binning (always visible - it applies in both Simple and Advanced mode). Its
                       recommendation lives OUTSIDE this grid, just below it — see the note there.  -->
                 <RowDefinition />
-                <!--  55: GPU Acceleration (advanced-only, the promotion design's placement — machine-local and
-                      consumed only by the optimization wizard; without a CUDA device the policy declines anyway).  -->
-                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"
@@ -1934,22 +1930,6 @@
                 </ComboBox.ItemTemplate>
             </ComboBox>
 
-            <!--  55: GPU acceleration (machine-local; optimization wizard only).  -->
-            <TextBlock
-                Grid.Row="55"
-                Grid.Column="0"
-                VerticalAlignment="Center"
-                Text="GPU Acceleration (Optimization)"
-                ToolTip="{StaticResource GpuAccelerationEnabled_Tooltip}" />
-            <CheckBox
-                Grid.Row="55"
-                Grid.Column="1"
-                MinWidth="80"
-                Margin="5,5,0,0"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                IsChecked="{Binding StarDetectionOptions.GpuAccelerationEnabled}"
-                ToolTip="{StaticResource GpuAccelerationEnabled_Tooltip}" />
             <TextBlock
                 Grid.Row="19"
                 Grid.Column="0"

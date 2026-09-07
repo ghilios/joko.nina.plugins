@@ -1099,6 +1099,25 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
+        /// <summary>Pass-through to the profile-saved, MACHINE-LOCAL <see cref="IStarDetectionOptions.GpuAccelerationEnabled"/>
+        /// (its only UI home — the option is edited here, on the wizard start page, because GPU acceleration
+        /// applies ONLY to this wizard's optimization runs; see the option's declaration). Persists immediately
+        /// on click like <see cref="DefocusAwareDonutDetection"/>. No per-filter branch: machine-local options
+        /// describe the computer and stay global while per-filter mode is on. Takes effect when a run is next
+        /// loaded (the loader stamps the seed/baseline params after the GpuAccelerationPolicy heuristic — no
+        /// CUDA device, tiny frames, or insufficient VRAM all auto-decline to the CPU path). Meaningful in BOTH
+        /// modes: Use-current-settings evaluations run the same accelerated detection path.</summary>
+        public bool GpuAccelerationEnabled {
+            get => starDetectionOptions.GpuAccelerationEnabled;
+            set {
+                if (starDetectionOptions.GpuAccelerationEnabled == value) {
+                    return;
+                }
+                starDetectionOptions.GpuAccelerationEnabled = value;
+                RaisePropertyChanged();
+            }
+        }
+
         private bool optimizeForAberrationInspection;
 
         /// <summary>When true (default OFF), the optimizer uses the aberration-inspection objective
