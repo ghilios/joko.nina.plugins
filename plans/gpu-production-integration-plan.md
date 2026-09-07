@@ -19,7 +19,7 @@ GPU from inside NINA.
    GpuEarlyPipeline): ILGPU 1.5.3 PackageReference + `ILGPU.dll` added to the PostBuild deploy xcopy.
    TestApp consumes the plugin classes; the static `EarlyAcceleratorOverride` hook is replaced by the
    params flag consulting a lazy shared pipeline.
-4. **Heuristic (`GpuAccelerationHeuristic`)** — initial logic, review later: CUDA accelerator initializes
+4. **Heuristic (`GpuAccelerationPolicy`)** — initial logic, review later: CUDA accelerator initializes
    (cached probe) AND frame pixels ≥ 2 MP (below that the CPU build is a few ms and transfer overhead
    dominates) AND device VRAM ≥ working-set estimate with headroom; plus a runtime latch: after 3 per-build
    GPU failures the pipeline stops trying for the process (single warning, no spam).

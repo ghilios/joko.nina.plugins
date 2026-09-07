@@ -44,9 +44,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Gpu {
         private readonly SemaphoreSlim gate = new SemaphoreSlim(PoolSize);
         private int runs;
         private int fallbacks;
+        private int declines;
+        private volatile bool disposed;
 
         public int Runs => runs;
+
+        /// <summary>Per-build GPU execution failures (the CPU span absorbed them). These count toward the latch.</summary>
         public int Fallbacks => fallbacks;
+
+        /// <summary>Unsupported-input declines (non-CV_32F / non-continuous). Not failures: never latch the GPU off.</summary>
+        public int Declines => declines;
 
         /// <summary>True when repeated per-build failures have permanently disabled GPU attempts.</summary>
         public bool LatchedOff => fallbacks >= MaxFallbacksBeforeLatch;
@@ -55,17 +62,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Gpu {
             acc = accelerator;
         }
 
-        public bool TryRunEarlySpan(Mat srcImage, StarDetectorParams p, int effectiveStructureLayers, bool hotpixelAlreadyApplied, out EarlySpanOutput output) {
+        public bool TryRunEarlySpan(Mat srcImage, StarDetectorParams p, int effectiveStructureLayers, bool hotpixelAlreadyApplied, CancellationToken token, out EarlySpanOutput output) {
             output = null;
             if (LatchedOff) {
                 return false;
             }
             if (srcImage.Type() != MatType.CV_32F || !srcImage.IsContinuous()) {
-                Interlocked.Increment(ref fallbacks);
+                // A decline, not a device failure: it must not latch the GPU off or read as "repeated failures".
+                Interlocked.Increment(ref declines);
                 return false;
             }
 
-            gate.Wait();
+            gate.Wait(token);
             GpuEarlyChain chain = null;
             try {
                 if (!pool.TryTake(out chain)) {
@@ -111,17 +119,33 @@ namespace NINA.Joko.Plugins.HocusFocus.Gpu {
                 return false;
             } finally {
                 if (chain != null) {
-                    pool.Add(chain);
+                    if (disposed) {
+                        // Dispose already drained the pool; a chain returned after that must not be re-pooled.
+                        try { chain.Dispose(); } catch { }
+                    } else {
+                        pool.Add(chain);
+                        if (disposed) {
+                            // Dispose ran between the check and the add: drain again so this chain is not orphaned.
+                            DrainPool();
+                        }
+                    }
                 }
                 gate.Release();
             }
         }
 
         public void Dispose() {
+            // Flag BEFORE draining: a chain being returned concurrently is then caught either by the finally's
+            // disposed check or by its post-add drain.
+            disposed = true;
+            DrainPool();
+            gate.Dispose();
+        }
+
+        private void DrainPool() {
             while (pool.TryTake(out var chain)) {
                 try { chain.Dispose(); } catch { }
             }
-            gate.Dispose();
         }
     }
 }

@@ -94,8 +94,8 @@ namespace TestApp {
             } finally {
                 // GPU health line (a nonzero fallback count means CPU quietly absorbed failed GPU builds).
                 var gpuPipeline = NINA.Joko.Plugins.HocusFocus.Gpu.GpuAccelerationHost.PeekPipeline();
-                if (gpuPipeline != null && (gpuPipeline.Runs > 0 || gpuPipeline.Fallbacks > 0)) {
-                    Console.WriteLine($"GPU early-span builds={gpuPipeline.Runs}, CPU fallbacks={gpuPipeline.Fallbacks}" +
+                if (gpuPipeline != null && (gpuPipeline.Runs > 0 || gpuPipeline.Fallbacks > 0 || gpuPipeline.Declines > 0)) {
+                    Console.WriteLine($"GPU early-span builds={gpuPipeline.Runs}, CPU fallbacks={gpuPipeline.Fallbacks}, unsupported-input declines={gpuPipeline.Declines}" +
                                       (gpuPipeline.LatchedOff ? " (GPU LATCHED OFF after repeated failures)" : ""));
                 }
             }

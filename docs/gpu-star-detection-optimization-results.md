@@ -253,15 +253,17 @@ Two collectors now sit behind a shared, parallel per-row run-length index (`Stru
 candidate collection never raster-scans (or mutates) the full-frame map again; the saturated-pixel count
 in `EvaluateGlobalMetrics` is parallelized too (order-independent ⇒ bit-identical).
 
-1. **Run-index walker — the new DEFAULT, bit-identical.** A literal translation of the legacy
+1. **Run-index walker — bit-identical** (the spike-era default; §7 later made CCL the v3 default, keeping
+   this walker reachable via `--legacy-collector`). A literal translation of the legacy
    zero-the-bbox scan: same seeds, same growth (including the same-row gap-jump and downward-only quirks),
    same point ORDER (eccentricity sums are order-sensitive), with the bbox zeroing replaced by interval
    subtraction. The legacy implementation is retained purely as the equivalence oracle for
    `CandidateCollectionTests` (random + adversarial maps: donut, bbox-shadowing, gap-jump, edges, full-lit).
    Single frame at 61 MP: `CollectStarCandidates` **0.81 s → 0.141 s (5.7×)**.
-2. **8-connected-component collector — opt-in behavior change**
-   (`StarDetectorParams.UseConnectedComponentCollection`, EARLY cache-key param, default OFF; TestApp
-   `--ccl` on `optimize`/`contamination`; deliberately NOT bit-identical). True components via run-based
+2. **8-connected-component collector — deliberately NOT bit-identical.** At the time of the spike this was
+   opt-in (`StarDetectorParams.UseConnectedComponentCollection` default OFF; a TestApp `--ccl` flag);
+   superseded by §7, which promoted it to the DEFAULT (`StarDetectorVersion` 3) — the `--ccl` flag is gone
+   and the legacy walker is now the opt-in via `--legacy-collector`. True components via run-based
    union-find: no bbox shadowing (a star overlapping an earlier candidate's bounding box survives), whole
    components collected (connected donut rings arrive unified), no same-row gap-jump merging. 0.080 s at
    61 MP. At fixed params on the CWhite frame it detects **4457 vs 4379 stars (+1.8%)** — the surviving
@@ -272,13 +274,15 @@ four runs**, most dramatically on the one run with human-labeled ground truth (P
 an improvement ~50× larger than anything the eval-budget work argued about — the labeled objective's
 recall/precision term directly credits the stars the legacy walker was destroying). On timmer it was also
 1.17× faster than the GPU arm (the changed J landscape converged with fewer early rebuilds), and on
-muggsie the CPU+CCL arm beat every other arm's J while converging 2.2× faster than legacy CPU. Sensor
-modeling always runs on the imaging PC with the toggle OFF, so its behavior is untouched.
+muggsie the CPU+CCL arm beat every other arm's J while converging 2.2× faster than legacy CPU. (The
+spike-era caveat that sensor modeling kept the toggle OFF is superseded by §7: with CCL as the v3 default,
+sensor modeling and autofocus use it too — an intended behavior change under the `StarDetectorVersion`
+discipline.)
 
-**Recommended follow-up for the CCL mode:** validate that the higher J is real detection quality — run
-`bank-verify` / `golden eval` recall/precision with `UseConnectedComponentCollection` on across the bank
-(the golden sets are detector-independent, so they arbitrate honestly), and if it holds, promote the
-toggle through the wizard behind the usual `StarDetectorVersion` discipline.
+**Recommended follow-up for the CCL mode** (the promotion half happened — §7 shipped CCL as the v3
+default): validate that the higher J is real detection quality — run `bank-verify` / `golden eval`
+recall/precision with the CCL default across the bank (the golden sets are detector-independent, so they
+arbitrate honestly).
 
 ## 7. Production promotion (user-directed follow-on; plan: `plans/gpu-production-integration-plan.md`)
 

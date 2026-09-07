@@ -13,6 +13,7 @@
 using NINA.Joko.Plugins.HocusFocus.Interfaces;
 using NINA.Joko.Plugins.HocusFocus.Utility;
 using OpenCvSharp;
+using System.Threading;
 
 namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
@@ -44,9 +45,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
     }
 
     /// <summary>
-    /// Optional accelerator for the EARLY pipeline span, consulted by StarDetector via
-    /// <c>StarDetector.EarlyAcceleratorOverride</c> (a TestApp-only spike hook — null in production, in
-    /// which case the CPU span runs unchanged; see plans/gpu-early-pipeline-spike-plan.md).
+    /// Optional accelerator for the EARLY pipeline span, consulted by StarDetector only when the params
+    /// bundle carries <c>AllowGpuAcceleration</c> (production: the process-global
+    /// <c>Gpu.GpuAccelerationHost</c>; tests: the <c>StarDetector.EarlyAcceleratorOverride</c> seam).
+    /// A null accelerator or a false return runs the unchanged CPU span.
     /// </summary>
     internal interface IEarlyPipelineAccelerator {
 
@@ -54,7 +56,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// Attempts to run the EARLY span for <paramref name="srcImage"/> (CV_32F, post-ROI/post-binning;
         /// treated as read-only). Returns false to decline (unsupported input, device failure, ...), in
         /// which case the caller runs the existing CPU span with no behavior change.
+        /// <paramref name="token"/> is honored while queued for a device working set; a device build already
+        /// in flight is not interrupted.
         /// </summary>
-        bool TryRunEarlySpan(Mat srcImage, StarDetectorParams p, int effectiveStructureLayers, bool hotpixelAlreadyApplied, out EarlySpanOutput output);
+        bool TryRunEarlySpan(Mat srcImage, StarDetectorParams p, int effectiveStructureLayers, bool hotpixelAlreadyApplied, CancellationToken token, out EarlySpanOutput output);
     }
 }

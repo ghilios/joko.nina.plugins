@@ -1203,6 +1203,9 @@
                 <!--  54: Detection Binning (always visible - it applies in both Simple and Advanced mode). Its
                       recommendation lives OUTSIDE this grid, just below it — see the note there.  -->
                 <RowDefinition />
+                <!--  55: GPU Acceleration (advanced-only, the promotion design's placement — machine-local and
+                      consumed only by the optimization wizard; without a CUDA device the policy declines anyway).  -->
+                <RowDefinition Style="{StaticResource ShowOnUseAdvanced}" />
             </Grid.RowDefinitions>
             <TextBlock
                 Grid.Row="0"

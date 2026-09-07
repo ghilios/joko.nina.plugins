@@ -67,6 +67,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         /// <summary>Stores a CLONE of <paramref name="prepared"/> for (image, key), evicting any prior slot.</summary>
         public void Store(object image, string key, Mat prepared, long? hotpixelCount) {
+            // Check disposed BEFORE cloning: the wizard's Review step detects with params that still carry the
+            // torn-down run's cache, so every such Store would otherwise pay a full-frame clone just to throw it
+            // away. The clone itself stays outside the lock (it can be ~100 MB); the second check below covers a
+            // Dispose racing in between.
+            lock (sync) {
+                if (disposed) {
+                    return;
+                }
+            }
             var clone = prepared.Clone();
             lock (sync) {
                 if (disposed) {

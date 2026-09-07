@@ -51,6 +51,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
         private readonly IAlglibAPI alglibAPI;
 
+        // Test seam: substitutes a fake EARLY-span accelerator for the process-global CUDA host (which is
+        // device-dependent and latches state process-wide). Null in production; consulted only when the params
+        // bundle carries AllowGpuAcceleration, which autofocus/sensor-modeling/single-frame paths never set.
+        internal static IEarlyPipelineAccelerator EarlyAcceleratorOverride;
+
         public StarDetector(IAlglibAPI alglibAPI) {
             this.alglibAPI = alglibAPI;
         }
@@ -481,16 +486,36 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var ownsLocalTracker = resourceTracker == null;
             var scratch = resourceTracker ?? new ResourcesTracker();
 
-            // The Mat destined for the context: it is owned here until the context is successfully constructed, after
-            // which the context owns it. If the early pipeline throws (cancellation, OOM, CollectStarCandidates, …)
-            // before the context exists, this would otherwise be orphaned — it is registered with NEITHER tracker on
-            // the split path, and the ROI-replacement clone is untracked on BOTH paths. So we hold it in a local and
-            // dispose it in the finally when no context was produced.
-            //   - Split path (ownsLocalTracker): we own the incoming srcImage from entry.
-            //   - Monolithic path: the caller owns the incoming srcImage (and tracks it), so we must NOT dispose it
-            //     here — start null and only adopt the ROI-replacement clone we make below.
+            // The Mat destined for the context on the SPLIT path: owned here until the context is successfully
+            // constructed, after which the context owns it (RunEvaluationData disposes contexts). If the early
+            // pipeline throws (cancellation, OOM, CollectStarCandidates, …) before the context exists, this would
+            // otherwise be orphaned — it is registered with neither tracker on that path. So we hold it in a local
+            // and dispose it in the finally when no context was produced. On the MONOLITHIC path this stays null:
+            // the caller owns (and, on the IRenderedImage path, tracks) the incoming srcImage, and every
+            // replacement adopted below is registered with the caller's tracker (see AdoptPreparedImage), so
+            // failure cleanup there is entirely the tracker's job.
             Mat liveOwnedImage = ownsLocalTracker ? srcImage : null;
             var contextProduced = false;
+
+            // Replaces srcImage with a freshly-allocated prepared Mat (the ROI crop, the binned resample, or the
+            // GPU span's measurement image), disposing the one it replaces. Ownership of the replacement:
+            //   - Split path: this method owns it until the context adopts it — held in liveOwnedImage so an
+            //     early-stage throw disposes it in the finally. It must NOT go into scratch: that local tracker is
+            //     disposed before returning, which would free the context's image out from under the caller.
+            //   - Monolithic path: DetectImpl never disposes the returned context, so the replacement must be
+            //     registered with the caller's tracker or the full-frame CV_32F Mat is orphaned. A LATER swap's
+            //     manual Dispose of a tracked Mat is safe: Mat.Dispose is idempotent, so the tracker's own Dispose
+            //     of the already-disposed entry is a no-op — the same contract the tracked entry srcImage
+            //     (disposed by the ROI swap) has always relied on.
+            void AdoptPreparedImage(Mat replacement) {
+                srcImage.Dispose();
+                srcImage = replacement;
+                if (ownsLocalTracker) {
+                    liveOwnedImage = replacement;
+                } else {
+                    scratch.T(replacement);
+                }
+            }
             try {
                 MaybeSaveIntermediateText(p.ToString(), p, "00-params.txt");
                 var metrics = new StarDetectorMetrics();
@@ -506,13 +531,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             (int)(srcImage.Rows * p.Region.OuterBoundary.Height));
                         debugData.DetectionROI = roiRect.Value.ToDrawingRectangle();
 
-                        var roiImage = srcImage.SubMat(roiRect.Value).Clone();
-                        srcImage.Dispose();
-                        srcImage = roiImage;
-                        // From here srcImage is a clone this method owns (the original was disposed just above). Adopt
-                        // it as the live owned Mat on BOTH paths so a later early-stage throw disposes the ROI clone
-                        // rather than orphaning it — on the monolithic path the caller's original is already gone.
-                        liveOwnedImage = roiImage;
+                        AdoptPreparedImage(srcImage.SubMat(roiRect.Value).Clone());
                     } else {
                         debugData.DetectionROI = new System.Drawing.Rectangle(0, 0, srcImage.Width, srcImage.Height);
                     }
@@ -533,12 +552,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             hotpixelFilterAlreadyApplied = true;
                         }
 
-                        var binnedImage = CvImageUtility.BinMean(srcImage, binning);
-                        srcImage.Dispose();
-                        srcImage = binnedImage;
-                        // Same ownership handoff as the ROI clone above: this Mat is ours on BOTH paths (the
-                        // incoming one was just disposed), so adopt it as the live owned Mat.
-                        liveOwnedImage = binnedImage;
+                        AdoptPreparedImage(CvImageUtility.BinMean(srcImage, binning));
                     }
 
                     MaybeSaveIntermediateImage(srcImage, p, "01-source.tif");
@@ -572,19 +586,16 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // modeling, and single-frame detection never set it, so those paths never reach the host.
                     EarlySpanOutput acceleratedSpan = null;
                     var earlyAccelerator = p.AllowGpuAcceleration && string.IsNullOrEmpty(p.SaveIntermediateFilesPath)
-                        ? Gpu.GpuAccelerationHost.TryGetForBuild()
+                        ? EarlyAcceleratorOverride ?? Gpu.GpuAccelerationHost.TryGetForBuild()
                         : null;
                     if (earlyAccelerator != null) {
-                        earlyAccelerator.TryRunEarlySpan(srcImage, p, effectiveStructureLayers, hotpixelFilterAlreadyApplied, out acceleratedSpan);
+                        earlyAccelerator.TryRunEarlySpan(srcImage, p, effectiveStructureLayers, hotpixelFilterAlreadyApplied, token, out acceleratedSpan);
                     }
                     if (acceleratedSpan != null) {
                         if (acceleratedSpan.MeasurementImage != null) {
                             // Same ownership handoff as the ROI/binning replacements above: the accelerator
-                            // produced a new prepared measurement Mat; the incoming one is disposed and the
-                            // replacement adopted as the live owned Mat on BOTH paths.
-                            srcImage.Dispose();
-                            srcImage = acceleratedSpan.MeasurementImage;
-                            liveOwnedImage = srcImage;
+                            // produced a new prepared measurement Mat that replaces the incoming one.
+                            AdoptPreparedImage(acceleratedSpan.MeasurementImage);
                         }
                         structureMap = scratch.T(acceleratedSpan.StructureMap);
                         metrics.HotpixelCount = acceleratedSpan.HotpixelCount;
@@ -798,10 +809,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     var candidates = CollectStarCandidates(srcImage, structureMap, p, metrics, token);
                     stopWatch.RecordEntry("CollectStarCandidates");
 
-                    // srcImage (the prepared measurement image) is never registered with the tracker — it is the
-                    // method parameter, replaced by a fresh Clone()'d ROI submat when an ROI is in play (the old one
-                    // disposed there). So disposing the local tracker in the finally frees only the scratch Mats
-                    // (structureMap; noiseReducedImage is disposed inside its task) and the context's image survives.
+                    // Split path: srcImage is never registered with the local tracker (see AdoptPreparedImage), so
+                    // disposing that tracker in the finally frees only the scratch Mats (structureMap;
+                    // noiseReducedImage is disposed inside its task) and the context's image survives on the
+                    // returned context. Monolithic path: any adopted replacement is owned by the caller's tracker,
+                    // which outlives GateAndMeasure — the context is never disposed there.
                     var context = new DetectionContext {
                         MeasurementImage = srcImage,
                         FullImageSize = fullImageSize,
@@ -815,7 +827,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         StructureCandidates = metrics.StructureCandidates,
                         SaturatedPixelCount = metrics.SaturatedPixelCount
                     };
-                    // The context now owns srcImage; clear the failure-cleanup flag so the finally does NOT dispose it.
+                    // The context now owns srcImage (split path; tracker-owned on the monolithic path); clear the
+                    // failure-cleanup flag so the finally does NOT dispose it.
                     contextProduced = true;
                     return context;
                 }
@@ -827,9 +840,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
                 if (!contextProduced) {
                     // The early pipeline threw before the context was constructed: dispose the in-flight source/ROI
-                    // Mat we own so the ~244 MB allocation is not orphaned. On the monolithic no-ROI path
-                    // liveOwnedImage is null (the caller still owns + disposes its input), so this is a no-op there —
-                    // preserving the established contract that the no-ROI Detect path never disposes the caller's Mat.
+                    // Mat we own so the ~244 MB allocation is not orphaned. On the monolithic path liveOwnedImage is
+                    // always null (adopted replacements are tracker-owned; the caller still owns + disposes its own
+                    // input), so this is a no-op there — preserving the established contract that the no-ROI Detect
+                    // path never disposes the caller's Mat.
                     liveOwnedImage?.Dispose();
                 }
             }

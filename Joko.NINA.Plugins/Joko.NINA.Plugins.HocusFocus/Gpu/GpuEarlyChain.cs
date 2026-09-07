@@ -125,10 +125,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Gpu {
             if (w == width && h == height && dMeas != null) {
                 return;
             }
+            var newLength = (long)w * h;
+            if (newLength > int.MaxValue) {
+                // Kernel launches index with Index1D (int) — see the (int)length casts below. Guarded here so
+                // an oversized frame fails loudly instead of overflowing the casts.
+                throw new NotSupportedException($"Frame of {newLength} pixels exceeds the GPU early span's Index1D indexing range");
+            }
             DisposeBuffers();
             width = w;
             height = h;
-            length = (long)w * h;
+            length = newLength;
             dMeas = acc.Allocate1D<float>(length);
             dNoiseReduced = acc.Allocate1D<float>(length);
             dStructure = acc.Allocate1D<float>(length);
@@ -242,12 +248,18 @@ namespace NINA.Joko.Plugins.HocusFocus.Gpu {
             Record("CpuGrids");
 
             // Downloads: structure map always; measurement image only when mutated. (The noise-reduced
-            // source never leaves the GPU — its only consumer was the sigma grid.)
-            result.StructureMap = Download(dStructure);
-            if (measurementMutated) {
-                result.MeasurementImage = Download(dMeas);
+            // source never leaves the GPU — its only consumer was the sigma grid.) A throw between the two
+            // downloads must not orphan the partial result's StructureMap Mat.
+            try {
+                result.StructureMap = Download(dStructure);
+                if (measurementMutated) {
+                    result.MeasurementImage = Download(dMeas);
+                }
+                Record("D2H");
+            } catch {
+                result.Dispose();
+                throw;
             }
-            Record("D2H");
 
             result.HotpixelCount = hotpixelCount;
             return result;
