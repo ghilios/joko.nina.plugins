@@ -497,7 +497,7 @@
                         <TextBlock
                             Margin="6,0,0,0"
                             VerticalAlignment="Center"
-                            Text="GPU acceleration (NVIDIA CUDA, this computer only)"
+                            Text="Allow GPU Acceleration"
                             ToolTip="{StaticResource SDOpt_GpuAcceleration_Tooltip}" />
                     </StackPanel>
 
