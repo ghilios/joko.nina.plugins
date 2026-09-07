@@ -43,10 +43,6 @@ namespace TestApp.Gpu {
         /// span did not mutate it (caller keeps using its input Mat).</summary>
         public Mat MeasurementImage;
 
-        /// <summary>Noise-reduced structure-source image, downloaded only when the adaptive-binarization
-        /// sigma grid needs it on the CPU (caller owns; may be null).</summary>
-        public Mat NoiseReducedImage;
-
         public CvImageUtility.KappaSigmaNoiseEstimateResult StructureNoise;
         public CvImageUtility.KappaSigmaNoiseEstimateResult MeasurementNoise;
         public CvImageUtility.LocalBackgroundGrid SigmaGrid;
@@ -58,20 +54,19 @@ namespace TestApp.Gpu {
         public void Dispose() {
             StructureMap?.Dispose();
             MeasurementImage?.Dispose();
-            NoiseReducedImage?.Dispose();
             StructureMap = null;
             MeasurementImage = null;
-            NoiseReducedImage = null;
         }
     }
 
     /// <summary>
     /// Executes the EARLY pipeline span (StarDetector.BuildDetectionContextInternal steps 1-5b) on the GPU:
     /// hotpixel filter, Gaussians, structure-source copies, K-σ noise estimates, à-trous wavelet residual
-    /// subtract, post-wavelet Gaussian, and the 65536-bin histogram median. The adaptive-binarization grids
-    /// are computed on the CPU from downloaded intermediates (exact order statistics on identical buffers,
-    /// so the GPU introduces no additional divergence there). Not thread-safe: one instance = one working
-    /// set; callers serialize or pool instances.
+    /// subtract, post-wavelet Gaussian, the 65536-bin histogram median, and the adaptive-binarization grids
+    /// (exact per-block radix-select). Each instance owns its own CudaStream, so pooled instances overlap
+    /// transfers and compute; Mat↔device copies go directly through the Mat's memory (pageable — measured
+    /// within 3% of page-locked on this PCIe Gen3 box, and it saves a staging memcpy each way). Not
+    /// thread-safe: one instance = one working set; callers serialize or pool instances.
     /// </summary>
     public sealed class GpuEarlyChain : IDisposable {
         // Mirrors StarDetector.AdaptiveBinarizationSigmaFloor (private const there).
@@ -81,16 +76,20 @@ namespace TestApp.Gpu {
         // memory system, few enough that per-thread atomics stay cheap.
         private const int ReductionThreads = 128 * 1024;
 
+        // Enough grid cells for a 61 MP frame at the minimum practical block size we bench (64 px).
+        private const int MaxGridCells = 32 * 1024;
+
         private readonly CudaAccelerator acc;
-        private readonly Action<Index1D, ArrayView<float>, ArrayView<float>, int, int> median3x3;
-        private readonly Action<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, float, ArrayView<long>> hotpixelSelect;
-        private readonly Action<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int> convolveRow;
-        private readonly Action<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int> convolveCol;
-        private readonly Action<Index1D, ArrayView<float>, ArrayView<float>, int, int, int> atrousH;
-        private readonly Action<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int, int> atrousV;
-        private readonly Action<Index1D, ArrayView<float>, ArrayView<double>, float, float, int, long> maskedMoments;
-        private readonly Action<Index1D, ArrayView<float>, ArrayView<uint>, int, int, long> histogram;
-        private readonly Action<KernelConfig, ArrayView<float>, int, int, int, int, ArrayView<float>, ArrayView<float>, float> localGrid;
+        private readonly AcceleratorStream stream;
+        private readonly Action<AcceleratorStream, Index1D, ArrayView<float>, ArrayView<float>, int, int> median3x3;
+        private readonly Action<AcceleratorStream, Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, float, ArrayView<long>> hotpixelSelect;
+        private readonly Action<AcceleratorStream, Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int> convolveRow;
+        private readonly Action<AcceleratorStream, Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int> convolveCol;
+        private readonly Action<AcceleratorStream, Index1D, ArrayView<float>, ArrayView<float>, int, int, int> atrousH;
+        private readonly Action<AcceleratorStream, Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int, int> atrousV;
+        private readonly Action<AcceleratorStream, Index1D, ArrayView<float>, ArrayView<double>, float, float, int, long> maskedMoments;
+        private readonly Action<AcceleratorStream, Index1D, ArrayView<float>, ArrayView<uint>, int, int, long> histogram;
+        private readonly Action<AcceleratorStream, KernelConfig, ArrayView<float>, int, int, int, int, ArrayView<float>, ArrayView<float>, float> localGrid;
 
         private int width;
         private int height;
@@ -105,24 +104,21 @@ namespace TestApp.Gpu {
         private MemoryBuffer1D<long, Stride1D.Dense> dHotCount;
         private MemoryBuffer1D<float, Stride1D.Dense> dTaps;
         private MemoryBuffer1D<float, Stride1D.Dense> dGridOut;
-        private PageLockedArray1D<float> staging;
-
-        // Enough grid cells for a 61 MP frame at the minimum practical block size we bench (64 px).
-        private const int MaxGridCells = 32 * 1024;
 
         public bool CollectStageTimings { get; set; }
 
         public GpuEarlyChain(CudaAccelerator accelerator) {
             acc = accelerator;
-            median3x3 = acc.LoadAutoGroupedStreamKernel<Index1D, ArrayView<float>, ArrayView<float>, int, int>(GpuEarlyKernels.Median3x3Kernel);
-            hotpixelSelect = acc.LoadAutoGroupedStreamKernel<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, float, ArrayView<long>>(GpuEarlyKernels.HotpixelSelectKernel);
-            convolveRow = acc.LoadAutoGroupedStreamKernel<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int>(GpuEarlyKernels.ConvolveRowKernel);
-            convolveCol = acc.LoadAutoGroupedStreamKernel<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int>(GpuEarlyKernels.ConvolveColKernel);
-            atrousH = acc.LoadAutoGroupedStreamKernel<Index1D, ArrayView<float>, ArrayView<float>, int, int, int>(GpuEarlyKernels.AtrousHorizontalKernel);
-            atrousV = acc.LoadAutoGroupedStreamKernel<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int, int>(GpuEarlyKernels.AtrousVerticalKernel);
-            maskedMoments = acc.LoadAutoGroupedStreamKernel<Index1D, ArrayView<float>, ArrayView<double>, float, float, int, long>(GpuEarlyKernels.MaskedMomentsKernel);
-            histogram = acc.LoadAutoGroupedStreamKernel<Index1D, ArrayView<float>, ArrayView<uint>, int, int, long>(GpuEarlyKernels.HistogramKernel);
-            localGrid = acc.LoadStreamKernel<ArrayView<float>, int, int, int, int, ArrayView<float>, ArrayView<float>, float>(GpuEarlyKernels.LocalBackgroundGridKernel);
+            stream = acc.CreateStream();
+            median3x3 = acc.LoadAutoGroupedKernel<Index1D, ArrayView<float>, ArrayView<float>, int, int>(GpuEarlyKernels.Median3x3Kernel);
+            hotpixelSelect = acc.LoadAutoGroupedKernel<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, float, ArrayView<long>>(GpuEarlyKernels.HotpixelSelectKernel);
+            convolveRow = acc.LoadAutoGroupedKernel<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int>(GpuEarlyKernels.ConvolveRowKernel);
+            convolveCol = acc.LoadAutoGroupedKernel<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int>(GpuEarlyKernels.ConvolveColKernel);
+            atrousH = acc.LoadAutoGroupedKernel<Index1D, ArrayView<float>, ArrayView<float>, int, int, int>(GpuEarlyKernels.AtrousHorizontalKernel);
+            atrousV = acc.LoadAutoGroupedKernel<Index1D, ArrayView<float>, ArrayView<float>, ArrayView<float>, int, int, int, int>(GpuEarlyKernels.AtrousVerticalKernel);
+            maskedMoments = acc.LoadAutoGroupedKernel<Index1D, ArrayView<float>, ArrayView<double>, float, float, int, long>(GpuEarlyKernels.MaskedMomentsKernel);
+            histogram = acc.LoadAutoGroupedKernel<Index1D, ArrayView<float>, ArrayView<uint>, int, int, long>(GpuEarlyKernels.HistogramKernel);
+            localGrid = acc.LoadKernel<ArrayView<float>, int, int, int, int, ArrayView<float>, ArrayView<float>, float>(GpuEarlyKernels.LocalBackgroundGridKernel);
         }
 
         private void EnsureCapacity(int w, int h) {
@@ -143,7 +139,6 @@ namespace TestApp.Gpu {
             dHotCount = acc.Allocate1D<long>(1);
             dTaps = acc.Allocate1D<float>(64);
             dGridOut = acc.Allocate1D<float>(2L * MaxGridCells);
-            staging = acc.AllocatePageLocked1D<float>(length);
         }
 
         /// <summary>
@@ -164,7 +159,7 @@ namespace TestApp.Gpu {
             var sw = Stopwatch.StartNew();
             void Record(string stage) {
                 if (result.StageMs != null) {
-                    acc.Synchronize();
+                    stream.Synchronize();
                     result.StageMs[stage] = sw.Elapsed.TotalMilliseconds;
                     sw.Restart();
                 }
@@ -196,15 +191,15 @@ namespace TestApp.Gpu {
             // Steps 2-3: structure-source copy (+ hotpixel there when the measurement image skipped it),
             // then the structure-side noise reduction (StarDetector.cs:545-557).
             if (hotpixelFilteringApplied || noiseReductionApplied || p.NoiseReductionRadius <= 0) {
-                dMeas.View.CopyTo(acc.DefaultStream, dNoiseReduced.View);
+                dMeas.View.CopyTo(stream, dNoiseReduced.View);
             } else {
-                dMeas.View.CopyTo(acc.DefaultStream, dNoiseReduced.View);
+                dMeas.View.CopyTo(stream, dNoiseReduced.View);
                 hotpixelCount = ApplyHotpixelFilter(dNoiseReduced, p);
             }
             if (p.NoiseReductionRadius > 0 && !noiseReductionApplied) {
                 Gaussian(dNoiseReduced, dNoiseReduced, p.NoiseReductionRadius * 2 + 1);
             }
-            dNoiseReduced.View.CopyTo(acc.DefaultStream, dStructure.View);
+            dNoiseReduced.View.CopyTo(stream, dStructure.View);
             Record("StructureMapPreparation");
 
             // K-σ noise estimates (concurrent tasks on CPU; sequential launches here — same math).
@@ -218,12 +213,12 @@ namespace TestApp.Gpu {
             var currentView = dStructure.View;
             for (int layer = 0; layer < p.EffectiveStructureLayers; layer++) {
                 int scale = 1 << layer;
-                atrousH((int)length, currentView, dTmp.View, scale, width, height);
+                atrousH(stream, (int)length, currentView, dTmp.View, scale, width, height);
                 bool last = layer == p.EffectiveStructureLayers - 1;
                 if (last) {
-                    atrousV((int)length, dTmp.View, dStructure.View, dStructure.View, 1, scale, width, height);
+                    atrousV(stream, (int)length, dTmp.View, dStructure.View, dStructure.View, 1, scale, width, height);
                 } else {
-                    atrousV((int)length, dTmp.View, dSmooth.View, dSmooth.View, 0, scale, width, height);
+                    atrousV(stream, (int)length, dTmp.View, dSmooth.View, dSmooth.View, 0, scale, width, height);
                     currentView = dSmooth.View;
                 }
             }
@@ -238,7 +233,7 @@ namespace TestApp.Gpu {
             Record("BinarizationStatistics");
 
             // Adaptive-binarization grids on GPU: exact per-block radix-selected order statistics, matching
-            // ComputeLocalBackgroundGrid bit-for-bit (StarDetector.cs:570-573 and :642-645 semantics).
+            // ComputeLocalBackgroundGrid (StarDetector.cs:570-573 and :642-645 semantics).
             if (p.LocallyAdaptiveBinarization) {
                 int blockSize = Math.Max(1, p.AdaptiveNoiseBlockSize);
                 result.SigmaGrid = ComputeGridOnGpu(dNoiseReduced, blockSize);
@@ -267,33 +262,36 @@ namespace TestApp.Gpu {
             }
             var medianView = dGridOut.View.SubView(0, cells);
             var sigmaView = dGridOut.View.SubView(MaxGridCells, cells);
-            localGrid(new KernelConfig(cells, 256), image.View, width, height, blockSize, gridCols, medianView, sigmaView, AdaptiveBinarizationSigmaFloor);
+            localGrid(stream, new KernelConfig(cells, 256), image.View, width, height, blockSize, gridCols, medianView, sigmaView, AdaptiveBinarizationSigmaFloor);
             var median = new float[cells];
             var sigma = new float[cells];
-            medianView.CopyToCPU(median);
-            sigmaView.CopyToCPU(sigma);
+            medianView.CopyToCPU(stream, median);
+            sigmaView.CopyToCPU(stream, sigma);
+            stream.Synchronize();
             return new CvImageUtility.LocalBackgroundGrid(gridRows, gridCols, blockSize, median, sigma);
         }
 
         private long ApplyHotpixelFilter(MemoryBuffer1D<float, Stride1D.Dense> image, GpuEarlyParams p) {
-            median3x3((int)length, image.View, dTmp.View, width, height);
+            median3x3(stream, (int)length, image.View, dTmp.View, width, height);
             if (p.HotpixelThresholdingEnabled) {
-                dHotCount.MemSetToZero();
-                hotpixelSelect((int)length, image.View, dTmp.View, image.View, (float)p.HotpixelThreshold, dHotCount.View);
+                dHotCount.MemSetToZero(stream);
+                hotpixelSelect(stream, (int)length, image.View, dTmp.View, image.View, (float)p.HotpixelThreshold, dHotCount.View);
                 var count = new long[1];
-                dHotCount.CopyToCPU(count);
+                dHotCount.View.CopyToCPU(stream, count);
+                stream.Synchronize();
                 return count[0];
             }
-            dTmp.View.CopyTo(acc.DefaultStream, image.View);
+            dTmp.View.CopyTo(stream, image.View);
             return 0;
         }
 
         private void Gaussian(MemoryBuffer1D<float, Stride1D.Dense> src, MemoryBuffer1D<float, Stride1D.Dense> dst, int kernelSize) {
             var taps = GpuEarlyKernels.GaussianTaps(kernelSize, -1.0);
-            dTaps.View.SubView(0, taps.Length).CopyFromCPU(taps);
+            var tapsView = dTaps.View.SubView(0, taps.Length);
+            tapsView.CopyFromCPU(stream, taps);
             int radius = kernelSize / 2;
-            convolveRow((int)length, src.View, dTmp.View, dTaps.View.SubView(0, taps.Length), radius, width, height);
-            convolveCol((int)length, dTmp.View, dst.View, dTaps.View.SubView(0, taps.Length), radius, width, height);
+            convolveRow(stream, (int)length, src.View, dTmp.View, tapsView, radius, width, height);
+            convolveCol(stream, (int)length, dTmp.View, dst.View, tapsView, radius, width, height);
         }
 
         // Mirrors CvImageUtility.KappaSigmaNoiseEstimate: masked (InRange-inclusive) mean/σ per iteration,
@@ -306,9 +304,10 @@ namespace TestApp.Gpu {
             var moments = new double[3];
 
             while (numIterations < maxIterations) {
-                dMoments.MemSetToZero();
-                maskedMoments(ReductionThreads, image.View, dMoments.View, float.Epsilon, threshold - float.Epsilon, ReductionThreads, length);
-                dMoments.CopyToCPU(moments);
+                dMoments.MemSetToZero(stream);
+                maskedMoments(stream, ReductionThreads, image.View, dMoments.View, float.Epsilon, threshold - float.Epsilon, ReductionThreads, length);
+                dMoments.View.CopyToCPU(stream, moments);
+                stream.Synchronize();
                 var n = moments[0];
                 var mean = n > 0 ? moments[1] / n : 0.0;
                 var variance = n > 0 ? moments[2] / n - mean * mean : 0.0;
@@ -334,33 +333,33 @@ namespace TestApp.Gpu {
         private double HistogramMedian(MemoryBuffer1D<float, Stride1D.Dense> image) {
             var coarse = new uint[256];
             var fine = new uint[256];
-            dHist.MemSetToZero();
-            histogram(ReductionThreads, image.View, dHist.View, -1, ReductionThreads, length);
-            dHist.CopyToCPU(coarse);
+            dHist.MemSetToZero(stream);
+            histogram(stream, ReductionThreads, image.View, dHist.View, -1, ReductionThreads, length);
+            dHist.View.CopyToCPU(stream, coarse);
+            stream.Synchronize();
             int coarseBucket = GpuEarlyKernels.MedianCoarseBucket(coarse, length);
-            dHist.MemSetToZero();
-            histogram(ReductionThreads, image.View, dHist.View, coarseBucket, ReductionThreads, length);
-            dHist.CopyToCPU(fine);
+            dHist.MemSetToZero(stream);
+            histogram(stream, ReductionThreads, image.View, dHist.View, coarseBucket, ReductionThreads, length);
+            dHist.View.CopyToCPU(stream, fine);
+            stream.Synchronize();
             return GpuEarlyKernels.MedianFromTwoPass(coarse, fine, coarseBucket, length);
         }
 
         private void Upload(Mat src, MemoryBuffer1D<float, Stride1D.Dense> dst) {
             unsafe {
                 var span = new ReadOnlySpan<float>((void*)src.DataPointer, checked((int)length));
-                span.CopyTo(staging.Span);
+                dst.View.CopyFromCPU(stream, span);
             }
-            dst.View.CopyFromPageLockedAsync(acc.DefaultStream, staging);
-            acc.Synchronize();
+            stream.Synchronize();
         }
 
         private Mat Download(MemoryBuffer1D<float, Stride1D.Dense> src) {
             var mat = new Mat(height, width, MatType.CV_32F);
-            src.View.CopyToPageLockedAsync(acc.DefaultStream, staging);
-            acc.Synchronize();
             unsafe {
                 var span = new Span<float>((void*)mat.DataPointer, checked((int)length));
-                staging.Span.CopyTo(span);
+                src.View.CopyToCPU(stream, span);
             }
+            stream.Synchronize();
             return mat;
         }
 
@@ -375,7 +374,6 @@ namespace TestApp.Gpu {
             dHotCount?.Dispose();
             dTaps?.Dispose();
             dGridOut?.Dispose();
-            staging?.Dispose();
             dMeas = null;
             dNoiseReduced = null;
             dStructure = null;
@@ -386,13 +384,13 @@ namespace TestApp.Gpu {
             dHotCount = null;
             dTaps = null;
             dGridOut = null;
-            staging = null;
             width = 0;
             height = 0;
         }
 
         public void Dispose() {
             DisposeBuffers();
+            stream.Dispose();
         }
     }
 }

@@ -101,11 +101,7 @@ namespace TestApp.Gpu {
             if (!measurementMutated) {
                 meas.Dispose();
             }
-            if (p.LocallyAdaptiveBinarization) {
-                result.NoiseReducedImage = noiseReduced;
-            } else {
-                noiseReduced.Dispose();
-            }
+            noiseReduced.Dispose();
             result.HotpixelCount = hotpixelCount;
             return result;
         }
