@@ -177,6 +177,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // Software binning resamples the frame before ANY of the above run, so it changes candidate formation
             // outright — a context built at one factor can never be reused at another.
             nameof(StarDetectorParams.DetectionBinning),
+            // Candidate-collection mode (legacy walker vs 8-connected components) changes the candidate set
+            // itself, the most EARLY thing there is.
+            nameof(StarDetectorParams.UseConnectedComponentCollection),
             nameof(StarDetectorParams.Region)
         };
 
@@ -1281,18 +1284,32 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         private void EvaluateGlobalMetrics(Mat srcImage, StarDetectorParams p, StarDetectorMetrics metrics) {
+            metrics.SaturatedPixelCount += CountSaturatedPixels(srcImage, p.SaturationThreshold);
+        }
+
+        // A pure count is order-independent, so the parallel row partition is bit-identical to the old
+        // single-threaded raster scan — this was ~a full-frame pass of the former CollectStarCandidates cost.
+        internal static long CountSaturatedPixels(Mat srcImage, double saturationThreshold) {
             int width = srcImage.Width;
             int height = srcImage.Height;
-            long numPixels = (long)width * height;
+            long total = 0;
             unsafe {
-                var srcImagePixel = (float*)srcImage.DataPointer;
-                while (numPixels-- > 0) {
-                    if (*srcImagePixel >= p.SaturationThreshold) {
-                        ++metrics.SaturatedPixelCount;
+                var basePtr = (byte*)srcImage.DataPointer;
+                long step = srcImage.Step();
+                var threshold = saturationThreshold;
+                Parallel.ForEach(Partitioner.Create(0, height), () => 0L, (range, _, local) => {
+                    for (int y = range.Item1; y < range.Item2; ++y) {
+                        var row = (float*)(basePtr + y * step);
+                        for (int x = 0; x < width; ++x) {
+                            if (row[x] >= threshold) {
+                                ++local;
+                            }
+                        }
                     }
-                    srcImagePixel++;
-                }
+                    return local;
+                }, local => Interlocked.Add(ref total, local));
             }
+            return total;
         }
 
         // A candidate star collected by the sequential flood-fill (Stage A) and evaluated in parallel (Stage B).
@@ -1384,13 +1401,210 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return stars;
         }
 
+        private const float CandidateZeroThreshold = 0.001f;
+
         private List<StarCandidateRegion> CollectStarCandidates(Mat srcImage, Mat structureMap, StarDetectorParams p, StarDetectorMetrics metrics, CancellationToken ct) {
-            const float ZERO_THRESHOLD = 0.001f;
+            EvaluateGlobalMetrics(srcImage, p, metrics);
+
+            // One parallel pass run-length-indexes the (sparse) lit pixels; from here neither collector
+            // raster-scans or mutates the 61 MP map again. The walker is bit-identical to the legacy
+            // zero-the-bbox scan (CollectStarCandidatesLegacy, retained as the test oracle); the
+            // connected-component collector is the opt-in behavior change (see UseConnectedComponentCollection).
+            var runIndex = StructureRunIndex.Build(structureMap, CandidateZeroThreshold);
+            return p.UseConnectedComponentCollection
+                ? CollectStarCandidatesConnected(runIndex, metrics, ct)
+                : CollectStarCandidatesWalker(runIndex, metrics, ct);
+        }
+
+        /// <summary>
+        /// The index-driven candidate walker — a literal translation of <see cref="CollectStarCandidatesLegacy"/>
+        /// with pixel reads answered by the run index and the bbox zeroing replaced by
+        /// <see cref="StructureRunIndex.ConsumeRect"/>. Same seeds, same growth, same point ORDER (probe, then
+        /// left-descending, then right-ascending — eccentricity sums are order-sensitive), same bounds:
+        /// bit-identical output, proven by CandidateCollectionTests against the legacy oracle.
+        /// </summary>
+        internal static List<StarCandidateRegion> CollectStarCandidatesWalker(StructureRunIndex runs, StarDetectorMetrics metrics, CancellationToken ct) {
+            var candidates = new List<StarCandidateRegion>();
+            int width = runs.Width;
+            int height = runs.Height;
+            int xRight = width - 1;
+            int yBottom = height - 1;
+
+            for (int yTop = 0; yTop < yBottom; ++yTop) {
+                ct.ThrowIfCancellationRequested();
+
+                int xLeft = runs.NextLitInRow(yTop, 0);
+                while (xLeft >= 0 && xLeft < xRight) {
+                    var starPoints = new List<Point>(256);
+                    var starBounds = new Rect(xLeft, yTop, 1, 1);
+
+                    for (int y = yTop, x = xLeft; ;) {
+                        int rowPointsAdded = 0;
+                        if (runs.IsLit(y, x)) {
+                            starPoints.Add(new Point(x, y));
+                            ++rowPointsAdded;
+                        }
+
+                        int rowStartX = x, rowEndX;
+                        if (rowPointsAdded > 0) {
+                            for (rowStartX = x; rowStartX > 0;) {
+                                if (!runs.IsLit(y, rowStartX - 1)) {
+                                    break;
+                                }
+                                starPoints.Add(new Point(--rowStartX, y));
+                                ++rowPointsAdded;
+                            }
+                        }
+
+                        for (rowEndX = x; rowEndX < xRight;) {
+                            if (!runs.IsLit(y, rowEndX + 1)) {
+                                if (rowPointsAdded > 0 || rowEndX >= starBounds.Right) {
+                                    break;
+                                }
+                                ++rowEndX;
+                            } else {
+                                starPoints.Add(new Point(++rowEndX, y));
+                                ++rowPointsAdded;
+                            }
+                        }
+
+                        if (rowStartX < starBounds.Left) {
+                            starBounds.Width += (starBounds.Left - rowStartX);
+                            starBounds.X = rowStartX;
+                        }
+                        if (rowEndX > (starBounds.Right - 1)) {
+                            starBounds.Width += (rowEndX - starBounds.Right + 1);
+                        }
+
+                        if (rowPointsAdded == 0) {
+                            starBounds.Height = y - yTop;
+                            break;
+                        }
+                        if (y == yBottom) {
+                            starBounds.Height = y - yTop + 1;
+                            break;
+                        }
+                        ++y;
+                    }
+
+                    ++metrics.StructureCandidates;
+                    candidates.Add(new StarCandidateRegion(starBounds, starPoints));
+                    runs.ConsumeRect(starBounds);
+                    xLeft = runs.NextLitInRow(yTop, xLeft + 1);
+                }
+            }
+            return candidates;
+        }
+
+        /// <summary>
+        /// Opt-in candidate collector (<see cref="StarDetectorParams.UseConnectedComponentCollection"/>): TRUE
+        /// 8-connected components of the binarized structure map via run-based union-find. Deliberately NOT
+        /// bit-identical to the walker: no bbox shadowing (a neighbor overlapping an earlier candidate's
+        /// bounding box survives as its own candidate), whole components are collected (donut rings arrive
+        /// unified when their arcs connect), and there is no same-row gap-jump merging. Deterministic:
+        /// candidates ordered by their component's first run in raster order; points in raster order.
+        /// </summary>
+        internal static List<StarCandidateRegion> CollectStarCandidatesConnected(StructureRunIndex runs, StarDetectorMetrics metrics, CancellationToken ct) {
+            int height = runs.Height;
+
+            // Union-find over run ids, assigned in raster order.
+            var parent = new List<int>();
+            int Find(int i) {
+                while (parent[i] != i) {
+                    parent[i] = parent[parent[i]];
+                    i = parent[i];
+                }
+                return i;
+            }
+            void Union(int a, int b) {
+                int ra = Find(a), rb = Find(b);
+                if (ra != rb) {
+                    // Keep the smaller root so a component's id is its raster-first run.
+                    if (ra < rb) {
+                        parent[rb] = ra;
+                    } else {
+                        parent[ra] = rb;
+                    }
+                }
+            }
+
+            var runIds = new List<(int Y, StructureRunIndex.Run Run)>();
+            var prevRowFirst = -1;
+            var prevRowCount = 0;
+            for (int y = 0; y < height; ++y) {
+                ct.ThrowIfCancellationRequested();
+                var rowRuns = runs.RowRuns(y);
+                int thisRowFirst = runIds.Count;
+                int jStart = 0;
+                for (int i = 0; i < rowRuns.Count; ++i) {
+                    var run = rowRuns[i];
+                    int id = runIds.Count;
+                    runIds.Add((y, run));
+                    parent.Add(id);
+                    // 8-connectivity: a previous-row run [ps, pe) touches this run [s, e) iff ps <= e and pe >= s
+                    // (half-open ends, diagonal contact included). Both lists are x-sorted, so prevs that end
+                    // before this run starts can be skipped permanently (later runs start even further right).
+                    while (jStart < prevRowCount && runIds[prevRowFirst + jStart].Run.End < run.Start) {
+                        ++jStart;
+                    }
+                    for (int j = jStart; j < prevRowCount; ++j) {
+                        var prev = runIds[prevRowFirst + j].Run;
+                        if (prev.Start > run.End) {
+                            break;
+                        }
+                        Union(prevRowFirst + j, id);
+                    }
+                }
+                prevRowFirst = thisRowFirst;
+                prevRowCount = rowRuns.Count;
+            }
+
+            // Group runs by root in raster-first order.
+            var componentIndex = new Dictionary<int, int>();
+            var componentRuns = new List<List<int>>();
+            for (int id = 0; id < runIds.Count; ++id) {
+                int root = Find(id);
+                if (!componentIndex.TryGetValue(root, out var ci)) {
+                    ci = componentRuns.Count;
+                    componentIndex.Add(root, ci);
+                    componentRuns.Add(new List<int>());
+                }
+                componentRuns[ci].Add(id);
+            }
+
+            var candidates = new List<StarCandidateRegion>(componentRuns.Count);
+            foreach (var component in componentRuns) {
+                int minX = int.MaxValue, maxX = int.MinValue, minY = int.MaxValue, maxY = int.MinValue;
+                int pixelCount = 0;
+                foreach (var id in component) {
+                    var (y, run) = runIds[id];
+                    if (run.Start < minX) minX = run.Start;
+                    if (run.End - 1 > maxX) maxX = run.End - 1;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                    pixelCount += run.End - run.Start;
+                }
+                var points = new List<Point>(pixelCount);
+                foreach (var id in component) {
+                    var (y, run) = runIds[id];
+                    for (int x = run.Start; x < run.End; ++x) {
+                        points.Add(new Point(x, y));
+                    }
+                }
+                ++metrics.StructureCandidates;
+                candidates.Add(new StarCandidateRegion(new Rect(minX, minY, maxX - minX + 1, maxY - minY + 1), points));
+            }
+            return candidates;
+        }
+
+        // Retained ONLY as the equivalence oracle for CandidateCollectionTests: the original sequential
+        // zero-the-bbox scan the walker above must reproduce bit-identically. Mutates structureMap.
+        internal List<StarCandidateRegion> CollectStarCandidatesLegacy(Mat structureMap, StarDetectorMetrics metrics, CancellationToken ct) {
+            const float ZERO_THRESHOLD = CandidateZeroThreshold;
 
             var candidates = new List<StarCandidateRegion>();
             int width = structureMap.Width;
             int height = structureMap.Height;
-            EvaluateGlobalMetrics(srcImage, p, metrics);
 
             unsafe {
                 var structureData = (float*)structureMap.DataPointer;

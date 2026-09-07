@@ -494,6 +494,16 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // EarlyCacheKeyProperties.
         public int DetectionBinning { get; set; } = 1;
 
+        // Candidate-collection mode (feature toggle for evaluation, default OFF = the legacy sequential
+        // walker, bit-identical detection). When ON, candidates are TRUE 8-connected components of the
+        // binarized structure map (run-based CCL): no bounding-box shadowing (a star overlapping an earlier
+        // candidate's bbox survives as its own candidate), whole components are collected (connected donut
+        // arcs arrive unified), and there is no same-row gap-jump merging. Deliberately NOT bit-identical —
+        // detection results change wherever those cases occur. EARLY param (changes candidate formation), so
+        // it is in EarlyCacheKeyProperties. Not persisted and not exposed in the options UI; TestApp's
+        // optimize/contamination runners set it via --ccl for A/B evaluation.
+        public bool UseConnectedComponentCollection { get; set; } = false;
+
         // How per-star HFR is aggregated (and whether an extra HFR-outlier rejection pass runs). Carried on the params
         // bundle — rather than read from the live options at the detect site — so a replay that supplies a capture-time
         // options override reproduces the original run's aggregation/outlier behavior. Affects detection output, so it

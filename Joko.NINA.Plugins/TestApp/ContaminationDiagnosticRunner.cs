@@ -114,6 +114,12 @@ namespace TestApp {
 
             // Build params from the SAME mapping NINA uses (single source of truth), enable diagnostics
             var baseParams = HocusFocusStarDetection.BuildStarDetectorParams(options);
+            // --ccl (spike feature toggle): candidate collection via 8-connected components (NOT bit-identical
+            // to the legacy walker) — for per-stage timing and candidate-set A/B on a single frame.
+            if (DiagnosticUtil.HasFlag(args, "--ccl")) {
+                baseParams.UseConnectedComponentCollection = true;
+                Console.WriteLine("--ccl: candidate collection = 8-connected components");
+            }
             baseParams.CollectContaminationDiagnostics = true;
             // Keep contaminated stars in the result so they can be analyzed here (production would reject them
             // when RejectContaminatedStars is on). The per-star ContaminationSuspected flag still records the

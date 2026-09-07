@@ -397,6 +397,14 @@ namespace TestApp {
                 baseline.DefocusAwareDonutDetection = true;
                 Console.WriteLine("--donut: DefocusAwareDonutDetection forced ON (optimizer will explore the donut/spike axes)");
             }
+            // --ccl (spike feature toggle): collect candidates as TRUE 8-connected components instead of the
+            // legacy walker, on BOTH seed and baseline. Not a searched axis; it is an EARLY cache-key param so
+            // contexts never cross modes. Detection is deliberately NOT bit-identical to legacy in this mode.
+            if (DiagnosticUtil.HasFlag(args, "--ccl")) {
+                seed.UseConnectedComponentCollection = true;
+                baseline.UseConnectedComponentCollection = true;
+                Console.WriteLine("--ccl: candidate collection = 8-connected components (behavior-change evaluation mode)");
+            }
             if (startFromCurrent) {
                 Console.WriteLine("--start-from-current: optimizer seed = current settings (never regresses below current)");
             }
