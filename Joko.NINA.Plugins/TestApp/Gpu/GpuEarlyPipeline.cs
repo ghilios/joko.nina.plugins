@@ -29,6 +29,10 @@ namespace TestApp.Gpu {
     /// span runs.
     /// </summary>
     internal sealed class GpuEarlyPipeline : IEarlyPipelineAccelerator, IDisposable {
+        // Measured on the E2E matrix: pool=4 bought nothing over pool=2 (Panos 60.7 vs 59.2 s, CWhite 288
+        // vs 280 s) — the harness's per-build GpuEarlySpan wall (1.33 s vs 0.21 s isolated) is queue time
+        // that overlaps CPU work that bounds the burst anyway (flood-fill tail + late stage). Keep 2:
+        // ~2.5 GB VRAM at 61 MP.
         private const int PoolSize = 2;
 
         private readonly CudaAccelerator acc;

@@ -25,10 +25,12 @@ early-rebuild-heavy runs, tolerance-validated equivalence, CPU-confirmable lande
    divergence (structure map ≤1.8e-7 max-abs; K-σ σ ≤1.7e-7 rel; grids ≤6e-9) is FMA-contraction noise of
    the same class as the accepted `AtrousWaveletFast` swap (3e-8, shipped behind a `StarDetectorVersion`
    bump).
-4. **End-to-end `optimize --gpu`**: TBD (§4, matrix in flight). Ceiling analysis from measured
-   early-fractions: Panos-like labeled runs can exceed 3×; muggsie/CWhite-class runs cap near ~2.9×
-   (Amdahl: late stage + CPU flood-fill floor); bayered runs cap near ~1.9× (CPU CFA/debayer per build,
-   out of GPU scope).
+4. **End-to-end `optimize --gpu` lands at 1.4–2.7×** (muggsie 2.7×, CWhite 1.85×, Panos 1.76×, timmer
+   1.37×) — short of the ≥3× go/no-go bar. With EARLY compute effectively free, the wall is set by the
+   CPU flood-fill, the LATE stage, and fixed harness overhead; two further GPU tunings (chain −40%,
+   pool 2→4) each moved end-to-end by ~0, proving the residue is CPU-shaped. §5 lists what would clear
+   3× (flood-fill acceleration first) and the ship-regardless CPU win (I1 parallel histogram, 33×,
+   bit-identical).
 
 ## 0. Re-profiled EARLY stage split (post-AtrousWaveletFast — the stale-table refresh)
 
@@ -136,15 +138,21 @@ Both arms identical flags apart from `--gpu`; optimize-phase wall from the harne
 "GPU v1" = first integration (shared default stream + staging memcpys); "GPU v2" = per-chain CudaStream +
 direct Mat↔device copies (chain 301 → 214 ms at 61 MP, 16.7× vs CPU chain).
 
-| Run | CPU wall | GPU v1 wall | v1 speedup | GPU v2 wall | v2 speedup | fallbacks |
-|---|---|---|---|---|---|---|
-| muggsie | 66.6 s | 24.3 s | 2.74×* | TBD | TBD | 0 |
-| Panos (labeled) | 104.3 s | 59.7 s | 1.75× | TBD | TBD | 0 |
-| CWhiteFocus 61 MP | 515.3 s | 278.8 s | 1.85× | TBD | TBD | 0 |
-| timmer (bayered) | 559.6 s | 408.7 s | 1.37× | TBD | TBD | 0 |
+| Run | CPU wall | GPU v1 wall | GPU v2 wall | E2E speedup | fallbacks |
+|---|---|---|---|---|---|
+| muggsie | 66.6 s | 24.3 s | 24.4 s | **2.7×**\* | 0 |
+| Panos (labeled) | 104.3 s | 59.7 s | 59.2 s | **1.76×** | 0 |
+| CWhiteFocus 61 MP | 515.3 s | 278.8 s | 279.9 s | **1.85×** | 0 |
+| timmer (bayered) | 559.6 s | 408.7 s | 407.7 s | **1.37×** | 0 |
 
 \* muggsie's GPU arm took a different (equally valid) search path — see equivalence below — landing with
 far fewer early rebuilds, so its wall benefits from both the GPU and the shorter path.
+
+**The v1→v2 invariance is the second-most-important measurement of the spike:** cutting the GPU chain
+another 40% (301→214 ms at 61 MP) moved end-to-end wall by ~0. The `--gpu` arm is **no longer bound by
+the GPU-able compute at all** — the residual wall is the CPU-side work: the LATE per-star stage, the
+sequential flood-fill + binarize/dilation tail of each build, and fixed harness overhead (run loading,
+fit, summary/annotation detections). Attribution below.
 
 ### Search-outcome equivalence (the result that matters)
 
@@ -159,6 +167,67 @@ far fewer early rebuilds, so its wall benefits from both the GPU and the shorter
 - Zero CPU fallbacks across all arms; Panos/CWhite/timmer reproduced the CPU arm's exact
   builds/reuses counts (161/1309, 333/1917, 540/1710).
 
-## 5. Verdict & recommended next steps
+### Where the GPU arm's wall actually goes (CWhite, TRACE attribution)
 
-TBD.
+Stage-time totals across the GPU arm's 344 builds + 2270 late gates (278 s wall):
+
+| Component | stage-time | mean/build | note |
+|---|---|---|---|
+| GpuEarlySpan (incl. queueing on the GPU pool) | 457 s | 1.33 s | **0.21 s isolated** — the rest is 9 concurrent frame builds queueing on 2 pooled chains |
+| CollectStarCandidates (CPU, sequential per frame) | 379 s | 1.10 s | the largest true single residual |
+| Binarize/dilate tail (CPU) | 74 s | 0.22 s | |
+| LATE gates (CPU, already parallel) | 823 s | 0.36 s/gate | ~30–40% of wall |
+
+Two conclusions: (a) further GPU-chain optimization is pointless for this workload — v2's 40% chain cut
+moved E2E by ~0; (b) the residual is exactly the deliberately-out-of-scope CPU work: flood-fill + late
+stage + fixed harness overhead. A pool-depth probe (2 → 4 chains) confirmed it: **no E2E change** (Panos
+60.7 vs 59.2 s, CWhite 288 vs 280 s) — the apparent GPU queueing overlaps CPU work that bounds the burst
+anyway. Every GPU-side lever is exhausted; the wall is CPU-shaped.
+
+## 5. Verdict
+
+**Hypothesis: partially proven — decisively at the component level, short of the bar end-to-end.**
+
+Proven:
+- CUDA on this class of hardware runs the detector's EARLY compute **12–17× faster** than the current CPU
+  implementation (and ~8× vs best-available CPU), with **search outcomes identical**: all four A/B runs
+  landed byte-identical `optimized_settings.json`, ΔJ ≤ 1e-5, zero binarized flips at the pixel level,
+  zero runtime fallbacks. The "GPU search, CPU confirm" production shape is validated trivially — the
+  landed settings ARE the CPU arm's settings.
+- ILGPU 1.5.3 makes this deployable-in-principle: NuGet-only, driver-JIT, no CUDA toolkit, works on
+  Blackwell today (with the XMath/LibDevice avoidance noted in §1).
+
+Not met:
+- The **≥3× end-to-end** go/no-go bar on heavy runs. Measured: muggsie 2.7×, CWhite 1.85×, Panos 1.76×,
+  timmer 1.37×. Amdahl is fully in charge: with the EARLY compute effectively free, `optimize` wall is
+  set by the CPU flood-fill (~1.1 s/build at 61 MP), the LATE per-star stage, and fixed harness overhead
+  — all deliberately out of the spike's scope. Both post-hoc GPU tunings (chain −40%, pool 2→4) moved
+  end-to-end by ~0, which is the empirical proof of that statement.
+
+### What would clear 3×, if pursued
+
+1. **`CollectStarCandidates`** — the largest single residual (379 s stage-time on the CWhite arm). GPU
+   connected-components or a parallel CPU rewrite needs its own equivalence study: the current scan
+   *zeroes visited bounding boxes*, so candidate identity is traversal-order-dependent — not a drop-in
+   parallelization. This is the highest-leverage follow-up.
+2. **Fixed overhead** (run loading, seed/summary/annotation detections, fit) — untouched by the spike.
+3. **LATE stage on GPU** — largest block on low-f runs; irregular/branchy, high effort.
+4. **Different workload**: `bank-verify`-style batch evaluation (fixed params, every frame cold) matches
+   the GPU's strength far better than the optimizer's cached search; expect near the chain's 12–17×
+   there for the detection portion.
+
+### Ship-regardless items
+
+- **CPU I1 parallel histogram**: 33×, bit-identical, EXACT median, ~2 h of work — benefits every user
+  (wizard + live AF) with no GPU anywhere. Recommend promoting into `CvImageUtility` behind the existing
+  test suite.
+- The `IEarlyPipelineAccelerator` seam is production-inert (null hook ⇒ CPU span verbatim) and can stay.
+
+### Caveats
+
+- All numbers are Debug-configuration (matching every historical harness figure) on a PCIe **Gen3** host;
+  Release + Gen4/5 would improve both arms (transfers are ~60% of the isolated GPU chain).
+- Bayered runs keep their CPU CFA/debayer per early build (params-dependent, out of scope) — that alone
+  caps timmer-class runs near 1.4–1.9×.
+- The spike used the pinned settings' `NoiseReductionRadius=4` shape (two K-σ estimates per build); other
+  profiles shift stage shares but not the conclusions.
