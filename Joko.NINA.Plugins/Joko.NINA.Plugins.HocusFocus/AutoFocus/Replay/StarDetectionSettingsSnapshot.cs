@@ -76,6 +76,9 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
         public int StructureDilationCount { get; set; }
         public double PixelSampleSize { get; set; }
         public bool DebugMode { get; set; }
+
+        /// <summary>Machine-local: GPU use by the optimization wizard (describes the computer's hardware).</summary>
+        public bool GpuAccelerationEnabled { get; set; } = true;
         public string IntermediateSavePath { get; set; } = "";
         public bool SaveIntermediateImages { get; set; }
         public int PSFParallelPartitionSize { get; set; }
@@ -119,6 +122,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
             IntermediateSavePath = source.IntermediateSavePath;
             SaveIntermediateImages = source.SaveIntermediateImages;
             PSFParallelPartitionSize = source.PSFParallelPartitionSize;
+            GpuAccelerationEnabled = source.GpuAccelerationEnabled;
         }
 
         /// <summary>Captures the fully-resolved effective configuration of a live options object into a flat,
@@ -166,6 +170,7 @@ namespace NINA.Joko.Plugins.HocusFocus.AutoFocus.Replay {
                 StructureDilationCount = o.StructureDilationCount,
                 PixelSampleSize = o.PixelSampleSize,
                 DebugMode = o.DebugMode,
+                GpuAccelerationEnabled = o.GpuAccelerationEnabled,
                 IntermediateSavePath = o.IntermediateSavePath,
                 SaveIntermediateImages = o.SaveIntermediateImages,
                 PSFParallelPartitionSize = o.PSFParallelPartitionSize,

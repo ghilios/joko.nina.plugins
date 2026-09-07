@@ -210,6 +210,24 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             seed.SuppressInfoLogging = true;
             baseline.SuppressInfoLogging = true;
 
+            // OPTIMIZATION-ONLY accelerations (never set on AF / sensor-model / single-frame paths; the
+            // candidates the optimizer materializes inherit both via Clone()):
+            //  - the prepared-source cache stops every early rebuild from re-doing the params-identical
+            //    CFA hotpixel + debayer + float conversion (exact reuse, byte-identical detection);
+            //  - the GPU flag routes the early pipeline span to the CUDA device when the user's option and
+            //    the GpuAccelerationPolicy heuristic both approve.
+            var sourceCache = new PreparedSourceCache();
+            seed.SourceCache = sourceCache;
+            baseline.SourceCache = sourceCache;
+
+            var gpuOptionEnabled = HocusFocusPlugin.StarDetectionOptions?.GpuAccelerationEnabled ?? false;
+            var frameWidth = firstImage?.RawImageData?.Properties.Width ?? 0;
+            var frameHeight = firstImage?.RawImageData?.Properties.Height ?? 0;
+            var useGpu = Gpu.GpuAccelerationPolicy.ShouldUseForOptimization(gpuOptionEnabled, frameWidth, frameHeight, out var gpuReason);
+            seed.AllowGpuAcceleration = useGpu;
+            baseline.AllowGpuAcceleration = useGpu;
+            Logger.Info($"Star detection optimization GPU acceleration: {(useGpu ? "ON" : "OFF")} ({gpuReason})");
+
             // AF detection params: the auto-focus detection contract (sigma rejections + AF flag). NumberOfAFStars
             // is left at 0 so detection keeps every accepted star — the optimizer scores on the full accepted set,
             // not the brightest-N subset the live AF picks for centroiding.
@@ -234,6 +252,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
 
             var runId = attempt.FolderPath ?? attemptFolderPath;
             var data = new RunEvaluationData(runId, frames, splitDetector, alglibAPI, fitConfig, labels);
+            // The run owns the prepared-source cache: its Mats live exactly as long as the loaded frames do.
+            data.OwnedSourceCache = sourceCache;
 
             // The exposure these frames were captured with, straight off the first frame's header (see
             // LoadedRun.CapturedExposureSeconds for why the header is the only source). Left as whatever the reader

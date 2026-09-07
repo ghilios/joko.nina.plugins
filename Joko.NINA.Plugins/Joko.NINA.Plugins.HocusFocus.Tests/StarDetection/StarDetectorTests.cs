@@ -289,6 +289,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
         private static StarDetectorParams DonutDetectParams(bool defocusAware) => new StarDetectorParams {
             ModelPSF = false,
             RejectContaminatedStars = false,
+            // Pin the PRE-v3 walker: the v3 connected-component collector unifies this donut's ring and the
+            // strict gate then passes it WITHOUT relaxation (a genuine v3 improvement), which destroys the
+            // rejected-when-off premise these relaxation-flag tests are built on. The relaxation machinery
+            // still matters for fragmented candidates, so keep guarding it against the legacy collector.
+            UseConnectedComponentCollection = false,
             Sensitivity = 0.1,                 // very faint allowed
             MinHFR = 0.1,                      // tiny HFR allowed
             PeakResponse = 0.99,               // flatness gate effectively off (donut median ≪ peak anyway)
@@ -415,7 +420,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
             const int w = 256, h = 256;
             var mat = SyntheticStarField.CreateFlat(w, h, 0.05f);
             SyntheticStarField.AddStar(mat, cx: 128, cy: 128, sigma: 2.5, peak: 0.5);
-            SyntheticDefocusedStarImage.AddGaussianNoise(mat, sigma: 0.02, seed: 13579);
+            // σ=0.01 (was 0.02): at 0.02 this scenario sat exactly on the 5σ contamination boundary — the
+            // v3 connected-component collector's TIGHT bounding box (13x13, vs the legacy walker's gap-jump
+            // inflated 14x13) shifts the background annulus one pixel inward and flipped the octant test.
+            // These tests are about MeasuredSensitivity plumbing, not contamination robustness, so keep the
+            // star unambiguously clean.
+            SyntheticDefocusedStarImage.AddGaussianNoise(mat, sigma: 0.01, seed: 13579);
             return mat;
         }
 

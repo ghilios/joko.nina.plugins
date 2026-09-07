@@ -82,6 +82,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             "DetectionDebugMode",
             nameof(IntermediateSavePath),
             "PSFParallelPartitionSize",
+            nameof(GpuAccelerationEnabled),
         };
 
         // Per-filter "buffered" edit mode: while false, the legacy profile keys are frozen (fields and
@@ -261,6 +262,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             detectionBinning = DetectionBinningResolver.ToSetting((int)optionsAccessor.GetValueEnum<DetectionBinningEnum>(nameof(DetectionBinning), DetectionBinningEnum.Bin1));
             hotpixelFiltering = optionsAccessor.GetValueBoolean("HotpixelFiltering", true);
             hotpixelThresholdingEnabled = optionsAccessor.GetValueBoolean(nameof(HotpixelThresholdingEnabled), true);
+            gpuAccelerationEnabled = optionsAccessor.GetValueBoolean(nameof(GpuAccelerationEnabled), true);
             useAutoFocusCrop = optionsAccessor.GetValueBoolean("UseAutoFocusCrop", true);
             starMeasurementNoiseReductionEnabled = optionsAccessor.GetValueBoolean(nameof(StarMeasurementNoiseReductionEnabled), false);
             noiseReductionRadius = optionsAccessor.GetValueInt32("NoiseReductionRadius", 3);
@@ -343,6 +345,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             DetectionBinning = DetectionBinningEnum.Bin1;
             HotpixelFiltering = true;
             HotpixelThresholdingEnabled = true;
+            GpuAccelerationEnabled = true;
             UseAutoFocusCrop = true;
             StarMeasurementNoiseReductionEnabled = false;
             NoiseReductionRadius = 3;
@@ -584,6 +587,22 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     simple_FocusRange = value;
                     optionsAccessor.SetValueEnum<FocusRangeEnum>("Simple_FocusRange", value);
                     ConfigureSimpleSettings();
+                    RaisePropertyChanged();
+                }
+            }
+        }
+
+        private bool gpuAccelerationEnabled;
+
+        // Machine-local (MachineLocalKeys): describes this computer's hardware. Gates ONLY the star-detection
+        // optimization wizard's GPU path (GpuAccelerationPolicy + StarDetectorParams.AllowGpuAcceleration) —
+        // autofocus, sensor modeling, and single-frame detection are unaffected.
+        public bool GpuAccelerationEnabled {
+            get => gpuAccelerationEnabled;
+            set {
+                if (gpuAccelerationEnabled != value) {
+                    gpuAccelerationEnabled = value;
+                    optionsAccessor.SetValueBoolean(nameof(GpuAccelerationEnabled), gpuAccelerationEnabled);
                     RaisePropertyChanged();
                 }
             }

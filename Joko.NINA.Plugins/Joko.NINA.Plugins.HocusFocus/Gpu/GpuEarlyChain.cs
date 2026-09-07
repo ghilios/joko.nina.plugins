@@ -19,7 +19,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 
-namespace TestApp.Gpu {
+namespace NINA.Joko.Plugins.HocusFocus.Gpu {
 
     /// <summary>Subset of StarDetectorParams the EARLY GPU span depends on.</summary>
     public sealed class GpuEarlyParams {

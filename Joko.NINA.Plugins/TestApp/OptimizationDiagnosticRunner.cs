@@ -92,11 +92,11 @@ namespace TestApp {
                 Logger.Error(ex, "Optimization diagnostic run failed");
                 Environment.ExitCode = 1;
             } finally {
-                // GPU spike hook teardown + health line (zero fallbacks is part of gate G3).
-                if (NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetector.EarlyAcceleratorOverride is Gpu.GpuEarlyPipeline gpuPipeline) {
-                    NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetector.EarlyAcceleratorOverride = null;
-                    Console.WriteLine($"GPU early-span builds={gpuPipeline.Runs}, CPU fallbacks={gpuPipeline.Fallbacks}");
-                    gpuPipeline.Dispose();
+                // GPU health line (a nonzero fallback count means CPU quietly absorbed failed GPU builds).
+                var gpuPipeline = NINA.Joko.Plugins.HocusFocus.Gpu.GpuAccelerationHost.PeekPipeline();
+                if (gpuPipeline != null && (gpuPipeline.Runs > 0 || gpuPipeline.Fallbacks > 0)) {
+                    Console.WriteLine($"GPU early-span builds={gpuPipeline.Runs}, CPU fallbacks={gpuPipeline.Fallbacks}" +
+                                      (gpuPipeline.LatchedOff ? " (GPU LATCHED OFF after repeated failures)" : ""));
                 }
             }
         }
@@ -272,20 +272,6 @@ namespace TestApp {
                 Console.WriteLine($"--cv-threads {cvThreads}: OpenCV parallel-for pool capped.");
             }
 
-            // --gpu (feasibility spike, plans/gpu-early-pipeline-spike-plan.md): run the EARLY detection
-            // span on the CUDA device via StarDetector.EarlyAcceleratorOverride. Init failure warns and
-            // runs on CPU; a per-build failure falls back per build (counted, reported at exit).
-            if (DiagnosticUtil.HasFlag(args, "--gpu")) {
-                var acc = Gpu.GpuDevice.TryGet(out var gpuReason);
-                if (acc == null) {
-                    Console.Error.WriteLine($"WARNING: --gpu requested but GPU unavailable ({gpuReason}); running on CPU.");
-                } else {
-                    Console.WriteLine(Gpu.GpuDevice.DescribeBanner(acc));
-                    NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetector.EarlyAcceleratorOverride = new Gpu.GpuEarlyPipeline(acc);
-                    Console.WriteLine("GPU early-pipeline acceleration ENABLED for this run.");
-                }
-            }
-
             // The real ProfileService.ActiveProfile setter writes to Application.Current.Resources, so a
             // (non-running) WPF Application must exist or it NREs (mirrors ContaminationDiagnosticRunner).
             if (Application.Current == null) {
@@ -397,14 +383,39 @@ namespace TestApp {
                 baseline.DefocusAwareDonutDetection = true;
                 Console.WriteLine("--donut: DefocusAwareDonutDetection forced ON (optimizer will explore the donut/spike axes)");
             }
-            // --ccl (spike feature toggle): collect candidates as TRUE 8-connected components instead of the
-            // legacy walker, on BOTH seed and baseline. Not a searched axis; it is an EARLY cache-key param so
-            // contexts never cross modes. Detection is deliberately NOT bit-identical to legacy in this mode.
-            if (DiagnosticUtil.HasFlag(args, "--ccl")) {
-                seed.UseConnectedComponentCollection = true;
-                baseline.UseConnectedComponentCollection = true;
-                Console.WriteLine("--ccl: candidate collection = 8-connected components (behavior-change evaluation mode)");
+            // Connected-component candidate collection is the DEFAULT (StarDetectorVersion 3);
+            // --legacy-collector forces the pre-v3 sequential walker on BOTH seed and baseline for A/B
+            // comparisons. Not a searched axis; EARLY cache-key param, so contexts never cross modes.
+            if (DiagnosticUtil.HasFlag(args, "--legacy-collector")) {
+                seed.UseConnectedComponentCollection = false;
+                baseline.UseConnectedComponentCollection = false;
+                Console.WriteLine("--legacy-collector: candidate collection = pre-v3 sequential walker");
             }
+
+            // GPU acceleration (optimization-only): default follows the harness settings'
+            // GpuAccelerationEnabled option through the same GpuAccelerationPolicy the wizard uses (option +
+            // device probe; no frame-size gate — the operator chose this machine); --gpu forces it ON,
+            // --no-gpu forces it OFF. Per-build failures fall back to CPU (counted, reported at exit).
+            {
+                bool forceGpu = DiagnosticUtil.HasFlag(args, "--gpu");
+                bool forceNoGpu = DiagnosticUtil.HasFlag(args, "--no-gpu");
+                var gpuOptionEnabled = forceGpu || (!forceNoGpu && starDetectionOptions.GpuAccelerationEnabled);
+                var useGpu = NINA.Joko.Plugins.HocusFocus.Gpu.GpuAccelerationPolicy.ShouldUseForOptimization(gpuOptionEnabled, out var gpuReason);
+                seed.AllowGpuAcceleration = useGpu;
+                baseline.AllowGpuAcceleration = useGpu;
+                Console.WriteLine($"GPU acceleration: {(useGpu ? "ON" : "OFF")} ({gpuReason})" +
+                                  (forceGpu ? " [forced by --gpu]" : forceNoGpu ? " [forced off by --no-gpu]" : " [from settings]"));
+                if (forceGpu && !useGpu) {
+                    Console.Error.WriteLine("WARNING: --gpu requested but no usable CUDA device; running on CPU.");
+                }
+            }
+
+            // Prepared-source cache (optimization-only; see PreparedSourceCache): one for the whole batch —
+            // entries key on the frame image object, and the per-run loop clears it between runs so a long
+            // --per-run bank pass does not accumulate every run's prepared Mats.
+            using var harnessSourceCache = new NINA.Joko.Plugins.HocusFocus.StarDetection.PreparedSourceCache();
+            seed.SourceCache = harnessSourceCache;
+            baseline.SourceCache = harnessSourceCache;
             if (startFromCurrent) {
                 Console.WriteLine("--start-from-current: optimizer seed = current settings (never regresses below current)");
             }
@@ -748,6 +759,9 @@ namespace TestApp {
                     });
                 } finally {
                     DisposeRuns(loadedRuns);
+                    // Between per-run iterations the prepared-source cache would otherwise accumulate every
+                    // run's Mats (entries key on the just-disposed frame images, so none are reusable anyway).
+                    ctx.Seed?.SourceCache?.Clear();
                 }
             }
 

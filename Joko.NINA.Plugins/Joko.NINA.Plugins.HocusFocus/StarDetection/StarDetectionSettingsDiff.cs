@@ -88,6 +88,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             nameof(IStarDetectionOptions.DebugMode),
             nameof(IStarDetectionOptions.IntermediateSavePath),
             nameof(IStarDetectionOptions.SaveIntermediateImages),
+            nameof(IStarDetectionOptions.GpuAccelerationEnabled),
         };
 
         /// <summary>Ordered (property name → UI label) for every importable star-detection setting. Labels are copied

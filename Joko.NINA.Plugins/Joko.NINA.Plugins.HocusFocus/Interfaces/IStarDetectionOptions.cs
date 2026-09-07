@@ -144,6 +144,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         string IntermediateSavePath { get; set; }
         bool SaveIntermediateImages { get; set; }
         int PSFParallelPartitionSize { get; set; }
+
+        /// <summary>Machine-local (describes this computer's hardware, never imported/per-filter): allow the
+        /// star-detection OPTIMIZATION wizard to run its early detection pipeline on a CUDA GPU when one is
+        /// present and the GpuAccelerationPolicy heuristic approves. Autofocus, sensor modeling, and
+        /// single-frame detection never use the GPU regardless of this setting.</summary>
+        bool GpuAccelerationEnabled { get; set; }
         bool StarMeasurementNoiseReductionEnabled { get; set; }
         StarDetectorPSFFitType PSFFitType { get; set; }
         int PSFResolution { get; set; }

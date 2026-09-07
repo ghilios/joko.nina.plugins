@@ -19,7 +19,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 
-namespace TestApp.Gpu {
+namespace NINA.Joko.Plugins.HocusFocus.Gpu {
 
     /// <summary>
     /// GPU implementation of the StarDetector EARLY-span hook (the spike's `optimize --gpu` path). Pools
@@ -35,6 +35,10 @@ namespace TestApp.Gpu {
         // ~2.5 GB VRAM at 61 MP.
         private const int PoolSize = 2;
 
+        // Runtime latch: after this many per-build GPU failures, stop trying for the rest of the process
+        // (one warning, no per-build spam) — the CPU span takes over transparently.
+        private const int MaxFallbacksBeforeLatch = 3;
+
         private readonly CudaAccelerator acc;
         private readonly ConcurrentBag<GpuEarlyChain> pool = new ConcurrentBag<GpuEarlyChain>();
         private readonly SemaphoreSlim gate = new SemaphoreSlim(PoolSize);
@@ -44,12 +48,18 @@ namespace TestApp.Gpu {
         public int Runs => runs;
         public int Fallbacks => fallbacks;
 
+        /// <summary>True when repeated per-build failures have permanently disabled GPU attempts.</summary>
+        public bool LatchedOff => fallbacks >= MaxFallbacksBeforeLatch;
+
         public GpuEarlyPipeline(CudaAccelerator accelerator) {
             acc = accelerator;
         }
 
         public bool TryRunEarlySpan(Mat srcImage, StarDetectorParams p, int effectiveStructureLayers, bool hotpixelAlreadyApplied, out EarlySpanOutput output) {
             output = null;
+            if (LatchedOff) {
+                return false;
+            }
             if (srcImage.Type() != MatType.CV_32F || !srcImage.IsContinuous()) {
                 Interlocked.Increment(ref fallbacks);
                 return false;
@@ -91,7 +101,9 @@ namespace TestApp.Gpu {
                 return true;
             } catch (Exception e) {
                 Logger.Warning($"GPU early span failed, falling back to CPU: {e.Message}");
-                Interlocked.Increment(ref fallbacks);
+                if (Interlocked.Increment(ref fallbacks) == MaxFallbacksBeforeLatch) {
+                    Logger.Warning($"GPU early span failed {MaxFallbacksBeforeLatch} times; disabling GPU acceleration for the rest of this process (CPU path continues).");
+                }
                 // The chain may hold buffers in an unknown state; drop it rather than repooling.
                 try { chain?.Dispose(); } catch { }
                 chain = null;

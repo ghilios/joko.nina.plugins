@@ -11,6 +11,7 @@
 #endregion "copyright"
 
 using ILGPU;
+using NINA.Joko.Plugins.HocusFocus.Gpu;
 using ILGPU.Runtime;
 using ILGPU.Runtime.Cuda;
 using System;

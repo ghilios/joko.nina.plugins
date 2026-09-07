@@ -15,7 +15,7 @@ using ILGPU.Runtime;
 using ILGPU.Runtime.Cuda;
 using System;
 
-namespace TestApp.Gpu {
+namespace NINA.Joko.Plugins.HocusFocus.Gpu {
 
     /// <summary>
     /// Lazy process-wide CUDA context/accelerator for the GPU feasibility spike (bench-gpu and the

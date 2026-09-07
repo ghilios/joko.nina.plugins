@@ -14,7 +14,7 @@ using ILGPU;
 using ILGPU.Runtime;
 using System;
 
-namespace TestApp.Gpu {
+namespace NINA.Joko.Plugins.HocusFocus.Gpu {
 
     /// <summary>
     /// GPU kernels for the star detector's EARLY pipeline span (StarDetector.BuildDetectionContextInternal

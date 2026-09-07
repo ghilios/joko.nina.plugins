@@ -158,7 +158,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 innerRadius: 13, outerRadius: 20, peak: 0.7, background: 0.05, edgeBlurSigma: 1.5);
             SyntheticDefocusedStarImage.AddGaussianNoise(img, 0.008, 4242);
 
+            // Both arms pin the PRE-v3 walker: the v3 connected-component collector unifies this ring into
+            // one candidate and accepts it with the donut master OFF (a genuine v3 improvement), which
+            // destroys this test's rejected-baseline premise. The donut machinery still matters for arcs
+            // the binarized map leaves DISCONNECTED, and this test keeps guarding it against the collector
+            // whose fragmentation it was built to rescue.
             var pOff = StarDetectorEquivalence.StandardParams();
+            pOff.UseConnectedComponentCollection = false;
             pOff.PeakResponse = 0.98;
             var off = await StarDetectorEquivalence.RunDetect(img, pOff);
 
@@ -166,6 +172,7 @@ namespace NINA.Joko.Plugins.HocusFocus.Tests.StarDetection {
                 innerRadius: 13, outerRadius: 20, peak: 0.7, background: 0.05, edgeBlurSigma: 1.5);
             SyntheticDefocusedStarImage.AddGaussianNoise(img2, 0.008, 4242);
             var pOn = StarDetectorEquivalence.StandardParams();
+            pOn.UseConnectedComponentCollection = false;
             pOn.PeakResponse = 0.98;
             pOn.DefocusAwareDonutDetection = true; // morph-close (5) + hole-fill (0.15) active by default
             // A 40px donut is largely removed by the structure wavelet at the default layer count, so keep it via

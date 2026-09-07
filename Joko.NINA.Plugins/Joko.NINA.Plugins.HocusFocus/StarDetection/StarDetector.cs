@@ -42,7 +42,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // _star_detection_result.json that was produced by a different detector version (or different params).
         // v2: the structure-removal wavelet swapped from dense zero-padded Cv2.SepFilter2D kernels to
         // AtrousWaveletFast (sparse 5-tap) — equivalent to float rounding (≤3e-8) but not bit-identical.
-        public const int StarDetectorVersion = 2;
+        // v3: candidate collection defaults to 8-connected components (UseConnectedComponentCollection=true):
+        // stars overlapping an earlier candidate's bounding box survive, connected donut rings arrive unified,
+        // no same-row gap-jump merging — measurably better J on every bank run tested (see
+        // docs/gpu-star-detection-optimization-results.md §6). The legacy walker remains reachable
+        // (UseConnectedComponentCollection=false) and bit-identical to v2 collection.
+        public const int StarDetectorVersion = 3;
 
         private readonly IAlglibAPI alglibAPI;
 
@@ -130,12 +135,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // the genuine low-noise local thresholds in clean regions that drive the recall gain.
         private const float AdaptiveBinarizationSigmaFloor = 1e-6f;
 
-        // GPU feasibility-spike hook (plans/gpu-early-pipeline-spike-plan.md): when non-null AND the build
-        // has no intermediate-file saving, the EARLY span (steps 1-5b) is delegated to the accelerator; a
-        // false return falls back to the unchanged CPU span. Null in production (only the TestApp optimize
-        // harness sets it via --gpu), so detection behavior is bit-identical when unset.
-        internal static IEarlyPipelineAccelerator EarlyAcceleratorOverride;
-
         // Result of the structure-map source noise estimate task: the global kappa-sigma σ used for the scalar
         // binarize threshold, PLUS (only when LocallyAdaptiveBinarization is on) the per-block local-σ grid sampled
         // on that SAME noise-reduced source (F4 σ-consistency), captured inside the task before the source is
@@ -180,6 +179,9 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // Candidate-collection mode (legacy walker vs 8-connected components) changes the candidate set
             // itself, the most EARLY thing there is.
             nameof(StarDetectorParams.UseConnectedComponentCollection),
+            // GPU-vs-CPU early span differs by float-contraction noise (~1e-7), so a context built on one
+            // backend is never silently reused as the other's.
+            nameof(StarDetectorParams.AllowGpuAcceleration),
             nameof(StarDetectorParams.Region)
         };
 
@@ -315,9 +317,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// </summary>
         private static Mat PrepareSrcImageFromRenderedImage(IRenderedImage image, StarDetectorParams p, out bool hotpixelFilteringApplied, out long? numHotpixels) {
             var debayeredImage = image as IDebayeredImage;
-            hotpixelFilteringApplied = false;
+            var cfaPath = debayeredImage != null && p.HotpixelFiltering && p.HotpixelThresholdingEnabled;
+            hotpixelFilteringApplied = cfaPath;
             numHotpixels = null;
-            if (debayeredImage != null && p.HotpixelFiltering && p.HotpixelThresholdingEnabled) {
+
+            // OPTIMIZATION-ONLY prepared-source cache (PreparedSourceCache): this conversion is a pure
+            // function of (image, cfa branch, quantized hotpixel threshold), so an optimization run reuses
+            // the identical prepared pixels instead of re-doing CFA filter + debayer (+ float conversion)
+            // on every early-context rebuild. The key carries the SEARCHED hotpixel axes (quantized exactly
+            // as the filter quantizes them), so a candidate that moves them recomputes — this is the
+            // sanctioned per-(frame, hot-pixel params) cache, NOT the rejected load-time filtering.
+            string cacheKey = null;
+            if (p.SourceCache != null) {
+                cacheKey = cfaPath
+                    ? $"cfa:{(ushort)(p.HotpixelThreshold * (1 << debayeredImage.RawImageData.Properties.BitDepth))}"
+                    : "raw";
+                var cached = p.SourceCache.TryGet(image, cacheKey, out var cachedHotpixels);
+                if (cached != null) {
+                    numHotpixels = cachedHotpixels;
+                    return cached;
+                }
+            }
+
+            Mat prepared;
+            if (cfaPath) {
                 var rawImageDataCopy = new ushort[debayeredImage.RawImageData.Data.FlatArray.Length];
                 Buffer.BlockCopy(debayeredImage.RawImageData.Data.FlatArray, 0, rawImageDataCopy, 0, debayeredImage.RawImageData.Data.FlatArray.Length * sizeof(ushort));
 
@@ -328,12 +351,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 numHotpixels = HotpixelFiltering.CFAHotpixelFilter(rawImageData, debayeredImage.BayerPattern, threshold);
                 var bitmapSource = ImageUtility.CreateSourceFromArray(new ImageArray(rawImageDataCopy), props, PixelFormats.Gray16);
                 var debayeredImageData = ImageUtility.Debayer(bitmapSource, pf: System.Drawing.Imaging.PixelFormat.Format16bppGrayScale, saveColorChannels: false, saveLumChannel: true, bayerPattern: debayeredImage.BayerPattern);
-                hotpixelFilteringApplied = true;
 
-                return CvImageUtility.ToOpenCVMat(debayeredImageData.Data.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
+                prepared = CvImageUtility.ToOpenCVMat(debayeredImageData.Data.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
             } else {
-                return CvImageUtility.ToOpenCVMat(image);
+                prepared = CvImageUtility.ToOpenCVMat(image);
             }
+            if (cacheKey != null) {
+                p.SourceCache.Store(image, cacheKey, prepared, numHotpixels);
+            }
+            return prepared;
         }
 
         /// <summary>
@@ -541,9 +567,14 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     CvImageUtility.LocalBackgroundGrid adaptiveMedianGrid;
                     CvImageStatistics structureMapStats = null;
 
+                    // GPU acceleration is OPTIMIZATION-ONLY: p.AllowGpuAcceleration is set solely by the
+                    // optimization wizard/harness (after GpuAccelerationPolicy approves) — autofocus, sensor
+                    // modeling, and single-frame detection never set it, so those paths never reach the host.
                     EarlySpanOutput acceleratedSpan = null;
-                    var earlyAccelerator = EarlyAcceleratorOverride;
-                    if (earlyAccelerator != null && string.IsNullOrEmpty(p.SaveIntermediateFilesPath)) {
+                    var earlyAccelerator = p.AllowGpuAcceleration && string.IsNullOrEmpty(p.SaveIntermediateFilesPath)
+                        ? Gpu.GpuAccelerationHost.TryGetForBuild()
+                        : null;
+                    if (earlyAccelerator != null) {
                         earlyAccelerator.TryRunEarlySpan(srcImage, p, effectiveStructureLayers, hotpixelFilterAlreadyApplied, out acceleratedSpan);
                     }
                     if (acceleratedSpan != null) {

@@ -1074,6 +1074,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
         /// lifetime. Idempotent. Only the split path holds contexts; the monolithic path keeps none, so Dispose is a
         /// no-op there.
         /// </summary>
+        /// <summary>Optional prepared-source cache (see <see cref="PreparedSourceCache"/>) whose lifetime is
+        /// tied to this run's frames; disposed with the run. Set by the loaders that stamp the cache onto the
+        /// seed/baseline params; null when the optimization does not use one.</summary>
+        public PreparedSourceCache OwnedSourceCache { get; set; }
+
         public void Dispose() {
             lock (cacheLock) {
                 if (disposed) {
@@ -1086,6 +1091,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                         contextCache[i] = null;
                     }
                 }
+                OwnedSourceCache?.Dispose();
+                OwnedSourceCache = null;
             }
         }
     }
