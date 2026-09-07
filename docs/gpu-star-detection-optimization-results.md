@@ -148,6 +148,21 @@ direct Mat↔device copies (chain 301 → 214 ms at 61 MP, 16.7× vs CPU chain).
 \* muggsie's GPU arm took a different (equally valid) search path — see equivalence below — landing with
 far fewer early rebuilds, so its wall benefits from both the GPU and the shorter path.
 
+### Round 2 — after the candidate-collection rework (§6)
+
+Same protocol, after the run-index walker (bit-identical, now the default for BOTH arms) and with the
+opt-in CCL collector as a third arm:
+
+| Run | CPU (fast walker) | GPU | GPU+CCL | best J: legacy vs CCL arm |
+|---|---|---|---|---|
+| muggsie | 63.9 s / J 0.997195 | 24.7 s (**2.59×**) | 24.7 s | 0.997195 → **0.997252** (CPU+CCL: 28.6 s, 18 builds vs 207) |
+| Panos (labeled) | 100.6 s / 0.8556 | 53.2 s (**1.89×**) | 79.1 s | 0.8556 → **0.919816** |
+| CWhiteFocus 61 MP | 497.1 s / 0.996068 | 252.0 s (**1.97×**) | 258.9 s | 0.996068 → **0.997037** |
+| timmer (bayered) | 553.7 s / 0.997785 | 435.2 s (1.27×) | **373.3 s (1.48×)** | 0.997785 → **0.997819** |
+
+Aggregate over the 4 runs: 1215 s CPU → 765 s GPU (**1.59×**) → 736 s GPU+CCL (**1.65×, with higher J on
+every run**). All arms: zero fallbacks.
+
 **The v1→v2 invariance is the second-most-important measurement of the spike:** cutting the GPU chain
 another 40% (301→214 ms at 61 MP) moved end-to-end wall by ~0. The `--gpu` arm is **no longer bound by
 the GPU-able compute at all** — the residual wall is the CPU-side work: the LATE per-star stage, the
@@ -206,12 +221,12 @@ Not met:
 
 ### What would clear 3×, if pursued
 
-1. **`CollectStarCandidates`** — the largest single residual (379 s stage-time on the CWhite arm). GPU
-   connected-components or a parallel CPU rewrite needs its own equivalence study: the current scan
-   *zeroes visited bounding boxes*, so candidate identity is traversal-order-dependent — not a drop-in
-   parallelization. This is the highest-leverage follow-up.
-2. **Fixed overhead** (run loading, seed/summary/annotation detections, fit) — untouched by the spike.
-3. **LATE stage on GPU** — largest block on low-f runs; irregular/branchy, high effort.
+1. ~~**`CollectStarCandidates`**~~ — **DONE, see §6** (run-index walker, bit-identical, 5.7× on the
+   stage; lifted CWhite's GPU arm 1.85× → 1.97× and Panos 1.76× → 1.89×). The remaining stage cost
+   (~0.14 s/build) is no longer a first-order term.
+2. **Fixed overhead** (run loading, seed/summary/annotation detections, fit) — untouched by the spike,
+   and now a visible slice of the GPU arms' walls.
+3. **LATE stage on GPU** — the largest remaining block on every run; irregular/branchy, high effort.
 4. **Different workload**: `bank-verify`-style batch evaluation (fixed params, every frame cold) matches
    the GPU's strength far better than the optimizer's cached search; expect near the chain's 12–17×
    there for the detection portion.
@@ -231,3 +246,36 @@ Not met:
   caps timmer-class runs near 1.4–1.9×.
 - The spike used the pinned settings' `NoiseReductionRadius=4` shape (two K-σ estimates per build); other
   profiles shift stage shares but not the conclusions.
+
+## 6. Candidate-collection rework (follow-up to §5.1) — the flood-fill lever, pulled
+
+Two collectors now sit behind a shared, parallel per-row run-length index (`StructureRunIndex`), so
+candidate collection never raster-scans (or mutates) the full-frame map again; the saturated-pixel count
+in `EvaluateGlobalMetrics` is parallelized too (order-independent ⇒ bit-identical).
+
+1. **Run-index walker — the new DEFAULT, bit-identical.** A literal translation of the legacy
+   zero-the-bbox scan: same seeds, same growth (including the same-row gap-jump and downward-only quirks),
+   same point ORDER (eccentricity sums are order-sensitive), with the bbox zeroing replaced by interval
+   subtraction. The legacy implementation is retained purely as the equivalence oracle for
+   `CandidateCollectionTests` (random + adversarial maps: donut, bbox-shadowing, gap-jump, edges, full-lit).
+   Single frame at 61 MP: `CollectStarCandidates` **0.81 s → 0.141 s (5.7×)**.
+2. **8-connected-component collector — opt-in behavior change**
+   (`StarDetectorParams.UseConnectedComponentCollection`, EARLY cache-key param, default OFF; TestApp
+   `--ccl` on `optimize`/`contamination`; deliberately NOT bit-identical). True components via run-based
+   union-find: no bbox shadowing (a star overlapping an earlier candidate's bounding box survives), whole
+   components collected (connected donut rings arrive unified), no same-row gap-jump merging. 0.080 s at
+   61 MP. At fixed params on the CWhite frame it detects **4457 vs 4379 stars (+1.8%)** — the surviving
+   shadowed neighbors.
+
+**The CCL surprise is quality, not speed** (round-2 table above): the CCL arm landed a **higher J on all
+four runs**, most dramatically on the one run with human-labeled ground truth (Panos: 0.8556 → 0.9198,
+an improvement ~50× larger than anything the eval-budget work argued about — the labeled objective's
+recall/precision term directly credits the stars the legacy walker was destroying). On timmer it was also
+1.17× faster than the GPU arm (the changed J landscape converged with fewer early rebuilds), and on
+muggsie the CPU+CCL arm beat every other arm's J while converging 2.2× faster than legacy CPU. Sensor
+modeling always runs on the imaging PC with the toggle OFF, so its behavior is untouched.
+
+**Recommended follow-up for the CCL mode:** validate that the higher J is real detection quality — run
+`bank-verify` / `golden eval` recall/precision with `UseConnectedComponentCollection` on across the bank
+(the golden sets are detector-independent, so they arbitrate honestly), and if it holds, promote the
+toggle through the wizard behind the usual `StarDetectorVersion` discipline.
