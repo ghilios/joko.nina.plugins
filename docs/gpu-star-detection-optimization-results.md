@@ -279,3 +279,48 @@ modeling always runs on the imaging PC with the toggle OFF, so its behavior is u
 `bank-verify` / `golden eval` recall/precision with `UseConnectedComponentCollection` on across the bank
 (the golden sets are detector-independent, so they arbitrate honestly), and if it holds, promote the
 toggle through the wizard behind the usual `StarDetectorVersion` discipline.
+
+## 7. Production promotion (user-directed follow-on; plan: `plans/gpu-production-integration-plan.md`)
+
+Everything above was promoted from spike to plugin:
+
+- **CCL is the DEFAULT** (`StarDetectorVersion` 2 → 3). The pre-v3 walker stays reachable
+  (`--legacy-collector`) and remains the oracle for the bit-identity tests. Suite fallout was re-pinned
+  deliberately: the golden small-field signature gains one star (a surviving shadowed neighbor), the
+  donut/relaxation premise tests pin the legacy collector whose fragmentation they guard, and the
+  MeasuredSensitivity synthetic field's noise drops σ 0.02 → 0.01 — at 0.02 it sat exactly on the 5σ
+  contamination boundary that v3's TIGHT bounding box (13×13 vs the walker's gap-jump-inflated 14×13,
+  which shifts the background annulus one pixel) flips. That razor-edge case is the entire class of
+  CCL-vs-legacy measurement difference observed.
+- **`GpuAccelerationEnabled` option** (default ON; machine-local — never imported or per-filter; advanced
+  Star Detection pane). It gates ONLY the optimization wizard/harness, which stamp
+  `StarDetectorParams.AllowGpuAcceleration` (an EARLY cache-key param, so contexts never cross backends)
+  after `GpuAccelerationPolicy` approves: CUDA device initializes, frames ≥ 2 MP, VRAM ≥ working set +
+  1 GB slack. `GpuEarlyPipeline` latches itself off after 3 per-build failures (one warning). Autofocus,
+  sensor modeling, and single-frame detection never consult any of it.
+- **GPU code lives in the plugin** (`Gpu/`), ILGPU 1.5.3 ships in the deploy xcopy; TestApp's `bench-gpu`
+  consumes the same classes. Harness: `--gpu` / `--no-gpu` force; default follows the settings option.
+- **Debayer optimization** = `PreparedSourceCache`, the parity spec's sanctioned per-(frame,
+  hotpixel-params) prepared-source cache, stamped on optimization params only (wizard + harness; disposed
+  with the run / cleared between `--per-run` iterations). Bayered optimize runs stop re-doing the ~1.2 s
+  CFA+debayer on every early rebuild; a cache hit returns a clone of identical pixels, so detection is
+  byte-identical. GPU debayer was evaluated and NOT built: the cache removes the recompute entirely,
+  which beats accelerating it.
+- Verified: suite 4431/4431; option-driven muggsie run reproduces the round-2 GPU+CCL arm bit-for-bit
+  (24.3 s, bestJ 0.997202, 0 fallbacks).
+
+### Production-default stack vs where the day started
+
+Same protocol (pinned, sequential, 250 evals). "Before" = the original round-1 CPU arms (legacy collector,
+no cache, no GPU); "after" = the new zero-flag default (CCL + prepared-source cache + option-driven GPU):
+
+| Run | before | after | wall | J |
+|---|---|---|---|---|
+| muggsie | 66.6 s / 0.997195 | 24.3 s / 0.997202 | **2.7×** | better |
+| Panos (labeled) | 104.3 s / 0.8556 | ~79 s / **0.9198** | 1.3× | **+0.064** (the search spends its win chasing the far better optimum) |
+| CWhiteFocus 61 MP | 515.3 s / 0.996068 | 258.9 s / 0.997037 | **2.0×** | better |
+| timmer (bayered) | 559.6 s / 0.997785 | **285.7 s** / 0.997819 | **2.0×** | better |
+
+The prepared-source cache alone is worth 1.31–1.36× on bayered runs (timmer GPU arm 373 → 286 s, CPU arm
+554 → 408 s; identical builds/reuses/J — exact reuse, zero behavior change). Every "after" arm: zero GPU
+fallbacks; J equal-or-better on all four runs.
