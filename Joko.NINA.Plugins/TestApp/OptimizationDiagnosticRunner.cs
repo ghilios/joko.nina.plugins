@@ -91,6 +91,13 @@ namespace TestApp {
                 Console.Error.WriteLine(ex.ToString());
                 Logger.Error(ex, "Optimization diagnostic run failed");
                 Environment.ExitCode = 1;
+            } finally {
+                // GPU spike hook teardown + health line (zero fallbacks is part of gate G3).
+                if (NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetector.EarlyAcceleratorOverride is Gpu.GpuEarlyPipeline gpuPipeline) {
+                    NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetector.EarlyAcceleratorOverride = null;
+                    Console.WriteLine($"GPU early-span builds={gpuPipeline.Runs}, CPU fallbacks={gpuPipeline.Fallbacks}");
+                    gpuPipeline.Dispose();
+                }
             }
         }
 
@@ -263,6 +270,20 @@ namespace TestApp {
                 }
                 Cv2.SetNumThreads(cvThreads);
                 Console.WriteLine($"--cv-threads {cvThreads}: OpenCV parallel-for pool capped.");
+            }
+
+            // --gpu (feasibility spike, plans/gpu-early-pipeline-spike-plan.md): run the EARLY detection
+            // span on the CUDA device via StarDetector.EarlyAcceleratorOverride. Init failure warns and
+            // runs on CPU; a per-build failure falls back per build (counted, reported at exit).
+            if (DiagnosticUtil.HasFlag(args, "--gpu")) {
+                var acc = Gpu.GpuDevice.TryGet(out var gpuReason);
+                if (acc == null) {
+                    Console.Error.WriteLine($"WARNING: --gpu requested but GPU unavailable ({gpuReason}); running on CPU.");
+                } else {
+                    Console.WriteLine(Gpu.GpuDevice.DescribeBanner(acc));
+                    NINA.Joko.Plugins.HocusFocus.StarDetection.StarDetector.EarlyAcceleratorOverride = new Gpu.GpuEarlyPipeline(acc);
+                    Console.WriteLine("GPU early-pipeline acceleration ENABLED for this run.");
+                }
             }
 
             // The real ProfileService.ActiveProfile setter writes to Application.Current.Resources, so a

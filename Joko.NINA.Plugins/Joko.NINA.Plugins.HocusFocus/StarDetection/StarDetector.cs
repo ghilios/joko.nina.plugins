@@ -130,6 +130,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // the genuine low-noise local thresholds in clean regions that drive the recall gain.
         private const float AdaptiveBinarizationSigmaFloor = 1e-6f;
 
+        // GPU feasibility-spike hook (plans/gpu-early-pipeline-spike-plan.md): when non-null AND the build
+        // has no intermediate-file saving, the EARLY span (steps 1-5b) is delegated to the accelerator; a
+        // false return falls back to the unchanged CPU span. Null in production (only the TestApp optimize
+        // harness sets it via --gpu), so detection behavior is bit-identical when unset.
+        internal static IEarlyPipelineAccelerator EarlyAcceleratorOverride;
+
         // Result of the structure-map source noise estimate task: the global kappa-sigma σ used for the scalar
         // binarize threshold, PLUS (only when LocallyAdaptiveBinarization is on) the per-block local-σ grid sampled
         // on that SAME noise-reduced source (F4 σ-consistency), captured inside the task before the source is
@@ -519,25 +525,61 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                     // Step 1: Perform initial noise reduction and hotpixel filtering
                     progress?.Report(new ApplicationStatus() { Status = "Noise Reduction" });
-                    var hotpixelFilteringApplied = hotpixelFilterAlreadyApplied;
 
-                    // Also apply hotpixel filtering if noise reduction will be done to the source image
-                    if (p.HotpixelFiltering || (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled)) {
-                        // Apply a median box filter in place to the starting image
-                        if (!hotpixelFilterAlreadyApplied) {
-                            metrics.HotpixelCount = ApplyHotpixelFilter(srcImage, p);
+                    // Outputs of the EARLY span (steps 1-5b), produced either by the accelerator hook (the
+                    // GPU spike path) or by the unchanged CPU span below. effectiveStructureLayers is pure
+                    // in p, hoisted so both paths share it.
+                    var effectiveStructureLayers = EffectiveStructureLayers(p);
+                    Mat structureMap;
+                    double structureMapMedian;
+                    CvImageUtility.KappaSigmaNoiseEstimateResult noiseReducedImageNoise;
+                    CvImageUtility.KappaSigmaNoiseEstimateResult measurementImageNoise;
+                    CvImageUtility.LocalBackgroundGrid binarizeSigmaGrid;
+                    CvImageUtility.LocalBackgroundGrid adaptiveMedianGrid;
+                    CvImageStatistics structureMapStats = null;
+
+                    EarlySpanOutput acceleratedSpan = null;
+                    var earlyAccelerator = EarlyAcceleratorOverride;
+                    if (earlyAccelerator != null && string.IsNullOrEmpty(p.SaveIntermediateFilesPath)) {
+                        earlyAccelerator.TryRunEarlySpan(srcImage, p, effectiveStructureLayers, hotpixelFilterAlreadyApplied, out acceleratedSpan);
+                    }
+                    if (acceleratedSpan != null) {
+                        if (acceleratedSpan.MeasurementImage != null) {
+                            // Same ownership handoff as the ROI/binning replacements above: the accelerator
+                            // produced a new prepared measurement Mat; the incoming one is disposed and the
+                            // replacement adopted as the live owned Mat on BOTH paths.
+                            srcImage.Dispose();
+                            srcImage = acceleratedSpan.MeasurementImage;
+                            liveOwnedImage = srcImage;
                         }
-                        hotpixelFilteringApplied = true;
-                    }
+                        structureMap = scratch.T(acceleratedSpan.StructureMap);
+                        metrics.HotpixelCount = acceleratedSpan.HotpixelCount;
+                        noiseReducedImageNoise = acceleratedSpan.StructureNoise;
+                        measurementImageNoise = acceleratedSpan.MeasurementNoise;
+                        binarizeSigmaGrid = acceleratedSpan.SigmaGrid;
+                        adaptiveMedianGrid = acceleratedSpan.AdaptiveMedianGrid;
+                        structureMapMedian = acceleratedSpan.StructureMapMedian;
+                        stopWatch.RecordEntry("GpuEarlySpan");
+                    } else {
+                        var hotpixelFilteringApplied = hotpixelFilterAlreadyApplied;
 
-                    var noiseReductionApplied = false;
-                    if (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled) {
-                        CvImageUtility.ConvolveGaussian(srcImage, srcImage, p.NoiseReductionRadius * 2 + 1);
-                        noiseReductionApplied = true;
-                    }
+                        // Also apply hotpixel filtering if noise reduction will be done to the source image
+                        if (p.HotpixelFiltering || (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled)) {
+                            // Apply a median box filter in place to the starting image
+                            if (!hotpixelFilterAlreadyApplied) {
+                                metrics.HotpixelCount = ApplyHotpixelFilter(srcImage, p);
+                            }
+                            hotpixelFilteringApplied = true;
+                        }
 
-                    MaybeSaveIntermediateImage(srcImage, p, "02-src-image-preparation.tif");
-                    stopWatch.RecordEntry("SrcImagePreparation");
+                        var noiseReductionApplied = false;
+                        if (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled) {
+                            CvImageUtility.ConvolveGaussian(srcImage, srcImage, p.NoiseReductionRadius * 2 + 1);
+                            noiseReductionApplied = true;
+                        }
+
+                        MaybeSaveIntermediateImage(srcImage, p, "02-src-image-preparation.tif");
+                        stopWatch.RecordEntry("SrcImagePreparation");
 
                     // Step 2: Prepare for structure detection by performing optional noise reduction
                     progress?.Report(new ApplicationStatus() { Status = "Preparing for Structure Detection" });
@@ -556,7 +598,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         CvImageUtility.ConvolveGaussian(noiseReducedImage, noiseReducedImage, p.NoiseReductionRadius * 2 + 1);
                     }
 
-                    Mat structureMap = scratch.NewMat();
+                    structureMap = scratch.NewMat();
                     noiseReducedImage.CopyTo(structureMap);
                     var noiseReducedNoiseEstimateTask = Task.Run(() => {
                         var result = CvImageUtility.KappaSigmaNoiseEstimate(noiseReducedImage, clippingMultipler: p.NoiseClippingMultiplier);
@@ -608,7 +650,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // donut master is on we apply a default structure boost EVEN IF the explicit DefocusAwareStructure
                     // axis is off (the optimizer can raise it further via that axis). Gated by the master ⇒
                     // bit-identical when off.
-                    var effectiveStructureLayers = EffectiveStructureLayers(p);
+                    // (effectiveStructureLayers hoisted above the accelerator branch.)
                     // Deliberately NOT passing the cancellation token to the wavelet: the two noise-estimate
                     // tasks started above are still running and read srcImage/noiseReducedImage, and a cancellation
                     // unwind from inside the wavelet would dispose those Mats under the tasks (native
@@ -635,25 +677,29 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                     // Log histograms produce more accurate results due to clustering in very low ADUs, but are substantially more computationally expensive
                     // The difference doesn't seem worth it based on tests done so far
-                    var structureMapStats = CalculateStatistics_Histogram(structureMap, useLogHistogram: false, flags: CvImageStatisticsFlags.Median);
+                    structureMapStats = CalculateStatistics_Histogram(structureMap, useLogHistogram: false, flags: CvImageStatisticsFlags.Median);
                     // Spatially-adaptive binarization (opt-in): sample the per-block local background (median) on the
                     // SAME structure map the global median above is taken from, and BEFORE the dilation below — so it
                     // mirrors the scalar path's pre-dilation median. Null on the legacy path ⇒ bit-identical.
-                    CvImageUtility.LocalBackgroundGrid adaptiveMedianGrid = null;
+                    adaptiveMedianGrid = null;
                     if (p.LocallyAdaptiveBinarization) {
                         adaptiveMedianGrid = CvImageUtility.ComputeLocalBackgroundGrid(structureMap, Math.Max(1, p.AdaptiveNoiseBlockSize), AdaptiveBinarizationSigmaFloor);
                     }
                     stopWatch.RecordEntry("BinarizationStatistics");
 
                     var structureNoiseEstimate = await noiseReducedNoiseEstimateTask;
-                    var noiseReducedImageNoise = structureNoiseEstimate.Noise;
-                    var measurementImageNoise = measurementNoiseEstimateTask != null
+                    noiseReducedImageNoise = structureNoiseEstimate.Noise;
+                    measurementImageNoise = measurementNoiseEstimateTask != null
                         ? await measurementNoiseEstimateTask
                         : noiseReducedImageNoise;
-                    double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * noiseReducedImageNoise.Sigma;
-                    var binarizeTrace = $"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}, Clipping Multiplier: {p.NoiseClippingMultiplier}, Noise Sigma: {noiseReducedImageNoise.Sigma}";
+                    binarizeSigmaGrid = structureNoiseEstimate.SigmaGrid;
+                    structureMapMedian = structureMapStats.Median;
+                    } // end of the unchanged CPU EARLY span (the accelerator branch above is its equivalent)
+
+                    double binarizeThreshold = structureMapMedian + p.NoiseClippingMultiplier * noiseReducedImageNoise.Sigma;
+                    var binarizeTrace = $"Structure Map Binarization - Median: {structureMapMedian}, Threshold: {binarizeThreshold}, Clipping Multiplier: {p.NoiseClippingMultiplier}, Noise Sigma: {noiseReducedImageNoise.Sigma}";
                     Logger.Trace(binarizeTrace);
-                    MaybeSaveIntermediateText(structureMapStats.ToString() + Environment.NewLine + binarizeTrace, p, "05-structure-map-statistics.txt");
+                    MaybeSaveIntermediateText((structureMapStats?.ToString() ?? string.Empty) + Environment.NewLine + binarizeTrace, p, "05-structure-map-statistics.txt");
 
                     if (p.StoreStructureMap) {
                         UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 1);
@@ -678,8 +724,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // global scalar threshold. Spatially-adaptive (opt-in): a per-pixel threshold surface
                     // (local-median + NC·local-σ) upsampled from the coarse grids. The flag-off path is byte-for-byte
                     // the legacy scalar Binarize.
-                    if (p.LocallyAdaptiveBinarization && adaptiveMedianGrid != null && structureNoiseEstimate.SigmaGrid != null) {
-                        ApplyAdaptiveBinarization(structureMap, adaptiveMedianGrid, structureNoiseEstimate.SigmaGrid, p.NoiseClippingMultiplier);
+                    if (p.LocallyAdaptiveBinarization && adaptiveMedianGrid != null && binarizeSigmaGrid != null) {
+                        ApplyAdaptiveBinarization(structureMap, adaptiveMedianGrid, binarizeSigmaGrid, p.NoiseClippingMultiplier);
                     } else {
                         CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
                     }

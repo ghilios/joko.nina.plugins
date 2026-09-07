@@ -80,7 +80,10 @@ namespace TestApp.Gpu {
 
             var profileService = new NINA.Profile.ProfileService();
             profileService.TryLoad(DiagnosticUtil.GetArg(args, "--profile-id") ?? string.Empty);
-            using var image = await DiagnosticUtil.LoadFloatMat(imagePath, profileService);
+            // Mat-level kernel bench, not a detection-parity surface: the debayered-float route satisfies
+            // the parity guard (mono frames are byte-identical; bayered frames arrive CPU-debayered, which
+            // is exactly the spike's boundary — CFA/debayer stays on the CPU).
+            using var image = await DiagnosticUtil.LoadDebayeredFloatMat(imagePath, profileService);
             Console.WriteLine($"Image: {image.Width}x{image.Height} ({image.Width * (long)image.Height / 1e6:F1} MP), layers={layers}, iters={iters}");
             var p = BenchParams(layers);
 
