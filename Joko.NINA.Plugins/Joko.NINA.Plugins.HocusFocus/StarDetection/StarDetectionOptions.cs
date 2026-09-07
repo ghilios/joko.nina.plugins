@@ -76,6 +76,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return new PluginOptionsAccessor(profileService, guid.Value);
         }
 
+        /// <summary>
+        /// Reads the MACHINE-LOCAL GPU toggle straight from the loaded profile's persisted store, bypassing
+        /// any file/snapshot-backed options object. The wizard toggle must be the sole authority for the
+        /// next analysis: a harness settings file, per-filter snapshot, or replay payload may carry a
+        /// captured copy of this key, and none of them may override what the user set on this computer.
+        /// </summary>
+        internal static bool ReadGpuAccelerationEnabledFromProfile(IProfileService profileService) =>
+            CreateDefaultAccessor(profileService).GetValueBoolean(nameof(GpuAccelerationEnabled), true);
+
         // Machine-local persisted keys stay global in per-filter mode — they keep writing through even while
         // buffered edits suppress the legacy profile keys. (SaveIntermediateImages is never persisted.)
         internal static readonly ISet<string> MachineLocalKeys = new HashSet<string> {
@@ -1447,6 +1456,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // imaging machine keeps its own parallelism / diagnostics settings.
                 DebugMode = source.DebugMode;
                 PSFParallelPartitionSize = source.PSFParallelPartitionSize;
+                // GpuAccelerationEnabled is deliberately NEVER applied from a snapshot — not even here: the
+                // wizard start-page toggle must always govern the next analysis, and every GPU decision reads
+                // the profile store directly (ReadGpuAccelerationEnabledFromProfile), so a captured copy of the
+                // key in any saved artifact is inert by design.
             }
             PSFFitType = source.PSFFitType;
             PSFResolution = source.PSFResolution;

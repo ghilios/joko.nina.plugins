@@ -303,7 +303,7 @@ Everything above was promoted from spike to plugin:
   1 GB slack. `GpuEarlyPipeline` latches itself off after 3 per-build failures (one warning). Autofocus,
   sensor modeling, and single-frame detection never consult any of it.
 - **GPU code lives in the plugin** (`Gpu/`), ILGPU 1.5.3 ships in the deploy xcopy; TestApp's `bench-gpu`
-  consumes the same classes. Harness: `--gpu` / `--no-gpu` force; default follows the settings option.
+  consumes the same classes. Harness: `--gpu` / `--no-gpu` force; default follows the live profile toggle (never the pinned settings file — the wizard checkbox always governs the next analysis).
 - **Debayer optimization** = `PreparedSourceCache`, the parity spec's sanctioned per-(frame,
   hotpixel-params) prepared-source cache, stamped on optimization params only (wizard + harness; disposed
   with the run / cleared between `--per-run` iterations). Bayered optimize runs stop re-doing the ~1.2 s

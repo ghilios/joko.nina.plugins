@@ -392,19 +392,24 @@ namespace TestApp {
                 Console.WriteLine("--legacy-collector: candidate collection = pre-v3 sequential walker");
             }
 
-            // GPU acceleration (optimization-only): default follows the harness settings'
-            // GpuAccelerationEnabled option through the same GpuAccelerationPolicy the wizard uses (option +
-            // device probe; no frame-size gate — the operator chose this machine); --gpu forces it ON,
-            // --no-gpu forces it OFF. Per-build failures fall back to CPU (counted, reported at exit).
+            // GPU acceleration (optimization-only): the default follows the LIVE NINA PROFILE's machine-local
+            // GpuAccelerationEnabled toggle (the wizard start-page checkbox), read straight from the profile
+            // store — deliberately NOT from the pinned harness settings file: the toggle must always apply to
+            // the next analysis, and a settings file is a portable saved artifact that may carry a stale copy
+            // of this per-computer key. (This is the one settings read that intentionally bypasses the pin;
+            // for cross-arm comparability pin --gpu or --no-gpu explicitly — GPU results differ from CPU at
+            // float-contraction level.) --gpu forces ON, --no-gpu forces OFF. Per-build failures fall back to
+            // CPU (counted, reported at exit).
             {
                 bool forceGpu = DiagnosticUtil.HasFlag(args, "--gpu");
                 bool forceNoGpu = DiagnosticUtil.HasFlag(args, "--no-gpu");
-                var gpuOptionEnabled = forceGpu || (!forceNoGpu && starDetectionOptions.GpuAccelerationEnabled);
+                var liveToggle = StarDetectionOptions.ReadGpuAccelerationEnabledFromProfile(profileService);
+                var gpuOptionEnabled = forceGpu || (!forceNoGpu && liveToggle);
                 var useGpu = NINA.Joko.Plugins.HocusFocus.Gpu.GpuAccelerationPolicy.ShouldUseForOptimization(gpuOptionEnabled, out var gpuReason);
                 seed.AllowGpuAcceleration = useGpu;
                 baseline.AllowGpuAcceleration = useGpu;
                 Console.WriteLine($"GPU acceleration: {(useGpu ? "ON" : "OFF")} ({gpuReason})" +
-                                  (forceGpu ? " [forced by --gpu]" : forceNoGpu ? " [forced off by --no-gpu]" : " [from settings]"));
+                                  (forceGpu ? " [forced by --gpu]" : forceNoGpu ? " [forced off by --no-gpu]" : " [from the NINA profile's live toggle]"));
                 if (forceGpu && !useGpu) {
                     Console.Error.WriteLine("WARNING: --gpu requested but no usable CUDA device; running on CPU.");
                 }
