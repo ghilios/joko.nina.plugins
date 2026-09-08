@@ -202,7 +202,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.PerFilter {
             scrubbed.IntermediateSavePath = "";
             scrubbed.SaveIntermediateImages = false;
             scrubbed.PSFParallelPartitionSize = 100;
-            scrubbed.GpuAccelerationEnabled = true;
             return scrubbed;
         }
 

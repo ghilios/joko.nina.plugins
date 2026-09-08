@@ -76,14 +76,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return new PluginOptionsAccessor(profileService, guid.Value);
         }
 
-        /// <summary>
-        /// Reads the MACHINE-LOCAL GPU toggle straight from the loaded profile's persisted store, bypassing
-        /// any file/snapshot-backed options object. The wizard toggle must be the sole authority for the
-        /// next analysis: a harness settings file, per-filter snapshot, or replay payload may carry a
-        /// captured copy of this key, and none of them may override what the user set on this computer.
-        /// </summary>
-        internal static bool ReadGpuAccelerationEnabledFromProfile(IProfileService profileService) =>
-            CreateDefaultAccessor(profileService).GetValueBoolean(nameof(GpuAccelerationEnabled), true);
 
         // Machine-local persisted keys stay global in per-filter mode — they keep writing through even while
         // buffered edits suppress the legacy profile keys. (SaveIntermediateImages is never persisted.)
@@ -91,7 +83,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             "DetectionDebugMode",
             nameof(IntermediateSavePath),
             "PSFParallelPartitionSize",
-            nameof(GpuAccelerationEnabled),
         };
 
         // Per-filter "buffered" edit mode: while false, the legacy profile keys are frozen (fields and
@@ -271,7 +262,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             detectionBinning = DetectionBinningResolver.ToSetting((int)optionsAccessor.GetValueEnum<DetectionBinningEnum>(nameof(DetectionBinning), DetectionBinningEnum.Bin1));
             hotpixelFiltering = optionsAccessor.GetValueBoolean("HotpixelFiltering", true);
             hotpixelThresholdingEnabled = optionsAccessor.GetValueBoolean(nameof(HotpixelThresholdingEnabled), true);
-            gpuAccelerationEnabled = optionsAccessor.GetValueBoolean(nameof(GpuAccelerationEnabled), true);
             useAutoFocusCrop = optionsAccessor.GetValueBoolean("UseAutoFocusCrop", true);
             starMeasurementNoiseReductionEnabled = optionsAccessor.GetValueBoolean(nameof(StarMeasurementNoiseReductionEnabled), false);
             noiseReductionRadius = optionsAccessor.GetValueInt32("NoiseReductionRadius", 3);
@@ -354,7 +344,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             DetectionBinning = DetectionBinningEnum.Bin1;
             HotpixelFiltering = true;
             HotpixelThresholdingEnabled = true;
-            GpuAccelerationEnabled = true;
             UseAutoFocusCrop = true;
             StarMeasurementNoiseReductionEnabled = false;
             NoiseReductionRadius = 3;
@@ -596,24 +585,6 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     simple_FocusRange = value;
                     optionsAccessor.SetValueEnum<FocusRangeEnum>("Simple_FocusRange", value);
                     ConfigureSimpleSettings();
-                    RaisePropertyChanged();
-                }
-            }
-        }
-
-        private bool gpuAccelerationEnabled;
-
-        // Machine-local (MachineLocalKeys): describes this computer's hardware. Gates ONLY the star-detection
-        // optimization wizard's GPU path (GpuAccelerationPolicy + StarDetectorParams.AllowGpuAcceleration) —
-        // autofocus, sensor modeling, and single-frame detection are unaffected. Edited on the wizard START
-        // PAGE (StarDetection/Optimization/DataTemplates.xaml), not OptionsDataTemplates.xaml — the wizard is
-        // the option's only consumer (the ITiltAdapterOptions-style UI-home exception).
-        public bool GpuAccelerationEnabled {
-            get => gpuAccelerationEnabled;
-            set {
-                if (gpuAccelerationEnabled != value) {
-                    gpuAccelerationEnabled = value;
-                    optionsAccessor.SetValueBoolean(nameof(GpuAccelerationEnabled), gpuAccelerationEnabled);
                     RaisePropertyChanged();
                 }
             }

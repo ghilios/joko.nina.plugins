@@ -1099,21 +1099,21 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             }
         }
 
-        /// <summary>Pass-through to the profile-saved, MACHINE-LOCAL <see cref="IStarDetectionOptions.GpuAccelerationEnabled"/>
-        /// (its only UI home — the option is edited here, on the wizard start page, because GPU acceleration
-        /// applies ONLY to this wizard's optimization runs; see the option's declaration). Persists immediately
-        /// on click like <see cref="DefocusAwareDonutDetection"/>. No per-filter branch: machine-local options
-        /// describe the computer and stay global while per-filter mode is on. Takes effect when a run is next
-        /// loaded (the loader stamps the seed/baseline params after the GpuAccelerationPolicy heuristic — no
-        /// CUDA device, tiny frames, or insufficient VRAM all auto-decline to the CPU path). Meaningful in BOTH
-        /// modes: Use-current-settings evaluations run the same accelerated detection path.</summary>
+        /// <summary>Pass-through to <see cref="GpuAccelerationOption"/> — the optimization-scoped, MACHINE-LOCAL
+        /// persisted toggle whose only UI home is here on the wizard start page (GPU acceleration applies ONLY to
+        /// this wizard's optimization runs; it deliberately lives OUTSIDE StarDetectionOptions so no snapshot,
+        /// import, per-filter set, or replay payload can carry a copy of it). Persists immediately on click like
+        /// <see cref="DefocusAwareDonutDetection"/>. Takes effect when a run is next loaded (the loader stamps
+        /// the seed/baseline params after the GpuAccelerationPolicy heuristic — no CUDA device, tiny frames, or
+        /// insufficient VRAM all auto-decline to the CPU path). Meaningful in BOTH modes: Use-current-settings
+        /// evaluations run the same accelerated detection path.</summary>
         public bool GpuAccelerationEnabled {
-            get => starDetectionOptions.GpuAccelerationEnabled;
+            get => GpuAccelerationOption.Get(profileService);
             set {
-                if (starDetectionOptions.GpuAccelerationEnabled == value) {
+                if (GpuAccelerationOption.Get(profileService) == value) {
                     return;
                 }
-                starDetectionOptions.GpuAccelerationEnabled = value;
+                GpuAccelerationOption.Set(profileService, value);
                 RaisePropertyChanged();
             }
         }

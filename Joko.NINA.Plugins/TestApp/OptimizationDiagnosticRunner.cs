@@ -403,7 +403,7 @@ namespace TestApp {
             {
                 bool forceGpu = DiagnosticUtil.HasFlag(args, "--gpu");
                 bool forceNoGpu = DiagnosticUtil.HasFlag(args, "--no-gpu");
-                var liveToggle = StarDetectionOptions.ReadGpuAccelerationEnabledFromProfile(profileService);
+                var liveToggle = NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.GpuAccelerationOption.Get(profileService);
                 var gpuOptionEnabled = forceGpu || (!forceNoGpu && liveToggle);
                 var useGpu = NINA.Joko.Plugins.HocusFocus.Gpu.GpuAccelerationPolicy.ShouldUseForOptimization(gpuOptionEnabled, out var gpuReason);
                 seed.AllowGpuAcceleration = useGpu;

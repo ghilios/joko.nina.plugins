@@ -44,7 +44,11 @@ namespace NINA.Joko.Plugins.HocusFocus.Gpu {
 
         private static int Clamp(int v, int lo, int hi) => v < lo ? lo : (v > hi ? hi : v);
 
-        private static void Swap(ref float a, ref float b) {
+        // Not a swap: the compare-exchange primitive of a sorting network (a := min, b := max). Math.Min/
+        // Math.Max on floats ARE the intrinsic form here — ILGPU lowers them to single PTX min.f32/max.f32
+        // instructions, so each OrderAscending is 2 branchless ops; a branchy if-swap variant measured ~equal
+        // at 61 MP because the kernel is memory-bound either way (bench-gpu --median-bench).
+        private static void OrderAscending(ref float a, ref float b) {
             var lo = Math.Min(a, b);
             var hi = Math.Max(a, b);
             a = lo;
@@ -53,13 +57,13 @@ namespace NINA.Joko.Plugins.HocusFocus.Gpu {
 
         /// <summary>Median of 9 via a sorting network; exact order statistic like OpenCV's sort-net.</summary>
         private static float Median9(float p0, float p1, float p2, float p3, float p4, float p5, float p6, float p7, float p8) {
-            Swap(ref p1, ref p2); Swap(ref p4, ref p5); Swap(ref p7, ref p8);
-            Swap(ref p0, ref p1); Swap(ref p3, ref p4); Swap(ref p6, ref p7);
-            Swap(ref p1, ref p2); Swap(ref p4, ref p5); Swap(ref p7, ref p8);
-            Swap(ref p0, ref p3); Swap(ref p5, ref p8); Swap(ref p4, ref p7);
-            Swap(ref p3, ref p6); Swap(ref p1, ref p4); Swap(ref p2, ref p5);
-            Swap(ref p4, ref p7); Swap(ref p4, ref p2); Swap(ref p6, ref p4);
-            Swap(ref p4, ref p2);
+            OrderAscending(ref p1, ref p2); OrderAscending(ref p4, ref p5); OrderAscending(ref p7, ref p8);
+            OrderAscending(ref p0, ref p1); OrderAscending(ref p3, ref p4); OrderAscending(ref p6, ref p7);
+            OrderAscending(ref p1, ref p2); OrderAscending(ref p4, ref p5); OrderAscending(ref p7, ref p8);
+            OrderAscending(ref p0, ref p3); OrderAscending(ref p5, ref p8); OrderAscending(ref p4, ref p7);
+            OrderAscending(ref p3, ref p6); OrderAscending(ref p1, ref p4); OrderAscending(ref p2, ref p5);
+            OrderAscending(ref p4, ref p7); OrderAscending(ref p4, ref p2); OrderAscending(ref p6, ref p4);
+            OrderAscending(ref p4, ref p2);
             return p4;
         }
 

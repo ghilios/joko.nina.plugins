@@ -284,6 +284,9 @@ namespace NINA.Joko.Plugins.HocusFocus.Gpu {
         }
 
         private long ApplyHotpixelFilter(MemoryBuffer1D<float, Stride1D.Dense> image, GpuEarlyParams p) {
+            // The median IS the filter in both modes (parity with HotpixelFiltering.cs): thresholding OFF
+            // means the CPU runs Cv2.MedianBlur over the whole image unconditionally, so the plain-median
+            // branch below must too — it is not an optional refinement of the thresholded path.
             median3x3(stream, (int)length, image.View, dTmp.View, width, height);
             if (p.HotpixelThresholdingEnabled) {
                 dHotCount.MemSetToZero(stream);

@@ -223,7 +223,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             // Read the machine-local toggle straight from the profile store, NOT from any options object a
             // snapshot/file could have populated: the wizard start-page checkbox must always govern the next
             // analysis, regardless of what a saved run/settings artifact captured.
-            var gpuOptionEnabled = StarDetectionOptions.ReadGpuAccelerationEnabledFromProfile(profileService);
+            var gpuOptionEnabled = GpuAccelerationOption.Get(profileService);
             var frameWidth = firstImage?.RawImageData?.Properties.Width ?? 0;
             var frameHeight = firstImage?.RawImageData?.Properties.Height ?? 0;
             var useGpu = Gpu.GpuAccelerationPolicy.ShouldUseForOptimization(gpuOptionEnabled, frameWidth, frameHeight, out var gpuReason);

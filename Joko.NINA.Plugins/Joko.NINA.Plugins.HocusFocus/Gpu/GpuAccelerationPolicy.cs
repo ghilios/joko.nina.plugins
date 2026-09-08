@@ -19,7 +19,8 @@ namespace NINA.Joko.Plugins.HocusFocus.Gpu {
     /// The heuristic deciding whether the star-detection OPTIMIZATION path uses the GPU for a run
     /// (initial logic, expected to be tuned with field experience):
     ///
-    /// 1. The user's GpuAccelerationEnabled option must be on (checked by callers who own the options).
+    /// 1. The user's GpuAccelerationOption toggle must be on (checked by callers, who read it via
+    ///    StarDetection.Optimization.GpuAccelerationOption).
     /// 2. A CUDA accelerator must initialize (cached probe; NVIDIA-only by construction — ILGPU's Cuda
     ///    backend — so integrated/AMD GPUs never qualify).
     /// 3. The frame must be at least <see cref="MinPixels"/>: below ~2 MP a CPU early build is only a few

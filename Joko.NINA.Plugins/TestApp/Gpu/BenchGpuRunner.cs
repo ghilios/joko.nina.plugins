@@ -40,6 +40,10 @@ namespace TestApp.Gpu {
             bool sanity = DiagnosticUtil.HasFlag(args, "--sanity");
             bool early = DiagnosticUtil.HasFlag(args, "--early");
             bool compare = DiagnosticUtil.HasFlag(args, "--compare");
+            if (DiagnosticUtil.HasFlag(args, "--median-bench")) {
+                RunMedianBench();
+                return;
+            }
             if (sanity) {
                 RunSanity();
                 return;
@@ -330,6 +334,82 @@ namespace TestApp.Gpu {
             if (!ok) {
                 Environment.ExitCode = 1;
             }
+        }
+
+        // ---- median3x3 compare-exchange variant A/B (PR #209 review: "is there an intrinsic? check a few
+        // ways") — the production kernel's min/max OrderAscending vs a branchy ternary swap.
+
+        private static void TernarySwap(ref float a, ref float b) {
+            if (a > b) { var t = a; a = b; b = t; }
+        }
+
+        private static float Median9Ternary(float p0, float p1, float p2, float p3, float p4, float p5, float p6, float p7, float p8) {
+            TernarySwap(ref p1, ref p2); TernarySwap(ref p4, ref p5); TernarySwap(ref p7, ref p8);
+            TernarySwap(ref p0, ref p1); TernarySwap(ref p3, ref p4); TernarySwap(ref p6, ref p7);
+            TernarySwap(ref p1, ref p2); TernarySwap(ref p4, ref p5); TernarySwap(ref p7, ref p8);
+            TernarySwap(ref p0, ref p3); TernarySwap(ref p5, ref p8); TernarySwap(ref p4, ref p7);
+            TernarySwap(ref p3, ref p6); TernarySwap(ref p1, ref p4); TernarySwap(ref p2, ref p5);
+            TernarySwap(ref p4, ref p7); TernarySwap(ref p4, ref p2); TernarySwap(ref p6, ref p4);
+            TernarySwap(ref p4, ref p2);
+            return p4;
+        }
+
+        private static int ClampB(int v, int lo, int hi) => v < lo ? lo : (v > hi ? hi : v);
+
+        private static void Median3x3TernaryKernel(Index1D i, ArrayView<float> src, ArrayView<float> dst, int width, int height) {
+            int y = i / width;
+            int x = i - y * width;
+            int xm = ClampB(x - 1, 0, width - 1);
+            int xp = ClampB(x + 1, 0, width - 1);
+            int ym = ClampB(y - 1, 0, height - 1);
+            int yp = ClampB(y + 1, 0, height - 1);
+            dst[i] = Median9Ternary(
+                src[ym * width + xm], src[ym * width + x], src[ym * width + xp],
+                src[y * width + xm], src[y * width + x], src[y * width + xp],
+                src[yp * width + xm], src[yp * width + x], src[yp * width + xp]);
+        }
+
+        private static void RunMedianBench() {
+            var acc = GpuDevice.TryGet(out var reason);
+            if (acc == null) {
+                Console.Error.WriteLine($"GPU unavailable: {reason}");
+                Environment.ExitCode = 1;
+                return;
+            }
+            Console.WriteLine(GpuDevice.DescribeBanner(acc));
+            const int W = 9576, H = 6388; // 61 MP, the largest bank sensor
+            int n = W * H;
+            var host = new float[n];
+            var rng = new Random(7);
+            for (int i = 0; i < n; i++) host[i] = (float)rng.NextDouble();
+            using var src = acc.Allocate1D<float>(n);
+            using var dst = acc.Allocate1D<float>(n);
+            src.CopyFromCPU(host);
+
+            var minmax = acc.LoadAutoGroupedStreamKernel<Index1D, ArrayView<float>, ArrayView<float>, int, int>(GpuEarlyKernels.Median3x3Kernel);
+            var ternary = acc.LoadAutoGroupedStreamKernel<Index1D, ArrayView<float>, ArrayView<float>, int, int>(Median3x3TernaryKernel);
+
+            foreach (var (name, kernel) in new (string, Action<Index1D, ArrayView<float>, ArrayView<float>, int, int>)[] { ("min/max network", minmax), ("ternary if-swap", ternary) }) {
+                kernel(n, src.View, dst.View, W, H); // warmup + JIT
+                acc.Synchronize();
+                const int reps = 30;
+                var sw = Stopwatch.StartNew();
+                for (int r = 0; r < reps; r++) {
+                    kernel(n, src.View, dst.View, W, H);
+                }
+                acc.Synchronize();
+                sw.Stop();
+                Console.WriteLine($"median3x3 [{name}]: {sw.Elapsed.TotalMilliseconds / reps:F3} ms/pass at 61 MP");
+            }
+
+            // Equivalence: both are exact order statistics, so outputs must be bit-identical.
+            var a = new float[n];
+            var b = new float[n];
+            minmax(n, src.View, dst.View, W, H); acc.Synchronize(); dst.CopyToCPU(a);
+            ternary(n, src.View, dst.View, W, H); acc.Synchronize(); dst.CopyToCPU(b);
+            long diff = 0;
+            for (int i = 0; i < n; i++) if (a[i] != b[i]) diff++;
+            Console.WriteLine($"outputs differ at {diff} pixels (must be 0)");
         }
 
         private static void SaxpyKernel(Index1D i, ArrayView<float> x, ArrayView<float> y, float a) {
