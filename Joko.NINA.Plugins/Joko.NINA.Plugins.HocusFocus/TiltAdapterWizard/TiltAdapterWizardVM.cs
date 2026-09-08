@@ -4110,14 +4110,13 @@ namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
             }
         }
 
-        // Screw-diagram geometry. The XAML canvas (HF_TiltScrewDiagram) is 2 * DiagramCenter on a side and
-        // every fixed coordinate in it is expressed relative to the same centre; changing these means
-        // changing that template to match.
-        private const double DiagramCenter = 130.0;
-        private const double DiagramScrewRadius = 75.0;
-        private const double DiagramScrewCircleRadius = 12.0;
-        private const double DiagramLabelWidth = 64.0;
-        private const double DiagramLabelHeight = 14.0;
+        // Screw-diagram geometry — the shared HF_TiltScrewDiagram contract. The constants live in
+        // TiltScrewDiagramGeometry because the camera simulator's adapter panel plots into the same template.
+        private const double DiagramCenter = TiltScrewDiagramGeometry.Center;
+        private const double DiagramScrewRadius = TiltScrewDiagramGeometry.ScrewRadius;
+        private const double DiagramScrewCircleRadius = TiltScrewDiagramGeometry.ScrewCircleRadius;
+        private const double DiagramLabelWidth = TiltScrewDiagramGeometry.LabelWidth;
+        private const double DiagramLabelHeight = TiltScrewDiagramGeometry.LabelHeight;
 
         private void RebuildDiagram() {
             // RebuildDiagram is the single choke point reached on every calibration, direction, and

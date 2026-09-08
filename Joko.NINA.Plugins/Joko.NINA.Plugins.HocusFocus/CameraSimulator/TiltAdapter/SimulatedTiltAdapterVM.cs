@@ -1226,10 +1226,23 @@ namespace NINA.Joko.Plugins.HocusFocus.CameraSimulator.TiltAdapter {
             var centers = new (double cx, double cy)[n];
             for (var i = 0; i < n; i++) {
                 var theta = angles[i] * Math.PI / 180.0;
-                var cx = 100 + 75 * Math.Sin(theta);
-                var cy = 100 - 75 * Math.Cos(theta);
+                var cx = TiltScrewDiagramGeometry.Center + TiltScrewDiagramGeometry.ScrewRadius * Math.Sin(theta);
+                var cy = TiltScrewDiagramGeometry.Center - TiltScrewDiagramGeometry.ScrewRadius * Math.Cos(theta);
                 centers[i] = (cx, cy);
-                ScrewDiagramItems.Add(new TiltScrewDiagramItem { X = cx - 12, Y = cy - 12, Number = i + 1, AngleDegrees = angles[i] });
+                // Name placement mirrors the wizard's RebuildDiagram: above the circle in the canvas's top
+                // half, below it in the bottom half, so labels stay clear of the sensor rectangle.
+                var labelY = cy < TiltScrewDiagramGeometry.Center
+                    ? cy - TiltScrewDiagramGeometry.ScrewCircleRadius - TiltScrewDiagramGeometry.LabelHeight
+                    : cy + TiltScrewDiagramGeometry.ScrewCircleRadius + 2;
+                ScrewDiagramItems.Add(new TiltScrewDiagramItem {
+                    X = cx - TiltScrewDiagramGeometry.ScrewCircleRadius,
+                    Y = cy - TiltScrewDiagramGeometry.ScrewCircleRadius,
+                    Number = i + 1,
+                    AngleDegrees = angles[i],
+                    Label = ScrewName(i),
+                    LabelX = cx - TiltScrewDiagramGeometry.LabelWidth / 2.0,
+                    LabelY = labelY
+                });
             }
             for (var i = 0; i < n; i++) {
                 var j = (i + 1) % n;

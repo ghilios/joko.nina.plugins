@@ -681,9 +681,11 @@
     </GeometryGroup>
 
     <!--
-        Diagram canvas shared between Panel A (saved calibration) and Panel C (complete step).
-        Layout: 200×200 canvas, center (100,100).
-          • Sensor rectangle: 90×60 (3:2), centered → (55,70)-(145,130)
+        Diagram canvas shared between Panel A (saved calibration), Panel C (complete step), and the camera
+        simulator's adapter-configuration panel (TiltAdapterDataTemplates.xaml). Layout: 260×260 canvas,
+        center (130,130) — the geometry contract is TiltScrewDiagramGeometry, and every VM that plots
+        ScrewDiagramItems into this template must use those constants.
+          • Sensor rectangle: 90×60 (3:2), centered → (85,100)-(175,160)
           • Sensor-axis crosshair: short dashes (StrokeDashArray="4,4"), opacity 0.5
           • Screw connection polygon: long dashes (StrokeDashArray="10,4"), opacity 0.75
           • Screw circles: radius 75 from center, 24×24 circles
