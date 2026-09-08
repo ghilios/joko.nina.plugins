@@ -1,0 +1,534 @@
+<title>Chasing the Slow Steps</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg: #0E1118;
+    --surface: #161B26;
+    --surface-2: #1D2331;
+    --ink: #E9E4D6;
+    --ink-dim: #A8A493;
+    --line: #2A3040;
+    --brass: #D9A544;
+    --cyan: #8FBFCE;
+    --clay: #C4756A;
+    --sage: #8FAE7E;
+    --code-bg: #131826;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #F5F2E9;
+      --surface: #FFFFFF;
+      --surface-2: #EDE8DB;
+      --ink: #232A38;
+      --ink-dim: #6E6A5E;
+      --line: #D8D2C2;
+      --brass: #9A6D14;
+      --cyan: #2E6B7E;
+      --clay: #A34537;
+      --sage: #4E7239;
+      --code-bg: #ECE7D8;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #F5F2E9;
+    --surface: #FFFFFF;
+    --surface-2: #EDE8DB;
+    --ink: #232A38;
+    --ink-dim: #6E6A5E;
+    --line: #D8D2C2;
+    --brass: #9A6D14;
+    --cyan: #2E6B7E;
+    --clay: #A34537;
+    --sage: #4E7239;
+    --code-bg: #ECE7D8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+    font-size: 1.05rem;
+    line-height: 1.65;
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 0 1.25rem; }
+  .wide { max-width: 62rem; margin: 0 auto; padding: 0 1.25rem; }
+
+  header.hero {
+    position: relative;
+    padding: 5rem 0 3.5rem;
+    border-bottom: 1px solid var(--line);
+    overflow: hidden;
+  }
+  #stars { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.55; }
+  .hero-inner { position: relative; }
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--cyan);
+    margin: 0 0 1rem;
+  }
+  h1 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 700;
+    font-size: clamp(2.4rem, 6vw, 3.6rem);
+    line-height: 1.08;
+    margin: 0 0 1.2rem;
+    text-wrap: balance;
+  }
+  .dek {
+    font-size: 1.15rem;
+    color: var(--ink-dim);
+    max-width: 38rem;
+    margin: 0;
+    text-wrap: pretty;
+  }
+  .dek strong { color: var(--ink); font-weight: 600; }
+
+  section { padding: 2.75rem 0 0.5rem; }
+  .part-label {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--brass);
+    margin: 0 0 0.4rem;
+  }
+  h2 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: 1.75rem;
+    line-height: 1.2;
+    margin: 0 0 1rem;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: "Fraunces", Georgia, serif;
+    font-weight: 600;
+    font-size: 1.18rem;
+    margin: 1.8rem 0 0.6rem;
+  }
+  p { margin: 0 0 1.05rem; text-wrap: pretty; }
+  em { font-style: italic; }
+  a { color: var(--cyan); }
+  code, .mono {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.86em;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 0.08em 0.35em;
+  }
+  .num { font-family: "IBM Plex Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+  .key { color: var(--brass); font-weight: 600; }
+
+  .aside {
+    border-left: 3px solid var(--brass);
+    background: var(--surface);
+    padding: 0.9rem 1.1rem;
+    margin: 1.4rem 0;
+    color: var(--ink-dim);
+    font-size: 0.98rem;
+  }
+  .aside strong { color: var(--ink); }
+
+  .tablebox { overflow-x: auto; margin: 1.4rem 0; border: 1px solid var(--line); border-radius: 6px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 34rem;
+    font-size: 0.9rem;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    background: var(--surface);
+  }
+  caption {
+    caption-side: top;
+    text-align: left;
+    font-family: "Source Serif 4", Georgia, serif;
+    font-size: 0.92rem;
+    color: var(--ink-dim);
+    padding: 0.7rem 0.9rem 0.55rem;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  th, td { padding: 0.5rem 0.9rem; text-align: right; border-top: 1px solid var(--line); white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { border-top: none; color: var(--ink-dim); font-weight: 500; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; }
+  .hi { color: var(--brass); font-weight: 600; }
+
+  /* Decision ledger — observing-logbook rows with verdict stamps */
+  .ledger { display: flex; flex-direction: column; gap: 0.7rem; margin: 1.5rem 0; }
+  .entry {
+    display: grid;
+    grid-template-columns: 7.2rem 1fr;
+    gap: 0.35rem 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 0.85rem 1.05rem;
+  }
+  .verdict {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    align-self: start;
+    justify-self: start;
+    padding: 0.22em 0.55em;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    margin-top: 0.2rem;
+  }
+  .kept     { color: var(--sage); }
+  .rejected { color: var(--clay); }
+  .adopted  { color: var(--brass); }
+  .entry h4 {
+    font-family: "Source Serif 4", Georgia, serif;
+    font-weight: 600;
+    font-size: 1rem;
+    margin: 0;
+  }
+  .entry p { font-size: 0.94rem; color: var(--ink-dim); margin: 0; grid-column: 2; }
+  @media (max-width: 560px) {
+    .entry { grid-template-columns: 1fr; }
+    .entry p { grid-column: 1; }
+  }
+
+  ol.lessons { padding-left: 1.4rem; margin: 1.2rem 0; }
+  ol.lessons li { margin-bottom: 0.95rem; padding-left: 0.3rem; }
+  ol.lessons li::marker { font-family: "IBM Plex Mono", ui-monospace, monospace; color: var(--brass); font-weight: 600; }
+  ol.lessons b { font-weight: 600; }
+
+  footer {
+    margin-top: 3.5rem;
+    padding: 1.6rem 0 2.6rem;
+    border-top: 1px solid var(--line);
+    color: var(--ink-dim);
+    font-size: 0.88rem;
+  }
+  footer .mono { background: none; border: none; padding: 0; }
+</style>
+
+<header class="hero">
+  <canvas id="stars" aria-hidden="true"></canvas>
+  <div class="wrap hero-inner">
+    <p class="eyebrow">An engineering lecture · HocusFocus star-detection optimization</p>
+    <h1>Chasing the Slow Steps</h1>
+    <p class="dek">How a CUDA card sped up an already-optimized astrophotography pipeline — and why the biggest
+    win turned out to be <strong>an algorithm the GPU merely exposed</strong>. What was considered, what was
+    tried, what was rejected, and what any similar effort should measure first.</p>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <p class="part-label">Prologue</p>
+    <h2>A pipeline that had already been optimized three times</h2>
+    <p>The subject is HocusFocus, a NINA plugin whose Star Detection Optimization wizard re-runs a star
+    detector thousands of times over a saved auto-focus sweep, searching a twelve-dimensional parameter
+    space. Before this work began, the optimizer had already been made <span class="num">10–13×</span>
+    faster by an early/late pipeline split with context caching, its wavelet had been rewritten with SIMD,
+    and its evaluation budget had been tuned. The project's own documents concluded — twice, with
+    measurements — that the remaining hot code was <em>memory-bandwidth bound</em>, and named that as the
+    argument against a CUDA port.</p>
+    <p>Then an RTX 5060 Ti arrived in the development machine, with a workflow insight attached: an
+    optimization run is a <em>saved folder of FITS files</em>. It can be carried to whatever machine has the
+    GPU. Deployment to end-user rigs — the historical objection — stopped mattering.</p>
+    <p>The question worth a lecture is not "did the GPU help." It is <em>why the prior negative conclusion
+    and the eventual 2–3× speedup are both correct</em>, and how to tell which regime you are in before
+    writing a kernel.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="part-label">Part 1 · Measure the fraction you can touch</p>
+    <h2>The number that decides everything is not in the profiler</h2>
+    <p>The optimizer alternates two kinds of evaluation. A <strong>fast step</strong> reuses a cached
+    "early context" and re-runs only cheap per-star gating — tens of milliseconds. A <strong>slow
+    step</strong> rebuilds that context: hotpixel filtering, Gaussian convolutions, an à-trous wavelet,
+    noise estimation, histogram statistics — seconds per frame at 61&nbsp;MP. Project folklore said the
+    cache achieved "<span class="num">99%</span> reuse," which sounds like the slow steps barely exist.</p>
+    <p>That number counts <em>detections</em>. Counting <em>seconds</em> tells the opposite story: a slow
+    step costs <span class="num">30–70×</span> a fast one, so even a 9–24% rebuild rate put the slow steps
+    at <span class="key">60–93% of wall-clock</span> on real runs. The first act of the project was
+    re-measuring exactly this — the "early fraction" <span class="num">f</span> — per dataset, because the
+    ceiling of any acceleration is <span class="num">1/(1−f)</span> and no kernel can beat arithmetic.</p>
+    <div class="aside"><strong>A stale table almost killed the project.</strong> The last published stage
+    breakdown predated the SIMD wavelet rewrite and showed the wavelet at 44% of a detection. Re-profiling
+    showed it at ~9% — the true dominant cost had moved to a single-threaded histogram scan. Every
+    optimization effort inherits numbers like this. Re-measure before believing them.</div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="part-label">Part 2 · The option space</p>
+    <h2>Choosing a GPU stack is mostly choosing your failure modes</h2>
+    <p>Four routes were considered for a C#/.NET&nbsp;8 WPF plugin:</p>
+    <div class="ledger">
+      <div class="entry"><span class="verdict rejected">Rejected</span>
+        <h4>OpenCV CUDA build (OpenCvSharp)</h4>
+        <p>The pipeline already spoke OpenCV, but no official CUDA runtime package exists for OpenCvSharp;
+        community builds were stale and gigabytes large, and custom native builds are exactly the
+        deployment nightmare a plugin cannot carry.</p>
+      </div>
+      <div class="entry"><span class="verdict rejected">Rejected</span>
+        <h4>OpenCL via UMat / T-API</h4>
+        <p>Lowest-effort on paper, but it only offloads the OpenCV calls — the custom wavelet and
+        statistics stay on CPU — and it falls back silently, which makes performance claims unverifiable.</p>
+      </div>
+      <div class="entry"><span class="verdict kept">Fallback</span>
+        <h4>ComputeSharp (DirectX 12)</h4>
+        <p>Vendor-neutral and toolkit-free, held in reserve. Its cost: no fp64 guarantee, which the
+        exactness strategy below leans on. It remains the designated route if AMD/Intel support is ever
+        wanted.</p>
+      </div>
+      <div class="entry"><span class="verdict adopted">Chosen</span>
+        <h4>ILGPU 1.5.3 (CUDA backend)</h4>
+        <p>Pure managed NuGet package that JIT-compiles C# kernels to PTX through the display driver — no
+        CUDA toolkit, one DLL to ship. One sharp edge found by testing, not reading: RTX&nbsp;50-series
+        (SM_120) requires ≥1.5.3, and its LibDevice-backed transcendentals are broken on Blackwell — this
+        pipeline needs only add/mul/min/max/sqrt/floor, all PTX-native, so the constraint cost nothing.</p>
+      </div>
+    </div>
+    <p>The stack sanity check paid for itself in an hour: saxpy showed <span class="num">12.7M</span>
+    "mismatches" that turned out to be ptxas fusing multiply-add into FMA — a single-rounding difference
+    that matches <code>MathF.FusedMultiplyAdd</code> exactly. That one observation defined the entire
+    divergence budget of everything that followed.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="part-label">Part 3 · Equivalence by construction</p>
+    <h2>You cannot be bit-identical. Decide what you can be.</h2>
+    <p>The project has a strict discipline: detection changes must be bit-identical or ship behind a
+    version bump. GPU float arithmetic cannot be bit-identical to CPU arithmetic — summation order and FMA
+    contraction see to that. The move that made the port trustworthy was <em>classifying every stage by
+    what kind of math it is</em>:</p>
+    <p><strong>Exactly reproducible:</strong> order statistics and integer arithmetic. The 3×3 median is a
+    sorting network; the 65,536-bin histogram buckets by <code>(int)floor(v·65536)</code> in double; the
+    local background grids are per-block medians selected by an exact radix-select on float bit patterns.
+    These produce the same bits on any hardware.</p>
+    <p><strong>Tolerance-class:</strong> convolutions and reductions — the Gaussians, the wavelet, the
+    K-σ moments. These were written to replicate the CPU's semantics <em>bug-for-bug</em> (the same
+    border reflection, the same tap order, the same <code>InRange</code> epsilon quirks, fp64 accumulators)
+    so the residue is pure FMA noise, ~<span class="num">1e-7</span> relative.</p>
+    <p>Then the decisive measurement: does that noise ever cross a decision boundary? Across every test
+    frame, the binarized structure map — the surface every downstream decision reads — showed
+    <span class="key">zero flipped pixels</span>. And because "never" is not provable, the residual risk is
+    fenced structurally: the GPU flag participates in the detector's cache keys, so a GPU-built result can
+    never be silently reused as a CPU one, and the final landed settings are CPU-evaluated by
+    construction.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wide">
+    <p class="part-label">Part 4 · The ledger</p>
+    <div class="wrap" style="padding: 0;">
+      <h2>What was tried, and what the measurements said</h2>
+      <p>Every entry below was measured, not argued. The null results matter as much as the wins — two of
+      them are the proof of where the bottleneck actually lives.</p>
+    </div>
+    <div class="ledger">
+      <div class="entry"><span class="verdict kept">Kept</span>
+        <h4>The full early chain on GPU — 16.7× at 61 MP</h4>
+        <p>Hotpixel median, Gaussians, wavelet, K-σ, histogram: 3,573&nbsp;ms of CPU work became 214&nbsp;ms
+        including transfers. Individual stages ran 19–75× faster; the GPU's ~448&nbsp;GB/s memory bandwidth
+        against ~90&nbsp;GB/s of system DRAM is exactly the ratio the old "bandwidth-bound" analysis said
+        CPU SIMD could never buy.</p>
+      </div>
+      <div class="entry"><span class="verdict kept">Kept</span>
+        <h4>Local-background grids by exact radix-select — 68×</h4>
+        <p>First implemented as "leave the grids on CPU"; they promptly became 54% of the GPU chain.
+        Selecting the k-th element by MSB-first radix over order-preserving float bits made them exact
+        <em>and</em> fast — the only stage where the exactness requirement and the performance answer were
+        the same idea.</p>
+      </div>
+      <div class="entry"><span class="verdict rejected">Rejected</span>
+        <h4>Pinned staging buffers</h4>
+        <p>On this PCIe Gen3 host, page-locked transfers measured 7.2&nbsp;GB/s against 7.0 pageable —
+        the staging memcpy bought nothing. Direct span copies from the OpenCV Mat's memory were simpler and
+        faster. On a Gen4/5 host this trade likely reverses; measure yours.</p>
+      </div>
+      <div class="entry"><span class="verdict rejected">Null result</span>
+        <h4>Chain v2 (−40%) and a deeper GPU pool</h4>
+        <p>Per-chain CUDA streams cut the isolated chain from 301 to 214&nbsp;ms; doubling the pooled
+        working sets attacked queueing. End-to-end wall moved by approximately zero, twice. This is the
+        most valuable pair of measurements in the project: the bottleneck had moved off the GPU entirely,
+        and no amount of further kernel work could matter.</p>
+      </div>
+      <div class="entry"><span class="verdict kept">Kept</span>
+        <h4>Run-index candidate collection — bit-identical 5.7×</h4>
+        <p>The sequential "flood-fill" the GPU could not absorb turned out to spend its time raster-scanning
+        61M background pixels, not walking stars. A parallel run-length index feeding a literal translation
+        of the legacy walker — same seeds, same growth, same point order — kept bit-identity (proven
+        against the retained legacy code as an oracle) while cutting the stage from 810 to 141&nbsp;ms.</p>
+      </div>
+      <div class="entry"><span class="verdict adopted">Adopted as default</span>
+        <h4>True connected components — the accidental quality win</h4>
+        <p>Studying why the walker resisted parallelization exposed that it wasn't computing connected
+        components at all: its bounding-box zeroing <em>erased real stars</em> that overlapped an earlier
+        candidate's box. An 8-connected union-find collector, offered as an opt-in toggle, landed a higher
+        optimizer objective on every dataset tested — on the one human-labeled run, J went 0.856→0.920, a
+        gain ~50× larger than anything the tuning work had ever argued over. It shipped as the new default
+        behind a detector version bump. The GPU project's biggest win used no GPU.</p>
+      </div>
+      <div class="entry"><span class="verdict kept">Kept</span>
+        <h4>Caching the debayer instead of accelerating it</h4>
+        <p>Bayered frames re-ran a ~1.2&nbsp;s CFA-filter + debayer on every rebuild. A GPU debayer was
+        considered and skipped: the recompute is parameter-keyed and usually redundant, so a prepared-source
+        cache keyed on (frame, hotpixel params) removed it exactly — byte-identical, helping CPU and GPU
+        arms alike. Deleting work beats accelerating it.</p>
+      </div>
+      <div class="entry"><span class="verdict rejected">Rejected</span>
+        <h4>GPU work outside optimization</h4>
+        <p>Autofocus, sensor modeling, and single-frame detection never touch the GPU — enforced by a
+        params-level gate set only by the optimization wizard and harness, and guarded by a source-scan
+        test that fails the build if a third assignment site ever appears. Scope you can prove is scope
+        you can defend.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wide">
+    <p class="part-label">Part 5 · Why the gains land where they do</p>
+    <div class="wrap" style="padding: 0;">
+      <h2>One clustered number, spread by arithmetic</h2>
+      <p>The validation sweep ran 28 datasets — 19 real captures from the project's autofocus bank and 9
+      simulated rig configurations spanning ultrawide refractors to obstructed Cassegrains — each optimized
+      twice, GPU off and on, with everything else identical.</p>
+    </div>
+    <div class="tablebox">
+      <table>
+        <caption>28-dataset sweep, 250 evaluations each, pinned settings. "Slow-step ×" is the per-rebuild speedup from the optimizer's own accounting.</caption>
+        <thead><tr><th>Slice</th><th>n</th><th>CPU total</th><th>GPU total</th><th>End-to-end</th><th>Slow-step ×</th></tr></thead>
+        <tbody>
+          <tr><td>Whole sweep</td><td>28</td><td>5,980 s</td><td>3,286 s</td><td class="hi">1.82×</td><td rowspan="4" style="vertical-align: middle;">median 2.80×<br>range 1.25–3.33×</td></tr>
+          <tr><td>Real, mono</td><td>15</td><td>3,814 s</td><td>1,813 s</td><td class="hi">2.10×</td></tr>
+          <tr><td>Simulated rigs</td><td>9</td><td>1,159 s</td><td>717 s</td><td>1.62×</td></tr>
+          <tr><td>Real, bayered</td><td>4</td><td>1,006 s</td><td>757 s</td><td>1.33×</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="wrap" style="padding: 0;">
+      <p>The clean result inside that table: <strong>fast steps were identical between arms on all 28
+      datasets</strong> — the GPU never touches them — while the slow-step speedup clustered tightly around
+      <span class="key">2.8×</span>. End-to-end spread (1.0× to 3.7×) is then nothing but each search's
+      appetite for rebuilds. A run whose search converges without probing the expensive axes gets 1.0×
+      <em>at zero overhead</em>; a rebuild-hungry search gets nearly the full 2.8×. The degradations map
+      one-to-one onto the parts deliberately left on CPU: small sensors (transfer overhead), donut-dense
+      obstructed rigs (candidate collection inflates), bayered rigs (the debayer share), and star-dense or
+      labeled runs whose <em>fast</em> steps are themselves expensive.</p>
+      <p>Correctness across the sweep: ~5,900 GPU builds, zero fallbacks, zero declines; 25 of 28 datasets
+      landed bit-identical objectives on identical search trajectories, and the three exceptions were
+      float-noise path divergence landing equal-or-better. The GPU arm was never slower than the CPU arm on
+      any dataset.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="part-label">Conclusion</p>
+    <h2>What transfers to your next acceleration project</h2>
+    <p>The current approach wins because every millisecond of GPU speed is aimed at the only place the
+    search actually spends slow time — the early rebuild — while everything the GPU is bad at (irregular
+    per-star gating, an order-dependent scan, a vendor-locked debayer) was either left alone, deleted, or
+    fixed as an algorithm rather than ported. In order of how much they mattered:</p>
+    <ol class="lessons">
+      <li><b>Measure the fraction you can touch, at the granularity of the decision.</b> Cache-hit
+      percentages, profiler top-tens, and last year's stage tables all answered the wrong question. The
+      ceiling was set by seconds-weighted early fraction, per dataset — one afternoon of measurement that
+      correctly predicted every later result.</li>
+      <li><b>"Bandwidth-bound" is an argument against wider SIMD, not against a GPU.</b> The prior negative
+      conclusion was locally right: more CPU instructions could not help. A device with five times the
+      memory bandwidth is a different claim entirely — and workflow changes (carry the data to the machine)
+      can dissolve deployment objections that once settled the question.</li>
+      <li><b>Replicate semantics bug-for-bug, then verify decisions, not bits.</b> Classify each stage as
+      exactly-reproducible (order statistics, integer bucketing) or tolerance-class (convolutions), copy
+      the reference implementation's quirks deliberately, and measure divergence where it matters: did any
+      downstream <em>decision</em> flip? Zero flipped binarization pixels is a far stronger statement than
+      any epsilon.</li>
+      <li><b>Trust null results; they tell you when to stop.</b> A 40% faster chain and a deeper pool that
+      move end-to-end by nothing are not failures — they are the proof the bottleneck relocated, delivered
+      for the price of two experiments.</li>
+      <li><b>When an accelerator can't absorb a stage, ask why before porting harder.</b> The sequential
+      scan resisted the GPU because it wasn't the algorithm everyone assumed it was. The investigation
+      produced a bit-identical 5.7× CPU rewrite <em>and</em> exposed a correctness bug whose fix — plain
+      connected components — outvalued the entire GPU effort on quality. The blocker was the treasure.</li>
+      <li><b>Make the fallback graceful and the scope provable.</b> Off by default everywhere except the
+      one path that wants it; a heuristic that declines small frames and missing hardware; a latch that
+      stops retrying after repeated failures; and a source-scan test that turns "trust me, it's
+      optimization-only" into a build guarantee.</li>
+    </ol>
+    <p>The honest summary for the reader planning similar work: the kernels were the easy two days. The
+    value was in the measurement discipline around them — and in being willing to let the project's best
+    result come from a place nobody was looking.</p>
+  </div>
+  <footer>
+    <div class="wrap">
+      <span class="mono">HocusFocus · PR #209 · RTX 5060 Ti (SM_120) · ILGPU 1.5.3 · full data in
+      docs/gpu-star-detection-optimization-results.md</span>
+    </div>
+  </footer>
+</section>
+
+<script>
+(function () {
+  var canvas = document.getElementById('stars');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var stars = [];
+  function isDark() {
+    var t = document.documentElement.getAttribute('data-theme');
+    if (t === 'dark') return true;
+    if (t === 'light') return false;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  }
+  function resize() {
+    var r = canvas.getBoundingClientRect();
+    canvas.width = r.width * devicePixelRatio;
+    canvas.height = r.height * devicePixelRatio;
+    stars = [];
+    var n = Math.floor(r.width / 9);
+    for (var i = 0; i < n; i++) {
+      stars.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: (Math.random() * 1.1 + 0.3) * devicePixelRatio,
+        p: Math.random() * Math.PI * 2,
+        s: 0.3 + Math.random() * 0.9
+      });
+    }
+    draw(0);
+  }
+  function draw(t) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    var dark = isDark();
+    for (var i = 0; i < stars.length; i++) {
+      var st = stars[i];
+      var tw = reduced ? 0.75 : 0.55 + 0.45 * Math.sin(t / 1400 * st.s + st.p);
+      ctx.globalAlpha = tw * (dark ? 0.9 : 0.5);
+      ctx.fillStyle = dark ? '#E9E4D6' : '#232A38';
+      ctx.beginPath();
+      ctx.arc(st.x, st.y, st.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+  function loop(t) { draw(t); requestAnimationFrame(loop); }
+  window.addEventListener('resize', resize);
+  resize();
+  if (!reduced) requestAnimationFrame(loop);
+})();
+</script>
