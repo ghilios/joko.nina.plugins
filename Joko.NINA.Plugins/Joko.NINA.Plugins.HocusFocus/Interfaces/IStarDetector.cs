@@ -494,6 +494,32 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
         // EarlyCacheKeyProperties.
         public int DetectionBinning { get; set; } = 1;
 
+        // Candidate-collection mode (DEFAULT ON since StarDetectorVersion 3). When ON, candidates are TRUE
+        // 8-connected components of the binarized structure map (run-based CCL): no bounding-box shadowing
+        // (a star overlapping an earlier candidate's bbox survives as its own candidate), whole components
+        // are collected (connected donut arcs arrive unified), and there is no same-row gap-jump merging.
+        // Landed a higher optimizer J on every bank run tested (labeled Panos: 0.856 → 0.920 — the legacy
+        // walker was erasing real stars via bbox shadowing; see docs/gpu-star-detection-optimization-results.md
+        // §6). OFF = the legacy sequential walker, bit-identical to v2 collection (TestApp
+        // `--legacy-collector` keeps it reachable for A/B). EARLY param (changes candidate formation), so it
+        // is in EarlyCacheKeyProperties. Not persisted and not exposed in the options UI.
+        public bool UseConnectedComponentCollection { get; set; } = true;
+
+        // OPTIMIZATION-ONLY GPU gate: when true (set solely by the star-detection optimization wizard and
+        // the TestApp harness after the GpuAccelerationPolicy heuristic approves), the EARLY pipeline span
+        // runs on the CUDA device via GpuAccelerationHost, falling back to the CPU span on any failure.
+        // Autofocus, sensor modeling, and single-frame detection never set this, so those paths are
+        // byte-for-byte unaffected. EARLY cache-key param: GPU results differ from CPU by float-contraction
+        // noise (~1e-7; zero binarization flips measured), so contexts/results never silently cross backends.
+        public bool AllowGpuAcceleration { get; set; } = false;
+
+        // OPTIMIZATION-ONLY prepared-source cache (see StarDetection.PreparedSourceCache): set by the
+        // wizard/harness so repeated early-context rebuilds stop re-doing the params-identical CFA
+        // hotpixel + debayer + float conversion. Candidates inherit the reference via Clone(). Excluded
+        // from the cache keys (CacheKeyExcludedProperties): exact reuse of identical pixels is provably
+        // output-neutral. Never set on autofocus / sensor-model / single-frame paths.
+        public StarDetection.PreparedSourceCache SourceCache { get; set; } = null;
+
         // How per-star HFR is aggregated (and whether an extra HFR-outlier rejection pass runs). Carried on the params
         // bundle — rather than read from the live options at the detect site — so a replay that supplies a capture-time
         // options override reproduces the original run's aggregation/outlier behavior. Affects detection output, so it
@@ -547,7 +573,12 @@ namespace NINA.Joko.Plugins.HocusFocus.Interfaces {
 
             // Save-path/side-effect only: if non-empty, intermediate images/text are written to this directory.
             // The detected-star results do not depend on it.
-            nameof(SaveIntermediateFilesPath)
+            nameof(SaveIntermediateFilesPath),
+
+            // Perf only: a cache of prepared source Mats keyed on the hotpixel axes; a hit returns a CLONE of
+            // pixels computed by the exact same code path, so detection output is provably identical with or
+            // without it. (Reflection over an object reference would also make the key nondeterministic.)
+            nameof(SourceCache)
         };
 
         /// <summary>

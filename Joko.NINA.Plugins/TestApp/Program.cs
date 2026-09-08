@@ -252,6 +252,14 @@ namespace TestApp {
                 return;
             }
 
+            // GPU feasibility-spike benchmarks: `TestApp bench-gpu --sanity` (Step 1 stack sanity on
+            // Blackwell: verified saxpy + math primitives, bandwidths, launch latency). Needs no profile
+            // and no images. See plans/gpu-early-pipeline-spike-plan.md.
+            if (args.Length > 0 && args[0].Equals("bench-gpu", StringComparison.OrdinalIgnoreCase)) {
+                await Gpu.BenchGpuRunner.Run(args);
+                return;
+            }
+
             // Headless synthetic-camera render benchmark: `TestApp bench-simrender [--field dense,sparse] ...`.
             // Reports the render's per-phase cost and PSF kernel-cache cardinality on a real ASTAP star field.
             // `--kernel-ladder` times kernel generation alone and needs no catalog; `--census` counts stars and

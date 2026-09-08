@@ -91,6 +91,13 @@ namespace TestApp {
                 Console.Error.WriteLine(ex.ToString());
                 Logger.Error(ex, "Optimization diagnostic run failed");
                 Environment.ExitCode = 1;
+            } finally {
+                // GPU health line (a nonzero fallback count means CPU quietly absorbed failed GPU builds).
+                var gpuPipeline = NINA.Joko.Plugins.HocusFocus.Gpu.GpuAccelerationHost.PeekPipeline();
+                if (gpuPipeline != null && (gpuPipeline.Runs > 0 || gpuPipeline.Fallbacks > 0 || gpuPipeline.Declines > 0)) {
+                    Console.WriteLine($"GPU early-span builds={gpuPipeline.Runs}, CPU fallbacks={gpuPipeline.Fallbacks}, unsupported-input declines={gpuPipeline.Declines}" +
+                                      (gpuPipeline.LatchedOff ? " (GPU LATCHED OFF after repeated failures)" : ""));
+                }
             }
         }
 
@@ -376,6 +383,44 @@ namespace TestApp {
                 baseline.DefocusAwareDonutDetection = true;
                 Console.WriteLine("--donut: DefocusAwareDonutDetection forced ON (optimizer will explore the donut/spike axes)");
             }
+            // Connected-component candidate collection is the DEFAULT (StarDetectorVersion 3);
+            // --legacy-collector forces the pre-v3 sequential walker on BOTH seed and baseline for A/B
+            // comparisons. Not a searched axis; EARLY cache-key param, so contexts never cross modes.
+            if (DiagnosticUtil.HasFlag(args, "--legacy-collector")) {
+                seed.UseConnectedComponentCollection = false;
+                baseline.UseConnectedComponentCollection = false;
+                Console.WriteLine("--legacy-collector: candidate collection = pre-v3 sequential walker");
+            }
+
+            // GPU acceleration (optimization-only): the default follows the LIVE NINA PROFILE's machine-local
+            // GpuAccelerationEnabled toggle (the wizard start-page checkbox), read straight from the profile
+            // store — deliberately NOT from the pinned harness settings file: the toggle must always apply to
+            // the next analysis, and a settings file is a portable saved artifact that may carry a stale copy
+            // of this per-computer key. (This is the one settings read that intentionally bypasses the pin;
+            // for cross-arm comparability pin --gpu or --no-gpu explicitly — GPU results differ from CPU at
+            // float-contraction level.) --gpu forces ON, --no-gpu forces OFF. Per-build failures fall back to
+            // CPU (counted, reported at exit).
+            {
+                bool forceGpu = DiagnosticUtil.HasFlag(args, "--gpu");
+                bool forceNoGpu = DiagnosticUtil.HasFlag(args, "--no-gpu");
+                var liveToggle = NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization.GpuAccelerationOption.Get(profileService);
+                var gpuOptionEnabled = forceGpu || (!forceNoGpu && liveToggle);
+                var useGpu = NINA.Joko.Plugins.HocusFocus.Gpu.GpuAccelerationPolicy.ShouldUseForOptimization(gpuOptionEnabled, out var gpuReason);
+                seed.AllowGpuAcceleration = useGpu;
+                baseline.AllowGpuAcceleration = useGpu;
+                Console.WriteLine($"GPU acceleration: {(useGpu ? "ON" : "OFF")} ({gpuReason})" +
+                                  (forceGpu ? " [forced by --gpu]" : forceNoGpu ? " [forced off by --no-gpu]" : " [from the NINA profile's live toggle]"));
+                if (forceGpu && !useGpu) {
+                    Console.Error.WriteLine("WARNING: --gpu requested but no usable CUDA device; running on CPU.");
+                }
+            }
+
+            // Prepared-source cache (optimization-only; see PreparedSourceCache): one for the whole batch —
+            // entries key on the frame image object, and the per-run loop clears it between runs so a long
+            // --per-run bank pass does not accumulate every run's prepared Mats.
+            using var harnessSourceCache = new NINA.Joko.Plugins.HocusFocus.StarDetection.PreparedSourceCache();
+            seed.SourceCache = harnessSourceCache;
+            baseline.SourceCache = harnessSourceCache;
             if (startFromCurrent) {
                 Console.WriteLine("--start-from-current: optimizer seed = current settings (never regresses below current)");
             }
@@ -719,6 +764,9 @@ namespace TestApp {
                     });
                 } finally {
                     DisposeRuns(loadedRuns);
+                    // Between per-run iterations the prepared-source cache would otherwise accumulate every
+                    // run's Mats (entries key on the just-disposed frame images, so none are reusable anyway).
+                    ctx.Seed?.SourceCache?.Clear();
                 }
             }
 

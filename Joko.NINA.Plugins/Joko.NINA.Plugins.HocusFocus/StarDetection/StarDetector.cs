@@ -42,9 +42,19 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         // _star_detection_result.json that was produced by a different detector version (or different params).
         // v2: the structure-removal wavelet swapped from dense zero-padded Cv2.SepFilter2D kernels to
         // AtrousWaveletFast (sparse 5-tap) — equivalent to float rounding (≤3e-8) but not bit-identical.
-        public const int StarDetectorVersion = 2;
+        // v3: candidate collection defaults to 8-connected components (UseConnectedComponentCollection=true):
+        // stars overlapping an earlier candidate's bounding box survive, connected donut rings arrive unified,
+        // no same-row gap-jump merging — measurably better J on every bank run tested (see
+        // docs/gpu-star-detection-optimization-results.md §6). The legacy walker remains reachable
+        // (UseConnectedComponentCollection=false) and bit-identical to v2 collection.
+        public const int StarDetectorVersion = 3;
 
         private readonly IAlglibAPI alglibAPI;
+
+        // Test seam: substitutes a fake EARLY-span accelerator for the process-global CUDA host (which is
+        // device-dependent and latches state process-wide). Null in production; consulted only when the params
+        // bundle carries AllowGpuAcceleration, which autofocus/sensor-modeling/single-frame paths never set.
+        internal static IEarlyPipelineAccelerator EarlyAcceleratorOverride;
 
         public StarDetector(IAlglibAPI alglibAPI) {
             this.alglibAPI = alglibAPI;
@@ -171,6 +181,12 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             // Software binning resamples the frame before ANY of the above run, so it changes candidate formation
             // outright — a context built at one factor can never be reused at another.
             nameof(StarDetectorParams.DetectionBinning),
+            // Candidate-collection mode (legacy walker vs 8-connected components) changes the candidate set
+            // itself, the most EARLY thing there is.
+            nameof(StarDetectorParams.UseConnectedComponentCollection),
+            // GPU-vs-CPU early span differs by float-contraction noise (~1e-7), so a context built on one
+            // backend is never silently reused as the other's.
+            nameof(StarDetectorParams.AllowGpuAcceleration),
             nameof(StarDetectorParams.Region)
         };
 
@@ -306,9 +322,30 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         /// </summary>
         private static Mat PrepareSrcImageFromRenderedImage(IRenderedImage image, StarDetectorParams p, out bool hotpixelFilteringApplied, out long? numHotpixels) {
             var debayeredImage = image as IDebayeredImage;
-            hotpixelFilteringApplied = false;
+            var cfaPath = debayeredImage != null && p.HotpixelFiltering && p.HotpixelThresholdingEnabled;
+            hotpixelFilteringApplied = cfaPath;
             numHotpixels = null;
-            if (debayeredImage != null && p.HotpixelFiltering && p.HotpixelThresholdingEnabled) {
+
+            // OPTIMIZATION-ONLY prepared-source cache (PreparedSourceCache): this conversion is a pure
+            // function of (image, cfa branch, quantized hotpixel threshold), so an optimization run reuses
+            // the identical prepared pixels instead of re-doing CFA filter + debayer (+ float conversion)
+            // on every early-context rebuild. The key carries the SEARCHED hotpixel axes (quantized exactly
+            // as the filter quantizes them), so a candidate that moves them recomputes — this is the
+            // sanctioned per-(frame, hot-pixel params) cache, NOT the rejected load-time filtering.
+            string cacheKey = null;
+            if (p.SourceCache != null) {
+                cacheKey = cfaPath
+                    ? $"cfa:{(ushort)(p.HotpixelThreshold * (1 << debayeredImage.RawImageData.Properties.BitDepth))}"
+                    : "raw";
+                var cached = p.SourceCache.TryGet(image, cacheKey, out var cachedHotpixels);
+                if (cached != null) {
+                    numHotpixels = cachedHotpixels;
+                    return cached;
+                }
+            }
+
+            Mat prepared;
+            if (cfaPath) {
                 var rawImageDataCopy = new ushort[debayeredImage.RawImageData.Data.FlatArray.Length];
                 Buffer.BlockCopy(debayeredImage.RawImageData.Data.FlatArray, 0, rawImageDataCopy, 0, debayeredImage.RawImageData.Data.FlatArray.Length * sizeof(ushort));
 
@@ -319,12 +356,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 numHotpixels = HotpixelFiltering.CFAHotpixelFilter(rawImageData, debayeredImage.BayerPattern, threshold);
                 var bitmapSource = ImageUtility.CreateSourceFromArray(new ImageArray(rawImageDataCopy), props, PixelFormats.Gray16);
                 var debayeredImageData = ImageUtility.Debayer(bitmapSource, pf: System.Drawing.Imaging.PixelFormat.Format16bppGrayScale, saveColorChannels: false, saveLumChannel: true, bayerPattern: debayeredImage.BayerPattern);
-                hotpixelFilteringApplied = true;
 
-                return CvImageUtility.ToOpenCVMat(debayeredImageData.Data.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
+                prepared = CvImageUtility.ToOpenCVMat(debayeredImageData.Data.Lum, bpp: props.BitDepth, width: props.Width, height: props.Height);
             } else {
-                return CvImageUtility.ToOpenCVMat(image);
+                prepared = CvImageUtility.ToOpenCVMat(image);
             }
+            if (cacheKey != null) {
+                p.SourceCache.Store(image, cacheKey, prepared, numHotpixels);
+            }
+            return prepared;
         }
 
         /// <summary>
@@ -446,16 +486,36 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             var ownsLocalTracker = resourceTracker == null;
             var scratch = resourceTracker ?? new ResourcesTracker();
 
-            // The Mat destined for the context: it is owned here until the context is successfully constructed, after
-            // which the context owns it. If the early pipeline throws (cancellation, OOM, CollectStarCandidates, …)
-            // before the context exists, this would otherwise be orphaned — it is registered with NEITHER tracker on
-            // the split path, and the ROI-replacement clone is untracked on BOTH paths. So we hold it in a local and
-            // dispose it in the finally when no context was produced.
-            //   - Split path (ownsLocalTracker): we own the incoming srcImage from entry.
-            //   - Monolithic path: the caller owns the incoming srcImage (and tracks it), so we must NOT dispose it
-            //     here — start null and only adopt the ROI-replacement clone we make below.
+            // The Mat destined for the context on the SPLIT path: owned here until the context is successfully
+            // constructed, after which the context owns it (RunEvaluationData disposes contexts). If the early
+            // pipeline throws (cancellation, OOM, CollectStarCandidates, …) before the context exists, this would
+            // otherwise be orphaned — it is registered with neither tracker on that path. So we hold it in a local
+            // and dispose it in the finally when no context was produced. On the MONOLITHIC path this stays null:
+            // the caller owns (and, on the IRenderedImage path, tracks) the incoming srcImage, and every
+            // replacement adopted below is registered with the caller's tracker (see AdoptPreparedImage), so
+            // failure cleanup there is entirely the tracker's job.
             Mat liveOwnedImage = ownsLocalTracker ? srcImage : null;
             var contextProduced = false;
+
+            // Replaces srcImage with a freshly-allocated prepared Mat (the ROI crop, the binned resample, or the
+            // GPU span's measurement image), disposing the one it replaces. Ownership of the replacement:
+            //   - Split path: this method owns it until the context adopts it — held in liveOwnedImage so an
+            //     early-stage throw disposes it in the finally. It must NOT go into scratch: that local tracker is
+            //     disposed before returning, which would free the context's image out from under the caller.
+            //   - Monolithic path: DetectImpl never disposes the returned context, so the replacement must be
+            //     registered with the caller's tracker or the full-frame CV_32F Mat is orphaned. A LATER swap's
+            //     manual Dispose of a tracked Mat is safe: Mat.Dispose is idempotent, so the tracker's own Dispose
+            //     of the already-disposed entry is a no-op — the same contract the tracked entry srcImage
+            //     (disposed by the ROI swap) has always relied on.
+            void AdoptPreparedImage(Mat replacement) {
+                srcImage.Dispose();
+                srcImage = replacement;
+                if (ownsLocalTracker) {
+                    liveOwnedImage = replacement;
+                } else {
+                    scratch.T(replacement);
+                }
+            }
             try {
                 MaybeSaveIntermediateText(p.ToString(), p, "00-params.txt");
                 var metrics = new StarDetectorMetrics();
@@ -471,13 +531,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             (int)(srcImage.Rows * p.Region.OuterBoundary.Height));
                         debugData.DetectionROI = roiRect.Value.ToDrawingRectangle();
 
-                        var roiImage = srcImage.SubMat(roiRect.Value).Clone();
-                        srcImage.Dispose();
-                        srcImage = roiImage;
-                        // From here srcImage is a clone this method owns (the original was disposed just above). Adopt
-                        // it as the live owned Mat on BOTH paths so a later early-stage throw disposes the ROI clone
-                        // rather than orphaning it — on the monolithic path the caller's original is already gone.
-                        liveOwnedImage = roiImage;
+                        AdoptPreparedImage(srcImage.SubMat(roiRect.Value).Clone());
                     } else {
                         debugData.DetectionROI = new System.Drawing.Rectangle(0, 0, srcImage.Width, srcImage.Height);
                     }
@@ -498,12 +552,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                             hotpixelFilterAlreadyApplied = true;
                         }
 
-                        var binnedImage = CvImageUtility.BinMean(srcImage, binning);
-                        srcImage.Dispose();
-                        srcImage = binnedImage;
-                        // Same ownership handoff as the ROI clone above: this Mat is ours on BOTH paths (the
-                        // incoming one was just disposed), so adopt it as the live owned Mat.
-                        liveOwnedImage = binnedImage;
+                        AdoptPreparedImage(CvImageUtility.BinMean(srcImage, binning));
                     }
 
                     MaybeSaveIntermediateImage(srcImage, p, "01-source.tif");
@@ -519,25 +568,63 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                     // Step 1: Perform initial noise reduction and hotpixel filtering
                     progress?.Report(new ApplicationStatus() { Status = "Noise Reduction" });
-                    var hotpixelFilteringApplied = hotpixelFilterAlreadyApplied;
 
-                    // Also apply hotpixel filtering if noise reduction will be done to the source image
-                    if (p.HotpixelFiltering || (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled)) {
-                        // Apply a median box filter in place to the starting image
-                        if (!hotpixelFilterAlreadyApplied) {
-                            metrics.HotpixelCount = ApplyHotpixelFilter(srcImage, p);
+                    // Outputs of the EARLY span (steps 1-5b), produced either by the accelerator hook (the
+                    // GPU spike path) or by the unchanged CPU span below. effectiveStructureLayers is pure
+                    // in p, hoisted so both paths share it.
+                    var effectiveStructureLayers = EffectiveStructureLayers(p);
+                    Mat structureMap;
+                    double structureMapMedian;
+                    CvImageUtility.KappaSigmaNoiseEstimateResult noiseReducedImageNoise;
+                    CvImageUtility.KappaSigmaNoiseEstimateResult measurementImageNoise;
+                    CvImageUtility.LocalBackgroundGrid binarizeSigmaGrid;
+                    CvImageUtility.LocalBackgroundGrid adaptiveMedianGrid;
+                    CvImageStatistics structureMapStats = null;
+
+                    // GPU acceleration is OPTIMIZATION-ONLY: p.AllowGpuAcceleration is set solely by the
+                    // optimization wizard/harness (after GpuAccelerationPolicy approves) — autofocus, sensor
+                    // modeling, and single-frame detection never set it, so those paths never reach the host.
+                    EarlySpanOutput acceleratedSpan = null;
+                    var earlyAccelerator = p.AllowGpuAcceleration && string.IsNullOrEmpty(p.SaveIntermediateFilesPath)
+                        ? EarlyAcceleratorOverride ?? Gpu.GpuAccelerationHost.TryGetForBuild()
+                        : null;
+                    if (earlyAccelerator != null) {
+                        earlyAccelerator.TryRunEarlySpan(srcImage, p, effectiveStructureLayers, hotpixelFilterAlreadyApplied, token, out acceleratedSpan);
+                    }
+                    if (acceleratedSpan != null) {
+                        if (acceleratedSpan.MeasurementImage != null) {
+                            // Same ownership handoff as the ROI/binning replacements above: the accelerator
+                            // produced a new prepared measurement Mat that replaces the incoming one.
+                            AdoptPreparedImage(acceleratedSpan.MeasurementImage);
                         }
-                        hotpixelFilteringApplied = true;
-                    }
+                        structureMap = scratch.T(acceleratedSpan.StructureMap);
+                        metrics.HotpixelCount = acceleratedSpan.HotpixelCount;
+                        noiseReducedImageNoise = acceleratedSpan.StructureNoise;
+                        measurementImageNoise = acceleratedSpan.MeasurementNoise;
+                        binarizeSigmaGrid = acceleratedSpan.SigmaGrid;
+                        adaptiveMedianGrid = acceleratedSpan.AdaptiveMedianGrid;
+                        structureMapMedian = acceleratedSpan.StructureMapMedian;
+                        stopWatch.RecordEntry("GpuEarlySpan");
+                    } else {
+                        var hotpixelFilteringApplied = hotpixelFilterAlreadyApplied;
 
-                    var noiseReductionApplied = false;
-                    if (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled) {
-                        CvImageUtility.ConvolveGaussian(srcImage, srcImage, p.NoiseReductionRadius * 2 + 1);
-                        noiseReductionApplied = true;
-                    }
+                        // Also apply hotpixel filtering if noise reduction will be done to the source image
+                        if (p.HotpixelFiltering || (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled)) {
+                            // Apply a median box filter in place to the starting image
+                            if (!hotpixelFilterAlreadyApplied) {
+                                metrics.HotpixelCount = ApplyHotpixelFilter(srcImage, p);
+                            }
+                            hotpixelFilteringApplied = true;
+                        }
 
-                    MaybeSaveIntermediateImage(srcImage, p, "02-src-image-preparation.tif");
-                    stopWatch.RecordEntry("SrcImagePreparation");
+                        var noiseReductionApplied = false;
+                        if (p.NoiseReductionRadius > 0 && p.StarMeasurementNoiseReductionEnabled) {
+                            CvImageUtility.ConvolveGaussian(srcImage, srcImage, p.NoiseReductionRadius * 2 + 1);
+                            noiseReductionApplied = true;
+                        }
+
+                        MaybeSaveIntermediateImage(srcImage, p, "02-src-image-preparation.tif");
+                        stopWatch.RecordEntry("SrcImagePreparation");
 
                     // Step 2: Prepare for structure detection by performing optional noise reduction
                     progress?.Report(new ApplicationStatus() { Status = "Preparing for Structure Detection" });
@@ -556,7 +643,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         CvImageUtility.ConvolveGaussian(noiseReducedImage, noiseReducedImage, p.NoiseReductionRadius * 2 + 1);
                     }
 
-                    Mat structureMap = scratch.NewMat();
+                    structureMap = scratch.NewMat();
                     noiseReducedImage.CopyTo(structureMap);
                     var noiseReducedNoiseEstimateTask = Task.Run(() => {
                         var result = CvImageUtility.KappaSigmaNoiseEstimate(noiseReducedImage, clippingMultipler: p.NoiseClippingMultiplier);
@@ -608,7 +695,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // donut master is on we apply a default structure boost EVEN IF the explicit DefocusAwareStructure
                     // axis is off (the optimizer can raise it further via that axis). Gated by the master ⇒
                     // bit-identical when off.
-                    var effectiveStructureLayers = EffectiveStructureLayers(p);
+                    // (effectiveStructureLayers hoisted above the accelerator branch.)
                     // Deliberately NOT passing the cancellation token to the wavelet: the two noise-estimate
                     // tasks started above are still running and read srcImage/noiseReducedImage, and a cancellation
                     // unwind from inside the wavelet would dispose those Mats under the tasks (native
@@ -635,25 +722,29 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
 
                     // Log histograms produce more accurate results due to clustering in very low ADUs, but are substantially more computationally expensive
                     // The difference doesn't seem worth it based on tests done so far
-                    var structureMapStats = CalculateStatistics_Histogram(structureMap, useLogHistogram: false, flags: CvImageStatisticsFlags.Median);
+                    structureMapStats = CalculateStatistics_Histogram(structureMap, useLogHistogram: false, flags: CvImageStatisticsFlags.Median);
                     // Spatially-adaptive binarization (opt-in): sample the per-block local background (median) on the
                     // SAME structure map the global median above is taken from, and BEFORE the dilation below — so it
                     // mirrors the scalar path's pre-dilation median. Null on the legacy path ⇒ bit-identical.
-                    CvImageUtility.LocalBackgroundGrid adaptiveMedianGrid = null;
+                    adaptiveMedianGrid = null;
                     if (p.LocallyAdaptiveBinarization) {
                         adaptiveMedianGrid = CvImageUtility.ComputeLocalBackgroundGrid(structureMap, Math.Max(1, p.AdaptiveNoiseBlockSize), AdaptiveBinarizationSigmaFloor);
                     }
                     stopWatch.RecordEntry("BinarizationStatistics");
 
                     var structureNoiseEstimate = await noiseReducedNoiseEstimateTask;
-                    var noiseReducedImageNoise = structureNoiseEstimate.Noise;
-                    var measurementImageNoise = measurementNoiseEstimateTask != null
+                    noiseReducedImageNoise = structureNoiseEstimate.Noise;
+                    measurementImageNoise = measurementNoiseEstimateTask != null
                         ? await measurementNoiseEstimateTask
                         : noiseReducedImageNoise;
-                    double binarizeThreshold = structureMapStats.Median + p.NoiseClippingMultiplier * noiseReducedImageNoise.Sigma;
-                    var binarizeTrace = $"Structure Map Binarization - Median: {structureMapStats.Median}, Threshold: {binarizeThreshold}, Clipping Multiplier: {p.NoiseClippingMultiplier}, Noise Sigma: {noiseReducedImageNoise.Sigma}";
+                    binarizeSigmaGrid = structureNoiseEstimate.SigmaGrid;
+                    structureMapMedian = structureMapStats.Median;
+                    } // end of the unchanged CPU EARLY span (the accelerator branch above is its equivalent)
+
+                    double binarizeThreshold = structureMapMedian + p.NoiseClippingMultiplier * noiseReducedImageNoise.Sigma;
+                    var binarizeTrace = $"Structure Map Binarization - Median: {structureMapMedian}, Threshold: {binarizeThreshold}, Clipping Multiplier: {p.NoiseClippingMultiplier}, Noise Sigma: {noiseReducedImageNoise.Sigma}";
                     Logger.Trace(binarizeTrace);
-                    MaybeSaveIntermediateText(structureMapStats.ToString() + Environment.NewLine + binarizeTrace, p, "05-structure-map-statistics.txt");
+                    MaybeSaveIntermediateText((structureMapStats?.ToString() ?? string.Empty) + Environment.NewLine + binarizeTrace, p, "05-structure-map-statistics.txt");
 
                     if (p.StoreStructureMap) {
                         UpdateStructureMapDebugData(structureMap, debugData.StructureMap, binarizeThreshold, 1);
@@ -678,8 +769,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     // global scalar threshold. Spatially-adaptive (opt-in): a per-pixel threshold surface
                     // (local-median + NC·local-σ) upsampled from the coarse grids. The flag-off path is byte-for-byte
                     // the legacy scalar Binarize.
-                    if (p.LocallyAdaptiveBinarization && adaptiveMedianGrid != null && structureNoiseEstimate.SigmaGrid != null) {
-                        ApplyAdaptiveBinarization(structureMap, adaptiveMedianGrid, structureNoiseEstimate.SigmaGrid, p.NoiseClippingMultiplier);
+                    if (p.LocallyAdaptiveBinarization && adaptiveMedianGrid != null && binarizeSigmaGrid != null) {
+                        ApplyAdaptiveBinarization(structureMap, adaptiveMedianGrid, binarizeSigmaGrid, p.NoiseClippingMultiplier);
                     } else {
                         CvImageUtility.Binarize(structureMap, structureMap, binarizeThreshold);
                     }
@@ -718,10 +809,11 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                     var candidates = CollectStarCandidates(srcImage, structureMap, p, metrics, token);
                     stopWatch.RecordEntry("CollectStarCandidates");
 
-                    // srcImage (the prepared measurement image) is never registered with the tracker — it is the
-                    // method parameter, replaced by a fresh Clone()'d ROI submat when an ROI is in play (the old one
-                    // disposed there). So disposing the local tracker in the finally frees only the scratch Mats
-                    // (structureMap; noiseReducedImage is disposed inside its task) and the context's image survives.
+                    // Split path: srcImage is never registered with the local tracker (see AdoptPreparedImage), so
+                    // disposing that tracker in the finally frees only the scratch Mats (structureMap;
+                    // noiseReducedImage is disposed inside its task) and the context's image survives on the
+                    // returned context. Monolithic path: any adopted replacement is owned by the caller's tracker,
+                    // which outlives GateAndMeasure — the context is never disposed there.
                     var context = new DetectionContext {
                         MeasurementImage = srcImage,
                         FullImageSize = fullImageSize,
@@ -735,7 +827,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                         StructureCandidates = metrics.StructureCandidates,
                         SaturatedPixelCount = metrics.SaturatedPixelCount
                     };
-                    // The context now owns srcImage; clear the failure-cleanup flag so the finally does NOT dispose it.
+                    // The context now owns srcImage (split path; tracker-owned on the monolithic path); clear the
+                    // failure-cleanup flag so the finally does NOT dispose it.
                     contextProduced = true;
                     return context;
                 }
@@ -747,9 +840,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 }
                 if (!contextProduced) {
                     // The early pipeline threw before the context was constructed: dispose the in-flight source/ROI
-                    // Mat we own so the ~244 MB allocation is not orphaned. On the monolithic no-ROI path
-                    // liveOwnedImage is null (the caller still owns + disposes its input), so this is a no-op there —
-                    // preserving the established contract that the no-ROI Detect path never disposes the caller's Mat.
+                    // Mat we own so the ~244 MB allocation is not orphaned. On the monolithic path liveOwnedImage is
+                    // always null (adopted replacements are tracker-owned; the caller still owns + disposes its own
+                    // input), so this is a no-op there — preserving the established contract that the no-ROI Detect
+                    // path never disposes the caller's Mat.
                     liveOwnedImage?.Dispose();
                 }
             }
@@ -1235,18 +1329,32 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
         }
 
         private void EvaluateGlobalMetrics(Mat srcImage, StarDetectorParams p, StarDetectorMetrics metrics) {
+            metrics.SaturatedPixelCount += CountSaturatedPixels(srcImage, p.SaturationThreshold);
+        }
+
+        // A pure count is order-independent, so the parallel row partition is bit-identical to the old
+        // single-threaded raster scan — this was ~a full-frame pass of the former CollectStarCandidates cost.
+        internal static long CountSaturatedPixels(Mat srcImage, double saturationThreshold) {
             int width = srcImage.Width;
             int height = srcImage.Height;
-            long numPixels = (long)width * height;
+            long total = 0;
             unsafe {
-                var srcImagePixel = (float*)srcImage.DataPointer;
-                while (numPixels-- > 0) {
-                    if (*srcImagePixel >= p.SaturationThreshold) {
-                        ++metrics.SaturatedPixelCount;
+                var basePtr = (byte*)srcImage.DataPointer;
+                long step = srcImage.Step();
+                var threshold = saturationThreshold;
+                Parallel.ForEach(Partitioner.Create(0, height), () => 0L, (range, _, local) => {
+                    for (int y = range.Item1; y < range.Item2; ++y) {
+                        var row = (float*)(basePtr + y * step);
+                        for (int x = 0; x < width; ++x) {
+                            if (row[x] >= threshold) {
+                                ++local;
+                            }
+                        }
                     }
-                    srcImagePixel++;
-                }
+                    return local;
+                }, local => Interlocked.Add(ref total, local));
             }
+            return total;
         }
 
         // A candidate star collected by the sequential flood-fill (Stage A) and evaluated in parallel (Stage B).
@@ -1338,13 +1446,210 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return stars;
         }
 
+        private const float CandidateZeroThreshold = 0.001f;
+
         private List<StarCandidateRegion> CollectStarCandidates(Mat srcImage, Mat structureMap, StarDetectorParams p, StarDetectorMetrics metrics, CancellationToken ct) {
-            const float ZERO_THRESHOLD = 0.001f;
+            EvaluateGlobalMetrics(srcImage, p, metrics);
+
+            // One parallel pass run-length-indexes the (sparse) lit pixels; from here neither collector
+            // raster-scans or mutates the 61 MP map again. The walker is bit-identical to the legacy
+            // zero-the-bbox scan (CollectStarCandidatesLegacy, retained as the test oracle); the
+            // connected-component collector is the opt-in behavior change (see UseConnectedComponentCollection).
+            var runIndex = StructureRunIndex.Build(structureMap, CandidateZeroThreshold);
+            return p.UseConnectedComponentCollection
+                ? CollectStarCandidatesConnected(runIndex, metrics, ct)
+                : CollectStarCandidatesWalker(runIndex, metrics, ct);
+        }
+
+        /// <summary>
+        /// The index-driven candidate walker — a literal translation of <see cref="CollectStarCandidatesLegacy"/>
+        /// with pixel reads answered by the run index and the bbox zeroing replaced by
+        /// <see cref="StructureRunIndex.ConsumeRect"/>. Same seeds, same growth, same point ORDER (probe, then
+        /// left-descending, then right-ascending — eccentricity sums are order-sensitive), same bounds:
+        /// bit-identical output, proven by CandidateCollectionTests against the legacy oracle.
+        /// </summary>
+        internal static List<StarCandidateRegion> CollectStarCandidatesWalker(StructureRunIndex runs, StarDetectorMetrics metrics, CancellationToken ct) {
+            var candidates = new List<StarCandidateRegion>();
+            int width = runs.Width;
+            int height = runs.Height;
+            int xRight = width - 1;
+            int yBottom = height - 1;
+
+            for (int yTop = 0; yTop < yBottom; ++yTop) {
+                ct.ThrowIfCancellationRequested();
+
+                int xLeft = runs.NextLitInRow(yTop, 0);
+                while (xLeft >= 0 && xLeft < xRight) {
+                    var starPoints = new List<Point>(256);
+                    var starBounds = new Rect(xLeft, yTop, 1, 1);
+
+                    for (int y = yTop, x = xLeft; ;) {
+                        int rowPointsAdded = 0;
+                        if (runs.IsLit(y, x)) {
+                            starPoints.Add(new Point(x, y));
+                            ++rowPointsAdded;
+                        }
+
+                        int rowStartX = x, rowEndX;
+                        if (rowPointsAdded > 0) {
+                            for (rowStartX = x; rowStartX > 0;) {
+                                if (!runs.IsLit(y, rowStartX - 1)) {
+                                    break;
+                                }
+                                starPoints.Add(new Point(--rowStartX, y));
+                                ++rowPointsAdded;
+                            }
+                        }
+
+                        for (rowEndX = x; rowEndX < xRight;) {
+                            if (!runs.IsLit(y, rowEndX + 1)) {
+                                if (rowPointsAdded > 0 || rowEndX >= starBounds.Right) {
+                                    break;
+                                }
+                                ++rowEndX;
+                            } else {
+                                starPoints.Add(new Point(++rowEndX, y));
+                                ++rowPointsAdded;
+                            }
+                        }
+
+                        if (rowStartX < starBounds.Left) {
+                            starBounds.Width += (starBounds.Left - rowStartX);
+                            starBounds.X = rowStartX;
+                        }
+                        if (rowEndX > (starBounds.Right - 1)) {
+                            starBounds.Width += (rowEndX - starBounds.Right + 1);
+                        }
+
+                        if (rowPointsAdded == 0) {
+                            starBounds.Height = y - yTop;
+                            break;
+                        }
+                        if (y == yBottom) {
+                            starBounds.Height = y - yTop + 1;
+                            break;
+                        }
+                        ++y;
+                    }
+
+                    ++metrics.StructureCandidates;
+                    candidates.Add(new StarCandidateRegion(starBounds, starPoints));
+                    runs.ConsumeRect(starBounds);
+                    xLeft = runs.NextLitInRow(yTop, xLeft + 1);
+                }
+            }
+            return candidates;
+        }
+
+        /// <summary>
+        /// Opt-in candidate collector (<see cref="StarDetectorParams.UseConnectedComponentCollection"/>): TRUE
+        /// 8-connected components of the binarized structure map via run-based union-find. Deliberately NOT
+        /// bit-identical to the walker: no bbox shadowing (a neighbor overlapping an earlier candidate's
+        /// bounding box survives as its own candidate), whole components are collected (donut rings arrive
+        /// unified when their arcs connect), and there is no same-row gap-jump merging. Deterministic:
+        /// candidates ordered by their component's first run in raster order; points in raster order.
+        /// </summary>
+        internal static List<StarCandidateRegion> CollectStarCandidatesConnected(StructureRunIndex runs, StarDetectorMetrics metrics, CancellationToken ct) {
+            int height = runs.Height;
+
+            // Union-find over run ids, assigned in raster order.
+            var parent = new List<int>();
+            int Find(int i) {
+                while (parent[i] != i) {
+                    parent[i] = parent[parent[i]];
+                    i = parent[i];
+                }
+                return i;
+            }
+            void Union(int a, int b) {
+                int ra = Find(a), rb = Find(b);
+                if (ra != rb) {
+                    // Keep the smaller root so a component's id is its raster-first run.
+                    if (ra < rb) {
+                        parent[rb] = ra;
+                    } else {
+                        parent[ra] = rb;
+                    }
+                }
+            }
+
+            var runIds = new List<(int Y, StructureRunIndex.Run Run)>();
+            var prevRowFirst = -1;
+            var prevRowCount = 0;
+            for (int y = 0; y < height; ++y) {
+                ct.ThrowIfCancellationRequested();
+                var rowRuns = runs.RowRuns(y);
+                int thisRowFirst = runIds.Count;
+                int jStart = 0;
+                for (int i = 0; i < rowRuns.Count; ++i) {
+                    var run = rowRuns[i];
+                    int id = runIds.Count;
+                    runIds.Add((y, run));
+                    parent.Add(id);
+                    // 8-connectivity: a previous-row run [ps, pe) touches this run [s, e) iff ps <= e and pe >= s
+                    // (half-open ends, diagonal contact included). Both lists are x-sorted, so prevs that end
+                    // before this run starts can be skipped permanently (later runs start even further right).
+                    while (jStart < prevRowCount && runIds[prevRowFirst + jStart].Run.End < run.Start) {
+                        ++jStart;
+                    }
+                    for (int j = jStart; j < prevRowCount; ++j) {
+                        var prev = runIds[prevRowFirst + j].Run;
+                        if (prev.Start > run.End) {
+                            break;
+                        }
+                        Union(prevRowFirst + j, id);
+                    }
+                }
+                prevRowFirst = thisRowFirst;
+                prevRowCount = rowRuns.Count;
+            }
+
+            // Group runs by root in raster-first order.
+            var componentIndex = new Dictionary<int, int>();
+            var componentRuns = new List<List<int>>();
+            for (int id = 0; id < runIds.Count; ++id) {
+                int root = Find(id);
+                if (!componentIndex.TryGetValue(root, out var ci)) {
+                    ci = componentRuns.Count;
+                    componentIndex.Add(root, ci);
+                    componentRuns.Add(new List<int>());
+                }
+                componentRuns[ci].Add(id);
+            }
+
+            var candidates = new List<StarCandidateRegion>(componentRuns.Count);
+            foreach (var component in componentRuns) {
+                int minX = int.MaxValue, maxX = int.MinValue, minY = int.MaxValue, maxY = int.MinValue;
+                int pixelCount = 0;
+                foreach (var id in component) {
+                    var (y, run) = runIds[id];
+                    if (run.Start < minX) minX = run.Start;
+                    if (run.End - 1 > maxX) maxX = run.End - 1;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                    pixelCount += run.End - run.Start;
+                }
+                var points = new List<Point>(pixelCount);
+                foreach (var id in component) {
+                    var (y, run) = runIds[id];
+                    for (int x = run.Start; x < run.End; ++x) {
+                        points.Add(new Point(x, y));
+                    }
+                }
+                ++metrics.StructureCandidates;
+                candidates.Add(new StarCandidateRegion(new Rect(minX, minY, maxX - minX + 1, maxY - minY + 1), points));
+            }
+            return candidates;
+        }
+
+        // Retained ONLY as the equivalence oracle for CandidateCollectionTests: the original sequential
+        // zero-the-bbox scan the walker above must reproduce bit-identically. Mutates structureMap.
+        internal List<StarCandidateRegion> CollectStarCandidatesLegacy(Mat structureMap, StarDetectorMetrics metrics, CancellationToken ct) {
+            const float ZERO_THRESHOLD = CandidateZeroThreshold;
 
             var candidates = new List<StarCandidateRegion>();
             int width = structureMap.Width;
             int height = structureMap.Height;
-            EvaluateGlobalMetrics(srcImage, p, metrics);
 
             unsafe {
                 var structureData = (float*)structureMap.DataPointer;

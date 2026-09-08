@@ -76,6 +76,7 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
             return new PluginOptionsAccessor(profileService, guid.Value);
         }
 
+
         // Machine-local persisted keys stay global in per-filter mode — they keep writing through even while
         // buffered edits suppress the legacy profile keys. (SaveIntermediateImages is never persisted.)
         internal static readonly ISet<string> MachineLocalKeys = new HashSet<string> {
@@ -1426,6 +1427,10 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection {
                 // imaging machine keeps its own parallelism / diagnostics settings.
                 DebugMode = source.DebugMode;
                 PSFParallelPartitionSize = source.PSFParallelPartitionSize;
+                // GpuAccelerationEnabled is deliberately NEVER applied from a snapshot — not even here: the
+                // wizard start-page toggle must always govern the next analysis, and every GPU decision reads
+                // the profile store directly (ReadGpuAccelerationEnabledFromProfile), so a captured copy of the
+                // key in any saved artifact is inert by design.
             }
             PSFFitType = source.PSFFitType;
             PSFResolution = source.PSFResolution;

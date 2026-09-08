@@ -1069,10 +1069,15 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
             return double.IsFinite(stdev) ? Math.Max(0.0, stdev) : 0.0;
         }
 
+        /// <summary>Optional prepared-source cache (see <see cref="PreparedSourceCache"/>) whose lifetime is
+        /// tied to this run's frames; disposed with the run. Set by the loaders that stamp the cache onto the
+        /// seed/baseline params; null when the optimization does not use one.</summary>
+        public PreparedSourceCache OwnedSourceCache { get; set; }
+
         /// <summary>
-        /// Releases every cached early-detection context (frees the pinned source Mats) held for this instance's
-        /// lifetime. Idempotent. Only the split path holds contexts; the monolithic path keeps none, so Dispose is a
-        /// no-op there.
+        /// Releases every cached early-detection context (frees the pinned source Mats) and the owned
+        /// prepared-source cache held for this instance's lifetime. Idempotent. Only the split path holds
+        /// contexts; the monolithic path keeps none.
         /// </summary>
         public void Dispose() {
             lock (cacheLock) {
@@ -1086,6 +1091,8 @@ namespace NINA.Joko.Plugins.HocusFocus.StarDetection.Optimization {
                         contextCache[i] = null;
                     }
                 }
+                OwnedSourceCache?.Dispose();
+                OwnedSourceCache = null;
             }
         }
     }
