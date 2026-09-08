@@ -1004,14 +1004,34 @@ public class SimulatedTiltAdapterVMTests {
     [Test]
     public void Diagram_OffsetRig_DrawsStoredResponseAngleAtItsPhysicalPosition() {
         // Stored screw 1 = 0° (response) is physically at 180° on an m = +1 rig → must draw at the
-        // BOTTOM (cy = 100 − 75·cos180 = 175 → Y = 163), not the top.
+        // BOTTOM (cy = 130 − 75·cos180 = 205 → Y = 193), not the top.
         var options = Configured(screwCount: 3, curvatureSign: 1);
         var vm = new SimulatedTiltAdapterVM(options, realAdapterOptions: null);
 
         var screw1 = vm.ScrewDiagramItems.Single(i => i.Number == 1);
         Assert.Multiple(() => {
             Assert.That(screw1.AngleDegrees, Is.EqualTo(180.0).Within(1e-9), "physical angle");
-            Assert.That(screw1.Y, Is.EqualTo(163.0).Within(0.5), "canvas-bottom");
+            Assert.That(screw1.Y, Is.EqualTo(193.0).Within(0.5), "canvas-bottom");
+        });
+    }
+
+    [Test]
+    public void Diagram_PlotsAroundTheSharedTemplateCentreAndCarriesScrewNames() {
+        // This panel plots into the wizard's HF_TiltScrewDiagram template, whose canvas is 260×260 with the
+        // crosshair/rectangle centred at (130,130) — TiltScrewDiagramGeometry is the contract. Plotting around
+        // any other centre shifts every screw off the crosshair (the bug this test pins: the panel kept the
+        // template's pre-label 200×200 centre after the canvas grew, displacing all screws 30px up-left).
+        var options = Configured(screwCount: 3, curvatureSign: -1); // m = −1 → stored == physical
+        var vm = new SimulatedTiltAdapterVM(options, realAdapterOptions: null);
+
+        var top = vm.ScrewDiagramItems.Single(i => i.Number == 1);      // physical 0° → canvas top
+        var lower = vm.ScrewDiagramItems.Single(i => i.Number == 2);    // physical 120° → lower right
+        Assert.Multiple(() => {
+            Assert.That(top.X, Is.EqualTo(118.0).Within(0.5), "centred on the vertical axis: 130 − circle radius");
+            Assert.That(top.Y, Is.EqualTo(43.0).Within(0.5), "130 − 75 − circle radius");
+            Assert.That(top.Label, Is.EqualTo("Screw 1"), "no real adapter → the generic naming, same as the rows");
+            Assert.That(top.LabelY, Is.LessThan(top.Y), "top-half name sits above its circle");
+            Assert.That(lower.LabelY, Is.GreaterThan(lower.Y + 24.0), "bottom-half name sits below its circle");
         });
     }
 
@@ -1020,13 +1040,13 @@ public class SimulatedTiltAdapterVMTests {
         // Built on m = −1 (σ = −1): stored 0/120/240 == physical; screw 1 at the top.
         var options = Configured(screwCount: 3, curvatureSign: -1);
         var vm = new SimulatedTiltAdapterVM(options, realAdapterOptions: null);
-        Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(13.0).Within(0.5));
+        Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(43.0).Within(0.5));
         Assert.That(vm.Screw2AngleDisplay, Is.EqualTo("120.0°"));
 
         options.SimScrewInwardCurvatureSign = 1; // reinterpret 180° away
 
         Assert.Multiple(() => {
-            Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(163.0).Within(0.5), "screw 1 flips to the bottom");
+            Assert.That(vm.ScrewDiagramItems.Single(i => i.Number == 1).Y, Is.EqualTo(193.0).Within(0.5), "screw 1 flips to the bottom");
             Assert.That(vm.Screw2AngleDisplay, Is.EqualTo("300.0°"), "readouts flip too");
         });
     }

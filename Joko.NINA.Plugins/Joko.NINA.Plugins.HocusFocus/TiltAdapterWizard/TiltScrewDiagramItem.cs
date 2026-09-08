@@ -12,6 +12,23 @@
 
 namespace NINA.Joko.Plugins.HocusFocus.TiltAdapterWizard {
 
+    /// <summary>
+    /// Geometry of the shared HF_TiltScrewDiagram canvas (TiltAdapterWizard/DataTemplates.xaml). The canvas is
+    /// 2 × <see cref="Center"/> on a side and every fixed coordinate in it — crosshair, sensor rectangle, 0°
+    /// chevron — is expressed relative to that same centre, so every VM that plots
+    /// <see cref="TiltScrewDiagramItem"/>s into it must use THESE constants. Both the wizard and the camera
+    /// simulator's adapter panel render this template; a consumer with its own copy silently drifts off the
+    /// crosshair when the canvas is resized, which is exactly how the simulator's diagram broke when the canvas
+    /// grew for screw names. Changing these means changing the template to match.
+    /// </summary>
+    public static class TiltScrewDiagramGeometry {
+        public const double Center = 130.0;
+        public const double ScrewRadius = 75.0;
+        public const double ScrewCircleRadius = 12.0;
+        public const double LabelWidth = 64.0;
+        public const double LabelHeight = 14.0;
+    }
+
     public class TiltScrewDiagramItem {
         public double X { get; set; }           // Canvas.Left
         public double Y { get; set; }           // Canvas.Top
