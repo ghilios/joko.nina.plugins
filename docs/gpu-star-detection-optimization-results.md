@@ -328,3 +328,64 @@ no cache, no GPU); "after" = the new zero-flag default (CCL + prepared-source ca
 The prepared-source cache alone is worth 1.31–1.36× on bayered runs (timmer GPU arm 373 → 286 s, CPU arm
 554 → 408 s; identical builds/reuses/J — exact reuse, zero behavior change). Every "after" arm: zero GPU
 fallbacks; J equal-or-better on all four runs.
+
+## 8. Full-coverage GPU-vs-CPU performance sweep (28 datasets: bank + simulated configurations)
+
+Protocol: every usable provided bank dataset (15 mono + 4 bayered) plus 9 simulated rig configurations
+from `D:\SyntheticAutofocusBank` (spanning oversampled ultrawide → obstructed SCT/CDK donut rigs →
+narrowband → 12.9″/px undersampled → AF-bin2), each optimized twice at the branch defaults (CCL,
+fast walker, prepared-source cache) with `--no-gpu` vs `--gpu`; pinned settings + profile, sequential,
+250 evals. "Fast steps" = the optimizer's cache-hit (LATE) evaluations; "slow steps" = early-rebuild
+evaluations, from the optimizer's own progress accounting.
+
+| Dataset | class | CPU s | GPU s | E2E | slow-step× |
+|---|---|---|---|---|---|
+| muggsie | provided | 28.0 | 27.4 | 1.02 | 2.2 |
+| standard_example1 | provided | 624.9 | 231.1 | 2.70 | 3.0 |
+| FlyData | provided | 48.8 | 27.1 | 1.80 | 2.5 |
+| caboose | provided | 213.0 | 77.5 | 2.75 | 3.1 |
+| uneven | provided | 62.0 | 49.1 | 1.26 | 2.8 |
+| fmeschia_Focus | provided | 99.4 | 37.1 | 2.68 | 3.3 |
+| lumos (hard-floor FAIL both arms) | provided | 429.6 | 162.2 | 2.65 | 2.7 |
+| vsn07 | provided | 227.1 | 83.0 | 2.74 | 2.9 |
+| Panos (labeled) | provided | 147.7 | 99.6 | 1.48 | 2.8 |
+| LinwoodFocus | provided | 219.4 | 81.1 | 2.71 | 2.8 |
+| mufti | provided | 106.5 | 51.3 | 2.08 | 3.0 |
+| toml999 | provided | 136.4 | 90.0 | 1.52 | 3.0 |
+| mccomiskey | provided | 664.0 | 418.1 | 1.59 | 2.9 |
+| cwhite_2026 (61 MP) | provided | 230.5 | 101.4 | 2.27 | 2.9 |
+| CWhiteFocus (61 MP) | provided | 576.5 | 276.9 | 2.08 | 2.9 |
+| SorenVance | bayered | 184.1 | 151.5 | 1.22 | 1.2 |
+| timmer | bayered | 439.8 | 313.6 | 1.40 | 2.0 |
+| bobp | bayered | 168.4 | 134.6 | 1.25 | 1.2 |
+| bobp_m101 | bayered | 214.2 | 157.0 | 1.36 | 1.4 |
+| D01_ultrawide_40mm | simulated | 233.0 | 232.0 | 1.00 | — (seed-only builds) |
+| D05_tec140_1000mm | simulated | 281.2 | 75.7 | 3.71\* | — (\*diverged path) |
+| D06_sparse_1000mm | simulated | 61.2 | 27.6 | 2.22 | 2.6 |
+| D07_rc10_2000mm | simulated | 66.2 | 33.1 | 2.00 | 2.8 |
+| D09_c14_3800mm (IMX294 small) | simulated | 58.2 | 41.6 | 1.40 | 1.5 |
+| D11_rc10_585_afbin2 (~2.1 MP) | simulated | 16.4 | 11.6 | 1.41 | 2.0 |
+| D14_cdk14_2563mm_e47 (donut-dense) | simulated | 203.4 | 145.3 | 1.40 | 1.4 |
+| D16_esprit550_ha3 (Hα) | simulated | 88.0 | 37.3 | 2.36 | 2.7 |
+| D21_widefield_60mm | simulated | 151.8 | 112.5 | 1.35 | 2.9 |
+
+**Aggregates:** whole sweep 5980 s CPU → 3286 s GPU = **1.82×**. Provided mono (n=15): **2.10×**
+aggregate, median 2.08×, range 1.02–2.75. Simulated (n=9): 1.62× aggregate, median 1.41×, range
+1.00–3.71. Bayered (n=4): 1.33× aggregate (CPU CFA/debayer bounds it, as designed).
+
+**Fast vs slow steps:** fast (cache-hit) steps are identical between arms on every dataset — the GPU never
+touches the LATE stage. The slow-step (rebuild) speedup is tightly clustered: **median 2.80×, range
+1.25–3.33 across 26 same-trajectory pairs**, degrading exactly where the theory says: small sensors
+(D09 1.5×, D11 2.0× — transfer/launch overhead), donut-dense structure maps (D14 1.4× — the CPU
+candidate-collection tail of each rebuild inflates), and bayered rigs (1.2–2.0× — CPU CFA/debayer inside
+the rebuild). End-to-end gain is then just the rebuild share of the search: runs whose searches converge
+without early probing (muggsie, D01) sit at 1.0× with zero GPU overhead; rebuild-hungry searches reach
+2.7×+. The two biggest residual CPU costs the sweep exposes for any future phase: expensive FAST steps on
+star-dense/labeled runs (mccomiskey 1.3 s, timmer 0.9 s, Panos 0.3 s per cache-hit eval — LATE stage),
+and the bayered debayer share.
+
+**Correctness across the sweep:** ~5,900 GPU early-span builds, **zero fallbacks, zero declines, zero
+crashes**. 25/28 datasets landed bit-identical bestJ with identical trajectories; the three exceptions are
+benign path divergence (D05 landed equal-J via a rebuild-free route; muggsie Δ5e-5; SorenVance Δ1.6e-3
+with the GPU arm slightly HIGHER). lumos fails the hard-floor gate identically on both arms (dataset
+property). The GPU arm was never slower than CPU on any dataset.
