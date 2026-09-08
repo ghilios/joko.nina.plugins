@@ -48,6 +48,7 @@ jobs:
           Get-ChildItem "bin/Release/ScottPlot*.dll" | Copy-Item -Destination "packages/${{ env.PLUGIN_NAME }}/" -Force
           Get-ChildItem "bin/Release/KdTree*.dll" | Copy-Item -Destination "packages/${{ env.PLUGIN_NAME }}/" -Force
           Get-ChildItem "bin/Release/MathNet.*.dll" | Copy-Item -Destination "packages/${{ env.PLUGIN_NAME }}/" -Force
+          Get-ChildItem "bin/Release/ILGPU*.dll" | Copy-Item -Destination "packages/${{ env.PLUGIN_NAME }}/" -Force
           Get-ChildItem "bin/Release/Microsoft.CodeAnalysis*.dll" | Copy-Item -Destination "packages/${{ env.PLUGIN_NAME }}/" -Force
 
       - name: Create Plugin archives and manifests
